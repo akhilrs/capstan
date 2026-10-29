@@ -108,4 +108,35 @@ final class WorkspacesTests: XCTestCase {
         XCTAssertEqual(PauseControl(capabilities: caps, busy: [key], key: key, paused: false).pause, .disabled("Sending"))
         XCTAssertEqual(PauseControl(capabilities: caps, busy: [], key: key, paused: false).pause, .enabled)
     }
+
+    func testAgentFilterCounts() throws {
+        let rows = [
+            AgentRow(agent: try agent(id: "a"), health: .working),
+            AgentRow(agent: try agent(id: "b"), health: .stalled),
+            AgentRow(agent: try agent(id: "c"), health: .needsYou),
+            AgentRow(agent: try agent(id: "d", paused: true), health: .working),
+        ]
+        XCTAssertEqual(AgentFilter.all.count(rows), 4)
+        XCTAssertEqual(AgentFilter.needAttention.count(rows), 2)
+        XCTAssertEqual(AgentFilter.paused.count(rows), 1)
+    }
+
+    private func plan(state: String, _ total: Int64 = 3, _ integrated: Int64 = 0) -> PlanRow {
+        var stored = plan(total, integrated, integrated, integrated)
+        stored.state = state
+        return PlanRow(stored)
+    }
+
+    func testPlanFilterShowsOnlyApprovedPlansAsActiveAndDraftsApart() {
+        let rows = [
+            plan(state: "approved"), plan(state: "draft"), plan(state: "in_review"), plan(state: "signed_off"),
+            plan(state: "approved", 3, 3), plan(state: "draft", 0, 0),
+        ]
+        XCTAssertEqual(PlanFilter.counts(rows).active, 1)
+        XCTAssertEqual(PlanFilter.counts(rows).drafts, 3)
+        XCTAssertEqual(PlanFilter.counts(rows).done, 2)
+        XCTAssertTrue(PlanFilter.drafts.matches(rows[1]))
+        XCTAssertTrue(PlanFilter.drafts.matches(rows[2]))
+        XCTAssertFalse(PlanFilter.active.matches(rows[1]))
+    }
 }

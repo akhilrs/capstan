@@ -96,6 +96,9 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
     /// Standard output kept for `stdoutAll`; a stream read through `lines` is long and not kept past this.
     private static let keepCap = 1_048_576
     private static let stderrCap = 4096
+    /// How long after the exit the reader of standard error may take to reach its end before the exit is published
+    /// anyway: only a helper the child left behind, holding the pipe open, makes it run out.
+    private static let stderrGrace = 2.0
 
     let lines: AsyncThrowingStream<Data, Error>
 
@@ -152,9 +155,10 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         }
         guard first else { return }
         publishExitIfReady()
-        // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open. The wait
-        // is a timer, not a blocked thread.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.25) { [self] in
+        // The exit is published when standard error reaches its end, so `stderrTail` is whole by then. A helper the
+        // child left behind may hold the pipe open, so a timer publishes it anyway, long after the exit. The wait is a
+        // timer, not a blocked thread.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + LiveProcess.stderrGrace) { [self] in
             publishExit()
         }
     }

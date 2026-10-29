@@ -25,7 +25,7 @@ struct Banner: View {
         HStack(alignment: .top, spacing: Tokens.space[1]) {
             Image(systemName: symbol).foregroundStyle(tone.color)
             VStack(alignment: .leading, spacing: Tokens.space[0]) {
-                Text(verbatim: text).font(.system(size: 13, weight: .medium))
+                Text(verbatim: text).font(.system(size: 13, weight: .semibold))
                 if let detail {
                     if detail.verified {
                         Text(verbatim: TextBudget.displayPrefix(detail.displayPlain, maxBytes: ProtocolLimits.reasonCap).text)
@@ -41,21 +41,20 @@ struct Banner: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let actionTitle, let action {
-                Button(action: action) { Text(verbatim: actionTitle) }
+                Button(action: action) { Text(verbatim: actionTitle) }.buttonStyle(.capstanQuiet)
             }
         }
         .padding(Tokens.space[2])
         .background(tone.color.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.radius.row))
-        .overlay(RoundedRectangle(cornerRadius: Tokens.radius.row).strokeBorder(tone.color.opacity(0.4), lineWidth: 1))
     }
 
     private var symbol: String {
         switch tone {
-        case .red: return "xmark.octagon.fill"
-        case .yellow: return "exclamationmark.triangle.fill"
-        case .green: return "checkmark.circle.fill"
-        case .blue: return "info.circle.fill"
-        case .neutral, .grey: return "circle.fill"
+        case .red: return "exclamationmark.circle"
+        case .yellow: return "wifi"
+        case .green: return "checkmark.circle"
+        case .blue: return "arrow.clockwise"
+        case .neutral, .grey: return "info.circle"
         }
     }
 }

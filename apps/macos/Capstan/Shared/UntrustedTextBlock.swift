@@ -10,14 +10,15 @@ struct UntrustedTextBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.space[1]) {
             HStack(spacing: Tokens.space[0]) {
-                Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
+                Image(systemName: "exclamationmark.triangle").imageScale(.small)
                 Text(verbatim: label).font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(Tokens.color(.label2))
+            Divider()
             if !text.verified {
                 Text("The host could not vouch for this text, so it is not shown.")
                     .font(.system(size: 12))
-                    .foregroundStyle(Tokens.color(.red))
+                    .foregroundStyle(Tokens.color(.label2))
             } else {
                 let shown = TextBudget.displayPrefix(text.displayPlain, maxBytes: ProtocolLimits.textCap)
                 Text(verbatim: shown.text)
@@ -28,7 +29,7 @@ struct UntrustedTextBlock: View {
                 if text.truncated || shown.cut {
                     Text("The text was cut to its cap.")
                         .font(.system(size: 12))
-                        .foregroundStyle(Tokens.color(.yellow))
+                        .foregroundStyle(Tokens.color(.label2))
                 }
             }
         }

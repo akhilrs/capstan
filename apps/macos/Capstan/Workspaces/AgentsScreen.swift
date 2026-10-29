@@ -2,23 +2,17 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// The agents of a project with their health, and Pause and Resume for each agent and for the project.
+/// The agents of a project as a table (agent, state, branch and task, health), with a bar for the whole project that
+/// pauses and resumes it. Pausing one agent is in the inspector.
 struct AgentsScreen: View {
     let model: AppModel
     let hostId: UUID
     let projectId: String
 
-    @State private var outcomes: [String: DecideOutcome] = [:]
+    @State private var outcome: DecideOutcome?
     @State private var askingProjectPause = false
-    @State private var reasonFor: ReasonRequest?
 
     private static let runKey = "run"
-
-    struct ReasonRequest: Identifiable {
-        let agentId: String
-        let resume: Bool
-        var id: String { agentId + (resume ? "-resume" : "-pause") }
-    }
 
     private var project: ProjectModel? { model.project(hostId, projectId) }
     private var decide: HostCapabilities? { model.capabilities[hostId] }
@@ -28,18 +22,18 @@ struct AgentsScreen: View {
 
     var body: some View {
         if let project {
+            let all = AgentRow.rows(project)
+            let rows = all.filter(model.agentFilter.matches)
             ScrollView {
                 VStack(alignment: .leading, spacing: Tokens.space[2]) {
-                    projectBar(project)
-                    let rows = AgentRow.rows(project)
+                    projectBar(project, all)
                     if rows.isEmpty {
                         Text("No agents yet").foregroundStyle(Tokens.color(.label2))
-                    }
-                    ForEach(rows, id: \.source.agentId) { row in
-                        agentRow(row, stored: row.source)
+                    } else {
+                        table(rows)
                     }
                 }
-                .padding(Tokens.space[4])
+                .padding(Tokens.space[3])
             }
             .sheet(isPresented: $askingProjectPause) {
                 ConfirmSheet(
@@ -49,11 +43,6 @@ struct AgentsScreen: View {
                     sendRun(.runPause(reason: reason))
                 }
             }
-            .sheet(item: $reasonFor) { request in
-                ReasonSheet(resume: request.resume) { reason in
-                    sendAgent(request.agentId, request.resume ? .agentResume(reason: reason) : .agentPause(reason: reason))
-                }
-            }
         } else {
             Text("This project is not available").foregroundStyle(Tokens.color(.label2)).padding()
         }
@@ -61,111 +50,110 @@ struct AgentsScreen: View {
 
     // MARK: Project
 
-    private func projectBar(_ project: ProjectModel) -> some View {
+    private func projectBar(_ project: ProjectModel, _ rows: [AgentRow]) -> some View {
         let runPaused = project.run?.paused ?? false
         let key = BusyKey(hostId: hostId, projectId: projectId, requestId: project.run?.requestId ?? Self.runKey)
         let control = ProjectPauseControl(
             capabilities: decide, busy: model.busy.keys, key: key, runPaused: runPaused)
-        return HStack(spacing: Tokens.space[1]) {
-            if let status = control.status {
-                StatePill(word: status, symbol: AgentHealth.paused.symbolName, tone: .yellow)
+        let paused = rows.filter { $0.paused }.count
+        return HStack(spacing: Tokens.space[2]) {
+            Image(systemName: runPaused ? "pause" : "play").foregroundStyle(Tokens.color(.label2))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: HostLabel.projectName(project) + (runPaused ? " is paused" : " is running"))
+                    .font(.system(size: 13, weight: .semibold))
+                Text(verbatim: "\(rows.count) agents" + (paused > 0 ? " · \(paused) paused" : ""))
+                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
             }
             Spacer()
-            outcomePill(for: Self.runKey, busy: model.busy.keys.contains(key))
-            if project.run != nil {
+            if let outcome {
+                let shown = Presentation.present(outcome, hostName: hostName)
+                StatePill(word: shown.title, symbol: "info.circle", tone: shown.tone)
+            }
+            if project.run != nil, decide?.decide == true {
                 switch control.action {
                 case .pause:
-                    Button("Pause project") { askingProjectPause = true }
+                    Button { askingProjectPause = true } label: { Text("Pause project…") }
+                        .buttonStyle(.capstanQuiet)
                         .disabled(!control.state.isEnabled)
                 case .resume:
-                    Button("Resume project") { sendRun(.runResume(reason: nil)) }
+                    Button { sendRun(.runResume(reason: nil)) } label: { Text("Resume project") }
+                        .buttonStyle(.capstanQuiet)
                         .disabled(!control.state.isEnabled)
                 }
             }
         }
+        .padding(Tokens.space[2])
+        .background(Tokens.color(.fill2), in: RoundedRectangle(cornerRadius: Tokens.radius.row))
         .help(disabledReason(control.state)) // static-text
     }
 
-    // MARK: Agents
+    // MARK: Table
 
-    private func agentRow(_ row: AgentRow, stored: StoredAgent) -> some View {
-        let key = BusyKey(hostId: hostId, projectId: projectId, requestId: stored.requestId)
-        let control = PauseControl(capabilities: decide, busy: model.busy.keys, key: key, paused: stored.paused)
-        let busy = model.busy.keys.contains(key)
-        return VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            HStack(spacing: Tokens.space[1]) {
-                Text(verbatim: row.role).font(.system(size: 13, weight: .semibold))
-                Text(verbatim: row.state).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
-                Spacer()
-                outcomePill(for: stored.agentId, busy: busy)
-                StatePill(word: row.healthWord, symbol: row.healthSymbol, tone: tone(row.health))
+    private func table(_ rows: [AgentRow]) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: Tokens.space[2]) {
+                head("Agent", width: 120)
+                head("State", width: 70)
+                head("Branch and task", width: nil)
+                head("Health", width: 110)
             }
-            if let task = row.task {
-                Text(verbatim: task).font(.system(size: 12)).lineLimit(1).truncationMode(.tail)
-            } else if row.taskUnverified {
-                Text("The host could not vouch for the task, so it is not shown.")
-                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.red))
+            .padding(.horizontal, Tokens.space[2])
+            .padding(.vertical, Tokens.space[0] + 2)
+            ForEach(rows, id: \.source.agentId) { row in
+                Divider()
+                agentRow(row)
             }
-            HStack(spacing: Tokens.space[1]) {
-                Button("Pause") { reasonFor = ReasonRequest(agentId: stored.agentId, resume: false) }
-                    .disabled(!control.pause.isEnabled)
-                    .help(disabledReason(control.pause)) // static-text
-                Button("Resume") { reasonFor = ReasonRequest(agentId: stored.agentId, resume: true) }
-                    .disabled(!control.resume.isEnabled)
-                    .help(disabledReason(control.resume)) // static-text
-            }
-            .controlSize(.small)
         }
-        .padding(Tokens.space[2])
-        .background(Tokens.color(.fill), in: RoundedRectangle(cornerRadius: Tokens.radius.row))
+        .background(Tokens.color(.fill), in: RoundedRectangle(cornerRadius: Tokens.radius.block))
     }
 
-    // MARK: Sending
+    private func head(_ title: String, width: CGFloat?) -> some View {
+        Text(verbatim: title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Tokens.color(.label2))
+            .frame(width: width, alignment: .leading)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+    }
 
-    private func sendAgent(_ agentId: String, _ verb: DecideVerb) {
-        outcomes[agentId] = nil
-        Task {
-            let outcome = await model.decideAgent(verb, hostId: hostId, projectId: projectId, agentId: agentId)
-            // The health changes only from the stream update; this is the answer to the request.
-            outcomes[agentId] = outcome
+    private func agentRow(_ row: AgentRow) -> some View {
+        let selected = model.selectedAgent == row.source.agentId
+        return Button {
+            model.selectedAgent = row.source.agentId
+        } label: {
+            HStack(spacing: Tokens.space[2]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(verbatim: row.agentId).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    Text(verbatim: row.role).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
+                }
+                .frame(width: 120, alignment: .leading)
+                Text(verbatim: row.state).font(.system(size: 13)).frame(width: 70, alignment: .leading)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(verbatim: row.branch ?? "–").font(.system(size: 12, design: .monospaced)).lineLimit(1)
+                    if let task = row.task {
+                        Text(verbatim: task).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
+                    } else if row.taskUnverified {
+                        Text("The host could not vouch for the task, so it is not shown.")
+                            .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
+                    } else {
+                        Text("No task").font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                StatePill(word: row.healthWord, symbol: row.healthSymbol, tone: AgentTone.tone(row.health))
+                    .frame(width: 110, alignment: .leading)
+            }
+            .padding(.horizontal, Tokens.space[2])
+            .padding(.vertical, Tokens.space[0] + 2)
+            .background(selected ? Tokens.color(.accent).opacity(0.16) : Color.clear)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     private func sendRun(_ verb: DecideVerb) {
-        outcomes[Self.runKey] = nil
+        outcome = nil
         Task {
-            outcomes[Self.runKey] = await model.decideRun(verb, hostId: hostId, projectId: projectId)
-        }
-    }
-
-    @ViewBuilder
-    private func outcomePill(for id: String, busy: Bool) -> some View {
-        if busy {
-            let sending = Presentation.present(nil, hostName: hostName)
-            StatePill(word: sending.title, symbol: "paperplane.fill", tone: sending.tone)
-        } else if let outcome = outcomes[id] {
-            let shown = Presentation.present(outcome, hostName: hostName)
-            StatePill(word: shown.title, symbol: symbol(shown.tone), tone: shown.tone)
-        }
-    }
-
-    private func symbol(_ tone: Tone) -> String {
-        switch tone {
-        case .green: return "checkmark.circle.fill"
-        case .red: return "xmark.octagon.fill"
-        case .yellow: return "exclamationmark.triangle.fill"
-        case .blue: return "arrow.right.circle.fill"
-        case .neutral, .grey: return "info.circle.fill"
-        }
-    }
-
-    private func tone(_ health: AgentHealth) -> Tone {
-        switch health {
-        case .working: return .green
-        case .needsYou: return .blue
-        case .stalled, .paused: return .yellow
-        case .lost, .blocked: return .red
-        case .idle: return .grey
+            outcome = await model.decideRun(verb, hostId: hostId, projectId: projectId)
         }
     }
 
@@ -175,44 +163,133 @@ struct AgentsScreen: View {
     }
 }
 
-/// An optional reason for pausing or resuming one agent, counted in UTF-8 bytes.
-private struct ReasonSheet: View {
-    let resume: Bool
-    let onSend: (String?) -> Void
+enum AgentTone {
+    static func tone(_ health: AgentHealth) -> Tone {
+        switch health {
+        case .working: return .green
+        case .needsYou: return .yellow
+        case .stalled, .paused: return .yellow
+        case .lost, .blocked: return .red
+        case .idle: return .grey
+        }
+    }
+}
 
-    @Environment(\.dismiss) private var dismiss
+/// The agent the Agents table selected: what it is and Pause and Resume with an optional reason.
+struct AgentInspector: View {
+    let model: AppModel
+    let hostId: UUID
+    let projectId: String
+
     @State private var reason = ""
+    @State private var outcome: DecideOutcome?
+    @State private var sending = false
 
     private var budget: TextBudget { TextBudget(limit: ProtocolLimits.reasonCap) }
-    private var overLimit: Bool { !budget.allows(reason) }
-
-    private func submit() {
-        onSend(NoteText.normalized(reason))
-        dismiss()
-    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.space[3]) {
-            Text(verbatim: resume ? "Resume this agent?" : "Pause this agent?")
-                .font(.system(size: 15, weight: .semibold))
-            TextField("Reason (optional)", text: $reason, axis: .vertical)
-                .lineLimit(2...5)
-                .textFieldStyle(.roundedBorder)
-            Text(verbatim: String(budget.used(reason)) + " of " + String(budget.limit) + " bytes")
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundStyle(overLimit ? Tokens.color(.red) : Tokens.color(.label2))
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                if resume {
-                    Button("Resume", action: submit).keyboardShortcut(.defaultAction).disabled(overLimit)
-                } else {
-                    Button("Pause", action: submit).keyboardShortcut(.defaultAction).disabled(overLimit)
+        if let project = model.project(hostId, projectId), let id = model.selectedAgent,
+            let stored = project.agents[id] ?? project.agents.values.first(where: { $0.agentId == id })
+        {
+            content(AgentRow(agent: stored, in: project), stored, project)
+                .onChange(of: id) { _, _ in
+                    reason = ""
+                    outcome = nil
+                }
+        } else {
+            Text("Select an agent to see what it is doing")
+                .font(.system(size: 13)).foregroundStyle(Tokens.color(.label2))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func content(_ row: AgentRow, _ stored: StoredAgent, _ project: ProjectModel) -> some View {
+        let key = BusyKey(hostId: hostId, projectId: projectId, requestId: stored.requestId)
+        let control = PauseControl(
+            capabilities: model.capabilities[hostId], busy: model.busy.keys, key: key, paused: stored.paused)
+        let overLimit = !budget.allows(reason)
+        return VStack(alignment: .leading, spacing: Tokens.space[2]) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Tokens.space[2]) {
+                    HStack(spacing: Tokens.space[1]) {
+                        StatePill(word: row.healthWord, symbol: row.healthSymbol, tone: AgentTone.tone(row.health))
+                        Text(verbatim: HostLabel.projectName(project)).font(.system(size: 12))
+                            .foregroundStyle(Tokens.color(.label2))
+                    }
+                    Text(verbatim: row.agentId + " is " + row.healthWord.lowercased())
+                        .font(.system(size: 20, weight: .semibold))
+                    MetaList(rows: [
+                        MetaRow(label: "Role", value: plain(row.role + " · generation " + String(stored.generation))),
+                        MetaRow(label: "Branch", value: plain(row.branch ?? "–")),
+                        MetaRow(label: "State", value: plain(row.state + (stored.paused ? ", paused" : ", not paused"))),
+                        MetaRow(label: "Request", value: plain(stored.requestId)),
+                    ])
+                    Text(verbatim: Self.explanation(row.health)).font(.system(size: 13))
+                    if let task = row.task {
+                        UntrustedTextBlock(text: plain(task), label: "Task · untrusted text")
+                    }
+                    if let outcome {
+                        let shown = Presentation.present(outcome, hostName: hostName)
+                        StatePill(word: shown.title, symbol: "info.circle", tone: shown.tone)
+                    }
                 }
             }
+            if model.capabilities[hostId]?.decide == true {
+            VStack(alignment: .leading, spacing: Tokens.space[0]) {
+                Text("Reason for the pause").font(.system(size: 12, weight: .semibold))
+                TextField("Optional", text: $reason)
+                    .textFieldStyle(.roundedBorder)
+                Text(verbatim: "Shown to the PM. Default: remote client " + model.settings.clientLabel + ".")
+                    .font(.system(size: 12))
+                    .foregroundStyle(overLimit ? Tokens.color(.red) : Tokens.color(.label2))
+                HStack {
+                    Spacer()
+                    Button { send(.agentResume(reason: NoteText.normalized(reason)), stored) } label: { Text("Resume") }
+                        .buttonStyle(.capstanQuiet)
+                        .disabled(sending || overLimit || !control.resume.isEnabled)
+                    Button { send(.agentPause(reason: NoteText.normalized(reason)), stored) } label: {
+                        Text(verbatim: "Pause " + row.agentId)
+                    }
+                    .buttonStyle(.capstanPrimary)
+                    .disabled(sending || overLimit || !control.pause.isEnabled)
+                }
+            }
+            } else {
+                Text("This host's Capstan has no remote decisions. Pause and resume from the terminal.")
+                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+            }
         }
-        .padding(Tokens.space[4])
-        .frame(width: 420)
+        .padding(Tokens.space[3])
+    }
+
+    private var hostName: String {
+        model.hosts.first { $0.id == hostId }.map(HostLabel.hostName) ?? "the host"
+    }
+
+    private func plain(_ s: String) -> UntrustedText {
+        UntrustedText(raw: s, verified: true, truncated: false)
+    }
+
+    private func send(_ verb: DecideVerb, _ stored: StoredAgent) {
+        sending = true
+        outcome = nil
+        Task {
+            outcome = await model.decideAgent(verb, hostId: hostId, projectId: projectId, agentId: stored.agentId)
+            sending = false
+        }
+    }
+
+    static func explanation(_ health: AgentHealth) -> String {
+        switch health {
+        case .working: return "Working means the agent reported progress lately."
+        case .needsYou: return "Needs you means the agent is waiting for your answer to a prompt."
+        case .stalled:
+            return "Stalled means the controller saw no progress for longer than its limit. The connection is fine. You can pause the agent while you look, or leave it to the supervisor."
+        case .lost: return "Lost means the agent's pane is gone. The controller will not hear from it again."
+        case .blocked: return "Blocked means the agent said it cannot go on without something from outside."
+        case .paused: return "Paused means the agent was paused. Resume it when you are ready."
+        case .idle: return "Idle means the agent has no task."
+        }
     }
 }
 

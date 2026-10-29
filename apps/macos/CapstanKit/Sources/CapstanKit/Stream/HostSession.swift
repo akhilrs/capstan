@@ -65,6 +65,9 @@ public actor HostSession {
     private let consumer: any StreamConsumer
     private let clock: any SessionClock
     private let jitter: @Sendable () -> Double
+    /// One short line for each connect, restart and end of a stream, so a restart can be traced to its cause. The
+    /// second text is host text (an error or stderr) that a log must keep private.
+    private let diagnostic: (@Sendable (String, String?) -> Void)?
     private let decoder = LineDecoder()
 
     public private(set) var state: ConnectionState = .connecting
@@ -97,8 +100,10 @@ public actor HostSession {
     /// `jitter` returns the factor applied to a backoff delay (0.8 to 1.2 in use).
     public init(
         config: HostConfig, runner: any ProcessRunner, consumer: any StreamConsumer, clock: any SessionClock,
-        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0.8...1.2) }
+        jitter: @escaping @Sendable () -> Double = { Double.random(in: 0.8...1.2) },
+        diagnostic: (@Sendable (String, String?) -> Void)? = nil
     ) {
+        self.diagnostic = diagnostic
         self.config = config
         self.runner = runner
         self.consumer = consumer
@@ -162,6 +167,10 @@ public actor HostSession {
     }
 
     /// Ends a child once: the stop, refresh and watchdog paths and the read loop's own cleanup may all reach for it.
+    /// The connection ids whose child was ended, for tests: it never holds an id older than the current connection.
+    var terminatedConnectionIds: Set<Int> { terminatedConnections }
+    var currentConnectionId: Int { connectionId }
+
     private func terminate(_ process: any RunningProcess, connection id: Int) {
         guard terminatedConnections.insert(id).inserted else { return }
         process.terminate()
@@ -178,6 +187,8 @@ public actor HostSession {
         while gen == generation {
             let outcome = await connectOnce(generation: gen)
             guard gen == generation else { return }
+            let (what, detail) = HostSession.describe(outcome)
+            diagnostic?("connection \(connectionId) ended: \(what)", detail)
             switch outcome {
             case .superseded:
                 return
@@ -211,9 +222,20 @@ public actor HostSession {
         }
     }
 
+    /// The outcome in words, and the error or stderr text it carries, which may be host text.
+    private static func describe(_ outcome: Outcome) -> (String, String?) {
+        switch outcome {
+        case .superseded: return ("superseded", nil)
+        case .stop(let reason): return ("stop", "\(reason)")
+        case .restartNow: return ("restart now", nil)
+        case .retry(let error, let counts): return ("retry, counts as failure: \(counts)", "\(error)")
+        }
+    }
+
     private func connectOnce(generation gen: Int) async -> Outcome {
         connectionId += 1
         let id = connectionId
+        diagnostic?("connection \(id) starting", nil)
         watchdogFired = false
         refreshRestartRequested = false
         let quiet = refreshRestartPending
@@ -224,6 +246,8 @@ public actor HostSession {
             previousProcess = nil
             guard gen == generation else { return .superseded }
         }
+        // Only the current connection can still be terminated again; older ids need no record.
+        terminatedConnections = terminatedConnections.filter { $0 >= id }
         if !quiet {
             liveSince = nil
             lastLivePublish = nil
@@ -270,6 +294,7 @@ public actor HostSession {
                         decision = .stop(.hostRejected(code: code, tail: hostText(process.stderrTail())))
                     } else {
                         errorLine = (code, message)
+                        await noteLive()
                     }
                 case .cursor(let next):
                     batch.append(line)
@@ -304,11 +329,16 @@ public actor HostSession {
             return .superseded
         }
         if connectionId == id { currentProcess = nil }
+        if watchdogFired { diagnostic?("connection \(id): no line for \(Int(heartbeatTimeout)) s", nil) }
         if refreshRestartRequested {
+            diagnostic?("connection \(id): refresh restart", nil)
             // The partial batch is read again with the snapshots after the restart.
             terminate(process, connection: id)
             return .restartNow
         }
+        // Every other way out (error, decision, watchdog, exit) is a real reconnect: it must show itself, so a quiet
+        // refresh restart that was asked for meanwhile does not hide it.
+        refreshRestartPending = false
         if decision != nil || watchdogFired { terminate(process, connection: id) }
         if !batch.isEmpty {
             await consumer.apply(host: config.id, lines: batch)

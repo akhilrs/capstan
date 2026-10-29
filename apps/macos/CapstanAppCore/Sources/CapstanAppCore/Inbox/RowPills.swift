@@ -5,8 +5,8 @@ public enum Pill: Sendable, Equatable {
 
     public var word: String {
         switch self {
-        case .forwarded: return "Forwarded"
-        case .terminalOnly: return "Terminal only"
+        case .forwarded: return "Forwarded to PM, waiting"
+        case .terminalOnly: return "Answer in the terminal"
         case .stale: return "Stale"
         }
     }

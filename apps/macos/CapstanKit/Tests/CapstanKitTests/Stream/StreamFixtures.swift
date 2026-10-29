@@ -12,6 +12,12 @@ enum Wire {
         "{\"v\":1,\"kind\":\"project\",\"projectId\":\"\(id)\",\"root\":\"/work/\(id)\",\"state\":\"\(state)\"}\n"
     }
 
+    static func snapshot(_ project: String, key: String) -> String {
+        "{\"v\":1,\"kind\":\"snapshot\",\"projectId\":\"\(project)\",\"section\":\"waiting\",\"key\":\"\(key)\","
+            + "\"item\":{\"key\":\"\(key)\",\"requestId\":\"\(key)\",\"kind\":\"op\",\"since\":\"2026-10-01T09:30:00.000Z\","
+            + "\"summary\":\"run ls\",\"contentHash\":\"h\",\"needsTerminal\":false}}\n"
+    }
+
     static func cursor(_ cursor: Cursor) -> String {
         "{\"v\":1,\"kind\":\"cursor\",\"cursor\":\"\(cursor.text)\"}\n"
     }

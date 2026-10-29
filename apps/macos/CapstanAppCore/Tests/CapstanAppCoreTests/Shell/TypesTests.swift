@@ -12,7 +12,7 @@ final class TypesTests: XCTestCase {
 
     func test_SidebarSelection_codableRoundTrip() throws {
         let values: [SidebarSelection] = [
-            .inbox, .hosts, .project(hostId: host, projectId: "p1"), .agents(hostId: host, projectId: "p1"),
+            .inbox, .hosts, .messages, .project(hostId: host, projectId: "p1"), .agents(hostId: host, projectId: "p1"),
             .plans(hostId: host, projectId: "p1"),
         ]
         for value in values {
@@ -32,6 +32,20 @@ final class TypesTests: XCTestCase {
         settings.allowDuringFocus = true
         let data = try JSONEncoder().encode(settings)
         XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: data), settings)
+    }
+
+    func test_AppSettings_appearanceDefaultsToSystemAndPersists() throws {
+        XCTAssertEqual(AppSettings().appearance, .system)
+        var settings = AppSettings()
+        settings.appearance = .dark
+        let data = try JSONEncoder().encode(settings)
+        XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: data).appearance, .dark)
+        // A file saved before the key existed keeps its other values and reads System.
+        let old = Data("{\"clientLabel\":\"Work\",\"heartbeatPulse\":false}".utf8)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: old)
+        XCTAssertEqual(decoded.appearance, .system)
+        XCTAssertEqual(decoded.clientLabel, "Work")
+        XCTAssertFalse(decoded.heartbeatPulse)
     }
 
     func test_SidebarSelection_resolvedProjectMissing() throws {

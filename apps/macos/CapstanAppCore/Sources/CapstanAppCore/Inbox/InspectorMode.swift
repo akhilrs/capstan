@@ -33,7 +33,7 @@ public enum ComposerState: Sendable, Equatable {
 }
 
 public enum AgeText {
-    /// A short age such as "5m"; "" when `since` is not ISO 8601 UTC.
+    /// A short age such as "5 min", "2 h" or "26 d"; "now" under a minute; "" when `since` is not ISO 8601 UTC.
     public static func short(since: String, now: Date) -> String {
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
@@ -43,9 +43,9 @@ public enum AgeText {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         switch seconds {
         case ..<60: return "now"
-        case ..<3600: return String(seconds / 60) + "m"
-        case ..<86400: return String(seconds / 3600) + "h"
-        default: return String(seconds / 86400) + "d"
+        case ..<3600: return String(seconds / 60) + " min"
+        case ..<86400: return String(seconds / 3600) + " h"
+        default: return String(seconds / 86400) + " d"
         }
     }
 }

@@ -66,7 +66,9 @@ struct AddHostSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.space[3]) {
-            Text(verbatim: editing == nil ? "Add host" : "Edit host").font(.system(size: 17, weight: .semibold))
+            Text(verbatim: editing == nil ? "Add a host" : "Edit host").font(.system(size: 15, weight: .semibold))
+            Text("Capstan runs ssh <host> cstan events with your own SSH config and agent. It stores no password and no key.")
+                .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
             Form {
                 field("Name", "Shown in the sidebar; the destination when empty", text: $displayName, error: nil)
                 field(
@@ -94,9 +96,12 @@ struct AddHostSheet: View {
             checkSection
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { finish(nil) }.keyboardShortcut(.cancelAction)
-                Button { finish(config) } label: { Text(verbatim: editing == nil ? "Add" : "Save") }
-                    .keyboardShortcut(.defaultAction).disabled(!valid)
+                Button { finish(nil) } label: { Text("Cancel") }
+                    .buttonStyle(.capstanQuiet).keyboardShortcut(.cancelAction)
+                Button { finish(config) } label: {
+                    Text(verbatim: editing == nil ? (destination.isEmpty ? "Add" : "Add " + HostLabel.plain(destination)) : "Save")
+                }
+                .buttonStyle(.capstanPrimary).keyboardShortcut(.defaultAction).disabled(!valid)
             }
         }
         .padding(Tokens.space[4])
@@ -138,7 +143,7 @@ struct AddHostSheet: View {
     private var checkSection: some View {
         VStack(alignment: .leading, spacing: Tokens.space[1]) {
             HStack {
-                Text("Connection check").font(.system(size: 13, weight: .semibold))
+                Text("Checks").font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button("Check connection") { runCheck() }.disabled(!valid || running)
             }

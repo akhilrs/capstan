@@ -2,14 +2,25 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// Waiting for you: the items of every host and project, grouped by kind.
+/// Waiting for you: the items of every host and project, grouped by kind. The title, the filter and the search are
+/// in the window toolbar.
 struct InboxScreen: View {
-    let model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
-        let groups = model.inbox()
-        VStack(alignment: .leading, spacing: 0) {
-            header(groups)
+        if case .project(let hostId, let projectId) = model.selection,
+            let project = model.project(hostId, projectId), project.availability != .ready
+        {
+            // A project that is not ready has no snapshot to wait for: say why and what to do, never skeleton rows.
+            ProjectStateView(model: model, hostId: hostId, project: project)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
+        let groups = model.displayGroups()
+        return VStack(alignment: .leading, spacing: 0) {
             ForEach(model.hosts) { config in
                 if !isLive(config.id) {
                     ConnectionBanners(model: model, hostId: config.id)
@@ -23,36 +34,7 @@ struct InboxScreen: View {
                 list(groups)
             }
         }
-    }
-
-    private func header(_ groups: [InboxGroup]) -> some View {
-        HStack {
-            Text("Waiting for you").font(.system(size: 20, weight: .semibold))
-            Text(verbatim: String(groups.reduce(0) { $0 + $1.count }))
-                .font(.system(size: 13).monospacedDigit())
-                .foregroundStyle(Tokens.color(.label2))
-            Spacer()
-            Picker("Show", selection: kindBinding) {
-                Text("All").tag(WaitingKind?.none)
-                Text("Commands").tag(WaitingKind?.some(.op))
-                Text("Prompts").tag(WaitingKind?.some(.prompt))
-                Text("Designs").tag(WaitingKind?.some(.design))
-                Text("Messages").tag(WaitingKind?.some(.message))
-                Text("Merges").tag(WaitingKind?.some(.integration))
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 420)
-        }
-        .padding(Tokens.space[3])
-    }
-
-    private var kindBinding: Binding<WaitingKind?> {
-        Binding(get: { model.inboxKind }, set: { model.inboxKind = $0 })
-    }
-
-    private var selectionBinding: Binding<InboxRowID?> {
-        Binding(get: { model.selectedRow }, set: { model.selectedRow = $0 })
+        .searchable(text: $model.inboxSearch, placement: .toolbar, prompt: "Search")
     }
 
     private func isLive(_ hostId: UUID) -> Bool {
@@ -74,47 +56,114 @@ struct InboxScreen: View {
     @ViewBuilder
     private var placeholder: some View {
         if loading {
-            VStack(spacing: Tokens.space[1]) {
-                ForEach(0..<4, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: Tokens.radius.row)
-                        .fill(Tokens.color(.fill2))
-                        .frame(height: 44)
-                }
+            VStack(spacing: Tokens.space[2]) {
+                ForEach(0..<3, id: \.self) { _ in skeletonRow }
             }
             .padding(Tokens.space[3])
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Loading")
             Spacer()
         } else {
-            VStack(spacing: Tokens.space[1]) {
-                Image(systemName: "checkmark.circle").font(.system(size: 28)).foregroundStyle(Tokens.color(.label2))
+            VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                Image(systemName: "tray").font(.system(size: 26)).foregroundStyle(Tokens.color(.label2))
                 Text("Nothing is waiting for you").font(.system(size: 15, weight: .semibold))
-                Text("New items appear here as soon as a project asks.")
+                Text(verbatim: emptyDetail)
                     .font(.system(size: 13))
                     .foregroundStyle(Tokens.color(.label2))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(Tokens.space[5])
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
 
-    private func list(_ groups: [InboxGroup]) -> some View {
-        List(selection: selectionBinding) {
+    /// A row-shaped placeholder: a square for the glyph, two bars for the lines and a short one for the age.
+    private var skeletonRow: some View {
+        HStack(alignment: .top, spacing: Tokens.space[1]) {
+            RoundedRectangle(cornerRadius: 4).fill(Tokens.color(.fill2)).frame(width: 14, height: 14)
+            VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                Capsule().fill(Tokens.color(.fill2)).frame(width: 150, height: 8)
+                Capsule().fill(Tokens.color(.fill2)).frame(maxWidth: 360, minHeight: 8, maxHeight: 8)
+            }
+            Spacer(minLength: Tokens.space[0])
+            Capsule().fill(Tokens.color(.fill2)).frame(width: 36, height: 8)
+        }
+    }
+
+    private var emptyDetail: String {
+        let projects = model.hostModels.values.reduce(0) { $0 + $1.projects.count }
+        let live = model.hosts.filter { isLive($0.id) }.count
+        let scope = "\(projects) project\(projects == 1 ? "" : "s") on \(live) host\(live == 1 ? " is" : "s are") live."
+        return scope + " You get a notification when an agent asks for something."
+    }
+
+    private func list(_ groups: [DisplayGroup]) -> some View {
+        let ids = groups.flatMap { $0.rows.map(\.id) }
+        // The selection is drawn by the row, in the accent: a system list would draw it in the system accent.
+        return List {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.rows) { row in
-                        InboxRowView(row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id)
-                            .tag(row.id)
+                        Button {
+                            model.selectedRow = row.id
+                        } label: {
+                            InboxRowView(
+                                row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id,
+                                quiet: group.quiet)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .accessibilityAddTraits(model.selectedRow == row.id ? .isSelected : [])
                     }
                 } header: {
-                    KindGroupHeader(kind: group.kind, count: group.count)
+                    KindGroupHeader(title: group.header, quiet: group.quiet)
                 }
             }
         }
-        .listStyle(.inset)
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .tint(Tokens.color(.accent))
+        .focusable()
+        .onKeyPress(.downArrow) { move(ids, by: 1) }
+        .onKeyPress(.upArrow) { move(ids, by: -1) }
         .onKeyPress(.return) {
-            guard model.selectedRow == nil, let first = groups.first?.rows.first else { return .handled }
-            model.selectedRow = first.id
+            guard model.selectedRow == nil, let first = ids.first else { return .handled }
+            model.selectedRow = first
             return .handled
         }
+    }
+
+    /// Moves the selection one row; the first press selects the first row.
+    private func move(_ ids: [InboxRowID], by step: Int) -> KeyPress.Result {
+        guard !ids.isEmpty else { return .ignored }
+        guard let current = model.selectedRow, let index = ids.firstIndex(of: current) else {
+            model.selectedRow = ids[step > 0 ? 0 : ids.count - 1]
+            return .handled
+        }
+        model.selectedRow = ids[min(max(index + step, 0), ids.count - 1)]
+        return .handled
+    }
+}
+
+/// The empty view of a project that is not ready: what the state means and how to fix it (screen 07's wording).
+private struct ProjectStateView: View {
+    let model: AppModel
+    let hostId: UUID
+    let project: ProjectModel
+
+    var body: some View {
+        let text = AvailabilityText(project.availability)
+        VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            StatePill(word: text.word, symbol: text.symbol, tone: HostLabel.tone(project.availability))
+            Text(verbatim: text.meaning).font(.system(size: 15, weight: .semibold))
+            Text(verbatim: text.fix).font(.system(size: 13)).foregroundStyle(Tokens.color(.label2))
+            Button { model.refresh(hostId: hostId, projectIds: [project.projectId]) } label: { Text("Check again") }
+                .buttonStyle(.capstanPrimary)
+                .padding(.top, Tokens.space[0])
+        }
+        .padding(Tokens.space[5])
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

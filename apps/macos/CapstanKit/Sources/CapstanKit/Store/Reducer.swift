@@ -255,6 +255,7 @@ public enum StoreReducer {
             guard let item = try? AgentItem(json: merged(model.agents[key]?.json, effect)) else { return false }
             var stored = StoredAgent(item)
             if let base = model.agents[key], effect.fields.optional("task") == nil { stored.task = base.task }
+            if let base = model.agents[key], effect.fields.optional("branch") == nil { stored.branch = base.branch }
             model.agents[key] = stored
         case "plans":
             guard let item = try? PlanItem(json: merged(model.plans[key]?.json, effect)) else { return false }

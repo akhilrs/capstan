@@ -79,10 +79,11 @@ final class InboxTests: XCTestCase {
 
     func test_AgeText() {
         let now = ISO8601DateFormatter().date(from: "2026-10-29T12:00:00Z")!
-        XCTAssertEqual(AgeText.short(since: "2026-10-29T11:55:00Z", now: now), "5m")
-        XCTAssertEqual(AgeText.short(since: "2026-10-29T09:00:00Z", now: now), "3h")
-        XCTAssertEqual(AgeText.short(since: "2026-10-27T12:00:00Z", now: now), "2d")
+        XCTAssertEqual(AgeText.short(since: "2026-10-29T11:55:00Z", now: now), "5 min")
+        XCTAssertEqual(AgeText.short(since: "2026-10-29T09:00:00Z", now: now), "3 h")
+        XCTAssertEqual(AgeText.short(since: "2026-10-27T12:00:00Z", now: now), "2 d")
         XCTAssertEqual(AgeText.short(since: "2026-10-29T11:59:50Z", now: now), "now")
         XCTAssertEqual(AgeText.short(since: "bad", now: now), "")
+        XCTAssertEqual(AgeText.short(since: "2026-10-03T12:00:00Z", now: now), "26 d")
     }
 }

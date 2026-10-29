@@ -311,6 +311,64 @@ final class HostSessionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(runner.child(at: 0).terminateCount, 1)
     }
 
+    /// The host sends a heartbeat only when idle; every other kind of line also shows it alive.
+    func testAnyLineKindKeepsTheWatchdogQuietAndTheLiveClockFresh() async throws {
+        let cursor = makeCursor(["p1"])
+        let session = makeSession()
+        await startAndWait(session)
+        let lines = [Wire.hello, Wire.project("p1", state: "ready"), Wire.snapshot("p1", key: "op:1"), Wire.snapshotEnd,
+            Wire.future, Wire.cursor(cursor), Wire.error("internal")]
+        for line in lines {
+            clock.advance(by: 20)
+            runner.child(at: 0).send(line)
+            await settle()
+        }
+        XCTAssertEqual(runner.startCount, 1)
+        let states = await consumer.states
+        XCTAssertFalse(states.contains { if case .noHeartbeat = $0 { return true } else { return false } })
+        guard case .live(_, let at)? = states.last else { return XCTFail("not live: \(String(describing: states.last))") }
+        XCTAssertEqual(at, clock.now())
+    }
+
+    /// The host's projects flap between ready and silent while two are unsupported; none of it may restart the stream.
+    func testFlappingProjectLinesForTwoMinutesKeepOneChildAndALiveHost() async throws {
+        let cursor = makeCursor(["p1"])
+        let session = makeSession()
+        await startAndWait(session)
+        runner.child(at: 0).send(Wire.hello)
+        for id in ["a", "b"] { runner.child(at: 0).send(Wire.project(id, state: "unsupported")) }
+        runner.child(at: 0).send(Wire.project("p1", state: "ready") + Wire.snapshot("p1", key: "op:1") + Wire.snapshotEnd + Wire.cursor(cursor))
+        await waitForState("live") { if case .live = $0 { return true } else { return false } }
+        let before = await consumer.states.filter { if case .connecting = $0 { return true } else { return false } }.count
+        for step in 0..<24 {
+            clock.advance(by: 5)
+            let state = ["silent", "ready", "ready", "silent"][step % 4]
+            runner.child(at: 0).send(Wire.project("capstan", state: state))
+            if step % 3 == 0 { runner.child(at: 0).send(Wire.heartbeat) }
+            if step % 4 == 0 { runner.child(at: 0).send(Wire.cursor(cursor)) }
+            await settle()
+        }
+        XCTAssertEqual(runner.startCount, 1)
+        XCTAssertEqual(runner.maxConcurrentChildren, 1)
+        let states = await consumer.states
+        XCTAssertEqual(states.filter { if case .connecting = $0 { return true } else { return false } }.count, before)
+        guard case .live? = states.last else { return XCTFail("not live: \(String(describing: states.last))") }
+    }
+
+    func testAThreeHundredLineSnapshotIsOneBatch() async throws {
+        let cursor = makeCursor(["p1"])
+        var text = Wire.hello + Wire.project("p1", state: "ready")
+        for n in 0..<300 { text += Wire.snapshot("p1", key: "op:\(n)") }
+        text += Wire.snapshotEnd + Wire.cursor(cursor)
+        runner.enqueue(FakeScript(chunks: [text]))
+        await startAndWait(makeSession())
+        await eventually("one batch") { await self.consumer.batches.count == 1 }
+        await settle()
+        let batches = await consumer.batches
+        XCTAssertEqual(batches.count, 1)
+        XCTAssertEqual(batches[0].count, 304)
+    }
+
     func testRestartMidReadKeepsTheNewWatchdog() async throws {
         let session = makeSession()
         await startAndWait(session)
@@ -447,6 +505,40 @@ final class HostSessionTests: XCTestCase {
             if case .connecting = state { XCTFail("refresh restart showed connecting") }
             if case .reconnecting = state { XCTFail("refresh restart showed reconnecting") }
         }
+    }
+
+    func testAFailureAfterARefreshRestartShowsConnectingAgain() async throws {
+        runner.enqueue(FakeScript(chunks: [Wire.hello]))
+        runner.enqueue(FakeScript(chunks: [Wire.hello], exit: 255))
+        let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))
+        await startAndWait(session)
+        await waitForState("live") { if case .live = $0 { return true } else { return false } }
+        await session.refresh(projectIds: ["p1"])
+        await settle()
+        clock.advance(by: 1)
+        await eventually("restart") { self.runner.startCount == 2 }
+        // The second child fails: the host must show the reconnect, and the next connect must show connecting.
+        await waitForState("attempt 1") { self.isReconnecting($0, attempt: 1) }
+        let before = await consumer.states.count
+        clock.advance(by: 1)
+        await eventually("third start") { self.runner.startCount == 3 }
+        let states = await consumer.states
+        XCTAssertTrue(states.dropFirst(before).contains { if case .connecting = $0 { return true } else { return false } })
+    }
+
+    func testTerminatedConnectionsNeverKeepOldIds() async throws {
+        for _ in 0..<5 { runner.enqueue(FakeScript(chunks: [Wire.hello], exit: 255)) }
+        let session = makeSession()
+        await startAndWait(session)
+        for n in 1...4 {
+            await waitForState("attempt \(n)") { self.isReconnecting($0, attempt: n) }
+            clock.advance(by: Double(1 << (n - 1)))
+            await eventually("start \(n + 1)") { self.runner.startCount == n + 1 }
+        }
+        await settle()
+        let current = await session.currentConnectionId
+        let ids = await session.terminatedConnectionIds
+        XCTAssertTrue(ids.allSatisfy { $0 >= current }, "ids: \(ids), current: \(current)")
     }
 
     func testInvalidateEveryTwoSecondsForThreeMinutesRestartsAtMostThreeTimesAndStaysLive() async throws {

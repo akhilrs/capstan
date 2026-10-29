@@ -56,6 +56,8 @@ public struct AgentItem: WireItem {
     public let state: String
     public let paused: Bool
     public let task: UntrustedText?
+    /// The branch of the agent's pane; nil without a pane or from a host that does not send it.
+    public let branch: UntrustedText?
     public let requestId: String
     public let contentHash: String
 
@@ -69,6 +71,7 @@ public struct AgentItem: WireItem {
         state = try json.string("state")
         paused = try json.bool("paused")
         task = try json.optionalString("task").map(itemText)
+        branch = try json.optionalString("branch").map(itemText)
         requestId = try json.string("requestId")
         contentHash = try json.string("contentHash")
     }

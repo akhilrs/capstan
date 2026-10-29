@@ -5,6 +5,8 @@ import Foundation
 /// The kernel counts cumulatively (assigned includes reported, reported includes integrated).
 public struct PlanRow: Sendable, Equatable {
     public let planId: String
+    public let state: String
+    public let sequence: Int64
     public let title: String
     public let titleUnverified: Bool
     public let total: Int64
@@ -18,6 +20,8 @@ public struct PlanRow: Sendable, Equatable {
 
     public init(_ plan: StoredPlan) {
         planId = HostText.name(plan.planId)
+        state = HostText.name(plan.state)
+        sequence = plan.sequence
         titleUnverified = !plan.title.verified
         let shown = HostText.clean(plan.title.displayPlain, maxBytes: HostText.codeCap)
         title = plan.title.verified && !shown.trimmingCharacters(in: .whitespaces).isEmpty ? shown : planId
@@ -44,6 +48,9 @@ public struct PlanRow: Sendable, Equatable {
         return parts.joined(separator: ", ")
     }
 
+    /// Every package is integrated.
+    public var isDone: Bool { total > 0 && integrated == total }
+
     /// Packages that are reported and not integrated yet: where a waiting integration item may belong.
     public var hasUnintegratedWork: Bool { reportedOnly > 0 }
 
@@ -62,5 +69,36 @@ public enum IntegrationLink {
     /// How many integration items wait in the project.
     public static func waitingCount(_ project: ProjectModel) -> Int {
         project.waiting.values.filter { $0.kind == .integration }.count
+    }
+}
+
+/// The filter of the Plans toolbar. Active is a plan that is approved and not finished; every plan that is not approved
+/// yet (a draft, or in review) is under Drafts; Done is a signed-off plan or one whose packages are all integrated.
+public enum PlanFilter: CaseIterable, Sendable, Equatable {
+    case active, drafts, done
+
+    public var title: String {
+        switch self {
+        case .active: return "Active"
+        case .drafts: return "Drafts"
+        case .done: return "Done"
+        }
+    }
+
+    public static func filter(of row: PlanRow) -> PlanFilter {
+        if row.isDone || row.state == "signed_off" { return .done }
+        return row.state == "approved" ? .active : .drafts
+    }
+
+    public func matches(_ row: PlanRow) -> Bool {
+        PlanFilter.filter(of: row) == self
+    }
+
+    public static func counts(_ rows: [PlanRow]) -> (active: Int, drafts: Int, done: Int) {
+        (
+            rows.filter { PlanFilter.active.matches($0) }.count,
+            rows.filter { PlanFilter.drafts.matches($0) }.count,
+            rows.filter { PlanFilter.done.matches($0) }.count
+        )
     }
 }

@@ -20,6 +20,8 @@ final class AppModel {
     var selection: SidebarSelection {
         didSet {
             guard selection != oldValue else { return }
+            selectedAgent = nil
+            selectedPlan = nil
             if !restoring {
                 cancelPendingRow()
                 restoredSelection = nil
@@ -29,6 +31,11 @@ final class AppModel {
     }
     var selectedRow: InboxRowID?
     var inboxKind: WaitingKind?
+    var inboxSearch = ""
+    var agentFilter = AgentFilter.all
+    var planFilter = PlanFilter.active
+    var selectedAgent: String?
+    var selectedPlan: PlanRef?
     var hostsFocus: HostsFocus?
     private(set) var busy = BusyTracker()
     private(set) var settings: AppSettings
@@ -51,6 +58,8 @@ final class AppModel {
     @ObservationIgnored private var unloaded: Set<UUID> = []
     @ObservationIgnored private var restoring = false
     @ObservationIgnored private var pendingRow: PendingRow?
+    @ObservationIgnored private var pendingModels: [UUID: (model: HostModel, generation: Int)] = [:]
+    @ObservationIgnored private var modelFlushScheduled = false
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
     @ObservationIgnored private var pendingTask: Task<Void, Never>?
 
@@ -78,6 +87,16 @@ final class AppModel {
             try? JSONDecoder().decode(AppSettings.self, from: $0)
         } ?? AppSettings()
         self.notifications = NotificationCoordinator(model: self)
+        AppModel.apply(appearance: settings.appearance)
+    }
+
+    /// Sets the look of every window, the Settings window and the menu bar extra included.
+    static func apply(appearance: AppearanceChoice) {
+        switch appearance {
+        case .system: NSApp?.appearance = nil
+        case .light: NSApp?.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp?.appearance = NSAppearance(named: .darkAqua)
+        }
     }
 
     /// A model for previews and tests: nothing is read or written and nothing runs.
@@ -111,6 +130,7 @@ final class AppModel {
     func start() {
         guard !started, directory != nil else { return }
         started = true
+        AppModel.apply(appearance: settings.appearance)
         enqueue { [self] in
             guard started else { return }
             await launch()
@@ -205,7 +225,12 @@ final class AppModel {
                 }
             })
         let session = HostSession(
-            config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock())
+            config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock(),
+            diagnostic: { what, detail in
+                // The detail can carry host stderr text: it stays private.
+                AppModel.log.notice(
+                    "\(config.displayName, privacy: .public): \(what, privacy: .public) \(detail ?? "", privacy: .private)")
+            })
         engines[id] = engine
         sessions[id] = session
         connection[id] = .connecting
@@ -234,10 +259,24 @@ final class AppModel {
         }
     }
 
+    /// Keeps the newest model of each host and applies them together on the next turn of the main actor, so the many
+    /// batches of a first load make one update of the views, not one each.
     private func applyModel(_ model: HostModel, generation: Int) {
         guard generations[model.hostId] == generation else { return }
-        hostModels[model.hostId] = model
-        unloaded.remove(model.hostId)
+        pendingModels[model.hostId] = (model, generation)
+        guard !modelFlushScheduled else { return }
+        modelFlushScheduled = true
+        Task { @MainActor [weak self] in self?.flushModels() }
+    }
+
+    private func flushModels() {
+        modelFlushScheduled = false
+        let pending = pendingModels
+        pendingModels = [:]
+        for (id, entry) in pending where generations[id] == entry.generation && hosts.contains(where: { $0.id == id }) {
+            hostModels[id] = entry.model
+            unloaded.remove(id)
+        }
         resolveRestoredSelection()
         resolvePendingRow(final: false)
     }
@@ -268,7 +307,7 @@ final class AppModel {
             return
         }
         switch saved {
-        case .inbox, .hosts:
+        case .inbox, .hosts, .messages:
             restoredSelection = nil
             return
         case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _):
@@ -350,14 +389,32 @@ final class AppModel {
 
     // MARK: Reading
 
-    /// The groups the inbox shows for the selection and the kind filter.
+    /// The groups the inbox shows for the selection, the kind filter and the search.
     func inbox() -> [InboxGroup] {
-        var scope = InboxScope(kind: inboxKind)
+        scope(kind: inboxKind).apply(CapstanKit.inbox(Array(hostModels.values)))
+    }
+
+    /// The same groups as the screen lists them: merged and conflicted integrations apart.
+    func displayGroups() -> [DisplayGroup] {
+        InboxLayout.groups(inbox())
+    }
+
+    /// The number of rows the selection and the search leave, whatever the kind filter: the "All" count.
+    func inboxTotal() -> Int {
+        scope(kind: nil).apply(CapstanKit.inbox(Array(hostModels.values))).reduce(0) { $0 + $1.count }
+    }
+
+    private func scope(kind: WaitingKind?) -> InboxScope {
+        var scope = InboxScope(kind: kind, search: inboxSearch)
         if case .project(let hostId, let projectId) = selection {
             scope.hostId = hostId
             scope.projectId = projectId
         }
-        return scope.apply(CapstanKit.inbox(Array(hostModels.values)))
+        return scope
+    }
+
+    var sidebarCounts: SidebarCounts {
+        SidebarCounts.make(Array(hostModels.values))
     }
 
     var badgeCount: Int {
@@ -394,11 +451,11 @@ final class AppModel {
         switch selection {
         case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _): return hostId
         case .hosts: return hostsFocus?.hostId
-        case .inbox: return nil
+        case .inbox, .messages: return nil
         }
     }
 
-    private static let log = Logger(subsystem: "capstan", category: "AppModel")
+    private nonisolated static let log = Logger(subsystem: "capstan", category: "AppModel")
 
     private static func wireItem(_ stored: StoredWaiting) -> WaitingItem? {
         do {
@@ -494,7 +551,7 @@ final class AppModel {
     /// Cmd-R: reads again the ready projects the current view shows.
     func refreshSelection() {
         switch selection {
-        case .inbox:
+        case .inbox, .messages:
             for host in hosts { refresh(hostId: host.id, projectIds: readyProjects(hostId: host.id)) }
         case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
             refresh(hostId: hostId, projectIds: readyProjects(hostId: hostId).intersection([projectId]))
@@ -572,8 +629,16 @@ final class AppModel {
         if let defaults, let data = try? JSONEncoder().encode(new) {
             defaults.set(data, forKey: AppModel.settingsKey)
         }
+        AppModel.apply(appearance: new.appearance)
         notifications.settingsChanged(new)
     }
+}
+
+/// A plan of a project of a host, as the Plans screen selects it.
+struct PlanRef: Hashable {
+    let hostId: UUID
+    let projectId: String
+    let planId: String
 }
 
 /// Hands out increasing numbers from any thread; a connection state carries its number to the main actor.

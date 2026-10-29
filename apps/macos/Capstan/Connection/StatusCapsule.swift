@@ -2,34 +2,51 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// The connection state of a host as one word in a capsule; "Reconnecting" carries a countdown.
+/// The footer capsule at the bottom left of the content column: `build-host live · heartbeat 3 s ago`, or the worst
+/// state of several hosts, or `N hosts live`. It floats on glass; the dot carries the tone and the words carry the state.
 struct StatusCapsule: View {
     let model: AppModel
-    let hostId: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flash = false
 
     var body: some View {
-        let state = hostId.map { model.connection[$0] } ?? aggregateConnection(Array(model.connection.values))
-        let loading = hostId.map { anyLoading(model.hostModels[$0]) } ?? model.hostModels.values.contains { anyLoading($0) }
-        let spec = CapsuleChoice.make(
-            state: state, anyLoading: loading, heartbeatPulse: model.settings.heartbeatPulse,
-            reduceMotion: reduceMotion)
-        HStack(spacing: Tokens.space[1]) {
-            Image(systemName: HostLabel.symbol(state))
-                .imageScale(.small)
-                .scaleEffect(flash ? 1.25 : 1)
-            Text(verbatim: spec.label).font(.system(size: 12, weight: .medium))
-            if case .reconnecting(_, let retryAt, _)? = state {
-                Countdown(until: retryAt).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let status = FooterStatus.make(hosts, now: context.date)
+            let pulse = CapsuleChoice.make(
+                state: status.state, anyLoading: status.loading, heartbeatPulse: model.settings.heartbeatPulse,
+                reduceMotion: reduceMotion
+            ).pulse
+            HStack(spacing: Tokens.space[1]) {
+                if case .connecting? = status.state {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Circle()
+                        .fill(status.ring ? Color.clear : status.tone.color)
+                        .overlay(Circle().strokeBorder(status.tone.color, lineWidth: status.ring ? 1.5 : 0))
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(flash ? 1.5 : 1)
+                }
+                if let name = status.name {
+                    Text(verbatim: name).font(.system(size: 12, weight: .semibold))
+                }
+                Text(verbatim: status.detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.color(.label2))
             }
+            .padding(.horizontal, Tokens.space[2])
+            .padding(.vertical, Tokens.space[0] + 2)
+            .glassEffect(.regular, in: Capsule())
+            .accessibilityElement(children: .combine)
+            .onChange(of: lastLine(status.state)) { _, _ in beat(pulse) }
         }
-        .foregroundStyle(spec.tone.color)
-        .padding(.horizontal, Tokens.space[2])
-        .padding(.vertical, Tokens.space[0])
-        .background(spec.tone.color.opacity(0.14), in: Capsule())
-        .accessibilityElement(children: .combine)
-        .onChange(of: lastLine(state)) { _, _ in beat(spec.pulse) }
+    }
+
+    private var hosts: [FooterStatus.Host] {
+        model.hosts.map { config in
+            FooterStatus.Host(
+                name: HostLabel.hostName(config), state: model.connection[config.id],
+                loading: anyLoading(model.hostModels[config.id]))
+        }
     }
 
     private func lastLine(_ state: ConnectionState?) -> Date? {
@@ -50,11 +67,9 @@ struct StatusCapsule: View {
 #Preview("Status capsules") {
     VStack(alignment: .leading, spacing: Tokens.space[1]) {
         ForEach(Array(HostsPreviewFixtures.connections.enumerated()), id: \.offset) { _, entry in
-            StatusCapsule(
-                model: AppModel(preview: HostsPreviewFixtures.seed(connection: entry.state)),
-                hostId: PreviewData.alphaId)
+            StatusCapsule(model: AppModel(preview: HostsPreviewFixtures.seed(connection: entry.state)))
         }
-        StatusCapsule(model: AppModel(preview: PreviewSeed()), hostId: nil)
+        StatusCapsule(model: AppModel(preview: PreviewSeed()))
     }
     .padding()
 }

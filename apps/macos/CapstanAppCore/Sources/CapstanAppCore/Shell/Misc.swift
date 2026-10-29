@@ -5,11 +5,14 @@ public struct InboxScope: Sendable, Equatable {
     public var kind: WaitingKind?
     public var hostId: UUID?
     public var projectId: String?
+    /// Text the project name or the summary must contain, ignoring case; empty matches every row.
+    public var search: String
 
-    public init(kind: WaitingKind? = nil, hostId: UUID? = nil, projectId: String? = nil) {
+    public init(kind: WaitingKind? = nil, hostId: UUID? = nil, projectId: String? = nil, search: String = "") {
         self.kind = kind
         self.hostId = hostId
         self.projectId = projectId
+        self.search = search
     }
 
     /// The groups with only the rows in scope; groups left without rows are dropped.
@@ -19,6 +22,13 @@ public struct InboxScope: Sendable, Equatable {
                 if let kind, row.kind != kind { return false }
                 if let hostId, row.id.hostId != hostId { return false }
                 if let projectId, row.id.projectId != projectId { return false }
+                let needle = search.trimmingCharacters(in: .whitespaces)
+                if !needle.isEmpty,
+                    !row.projectName.localizedCaseInsensitiveContains(needle),
+                    !row.summary.displayPlain.localizedCaseInsensitiveContains(needle)
+                {
+                    return false
+                }
                 return true
             }
             return rows.isEmpty ? nil : InboxGroup(kind: group.kind, title: group.title, rows: rows)

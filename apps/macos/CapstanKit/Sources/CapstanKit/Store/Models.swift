@@ -112,13 +112,16 @@ public struct StoredAgent: Codable, Sendable, Equatable {
     public var state: String
     public var paused: Bool
     public var task: UntrustedText?
+    /// The branch of the agent's pane; saved files from before the host sent it decode it as nil.
+    public var branch: UntrustedText?
     public var requestId: String
     public var contentHash: String
 
     public init(
         key: String, agentId: String, kind: String, role: String, generation: Int64, state: String, paused: Bool,
-        task: UntrustedText?, requestId: String, contentHash: String
+        task: UntrustedText?, requestId: String, contentHash: String, branch: UntrustedText? = nil
     ) {
+        self.branch = branch
         self.key = key
         self.agentId = agentId
         self.kind = kind
@@ -135,7 +138,7 @@ public struct StoredAgent: Codable, Sendable, Equatable {
         self.init(
             key: item.key, agentId: item.agentId, kind: item.kind, role: item.role, generation: item.generation,
             state: item.state, paused: item.paused, task: item.task, requestId: item.requestId,
-            contentHash: item.contentHash)
+            contentHash: item.contentHash, branch: item.branch)
     }
 
     var json: JSONValue {
@@ -145,6 +148,7 @@ public struct StoredAgent: Codable, Sendable, Equatable {
             "requestId": .string(requestId), "contentHash": .string(contentHash),
         ]
         if let task { members["task"] = .string(task.raw) }
+        if let branch { members["branch"] = .string(branch.raw) }
         return .object(members)
     }
 }
