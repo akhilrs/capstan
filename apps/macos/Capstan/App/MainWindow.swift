@@ -8,7 +8,6 @@ struct MainWindow: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var narrow = false
     @State private var compactToolbar = false
-    @State private var inspectorShown = true
     @State private var inspectorSheet = false
 
     private static let foldWidth: CGFloat = 900
@@ -147,11 +146,12 @@ struct MainWindow: View {
         }
     }
 
-    /// Wide windows show the inspector as a column; narrow ones never do.
+    /// Wide windows always show the inspector as a column, with its placeholder when nothing is selected; narrow ones never do.
     private var inspectorBinding: Binding<Bool> {
         Binding(
-            get: { !narrow && hasInspector && inspectorShown },
-            set: { inspectorShown = $0 })
+            get: { !narrow && hasInspector },
+            // The system may ask to hide the column (a toolbar toggle, a selection change); it stays, as in the design.
+            set: { _ in })
     }
 
     private var title: String {
