@@ -19,7 +19,7 @@ final class HostSessionTests: XCTestCase {
     private func makeSession(config: HostConfig = makeConfig(), consumer: RecordingConsumer? = nil) -> HostSession {
         // The waits read `self.consumer`: a consumer a test brings becomes it.
         if let consumer { self.consumer = consumer }
-        HostSession(
+        return HostSession(
             config: config, runner: runner, consumer: consumer ?? self.consumer, clock: clock, jitter: { 1.0 })
     }
 
