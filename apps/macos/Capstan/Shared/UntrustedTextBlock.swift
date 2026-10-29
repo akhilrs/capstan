@@ -18,7 +18,7 @@ struct UntrustedTextBlock: View {
             if !text.verified {
                 Text("The host could not vouch for this text, so it is not shown.")
                     .font(.system(size: 12))
-                    .foregroundStyle(Tokens.color(.red))
+                    .foregroundStyle(Tokens.color(.label2))
             } else {
                 let shown = TextBudget.displayPrefix(text.displayPlain, maxBytes: ProtocolLimits.textCap)
                 Text(verbatim: shown.text)
@@ -29,7 +29,7 @@ struct UntrustedTextBlock: View {
                 if text.truncated || shown.cut {
                     Text("The text was cut to its cap.")
                         .font(.system(size: 12))
-                        .foregroundStyle(Tokens.color(.yellow))
+                        .foregroundStyle(Tokens.color(.label2))
                 }
             }
         }

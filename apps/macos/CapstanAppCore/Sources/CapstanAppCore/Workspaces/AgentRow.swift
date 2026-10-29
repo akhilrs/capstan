@@ -13,6 +13,8 @@ public struct AgentRow: Sendable, Equatable {
     /// The task on one line; nil when there is none or the host could not vouch for it.
     public let task: String?
     public let taskUnverified: Bool
+    /// The branch of the agent's pane on one line; nil when there is none or the host could not vouch for it.
+    public let branch: String?
     public let health: AgentHealth
     public let paused: Bool
 
@@ -27,6 +29,12 @@ public struct AgentRow: Sendable, Equatable {
         paused = agent.paused
         // A paused agent shows Paused whatever the kit computed from the other fields.
         self.health = agent.paused ? .paused : health
+        if let text = agent.branch, text.verified {
+            let one = HostText.clean(text.displayPlain, maxBytes: AgentRow.taskCap)
+            branch = one.trimmingCharacters(in: .whitespaces).isEmpty ? nil : one
+        } else {
+            branch = nil
+        }
         if let text = agent.task {
             taskUnverified = !text.verified
             let one = HostText.clean(text.displayPlain, maxBytes: AgentRow.taskCap)

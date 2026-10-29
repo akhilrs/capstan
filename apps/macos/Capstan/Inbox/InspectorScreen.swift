@@ -165,7 +165,7 @@ struct InspectorScreen: View {
                 UntrustedTextBlock(text: command, label: "Command · untrusted text, shown as written")
             } else {
                 UntrustedTextBlock(text: item.summary, label: "Summary")
-                Text("Full command not received yet").font(.system(size: 12)).foregroundStyle(Tokens.color(.yellow))
+                Text("Full command not received yet").font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
             }
             if mode == .interactive {
                 let canApprove = (command?.verified ?? false) && isAvailable(.opApprove, row)

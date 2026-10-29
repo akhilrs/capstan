@@ -69,7 +69,7 @@ struct AgentsScreen: View {
                 let shown = Presentation.present(outcome, hostName: hostName)
                 StatePill(word: shown.title, symbol: "info.circle", tone: shown.tone)
             }
-            if project.run != nil {
+            if project.run != nil, decide?.decide == true {
                 switch control.action {
                 case .pause:
                     Button { askingProjectPause = true } label: { Text("Pause project…") }
@@ -128,12 +128,12 @@ struct AgentsScreen: View {
                 .frame(width: 120, alignment: .leading)
                 Text(verbatim: row.state).font(.system(size: 13)).frame(width: 70, alignment: .leading)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(verbatim: "–").font(.system(size: 12, design: .monospaced))
+                    Text(verbatim: row.branch ?? "–").font(.system(size: 12, design: .monospaced)).lineLimit(1)
                     if let task = row.task {
                         Text(verbatim: task).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
                     } else if row.taskUnverified {
                         Text("The host could not vouch for the task, so it is not shown.")
-                            .font(.system(size: 12)).foregroundStyle(Tokens.color(.red)).lineLimit(1)
+                            .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
                     } else {
                         Text("No task").font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
                     }
@@ -220,6 +220,7 @@ struct AgentInspector: View {
                         .font(.system(size: 20, weight: .semibold))
                     MetaList(rows: [
                         MetaRow(label: "Role", value: plain(row.role + " · generation " + String(stored.generation))),
+                        MetaRow(label: "Branch", value: plain(row.branch ?? "–")),
                         MetaRow(label: "State", value: plain(row.state + (stored.paused ? ", paused" : ", not paused"))),
                         MetaRow(label: "Request", value: plain(stored.requestId)),
                     ])
@@ -233,6 +234,7 @@ struct AgentInspector: View {
                     }
                 }
             }
+            if model.capabilities[hostId]?.decide == true {
             VStack(alignment: .leading, spacing: Tokens.space[0]) {
                 Text("Reason for the pause").font(.system(size: 12, weight: .semibold))
                 TextField("Optional", text: $reason)
@@ -251,6 +253,10 @@ struct AgentInspector: View {
                     .buttonStyle(.capstanPrimary)
                     .disabled(sending || overLimit || !control.pause.isEnabled)
                 }
+            }
+            } else {
+                Text("This host's Capstan has no remote decisions. Pause and resume from the terminal.")
+                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
             }
         }
         .padding(Tokens.space[3])

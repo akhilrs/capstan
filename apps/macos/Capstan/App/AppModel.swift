@@ -58,6 +58,8 @@ final class AppModel {
     @ObservationIgnored private var unloaded: Set<UUID> = []
     @ObservationIgnored private var restoring = false
     @ObservationIgnored private var pendingRow: PendingRow?
+    @ObservationIgnored private var pendingModels: [UUID: (model: HostModel, generation: Int)] = [:]
+    @ObservationIgnored private var modelFlushScheduled = false
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
     @ObservationIgnored private var pendingTask: Task<Void, Never>?
 
@@ -241,10 +243,24 @@ final class AppModel {
         }
     }
 
+    /// Keeps the newest model of each host and applies them together on the next turn of the main actor, so the many
+    /// batches of a first load make one update of the views, not one each.
     private func applyModel(_ model: HostModel, generation: Int) {
         guard generations[model.hostId] == generation else { return }
-        hostModels[model.hostId] = model
-        unloaded.remove(model.hostId)
+        pendingModels[model.hostId] = (model, generation)
+        guard !modelFlushScheduled else { return }
+        modelFlushScheduled = true
+        Task { @MainActor [weak self] in self?.flushModels() }
+    }
+
+    private func flushModels() {
+        modelFlushScheduled = false
+        let pending = pendingModels
+        pendingModels = [:]
+        for (id, entry) in pending where generations[id] == entry.generation && hosts.contains(where: { $0.id == id }) {
+            hostModels[id] = entry.model
+            unloaded.remove(id)
+        }
         resolveRestoredSelection()
         resolvePendingRow(final: false)
     }
@@ -275,7 +291,7 @@ final class AppModel {
             return
         }
         switch saved {
-        case .inbox, .hosts:
+        case .inbox, .hosts, .messages:
             restoredSelection = nil
             return
         case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _):
@@ -419,7 +435,7 @@ final class AppModel {
         switch selection {
         case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _): return hostId
         case .hosts: return hostsFocus?.hostId
-        case .inbox: return nil
+        case .inbox, .messages: return nil
         }
     }
 
@@ -519,7 +535,7 @@ final class AppModel {
     /// Cmd-R: reads again the ready projects the current view shows.
     func refreshSelection() {
         switch selection {
-        case .inbox:
+        case .inbox, .messages:
             for host in hosts { refresh(hostId: host.id, projectIds: readyProjects(hostId: host.id)) }
         case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
             refresh(hostId: hostId, projectIds: readyProjects(hostId: hostId).intersection([projectId]))

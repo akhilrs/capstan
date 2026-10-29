@@ -22,7 +22,7 @@ struct MetaList: View {
                             .textSelection(.enabled)
                     } else {
                         Text("Not shown: the host could not vouch for it")
-                            .font(.system(size: 12)).foregroundStyle(Tokens.color(.red))
+                            .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
                     }
                 }
             }

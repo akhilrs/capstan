@@ -72,18 +72,33 @@ public enum IntegrationLink {
     }
 }
 
-/// The filter of the Plans toolbar.
+/// The filter of the Plans toolbar. Active is a plan that is approved and not finished; every plan that is not approved
+/// yet (a draft, or in review) is under Drafts; Done is a signed-off plan or one whose packages are all integrated.
 public enum PlanFilter: CaseIterable, Sendable, Equatable {
-    case active, done
+    case active, drafts, done
 
-    public var title: String { self == .active ? "Active" : "Done" }
-
-    public func matches(_ row: PlanRow) -> Bool {
-        self == .done ? row.isDone : !row.isDone
+    public var title: String {
+        switch self {
+        case .active: return "Active"
+        case .drafts: return "Drafts"
+        case .done: return "Done"
+        }
     }
 
-    public static func counts(_ rows: [PlanRow]) -> (active: Int, done: Int) {
-        let done = rows.filter(\.isDone).count
-        return (rows.count - done, done)
+    public static func filter(of row: PlanRow) -> PlanFilter {
+        if row.isDone || row.state == "signed_off" { return .done }
+        return row.state == "approved" ? .active : .drafts
+    }
+
+    public func matches(_ row: PlanRow) -> Bool {
+        PlanFilter.filter(of: row) == self
+    }
+
+    public static func counts(_ rows: [PlanRow]) -> (active: Int, drafts: Int, done: Int) {
+        (
+            rows.filter { PlanFilter.active.matches($0) }.count,
+            rows.filter { PlanFilter.drafts.matches($0) }.count,
+            rows.filter { PlanFilter.done.matches($0) }.count
+        )
     }
 }

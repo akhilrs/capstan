@@ -12,7 +12,7 @@ final class TypesTests: XCTestCase {
 
     func test_SidebarSelection_codableRoundTrip() throws {
         let values: [SidebarSelection] = [
-            .inbox, .hosts, .project(hostId: host, projectId: "p1"), .agents(hostId: host, projectId: "p1"),
+            .inbox, .hosts, .messages, .project(hostId: host, projectId: "p1"), .agents(hostId: host, projectId: "p1"),
             .plans(hostId: host, projectId: "p1"),
         ]
         for value in values {

@@ -62,7 +62,7 @@ struct InboxRowView: View {
             case .plain(let text):
                 Text(verbatim: text).font(.system(size: 13)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
             case .unverified:
-                Text("Text could not be verified").font(.system(size: 13)).foregroundStyle(Tokens.color(.red)).lineLimit(1)
+                Text("Text could not be verified").font(.system(size: 13)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
             }
         }
     }

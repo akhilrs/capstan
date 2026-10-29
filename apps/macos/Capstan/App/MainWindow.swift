@@ -53,6 +53,8 @@ struct MainWindow: View {
             ToolbarItem(placement: .navigation) {
                 Text(verbatim: title)
                     .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, Tokens.space[1])
             }
             ToolbarItem(placement: .principal) {
@@ -66,7 +68,7 @@ struct MainWindow: View {
                     }
                 case .plans:
                     PlanFilterBar(model: model)
-                case .hosts:
+                case .hosts, .messages:
                     EmptyView()
                 }
             }
@@ -81,6 +83,9 @@ struct MainWindow: View {
             }
         }
         .tint(Tokens.color(.accent))
+        .accentColor(Tokens.color(.accent))
+        .toolbar(removing: .title)
+        .navigationTitle("")
         .frame(minWidth: 640, minHeight: 480)
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Self.compactToolbarWidth
@@ -114,6 +119,8 @@ struct MainWindow: View {
             PlansScreen(model: model)
         case .hosts:
             HostsScreen(model: model)
+        case .messages:
+            MessagesScreen()
         }
     }
 
@@ -128,12 +135,15 @@ struct MainWindow: View {
             AgentInspector(model: model, hostId: hostId, projectId: projectId)
         case .plans:
             PlanInspector(model: model)
+        case .messages:
+            EmptyView()
         }
     }
 
     private var hasInspector: Bool {
         switch model.selection {
         case .inbox, .project, .hosts, .agents, .plans: return true
+        case .messages: return false
         }
     }
 
@@ -147,15 +157,15 @@ struct MainWindow: View {
     private var title: String {
         switch model.selection {
         case .inbox:
-            let name = model.inboxKind == .message ? "Messages to PM" : "Waiting for you"
             // The compact window has no filter capsule to carry the count.
-            return compactToolbar || narrow ? name + " · " + String(model.inboxTotal()) : name
+            return compactToolbar || narrow ? "Waiting for you · " + String(model.inboxTotal()) : "Waiting for you"
         case .project(let hostId, let projectId):
             // The count is of the rows below, so the title says which project filters them.
             return (projectName(hostId, projectId) ?? "Waiting for you") + " · " + String(model.inboxTotal())
         case .agents(let hostId, let projectId): return "Agents" + projectSuffix(hostId, projectId)
         case .plans: return "Plans"
         case .hosts: return "Hosts"
+        case .messages: return "Messages to PM"
         }
     }
 
@@ -287,7 +297,11 @@ private struct PlanFilterBar: View {
         let rows = model.hostModels.values.flatMap { $0.projects.values.flatMap { PlanRow.rows($0) } }
         let counts = PlanFilter.counts(rows)
         return SegmentBar(
-            items: [Segment(value: PlanFilter.active, title: "Active \(counts.active)"), Segment(value: PlanFilter.done, title: "Done")],
+            items: [
+                Segment(value: PlanFilter.active, title: "Active \(counts.active)"),
+                Segment(value: PlanFilter.drafts, title: "Drafts \(counts.drafts)"),
+                Segment(value: PlanFilter.done, title: "Done"),
+            ],
             selected: model.planFilter, onSelect: { model.planFilter = $0 })
     }
 }

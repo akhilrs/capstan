@@ -26,10 +26,6 @@ struct InboxScreen: View {
         .searchable(text: $model.inboxSearch, placement: .toolbar, prompt: "Search")
     }
 
-    private var selectionBinding: Binding<InboxRowID?> {
-        Binding(get: { model.selectedRow }, set: { model.selectedRow = $0 })
-    }
-
     private func isLive(_ hostId: UUID) -> Bool {
         if case .live? = model.connection[hostId] { return true }
         return false
@@ -90,16 +86,24 @@ struct InboxScreen: View {
     }
 
     private func list(_ groups: [DisplayGroup]) -> some View {
-        List(selection: selectionBinding) {
+        let ids = groups.flatMap { $0.rows.map(\.id) }
+        // The selection is drawn by the row, in the accent: a system list would draw it in the system accent.
+        return List {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.rows) { row in
-                        InboxRowView(
-                            row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id,
-                            quiet: group.quiet)
-                            .tag(row.id)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                        Button {
+                            model.selectedRow = row.id
+                        } label: {
+                            InboxRowView(
+                                row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id,
+                                quiet: group.quiet)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .accessibilityAddTraits(model.selectedRow == row.id ? .isSelected : [])
                     }
                 } header: {
                     KindGroupHeader(title: group.header, quiet: group.quiet)
@@ -109,11 +113,25 @@ struct InboxScreen: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .tint(Tokens.color(.accent))
+        .focusable()
+        .onKeyPress(.downArrow) { move(ids, by: 1) }
+        .onKeyPress(.upArrow) { move(ids, by: -1) }
         .onKeyPress(.return) {
-            guard model.selectedRow == nil, let first = groups.first?.rows.first else { return .handled }
-            model.selectedRow = first.id
+            guard model.selectedRow == nil, let first = ids.first else { return .handled }
+            model.selectedRow = first
             return .handled
         }
+    }
+
+    /// Moves the selection one row; the first press selects the first row.
+    private func move(_ ids: [InboxRowID], by step: Int) -> KeyPress.Result {
+        guard !ids.isEmpty else { return .ignored }
+        guard let current = model.selectedRow, let index = ids.firstIndex(of: current) else {
+            model.selectedRow = ids[step > 0 ? 0 : ids.count - 1]
+            return .handled
+        }
+        model.selectedRow = ids[min(max(index + step, 0), ids.count - 1)]
+        return .handled
     }
 }
 

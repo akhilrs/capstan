@@ -344,7 +344,7 @@ public struct FooterStatus: Sendable, Equatable {
         case .connecting?: return "connecting"
         case .live(_, let last)?:
             if host.loading { return "live · loading" }
-            return "live · heartbeat \(max(0, Int(now.timeIntervalSince(last)))) s ago"
+            return "live · last update \(max(0, Int(now.timeIntervalSince(last)))) s ago"
         case .noHeartbeat(let since)?: return "no heartbeat for \(max(0, Int(now.timeIntervalSince(since)))) s"
         case .reconnecting(let attempt, let retryAt, _)?:
             return "reconnecting · try \(attempt) in \(max(0, Int(retryAt.timeIntervalSince(now).rounded(.up)))) s"

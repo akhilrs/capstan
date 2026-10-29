@@ -87,7 +87,7 @@ final class RowTextTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000)
         let live = ConnectionState.live(since: now.addingTimeInterval(-60), lastLineAt: now.addingTimeInterval(-3))
         let status = FooterStatus.make([.init(name: "build-host", state: live, loading: false)], now: now)
-        XCTAssertEqual(status.text, "build-host live · heartbeat 3 s ago")
+        XCTAssertEqual(status.text, "build-host live · last update 3 s ago")
         XCTAssertEqual(status.tone, .green)
     }
 

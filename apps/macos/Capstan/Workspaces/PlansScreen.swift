@@ -81,7 +81,7 @@ struct PlansScreen: View {
                     if row.hasUnintegratedWork, waiting > 0 {
                         StatePill(word: "\(waiting) waits for you", symbol: "hand.raised", tone: .yellow)
                     } else {
-                        StatePill(word: row.state.capitalized, symbol: "circle", tone: .grey)
+                        StatePill(word: row.state.replacingOccurrences(of: "_", with: " ").capitalized, symbol: "circle", tone: .grey)
                     }
                 }
                 Text(verbatim: row.state + " · " + row.words).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
