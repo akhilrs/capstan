@@ -17,8 +17,28 @@ final class HostSessionTests: XCTestCase {
     }
 
     private func makeSession(config: HostConfig = makeConfig(), consumer: RecordingConsumer? = nil) -> HostSession {
+        // The waits read `self.consumer`: a consumer a test brings becomes it.
+        if let consumer { self.consumer = consumer }
         HostSession(
             config: config, runner: runner, consumer: consumer ?? self.consumer, clock: clock, jitter: { 1.0 })
+    }
+
+    /// Moves the clock on in steps of 10 s, a heartbeat from the newest child at each, so the watchdog stays quiet.
+    private func advanceKeepingAlive(by seconds: TimeInterval) async {
+        var left = seconds
+        while left > 0 {
+            let step = min(10, left)
+            clock.advance(by: step)
+            runner.child(at: runner.startCount - 1).send(Wire.heartbeat)
+            await settle()
+            left -= step
+        }
+    }
+
+    /// Delivers the connection's first cursor line: only then does a refresh request count.
+    private func prime(_ cursor: Cursor) async {
+        runner.child(at: runner.startCount - 1).send(Wire.cursor(cursor))
+        await settle()
     }
 
     /// Starts the session and waits until the first child exists and the session has noted its start time.
@@ -395,6 +415,39 @@ final class HostSessionTests: XCTestCase {
         await eventually("restart") { self.runner.startCount == 2 }
     }
 
+    func testALineEveryTenSecondsForThreeMinutesNeverFiresTheWatchdog() async throws {
+        let session = makeSession()
+        await startAndWait(session)
+        for _ in 0..<18 {
+            clock.advance(by: 10)
+            runner.child(at: 0).send(Wire.project("p1", state: "ready"))
+            await settle()
+        }
+        XCTAssertEqual(runner.startCount, 1)
+        XCTAssertEqual(runner.child(at: 0).terminateCount, 0)
+        let states = await consumer.states
+        XCTAssertFalse(states.contains { if case .noHeartbeat = $0 { return true } else { return false } })
+    }
+
+    func testInvalidatesInTheFirstSecondsOfEveryConnectionNeverRestartTheStream() async throws {
+        let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))
+        await startAndWait(session)
+        for n in 0..<5 {
+            await eventually("child \(n)") { self.runner.startCount == n + 1 }
+            await settle()
+            // No cursor has come on this connection yet: this is the initial snapshot or the catch-up.
+            await session.refresh(projectIds: ["p1"])
+            await settle()
+            clock.advance(by: 2)
+            await settle()
+            XCTAssertEqual(runner.startCount, n + 1, "connection \(n) was restarted by a refresh")
+            XCTAssertEqual(runner.child(at: n).terminateCount, 0)
+            runner.child(at: n).end(exit: 255)
+            await waitForState("reconnecting after \(n)") { if case .reconnecting = $0 { return true } else { return false } }
+            clock.advance(by: 60)
+        }
+    }
+
     func testHeartbeatAndUnknownKindResetTheWatchdog() async throws {
         for line in [Wire.heartbeat, Wire.future] {
             resetFixtures()
@@ -416,6 +469,7 @@ final class HostSessionTests: XCTestCase {
         let cursor = makeCursor(["p1", "p2", "p3"])
         let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
         await startAndWait(session)
+        await prime(cursor)
         await session.refresh(projectIds: ["p1"])
         await settle()
         clock.advance(by: 0.5)
@@ -435,6 +489,7 @@ final class HostSessionTests: XCTestCase {
         let cursor = makeCursor(["p1", "p2"])
         let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
         await startAndWait(session)
+        await prime(cursor)
         await session.refresh(projectIds: ["p1", "p2"])
         await settle()
         clock.advance(by: 1)
@@ -446,6 +501,7 @@ final class HostSessionTests: XCTestCase {
         let bad = try XCTUnwrap(Cursor(text: "c1.AAAA"))
         let session = makeSession(consumer: RecordingConsumer(cursor: bad))
         await startAndWait(session)
+        await prime(bad)
         await session.refresh(projectIds: ["p1"])
         await settle()
         clock.advance(by: 1)
@@ -457,18 +513,19 @@ final class HostSessionTests: XCTestCase {
         let cursor = makeCursor(["p1", "p2", "p3"])
         let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
         await startAndWait(session)
+        await prime(cursor)
         await session.refresh(projectIds: ["p1"])
         await settle()
         clock.advance(by: 1)
         await eventually("first restart") { self.runner.startCount == 2 }
         await settle()
+        await prime(cursor)
         await session.refresh(projectIds: ["p2"])
         await settle()
         clock.advance(by: 1)
         await settle()
         XCTAssertEqual(runner.startCount, 2)
-        clock.advance(by: HostSession.refreshGapSeconds - 1.1)
-        await settle()
+        await advanceKeepingAlive(by: HostSession.refreshGapSeconds - 1.1)
         XCTAssertEqual(runner.startCount, 2)
         clock.advance(by: 0.1)
         await eventually("second restart") { self.runner.startCount == 3 }
@@ -478,6 +535,7 @@ final class HostSessionTests: XCTestCase {
         runner.enqueue(FakeScript(chunks: [Wire.hello], slowExit: true))
         let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))
         await startAndWait(session)
+        await prime(makeCursor(["p1", "p2"]))
         await session.refresh(projectIds: ["p1"])
         await settle()
         clock.advance(by: 1)
@@ -495,6 +553,7 @@ final class HostSessionTests: XCTestCase {
         await startAndWait(session)
         await waitForState("live") { if case .live = $0 { return true } else { return false } }
         let before = await consumer.states.count
+        await prime(makeCursor(["p1", "p2"]))
         await session.refresh(projectIds: ["p1"])
         await settle()
         clock.advance(by: 1)
@@ -513,6 +572,7 @@ final class HostSessionTests: XCTestCase {
         let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))
         await startAndWait(session)
         await waitForState("live") { if case .live = $0 { return true } else { return false } }
+        await prime(makeCursor(["p1", "p2"]))
         await session.refresh(projectIds: ["p1"])
         await settle()
         clock.advance(by: 1)
@@ -548,7 +608,8 @@ final class HostSessionTests: XCTestCase {
         await waitForState("live") { if case .live = $0 { return true } else { return false } }
         let before = await consumer.states.count
         for _ in 0..<90 {
-            runner.child(at: runner.startCount - 1).send(Wire.hello)
+            runner.child(at: runner.startCount - 1).send(Wire.hello + Wire.cursor(makeCursor(["p1", "p2"])))
+            await settle()
             await session.refresh(projectIds: ["p1"])
             await settle()
             clock.advance(by: 2)

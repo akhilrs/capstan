@@ -413,6 +413,11 @@ final class AppModel {
         return scope
     }
 
+    /// The rows the list shows now, for keeping the inspector on a row that is still there.
+    var visibleRowIDs: [InboxRowID] {
+        inbox().flatMap { $0.rows.map(\.id) }
+    }
+
     var sidebarCounts: SidebarCounts {
         SidebarCounts.make(Array(hostModels.values))
     }

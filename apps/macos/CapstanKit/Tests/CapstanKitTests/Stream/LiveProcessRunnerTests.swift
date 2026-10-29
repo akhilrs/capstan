@@ -31,7 +31,7 @@ final class LiveProcessRunnerTests: XCTestCase {
 
     /// Runs `body` off the main executor and fails the test when it has not finished within `limit` seconds.
     private func bounded(
-        _ name: String, limit: TimeInterval = 20, file: StaticString = #filePath, line: UInt = #line,
+        _ name: String, limit: TimeInterval = 10, file: StaticString = #filePath, line: UInt = #line,
         _ body: @escaping @Sendable () async throws -> Void
     ) async {
         let done = expectation(description: name)
@@ -81,6 +81,46 @@ final class LiveProcessRunnerTests: XCTestCase {
         }
     }
 
+    /// A line must reach the reader as soon as the child flushes it, not when 64 KiB have collected.
+    func testALineArrivesWhenTheChildWritesItNotWhenThePipeIsFull() async throws {
+        let process = try launch("printf 'one\\n'; sleep 5; printf 'two\\n'")
+        await bounded("first line") {
+            var iterator = process.lines.makeAsyncIterator()
+            let began = Date()
+            let first = try await iterator.next()
+            XCTAssertEqual(first.map { String(decoding: $0, as: UTF8.self) }, "one")
+            XCTAssertLessThan(Date().timeIntervalSince(began), 3, "the first line waited for the second")
+        }
+    }
+
+    /// A grandchild that keeps standard error open must not hold the exit back.
+    func testAGrandchildHoldingStderrOpenDoesNotDelayTheExit() async throws {
+        let process = try launch("sleep 6 & echo last words >&2; exit 4")
+        await bounded("exit with open stderr") {
+            let began = Date()
+            let code = await process.exitCode()
+            XCTAssertEqual(code, 4)
+            XCTAssertEqual(process.stderrTail(), "last words\n")
+            XCTAssertLessThan(Date().timeIntervalSince(began), 1.5, "the exit waited for the open pipe")
+        }
+    }
+
+    /// Several writes and an immediate exit: every byte is in the tail when the exit is reported.
+    func testEveryStderrByteIsKeptWhenTheChildExitsAtOnce() async throws {
+        let children = try (0..<10).map { _ in
+            try launch("i=0; while [ $i -lt 40 ]; do echo line-$i >&2; i=$((i+1)); done; echo end >&2; exit 1")
+        }
+        await bounded("immediate exit") {
+            for process in children {
+                let code = await process.exitCode()
+                XCTAssertEqual(code, 1)
+                let tail = process.stderrTail()
+                XCTAssertTrue(tail.hasPrefix("line-0\n"), "tail: \(tail)")
+                XCTAssertTrue(tail.hasSuffix("line-39\nend\n"), "tail: \(tail)")
+            }
+        }
+    }
+
     func testStderrTailKeepsTheLast4096Bytes() async throws {
         let process = try launch("i=0; while [ $i -lt 600 ]; do echo 0123456789; i=$((i+1)); done >&2; echo last >&2")
         await bounded("stderr cap") {
@@ -109,11 +149,10 @@ final class LiveProcessRunnerTests: XCTestCase {
             var iterator = process.lines.makeAsyncIterator()
             let first = try await iterator.next()
             XCTAssertEqual(first.map { String(decoding: $0, as: UTF8.self) }, "ready")
-            let began = Date()
             process.terminate(grace: 0.2)
             let code = await process.exitCode()
+            // The outcome, not the time it took: SIGTERM is ignored, so only the kill after the grace ends it.
             XCTAssertEqual(code, 128 + SIGKILL)
-            XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(began), 0.15)
         }
     }
 

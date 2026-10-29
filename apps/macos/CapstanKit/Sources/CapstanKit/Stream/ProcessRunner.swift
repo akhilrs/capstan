@@ -92,6 +92,39 @@ public struct LiveProcessRunner: ProcessRunner {
     }
 }
 
+/// Reads a descriptor with read(2): whatever is available, at least one byte; nil at the end or on an error.
+final class ChunkReader {
+    private let descriptor: Int32
+    private var buffer = [UInt8](repeating: 0, count: 65536)
+
+    init(_ descriptor: Int32) {
+        self.descriptor = descriptor
+    }
+
+    /// Blocks until the descriptor is readable (data, end of file or an error).
+    func waitReadable() {
+        var entry = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        while poll(&entry, 1, -1) < 0 && errno == EINTR {}
+    }
+
+    /// Whether the descriptor is readable now, without waiting.
+    static func isReadable(_ descriptor: Int32) -> Bool {
+        var entry = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        let result = poll(&entry, 1, 0)
+        return result > 0 && entry.revents != 0
+    }
+
+    func next() -> Data? {
+        while true {
+            let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+            if count > 0 { return Data(buffer[0..<count]) }
+            if count == 0 { return nil }
+            if errno == EINTR { continue }
+            return nil
+        }
+    }
+}
+
 final class LiveProcess: RunningProcess, @unchecked Sendable {
     /// Standard output kept for `stdoutAll`; a stream read through `lines` is long and not kept past this.
     private static let keepCap = 1_048_576
@@ -111,6 +144,9 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
     private let exit = Latch<Int32>()
     private var errorDrained = false
     private var exitPublished = false
+    /// True while the reader of standard error is blocked in `read` with nothing taken yet; guarded by `lock`.
+    private var errorReaderWaiting = false
+    private var errorDescriptor: Int32 = -1
 
     init(executable: URL, arguments: [String]) throws {
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
@@ -129,6 +165,7 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
 
         let outHandle = outPipe.fileHandleForReading
         let errHandle = errPipe.fileHandleForReading
+        errorDescriptor = errHandle.fileDescriptor
         Thread.detachNewThread { [self] in
             readOutput(outHandle, continuation)
             outputDone.set(())
@@ -144,6 +181,11 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
             while process.isRunning { usleep(20_000) }
             finish()
         }
+        // The third: Foundation's own blocking wait, on a thread of its own. Any one of the three ends the wait.
+        Thread.detachNewThread { [self] in
+            process.waitUntilExit()
+            finish()
+        }
     }
 
     /// Records the exit once, from whichever of the termination handler and the poll sees it first.
@@ -155,11 +197,25 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         }
         guard first else { return }
         publishExitIfReady()
-        // The exit is published when standard error reaches its end, so `stderrTail` is whole by then. A helper the
-        // child left behind may hold the pipe open, so a timer publishes it anyway, long after the exit. The wait is a
-        // timer, not a blocked thread.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + LiveProcess.stderrGrace) { [self] in
-            publishExit()
+        // The exit is published once standard error is drained: at its end, or when the reader is waiting with nothing
+        // left in the pipe. A grandchild that keeps the pipe open therefore delays nothing, and a child's last words
+        // are in `stderrTail` by then. A hard cap publishes it anyway.
+        pollExit(deadline: Date().addingTimeInterval(LiveProcess.stderrGrace))
+    }
+
+    private func pollExit(deadline: Date) {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.01) { [self] in
+            // Drained: at its end, or the reader is waiting for the pipe to become readable and nothing is readable.
+            // The reader clears `errorReaderWaiting` before it takes bytes and sets it again only after it has kept
+            // them, so there is no moment with bytes taken, not kept and the flag set.
+            let drained: Bool = lock.withLock {
+                errorDrained || (errorReaderWaiting && !ChunkReader.isReadable(errorDescriptor))
+            }
+            if drained || Date() >= deadline {
+                publishExit()
+            } else {
+                pollExit(deadline: deadline)
+            }
         }
     }
 
@@ -181,14 +237,11 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
 
     private func readOutput(_ handle: FileHandle, _ continuation: AsyncThrowingStream<Data, Error>.Continuation) {
         var splitter = LineSplitter()
+        let reader = ChunkReader(handle.fileDescriptor)
         while true {
-            let chunk: Data
-            do {
-                chunk = try handle.read(upToCount: 65536) ?? Data()
-            } catch {
-                break
-            }
-            if chunk.isEmpty { break }
+            // read(2) returns what is there; FileHandle.read(upToCount:) may wait for the whole count on a pipe and
+            // hold a line back until 64 KiB have arrived.
+            guard let chunk = reader.next(), !chunk.isEmpty else { break }
             lock.withLock {
                 if kept.count < LiveProcess.keepCap { kept.append(chunk.prefix(LiveProcess.keepCap - kept.count)) }
             }
@@ -206,11 +259,18 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
 
     /// Reads and drops the rest so the child is never blocked on a full pipe.
     private func drain(_ handle: FileHandle) {
-        while let chunk = try? handle.read(upToCount: 65536), !chunk.isEmpty {}
+        let reader = ChunkReader(handle.fileDescriptor)
+        while let chunk = reader.next(), !chunk.isEmpty {}
     }
 
     private func readError(_ handle: FileHandle) {
-        while let chunk = try? handle.read(upToCount: 65536), !chunk.isEmpty {
+        let reader = ChunkReader(handle.fileDescriptor)
+        while true {
+            lock.withLock { errorReaderWaiting = true }
+            reader.waitReadable()
+            // Cleared before the bytes are taken, so an exit that polls now sees a reader that is not waiting.
+            lock.withLock { errorReaderWaiting = false }
+            guard let chunk = reader.next(), !chunk.isEmpty else { break }
             lock.withLock {
                 errorTail.append(chunk)
                 if errorTail.count > LiveProcess.stderrCap {
