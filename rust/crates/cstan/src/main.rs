@@ -132,9 +132,59 @@ impl LineSink for StdoutSink {
     }
 }
 
+/// Whether the descriptor is a pipe or a socket, the only kinds whose far end can go away.
+fn is_pipe_or_socket(fd: libc::c_int) -> bool {
+    // SAFETY: fstat writes into the zeroed struct it is given.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd, &mut st) } != 0 {
+        return false;
+    }
+    let kind = st.st_mode & libc::S_IFMT;
+    kind == libc::S_IFIFO || kind == libc::S_IFSOCK
+}
+
+/// Ends the stream when the client goes away without a signal (an ssh session without a terminal): end of input on a
+/// piped stdin, or a closed reader on a piped stdout. A terminal, /dev/null or a file is never watched.
+fn install_disconnect_watchers() {
+    if is_pipe_or_socket(0) {
+        std::thread::spawn(|| {
+            let mut buf = [0u8; 4096];
+            loop {
+                // SAFETY: reads into a buffer of the stated length.
+                let n = unsafe { libc::read(0, buf.as_mut_ptr().cast(), buf.len()) };
+                if n == 0
+                    || (n < 0
+                        && std::io::Error::last_os_error().kind()
+                            != std::io::ErrorKind::Interrupted)
+                {
+                    STOP.store(true, Ordering::SeqCst);
+                    return;
+                }
+            }
+        });
+    }
+    if is_pipe_or_socket(1) {
+        std::thread::spawn(|| loop {
+            let mut fds = libc::pollfd {
+                fd: 1,
+                events: 0,
+                revents: 0,
+            };
+            // No requested events: POLLERR and POLLHUP are always reported, so this blocks until the reader closes.
+            // SAFETY: polls one valid pollfd.
+            let n = unsafe { libc::poll(&mut fds, 1, 100) };
+            if n > 0 && fds.revents & (libc::POLLERR | libc::POLLHUP) != 0 {
+                STOP.store(true, Ordering::SeqCst);
+                return;
+            }
+        });
+    }
+}
+
 /// Runs the event stream until a stop signal or a closed reader; the exit code.
 fn events(plan: &EventsPlan, cwd: PathBuf) -> i32 {
     install_stop_handlers();
+    install_disconnect_watchers();
     let mut deps = Deps::live(cwd, Box::new(std::io::stderr()));
     run_stream(plan, &mut deps, &mut StdoutSink, &STOP)
 }
