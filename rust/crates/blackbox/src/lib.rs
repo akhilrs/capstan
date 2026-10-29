@@ -1047,6 +1047,40 @@ impl World {
             .unwrap_or(0)
     }
 
+    /// How many rows of the event log of the ledger have `entity_type`: a read-only look at the ledger.
+    pub fn event_rows(&self, entity_type: &str) -> i64 {
+        let database = self.project.join(".capstan/state/controller.sqlite");
+        let connection = rusqlite::Connection::open_with_flags(
+            &database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .expect("the ledger opens");
+        connection
+            .query_row(
+                "SELECT count(*) FROM controller_events WHERE entity_type = ?1",
+                [entity_type],
+                |row| row.get(0),
+            )
+            .expect("the event log counts")
+    }
+
+    /// `cstan decide <args>` as a stranger to the project: run from the scratch root, outside the project, with an agent
+    /// environment that points nowhere. A command that wrongly used it would fail.
+    pub fn decide(&self, args: &[&str]) -> Out {
+        let mut all = vec!["decide"];
+        all.extend_from_slice(args);
+        self.cstan_with(
+            &self.root,
+            None,
+            &all,
+            &[
+                ("CAPSTAN_SOCKET", "/nonexistent/control.sock"),
+                ("CAPSTAN_TOKEN", "not-a-token"),
+            ],
+            None,
+        )
+    }
+
     /// Every file under the scratch root that holds `needle` (to prove a secret is not left in a log or file).
     pub fn files_holding(&self, needle: &str) -> Vec<PathBuf> {
         let mut found = Vec::new();

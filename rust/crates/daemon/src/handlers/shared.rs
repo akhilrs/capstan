@@ -70,6 +70,12 @@ pub enum ErrorCode {
     SelfSend,
     BodyTooLarge,
     NotConfigured,
+    NotWaiting,
+    HashMismatch,
+    NonceReused,
+    NeedsTerminal,
+    NoActivePm,
+    LimitReached,
     Error,
 }
 
@@ -93,6 +99,12 @@ impl ErrorCode {
             Self::SelfSend => "self_send",
             Self::BodyTooLarge => "body_too_large",
             Self::NotConfigured => "not_configured",
+            Self::NotWaiting => "not_waiting",
+            Self::HashMismatch => "hash_mismatch",
+            Self::NonceReused => "nonce_reused",
+            Self::NeedsTerminal => "needs_terminal",
+            Self::NoActivePm => "no_active_pm",
+            Self::LimitReached => "limit_reached",
             Self::Error => "error",
         }
     }
@@ -117,6 +129,12 @@ impl ErrorCode {
             Self::SelfSend,
             Self::BodyTooLarge,
             Self::NotConfigured,
+            Self::NotWaiting,
+            Self::HashMismatch,
+            Self::NonceReused,
+            Self::NeedsTerminal,
+            Self::NoActivePm,
+            Self::LimitReached,
             Self::Error,
         ]
         .into_iter()

@@ -8,7 +8,8 @@
 use crate::areas::{
     actors, agents, approval_windows, design_approvals, findings, integrations, links,
     message_notices, messages, operator_grants, operator_proposals, operator_runs, panes, pauses,
-    plan_packages, plans, prompt_relay, reports, reviews, status, verify_runs, warm_reviewers,
+    plan_packages, plans, prompt_relay, remote_decisions, reports, reviews, status, verify_runs,
+    warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -842,6 +843,16 @@ impl Core {
     /// `ControllerCore.seatActorIds`.
     pub fn seat_actor_ids(&self, credential: &str, seat_id: &str) -> KernelResult<Value> {
         actors::seat_actor_ids(&self.kernel, credential, seat_id)
+    }
+
+    /// One remote decision (see `areas/remote_decisions.rs`): a single mutation that applies or forwards the verb and
+    /// writes the row of its nonce.
+    pub fn decide(
+        &self,
+        context: &MutationContext,
+        input: &remote_decisions::DecideInput,
+    ) -> KernelResult<Value> {
+        remote_decisions::decide(self, context, input)
     }
 
     /// `ControllerCore.enqueueMessage`.

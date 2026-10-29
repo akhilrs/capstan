@@ -357,3 +357,18 @@ fn events_is_in_help_its_own_help_and_the_man_page() {
     let (page, _, _) = run(&["help", "--man"]);
     assert!(man_commands(&page).iter().any(|l| l == EVENTS_SYNOPSIS));
 }
+
+const DECIDE_SYNOPSIS: &str = "decide --project <root|projectId> [--json] <requestId> --expect <hash> --nonce <n> [--client <label>] <verb> [<args>]";
+
+#[test]
+fn decide_is_in_help_its_own_help_and_the_man_page() {
+    assert!(ENTRIES.iter().any(|e| e.syntax == DECIDE_SYNOPSIS));
+    let (help, _, exit) = run(&["help"]);
+    assert_eq!(exit, 0);
+    assert!(collapse(&help).contains(&collapse(DECIDE_SYNOPSIS)));
+    let (one, err, exit) = run(&["help", "decide"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert!(collapse(&one).contains(&collapse(DECIDE_SYNOPSIS)));
+    let (page, _, _) = run(&["help", "--man"]);
+    assert!(man_commands(&page).iter().any(|l| l == DECIDE_SYNOPSIS));
+}

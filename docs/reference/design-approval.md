@@ -65,3 +65,7 @@ When `Artifact` is missing or denied, the designer makes a static HTML mock and 
 ## The built-in designer prompt
 
 The designer's workflow, including this design-package stage, is built into Capstan: a Developer role named `designer` with no `prompt` or `prompt_file` uses it, and it updates with Capstan. A project that ran `cstan init` before this still has `prompt_file = "roles/designer.md"` and keeps the old file, which has no design-package stage. To adopt the built-in prompt, remove the `prompt_file` line from `[roles.designer]`. To keep local edits, leave it, or set `prompt` or `prompt_file` to override the built-in text.
+
+## Remote decisions
+
+`cstan decide design:<plan>/<package> ... approve` or `... changes` records the operator's design decision from outside the terminal. A remote decision is limited to what the operator may do: it is made with the operator key, approvals of commands and answers to prompts are forwarded to the PM as a message instead, and the `--nonce` makes a retry safe (a repeat returns the first answer and changes nothing). See [commands](commands.md).

@@ -176,6 +176,16 @@ fn relay_row(kernel: &Kernel, relay_id: &str) -> KernelResult<Option<RelayRow>> 
     )
 }
 
+/// The sequence and the options (as captured) of a relay, or none for a relay that does not exist.
+pub(crate) fn relay_options(
+    kernel: &Kernel,
+    relay_id: &str,
+) -> KernelResult<Option<(i64, Vec<Value>)>> {
+    relay_row(kernel, relay_id)?
+        .map(|row| Ok((row.sequence, row.options()?)))
+        .transpose()
+}
+
 fn relay_record(row: &RelayRow) -> KernelResult<Value> {
     let answer = match &row.answer_kind {
         None => Value::Null,

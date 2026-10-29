@@ -106,43 +106,64 @@ pub fn enqueue_message(
         "message:send",
         &json!({"recipientAgentId": recipient_id, "bodyHash": body_hash, "bodyBytes": bytes}),
         |actor| {
-            let agent = match kernel.agent_row(&recipient_id)? {
-                Some(agent) if agent.state == "active" => agent,
-                _ => {
-                    return reject(
-                        kernel,
-                        actor,
-                        "message.enqueue",
-                        Rejection::new(
-                            "unknown_recipient",
-                            "message recipient is not an active agent",
-                        ),
-                    )
-                }
-            };
-            let now = kernel.now();
-            let message_id = insert_queued_message(
+            apply_enqueue_message(
                 kernel,
-                &actor.actor_id,
-                &agent,
+                actor,
+                &recipient_id,
                 &body,
                 &body_hash,
-                &now,
                 action_needed,
                 class,
-            )?;
-            if let Some(sender) = kernel.agent_by_actor(&actor.actor_id)? {
-                kernel.touch_agent(&sender.agent_id, &now)?;
-            }
-            Ok(MutationOutput::new(json!({"messageId": message_id}), {
-                let mut event = MutationEvent::new("message", &message_id, 0).with_details(
-                    json!({"recipientAgentId": agent.agent_id, "bodyHash": body_hash}),
-                );
-                event.to_state = Some("queued".into());
-                event
-            }))
+            )
         },
     )
+}
+
+/// The body of the `message.enqueue` mutation, run by whoever holds the transaction. A recipient that is not an active
+/// agent is a recorded rejection, returned as the output.
+pub(crate) fn apply_enqueue_message(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    recipient_id: &str,
+    body: &str,
+    body_hash: &str,
+    action_needed: bool,
+    class: MessageClass,
+) -> KernelResult<MutationOutput> {
+    let agent = match kernel.agent_row(recipient_id)? {
+        Some(agent) if agent.state == "active" => agent,
+        _ => {
+            return reject(
+                kernel,
+                actor,
+                "message.enqueue",
+                Rejection::new(
+                    "unknown_recipient",
+                    "message recipient is not an active agent",
+                ),
+            )
+        }
+    };
+    let now = kernel.now();
+    let message_id = insert_queued_message(
+        kernel,
+        &actor.actor_id,
+        &agent,
+        body,
+        body_hash,
+        &now,
+        action_needed,
+        class,
+    )?;
+    if let Some(sender) = kernel.agent_by_actor(&actor.actor_id)? {
+        kernel.touch_agent(&sender.agent_id, &now)?;
+    }
+    Ok(MutationOutput::new(json!({"messageId": message_id}), {
+        let mut event = MutationEvent::new("message", &message_id, 0)
+            .with_details(json!({"recipientAgentId": agent.agent_id, "bodyHash": body_hash}));
+        event.to_state = Some("queued".into());
+        event
+    }))
 }
 
 /// The class an `enqueue_message` input asks for: an action-needed message is an action; else the explicit `class`; else

@@ -15,6 +15,7 @@ mod message_classes;
 mod plan_amend;
 mod plan_reassign;
 mod prompt_relay_backfill;
+mod remote_decisions;
 mod restart_summary;
 mod role_limit;
 mod snapshot_feed;

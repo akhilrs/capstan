@@ -8,6 +8,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use capstan_kernel::areas::event_feed::{self, FeedHead, FeedPage, Position, KEY_KINDS, V1_TYPES};
 use capstan_kernel::areas::feed_cursor::{decode_cursor, encode_cursor};
+use capstan_kernel::areas::remote_decisions::{
+    ERROR_CODES as DECIDE_ERROR_CODES, RESULT_FIELDS, VERBS,
+};
 use capstan_kernel::areas::snapshot_feed::{self, RunItem, SnapshotHead};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -99,6 +102,18 @@ fn required(ty: &str) -> Vec<&'static str> {
         "agent.blocked" => (&[AGENT], &["blocker"]),
         "run.changed" => (&[TEXT], &["state", "paused", "reason"]),
         "integration.finished" => (&[], &["integrationId", "state"]),
+        "decision.remote" => (
+            &[],
+            &[
+                "requestId",
+                "outcome",
+                "verb",
+                "client",
+                "contentHash",
+                "messageId",
+                "replaces",
+            ],
+        ),
         "snapshot.invalidated" => (&[], &["section", "key"]),
         other => panic!("no required fields known for {other}"),
     };
@@ -154,7 +169,7 @@ fn section_names() -> Vec<String> {
 }
 
 #[test]
-fn the_document_is_approved_with_its_ten_sections() {
+fn the_document_is_approved_with_its_eleven_sections() {
     let mut lines = DOC.lines();
     assert_eq!(lines.next(), Some("# Remote protocol v1"));
     assert_eq!(lines.next(), Some(""));
@@ -164,7 +179,7 @@ fn the_document_is_approved_with_its_ten_sections() {
         "the status line comes right after the title"
     );
     let sections = section_names();
-    assert_eq!(sections.len(), 10, "{sections:?}");
+    assert_eq!(sections.len(), 11, "{sections:?}");
     for (index, section) in sections.iter().enumerate() {
         assert!(
             section.starts_with(&format!("{}. ", index + 1)),
@@ -449,4 +464,170 @@ fn the_head_snapshot_and_page_answers_list_the_fields_the_code_serializes() {
     };
     assert_eq!(listed_fields("A `feed page` answer is `"), keys_of(&page));
     assert!(DOC.contains("`anchor`"));
+}
+
+// ------------------------------------------------------------------------------------------------------ section 11
+
+/// The text of section 11 of `doc`.
+fn decisions_section(doc: &str) -> Result<&str, String> {
+    let start = doc
+        .find("\n## 11. Decisions\n")
+        .ok_or("the document has no section 11")?;
+    Ok(&doc[start..])
+}
+
+/// The `(kind, verb, outcome)` rows of the verbs table of section 11.
+fn verb_rows(doc: &str) -> Result<Vec<(String, String, String)>, String> {
+    let section = decisions_section(doc)?;
+    let rows: Vec<(String, String, String)> = section
+        .lines()
+        .skip_while(|line| *line != "| kind | verb | outcome |")
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .map(|line| {
+            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+            match cells[..] {
+                [kind, verb, outcome] => Ok((kind.into(), verb.into(), outcome.into())),
+                _ => Err(format!("a verbs row without three cells: {line}")),
+            }
+        })
+        .collect::<Result<_, _>>()?;
+    if rows.is_empty() {
+        return Err("the verbs table of section 11 is missing".into());
+    }
+    Ok(rows)
+}
+
+/// Whether the verbs table of `doc` lists exactly the verbs of the kernel.
+fn check_verbs(doc: &str) -> Result<(), String> {
+    let mut listed = verb_rows(doc)?;
+    let mut expected: Vec<(String, String, String)> = VERBS
+        .iter()
+        .map(|row| {
+            (
+                row.kind.as_str().to_string(),
+                row.verb.to_string(),
+                row.outcome.as_str().to_string(),
+            )
+        })
+        .collect();
+    listed.sort();
+    expected.sort();
+    if listed == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "verbs: the document has {listed:?}, the code {expected:?}"
+        ))
+    }
+}
+
+/// Whether section 11 of `doc` names every refusal code of the route.
+fn check_codes(doc: &str) -> Result<(), String> {
+    let section = decisions_section(doc)?;
+    for code in DECIDE_ERROR_CODES
+        .iter()
+        .chain(&["forbidden", "unauthorized"])
+    {
+        if !section.contains(&format!("`{code}`")) {
+            return Err(format!("section 11 lacks the code {code}"));
+        }
+    }
+    Ok(())
+}
+
+/// The JSON objects of the fenced blocks of section 11.
+fn decision_examples(doc: &str) -> Result<Vec<Value>, String> {
+    let mut values = Vec::new();
+    let mut open: Option<String> = None;
+    for line in decisions_section(doc)?.lines() {
+        match (&mut open, line.trim_end()) {
+            (None, "```json") => open = Some(String::new()),
+            (Some(_), "```") => {
+                let text = open.take().expect("a block is open");
+                values.push(
+                    serde_json::from_str::<Value>(&text).map_err(|e| format!("{e}: {text}"))?,
+                );
+            }
+            (Some(text), _) => text.push_str(line),
+            (None, _) => {}
+        }
+    }
+    Ok(values)
+}
+
+fn field_names(value: &Value) -> BTreeSet<String> {
+    value
+        .as_object()
+        .map(|object| object.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// Whether section 11 has one result with the fields of the kernel and one refusal of the form `{v, error {code, message}}`.
+fn check_examples(doc: &str) -> Result<(), String> {
+    let examples = decision_examples(doc)?;
+    let results: Vec<&Value> = examples
+        .iter()
+        .filter(|v| v.get("decisionId").is_some())
+        .collect();
+    let refusals: Vec<&Value> = examples
+        .iter()
+        .filter(|v| v.get("error").is_some())
+        .collect();
+    let [result] = results[..] else {
+        return Err(format!("{} result examples, one wanted", results.len()));
+    };
+    let [refusal] = refusals[..] else {
+        return Err(format!("{} refusal examples, one wanted", refusals.len()));
+    };
+    let want: BTreeSet<String> = RESULT_FIELDS.iter().map(|f| f.to_string()).collect();
+    if field_names(result) != want {
+        return Err(format!(
+            "result fields {:?}, the code has {want:?}",
+            field_names(result)
+        ));
+    }
+    let top: BTreeSet<String> = ["v", "error"].map(String::from).into();
+    let inner: BTreeSet<String> = ["code", "message"].map(String::from).into();
+    if field_names(refusal) != top || field_names(&refusal["error"]) != inner {
+        return Err(format!("refusal fields {:?}", field_names(refusal)));
+    }
+    if refusal["error"]["code"].as_str().is_none() || result["v"] != 1 || refusal["v"] != 1 {
+        return Err("an example without its code or with another version".into());
+    }
+    Ok(())
+}
+
+#[test]
+fn section_11_lists_the_verbs_the_codes_and_the_examples_of_the_code() {
+    check_verbs(DOC).unwrap();
+    check_codes(DOC).unwrap();
+    check_examples(DOC).unwrap();
+}
+
+#[test]
+fn the_verbs_check_fails_on_a_row_less_and_on_an_extra_row() {
+    let row = "| op | deny | applied |\n";
+    assert!(DOC.contains(row));
+    let fewer = DOC.replacen(row, "", 1);
+    assert!(check_verbs(&fewer).is_err());
+    let extra = DOC.replacen(row, &format!("{row}| op | cancel | applied |\n"), 1);
+    assert!(check_verbs(&extra).is_err());
+    let other = DOC.replacen(row, "| op | deny | forwarded |\n", 1);
+    assert!(check_verbs(&other).is_err());
+}
+
+#[test]
+fn the_code_and_example_checks_fail_on_a_changed_copy() {
+    let without_code = DOC.replace("`limit_reached`", "`limit`");
+    assert!(check_codes(&without_code).is_err());
+    let without_field = DOC.replacen(",\"eventSeq\":57", "", 1);
+    assert_ne!(without_field, DOC);
+    assert!(check_examples(&without_field).is_err());
+    let renamed = DOC.replacen(
+        "{\"code\":\"hash_mismatch\"",
+        "{\"kind\":\"hash_mismatch\"",
+        1,
+    );
+    assert!(check_examples(&renamed).is_err());
 }

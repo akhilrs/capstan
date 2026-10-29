@@ -8,6 +8,7 @@ pub mod compact;
 pub mod config_cmd;
 pub mod controllers;
 pub mod dash;
+pub mod decide;
 pub mod design_guide;
 pub mod events;
 pub mod git;
@@ -376,6 +377,7 @@ impl Cli<'_> {
             }
             "controllers" => return self.controllers(&rest),
             "events" => return events_plan(&rest).map(Flow::Events),
+            "decide" => return self.decide(&rest),
             "start" => return self.start(&rest),
             "stop" => return self.stop(&rest),
             "inbox" if rest.len() == 1 && rest[0] == "--hook" => return self.inbox_hook(),
@@ -434,6 +436,16 @@ impl Cli<'_> {
             return self.inspect(&rest);
         }
         Err(Fail::Usage)
+    }
+
+    /// `cstan decide`: one remote decision on a waiting item, over the operator socket of a local project. It never
+    /// reads the agent environment and never starts a daemon.
+    fn decide(&mut self, args: &[String]) -> Result<Flow, Fail> {
+        let plan = decide::plan(args).ok_or(Fail::Usage)?;
+        let reply = decide::run(&plan, &controllers::processes(), decide::TIMEOUT_MS);
+        self.io.out.extend_from_slice(reply.stdout.as_bytes());
+        self.io.err.extend_from_slice(reply.stderr.as_bytes());
+        Ok(Flow::Code(reply.exit))
     }
 
     /// `cstan design guide [<topic>]`: handled here, before routing, so it needs no daemon. `--help` prints the entry;

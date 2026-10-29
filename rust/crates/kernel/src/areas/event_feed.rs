@@ -490,6 +490,13 @@ pub const MAPPING: &[Rule] = &[
     ),
     rule("run_control", "run.transition", "*", "+", ev("run.changed")),
     rule(
+        "remote_decision",
+        "remote.decide",
+        "*",
+        "*",
+        ev("decision.remote"),
+    ),
+    rule(
         "integration",
         "integration.finish",
         "running",
@@ -574,6 +581,7 @@ pub const V1_TYPES: &[&str] = &[
     "agent.blocked",
     "run.changed",
     "integration.finished",
+    "decision.remote",
     "snapshot.invalidated",
 ];
 
@@ -1474,6 +1482,26 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 item_key("run", "run", ""),
                 json!({}),
             )];
+        }
+        "decision.remote" => {
+            let details = &row.details;
+            for key in ["requestId", "outcome", "verb", "client", "contentHash"] {
+                body.insert(key.into(), details[key].clone());
+            }
+            for key in ["messageId", "replaces"] {
+                body.insert(key.into(), details.get(key).cloned().unwrap_or(Value::Null));
+            }
+            // The item the decision was made on: a waiting key, the agent id in `agents`, or the run.
+            let key = text_of(details, "itemKey").unwrap_or("");
+            let request = text_of(details, "requestId").unwrap_or("");
+            let section = if request == "run" {
+                "run"
+            } else if request.starts_with("agent:") {
+                "agents"
+            } else {
+                "waiting"
+            };
+            effects = vec![effect(section, "invalidate", key.to_string(), json!({}))];
         }
         "integration.finished" => {
             body.insert("integrationId".into(), json!(row.entity_id));
