@@ -161,6 +161,31 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(savedAt >= 2 && savedAt < 2.5, "saved at \(savedAt)")
     }
 
+    func testADeferredSaveBuildsTheHostOnlyWhenItWrites() async throws {
+        let hostId = UUID()
+        let clock = TestClock()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store, clock: clock)
+        await engine.apply(host: hostId, lines: try [StoreWire.hello()] + completeProject() + [StoreWire.cursor(makeCursor(["proj-a"], sequence: 1))])
+        let afterFirst = await engine.persistedBuildCount
+        XCTAssertEqual(afterFirst, 1, "the first save builds and writes at once")
+
+        for step in 2...4 {
+            clock.advance(by: 0.3)
+            await engine.apply(host: hostId, lines: [try StoreWire.cursor(makeCursor(["proj-a"], sequence: Int64(step)))])
+            await eventually("the deferred save to sleep") { clock.sleeperCount == 1 }
+        }
+        let whileDeferred = await engine.persistedBuildCount
+        XCTAssertEqual(whileDeferred, 1, "a deferred save builds nothing")
+        XCTAssertEqual(store.saves.count, 1)
+
+        clock.advance(by: 1.2)
+        await eventually("the save at the 2 s mark") { store.saves.count == 2 }
+        let afterWrite = await engine.persistedBuildCount
+        XCTAssertEqual(afterWrite, 2, "the write builds it once")
+        XCTAssertEqual(store.saves.last?.cursor, makeCursor(["proj-a"], sequence: 4))
+    }
+
     func testFlushSavesAtOnce() async throws {
         let hostId = UUID()
         let clock = TestClock()

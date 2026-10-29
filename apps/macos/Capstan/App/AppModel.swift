@@ -13,7 +13,9 @@ final class AppModel {
     static let settingsKey = "settings.v1"
 
     var hosts: [HostConfig]
-    var hostModels: [UUID: HostModel]
+    var hostModels: [UUID: HostModel] {
+        didSet { modelVersion += 1 }
+    }
     var connection: [UUID: ConnectionState]
     private var connectionNumber: [UUID: Int] = [:]
     var capabilities: [UUID: HostCapabilities]
@@ -58,6 +60,9 @@ final class AppModel {
     @ObservationIgnored private var unloaded: Set<UUID> = []
     @ObservationIgnored private var restoring = false
     @ObservationIgnored private var pendingRow: PendingRow?
+    /// Counts the changes of `hostModels`; what is derived from the models is kept for one count.
+    @ObservationIgnored private var modelVersion = 0
+    @ObservationIgnored private var derived = DerivedReads()
     @ObservationIgnored private var pendingModels: [UUID: (model: HostModel, generation: Int)] = [:]
     @ObservationIgnored private var modelFlushScheduled = false
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
@@ -389,19 +394,34 @@ final class AppModel {
 
     // MARK: Reading
 
-    /// The groups the inbox shows for the selection, the kind filter and the search.
-    func inbox() -> [InboxGroup] {
-        scope(kind: inboxKind).apply(CapstanKit.inbox(Array(hostModels.values)))
+    /// The groups of every waiting item, whatever the selection; kept until the models change.
+    private func baseInbox() -> [InboxGroup] {
+        let models = hostModels  // read here, so a view that calls this is told of a change even when the answer is kept
+        if let kept = derived.base, kept.version == modelVersion { return kept.groups }
+        let groups = CapstanKit.inbox(Array(models.values))
+        derived.base = (modelVersion, groups)
+        return groups
     }
 
-    /// The same groups as the screen lists them: merged and conflicted integrations apart.
+    /// The groups the inbox shows for the selection, the kind filter and the search.
+    func inbox() -> [InboxGroup] {
+        scope(kind: inboxKind).apply(baseInbox())
+    }
+
+    /// The same groups as the screen lists them: merged and conflicted integrations apart. Kept until the models, the
+    /// selection, the kind filter or the search change.
     func displayGroups() -> [DisplayGroup] {
-        InboxLayout.groups(inbox())
+        let key = DerivedReads.GroupsKey(version: modelVersion, selection: selection, kind: inboxKind, search: inboxSearch)
+        _ = hostModels
+        if let kept = derived.display, kept.key == key { return kept.groups }
+        let groups = InboxLayout.groups(inbox())
+        derived.display = (key, groups)
+        return groups
     }
 
     /// The number of rows the selection and the search leave, whatever the kind filter: the "All" count.
     func inboxTotal() -> Int {
-        scope(kind: nil).apply(CapstanKit.inbox(Array(hostModels.values))).reduce(0) { $0 + $1.count }
+        scope(kind: nil).apply(baseInbox()).reduce(0) { $0 + $1.count }
     }
 
     private func scope(kind: WaitingKind?) -> InboxScope {
@@ -419,11 +439,19 @@ final class AppModel {
     }
 
     var sidebarCounts: SidebarCounts {
-        SidebarCounts.make(Array(hostModels.values))
+        let models = hostModels
+        if let kept = derived.counts, kept.version == modelVersion { return kept.counts }
+        let counts = SidebarCounts.make(Array(models.values))
+        derived.counts = (modelVersion, counts)
+        return counts
     }
 
     var badgeCount: Int {
-        CapstanKit.badgeCount(Array(hostModels.values))
+        let models = hostModels
+        if let kept = derived.badge, kept.version == modelVersion { return kept.count }
+        let count = CapstanKit.badgeCount(Array(models.values))
+        derived.badge = (modelVersion, count)
+        return count
     }
 
     func project(_ hostId: UUID, _ projectId: String) -> ProjectModel? {
@@ -657,4 +685,19 @@ private final class StateNumbering: @unchecked Sendable {
             return last
         }
     }
+}
+
+/// What is worked out from the models for the views, kept for one version of the models.
+private struct DerivedReads {
+    struct GroupsKey: Equatable {
+        let version: Int
+        let selection: SidebarSelection
+        let kind: WaitingKind?
+        let search: String
+    }
+
+    var base: (version: Int, groups: [InboxGroup])?
+    var display: (key: GroupsKey, groups: [DisplayGroup])?
+    var counts: (version: Int, counts: SidebarCounts)?
+    var badge: (version: Int, count: Int)?
 }

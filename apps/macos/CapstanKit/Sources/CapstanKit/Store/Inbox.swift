@@ -91,13 +91,42 @@ public struct InboxFilter: Sendable, Equatable {
     public static let all = InboxFilter()
 }
 
-/// `since` as a date; nil when it is not ISO 8601 UTC, with or without fractional seconds.
-private func sinceDate(_ text: String) -> Date? {
-    let plain = ISO8601DateFormatter()
-    plain.formatOptions = [.withInternetDateTime]
-    let fractional = ISO8601DateFormatter()
-    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return fractional.date(from: text) ?? plain.date(from: text)
+/// Reads `since` as a date. The formatters are made once; the lock keeps one call at a time, as actors share them.
+private final class SinceParser: @unchecked Sendable {
+    static let shared = SinceParser()
+
+    private let lock = NSLock()
+    private let plain: ISO8601DateFormatter
+    private let fractional: ISO8601DateFormatter
+
+    private init() {
+        plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    }
+
+    /// nil when the text is not ISO 8601 UTC, with or without fractional seconds.
+    func date(_ text: String) -> Date? {
+        lock.withLock { fractional.date(from: text) ?? plain.date(from: text) }
+    }
+}
+
+/// The rows oldest first: by date when both dates read, else by the `since` text; then host, project and key.
+/// Each date is read once, before the sort.
+func sortedInboxRows(_ rows: [InboxRow]) -> [InboxRow] {
+    let parser = SinceParser.shared
+    let dated = rows.map { (row: $0, date: parser.date($0.since)) }
+    let sorted = dated.sorted { left, right in
+        if left.row.since != right.row.since {
+            if let a = left.date, let b = right.date, a != b { return a < b }
+            return left.row.since < right.row.since
+        }
+        if left.row.id.hostId != right.row.id.hostId { return left.row.id.hostId.uuidString < right.row.id.hostId.uuidString }
+        if left.row.id.projectId != right.row.id.projectId { return left.row.id.projectId < right.row.id.projectId }
+        return left.row.id.key < right.row.id.key
+    }
+    return sorted.map(\.row)
 }
 
 /// The groups of waiting items, each oldest first. Empty groups are left out.
@@ -118,15 +147,7 @@ public func inbox(_ hosts: [HostModel], filter: InboxFilter = .all) -> [InboxGro
             }
         }
     }
-    rows.sort { left, right in
-        if left.since != right.since {
-            if let a = sinceDate(left.since), let b = sinceDate(right.since), a != b { return a < b }
-            return left.since < right.since
-        }
-        if left.id.hostId != right.id.hostId { return left.id.hostId.uuidString < right.id.hostId.uuidString }
-        if left.id.projectId != right.id.projectId { return left.id.projectId < right.id.projectId }
-        return left.id.key < right.id.key
-    }
+    rows = sortedInboxRows(rows)
     return WaitingKind.inboxOrder.compactMap { kind in
         let members = rows.filter { $0.kind == kind }
         return members.isEmpty ? nil : InboxGroup(kind: kind, title: kind.groupTitle, rows: members)
