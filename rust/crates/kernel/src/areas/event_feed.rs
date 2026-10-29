@@ -834,7 +834,7 @@ fn creation_payload(ctx: &mut Ctx<'_>, entity_type: &str, id: &str) -> Step<Opti
     let project = ctx.project_id.clone();
     let found = ctx.lookup(
         format!("created:{entity_type}:{id}"),
-        "SELECT payload_json FROM controller_events WHERE project_id = ? AND entity_type = ? AND entity_id = ?
+        "SELECT payload_json FROM controller_events INDEXED BY controller_events_by_entity WHERE project_id = ? AND entity_type = ? AND entity_id = ?
            AND from_state IS NULL AND to_state IS NOT NULL ORDER BY sequence LIMIT 1",
         sql_params![project, entity_type, id],
         &["payload"],

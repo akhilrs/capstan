@@ -498,7 +498,7 @@ pub fn record_agent_lost(
                 return Err(KernelError::controller("agent is not active"));
             };
             let now = kernel.now();
-            let unacknowledged: Vec<String> = messages::message_rows_for(kernel, agent_id)?
+            let unacknowledged: Vec<String> = messages::open_message_rows_for(kernel, agent_id)?
                 .into_iter()
                 .filter(|row| !is_final_state(&row.state))
                 .map(|row| row.message_id)
@@ -719,8 +719,8 @@ pub fn agent_seed(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
     let Some(agent) = kernel.agent_row(agent_id)? else {
         return Err(KernelError::controller("the agent does not exist"));
     };
-    let all_messages = messages::message_rows_for(kernel, agent_id)?;
-    let shown = &all_messages[all_messages.len().saturating_sub(SEED_MESSAGES)..];
+    let shown = &messages::last_message_rows_for(kernel, agent_id, SEED_MESSAGES)?;
+    let message_total = messages::message_count_for(kernel, agent_id)?;
     let reports = query_all(
         &kernel.database,
         "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND state = 'accepted' ORDER BY sequence",
@@ -809,7 +809,7 @@ pub fn agent_seed(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
         "taskRef": pane.as_ref().and_then(|p| p.2.clone()),
         "taskTitle": pane.as_ref().and_then(|p| p.3.clone()),
         "messages": message_values,
-        "messagesOmitted": all_messages.len() - shown.len(),
+        "messagesOmitted": message_total - shown.len(),
         "reports": reports[reports.len().saturating_sub(SEED_REPORTS)..].iter().map(|r| json!({
             "reportId": r.report_id,
             "commitSha": r.commit_sha,

@@ -369,7 +369,7 @@ pub fn end_agent(
             }
             operator_proposals::cancel_unstarted_operator_proposals_of(kernel, agent_id, &now)?;
             operator_grants::end_operator_grants_of(kernel, agent_id)?;
-            let unacknowledged: Vec<String> = messages::message_rows_for(kernel, agent_id)?
+            let unacknowledged: Vec<String> = messages::open_message_rows_for(kernel, agent_id)?
                 .into_iter()
                 .filter(|row| !is_final_state(&row.state))
                 .map(|row| row.message_id)
@@ -547,7 +547,7 @@ fn restart_summary(
             messages.push(message);
         }
     };
-    for row in messages::message_rows_for(kernel, agent_id)? {
+    for row in messages::open_message_rows_for(kernel, agent_id)? {
         if matches!(row.state.as_str(), "acked" | "acked_late" | "cancelled") {
             continue;
         }
