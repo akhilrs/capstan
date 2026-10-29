@@ -10,8 +10,8 @@ struct StatusCapsule: View {
     @State private var flash = false
 
     var body: some View {
-        let state = hostId.flatMap { model.connection[$0] }
-        let loading = anyLoading(hostId.flatMap { model.hostModels[$0] })
+        let state = hostId.map { model.connection[$0] } ?? aggregateConnection(Array(model.connection.values))
+        let loading = hostId.map { anyLoading(model.hostModels[$0]) } ?? model.hostModels.values.contains { anyLoading($0) }
         let spec = CapsuleChoice.make(
             state: state, anyLoading: loading, heartbeatPulse: model.settings.heartbeatPulse,
             reduceMotion: reduceMotion)

@@ -67,6 +67,11 @@ final class Latch<Value: Sendable>: @unchecked Sendable {
         for waiter in resumed { waiter.resume(returning: newValue) }
     }
 
+    /// The value if it is set, without waiting.
+    func peek() -> Value? {
+        lock.withLock { value }
+    }
+
     func wait() async -> Value {
         await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
             let ready: Value? = lock.withLock {
@@ -98,9 +103,11 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
     private let lock = NSLock()
     private var kept = Data()
     private var errorTail = Data()
+    private var finished = false
     private let outputDone = Latch<Void>()
     private let exit = Latch<Int32>()
-    private let errorDone = DispatchSemaphore(value: 0)
+    private var errorDrained = false
+    private var exitPublished = false
 
     init(executable: URL, arguments: [String]) throws {
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
@@ -114,14 +121,7 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         process.standardError = errPipe
 
         let outputDone = self.outputDone
-        let exit = self.exit
-        let errorDone = self.errorDone
-        process.terminationHandler = { finished in
-            // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open.
-            _ = errorDone.wait(timeout: .now() + 0.25)
-            let status = finished.terminationStatus
-            exit.set(finished.terminationReason == .uncaughtSignal ? 128 + status : status)
-        }
+        process.terminationHandler = { [weak self] _ in self?.finish() }
         try process.run()
 
         let outHandle = outPipe.fileHandleForReading
@@ -132,8 +132,47 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         }
         Thread.detachNewThread { [self] in
             readError(errHandle)
-            errorDone.signal()
+            lock.withLock { errorDrained = true }
+            publishExitIfReady()
         }
+        // The termination handler is the first way to learn of the exit; this poll is the second, so a handler that
+        // does not run cannot leave `exitCode` waiting for good.
+        Thread.detachNewThread { [self] in
+            while process.isRunning { usleep(20_000) }
+            finish()
+        }
+    }
+
+    /// Records the exit once, from whichever of the termination handler and the poll sees it first.
+    private func finish() {
+        let first: Bool = lock.withLock {
+            guard !finished else { return false }
+            finished = true
+            return true
+        }
+        guard first else { return }
+        publishExitIfReady()
+        // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open. The wait
+        // is a timer, not a blocked thread.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.25) { [self] in
+            publishExit()
+        }
+    }
+
+    private func publishExitIfReady() {
+        let ready: Bool = lock.withLock { finished && errorDrained }
+        if ready { publishExit() }
+    }
+
+    private func publishExit() {
+        let first: Bool = lock.withLock {
+            guard !exitPublished else { return false }
+            exitPublished = true
+            return true
+        }
+        guard first else { return }
+        let status = process.terminationStatus
+        exit.set(process.terminationReason == .uncaughtSignal ? 128 + status : status)
     }
 
     private func readOutput(_ handle: FileHandle, _ continuation: AsyncThrowingStream<Data, Error>.Continuation) {
@@ -187,13 +226,16 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         return String(decoding: tail, as: UTF8.self)
     }
 
+    /// Returns at once: the signals are sent from a dispatch queue, so no caller waits on Foundation's process lock.
     func terminate(grace: TimeInterval) {
-        guard process.isRunning else { return }
-        process.terminate()
-        let pid = process.processIdentifier
-        let child = self.process
-        DispatchQueue.global().asyncAfter(deadline: .now() + max(grace, 0)) {
-            if child.isRunning { kill(pid, SIGKILL) }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            guard process.isRunning else { return }
+            process.terminate()
+            let pid = process.processIdentifier
+            let child = process
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + max(grace, 0)) {
+                if child.isRunning { kill(pid, SIGKILL) }
+            }
         }
     }
 

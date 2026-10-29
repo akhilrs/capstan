@@ -9,8 +9,13 @@ struct FakeScript {
     var exit: Int32?
     var stderr = ""
     var stdout = ""
+    /// A terminate ends the output at once but the child only exits when the test calls `end`.
+    var slowExit = false
 
-    init(chunks: [String] = [], exit: Int32? = nil, stderr: String = "", stdout: String = "") {
+    init(
+        chunks: [String] = [], exit: Int32? = nil, stderr: String = "", stdout: String = "", slowExit: Bool = false
+    ) {
+        self.slowExit = slowExit
         self.chunks = chunks
         self.exit = exit
         self.stderr = stderr
@@ -27,15 +32,22 @@ final class FakeProcess: RunningProcess, @unchecked Sendable {
     private var stderrText = ""
     private var terminations = 0
     private let exit = Latch<Int32>()
+    private let slowExit: Bool
+    private var exited = false
 
     init(script: FakeScript) {
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
         lines = stream
         self.continuation = continuation
+        slowExit = script.slowExit
         stdoutData = Data(script.stdout.utf8)
         stderrText = script.stderr
         for chunk in script.chunks { send(chunk) }
         if let code = script.exit { end(exit: code) }
+    }
+
+    var isRunning: Bool {
+        lock.withLock { !exited }
     }
 
     var terminateCount: Int {
@@ -60,6 +72,7 @@ final class FakeProcess: RunningProcess, @unchecked Sendable {
     func end(exit code: Int32, stderr: String? = nil) {
         if let stderr { lock.withLock { stderrText = stderr } }
         continuation.finish()
+        lock.withLock { exited = true }
         exit.set(code)
     }
 
@@ -75,6 +88,8 @@ final class FakeProcess: RunningProcess, @unchecked Sendable {
     func terminate(grace: TimeInterval) {
         lock.withLock { terminations += 1 }
         continuation.finish()
+        if slowExit { return }
+        lock.withLock { exited = true }
         exit.set(143)
     }
 
@@ -92,6 +107,7 @@ final class FakeRunner: ProcessRunner, @unchecked Sendable {
     private var started: [(executable: URL, arguments: [String])] = []
     private var children: [FakeProcess] = []
     private var failNext = false
+    private var maxConcurrent = 0
 
     func enqueue(_ script: FakeScript) {
         lock.withLock { scripts.append(script) }
@@ -110,10 +126,17 @@ final class FakeRunner: ProcessRunner, @unchecked Sendable {
         if fail { throw FakeStartError() }
         let child = FakeProcess(script: script)
         lock.withLock {
+            let live = children.filter { $0.isRunning }.count + 1
+            maxConcurrent = max(maxConcurrent, live)
             started.append((executable, arguments))
             children.append(child)
         }
         return child
+    }
+
+    /// The most children that were running at the same moment.
+    var maxConcurrentChildren: Int {
+        lock.withLock { maxConcurrent }
     }
 
     var startCount: Int {

@@ -64,6 +64,21 @@ final class HostsTests: XCTestCase {
         XCTAssertFalse(anyLoading(nil))
     }
 
+    func test_anyLoading_ignoresProjectsThatAreNotReady() {
+        let ready = ProjectModel(projectId: "a", root: "/a", snapshotComplete: true)
+        let old = ProjectModel(projectId: "b", root: "/b", availability: .unsupported, snapshotComplete: false)
+        let host = HostModel(hostId: UUID(), projects: ["a": ready, "b": old])
+        XCTAssertFalse(anyLoading(host))
+    }
+
+    func test_aggregateConnection_isLiveIfAnyHostIsLive() {
+        let live = ConnectionState.live(since: now, lastLineAt: now)
+        XCTAssertNil(aggregateConnection([]))
+        XCTAssertEqual(aggregateConnection([.connecting, live, .stopped(.repeatedFailure)]), live)
+        XCTAssertEqual(aggregateConnection([.stopped(.user), .connecting]), .connecting)
+        XCTAssertEqual(aggregateConnection([.stopped(.user), .stopped(.repeatedFailure)]), .stopped(.repeatedFailure))
+    }
+
     // MARK: CapsuleChoice
 
     private func capsule(_ state: ConnectionState?, loading: Bool = false, pulse: Bool = true, reduce: Bool = false)
@@ -222,11 +237,21 @@ final class HostsTests: XCTestCase {
         XCTAssertTrue(banners(live, decide: true).isEmpty)
     }
 
-    func test_Banner_failureThenNoDecide() {
-        let b = banners(.stopped(.repeatedFailure), decide: false)
-        XCTAssertEqual(b.map(\.kind), [.state, .noDecide])
-        let c = banners(reconnecting(.ssh(tail: text("x"))), decide: false)
-        XCTAssertEqual(c.map(\.kind), [.state, .noDecide])
+    func test_Banner_noDecideWaitsForALiveStream() {
+        let stopped = banners(.stopped(.repeatedFailure), decide: false)
+        XCTAssertEqual(stopped.map(\.kind), [.state])
+        let retrying = banners(reconnecting(.ssh(tail: text("x"))), decide: false)
+        XCTAssertEqual(retrying.map(\.kind), [.state])
+        XCTAssertTrue(banners(.connecting, decide: false).isEmpty)
+    }
+
+    func test_Banner_oldCstanWithoutEvents() {
+        let old = banners(.stopped(.hostRejected(code: nil, tail: text("cstan: unknown command: events"))), name: "box")[0]
+        XCTAssertEqual(
+            old.text, "The cstan on box is too old for this app; update it to a version with 'cstan events'")
+        XCTAssertEqual(old.detail?.raw, "cstan: unknown command: events")
+        let other = banners(.stopped(.hostRejected(code: nil, tail: text("boom"))))[0]
+        XCTAssertEqual(other.text, "The host refused: no code")
     }
 
     func test_Banner_loading() {

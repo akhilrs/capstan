@@ -91,6 +91,8 @@ public actor HostStoreEngine: StreamConsumer {
         }
         onChange(model)
         if !notify.isEmpty { onNotify(notify) }
+        // Interim (plan-73 replaces the restart): a project that is not ready has nothing to read again.
+        refresh = refresh.filter { model.projects[$0]?.availability == .ready }
         if !refresh.isEmpty { onRefresh(refresh) }
         if cursorSeen { scheduleSave(persistedNow()) }
     }

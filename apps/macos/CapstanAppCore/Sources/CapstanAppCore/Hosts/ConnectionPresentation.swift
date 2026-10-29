@@ -81,7 +81,8 @@ public enum BannerChoice {
         if anyLoading, case .live = state {
             banners.append(BannerSpec(kind: .loading, tone: .blue, text: "Loading projects"))
         }
-        if decide == false {
+        // The probe's answer counts only once the stream itself connected; a failed stream says nothing about decisions.
+        if decide == false, case .live = state {
             banners.append(
                 BannerSpec(
                     kind: .noDecide, tone: .grey,
@@ -150,6 +151,12 @@ public enum BannerChoice {
         case .unsupportedVersion:
             return BannerSpec(kind: .state, tone: .red, text: "Update this app")
         case .hostRejected(let code, let tail):
+            if code == nil, HostText.mentionsUnknownEventsCommand(tail.raw) {
+                return BannerSpec(
+                    kind: .state, tone: .red,
+                    text: "The cstan on \(name) is too old for this app; update it to a version with 'cstan events'",
+                    detail: HostText.detail(tail))
+            }
             let shown = code.map { HostText.code($0) } ?? "no code"
             return BannerSpec(
                 kind: .state, tone: .red, text: "The host refused: \(shown)", detail: HostText.detail(tail))

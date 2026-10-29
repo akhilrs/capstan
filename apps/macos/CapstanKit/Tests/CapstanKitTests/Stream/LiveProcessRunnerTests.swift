@@ -60,7 +60,20 @@ final class LiveProcessRunnerTests: XCTestCase {
         var iterator = process.lines.makeAsyncIterator()
         _ = try await iterator.next()
         process.terminate(grace: 5)
-        let code = await process.exitCode()
+        let code = await exitCode(of: process, within: 20)
         XCTAssertEqual(code, 128 + SIGTERM)
+    }
+
+    /// The exit code, or nil after `seconds`, so a child that never reports an exit fails the test instead of hanging it.
+    /// The timeout belongs to XCTest, not to the cooperative pool the code under test may be holding.
+    private func exitCode(of process: any RunningProcess, within seconds: Double) async -> Int32? {
+        let done = expectation(description: "child exit")
+        let result = Latch<Int32>()
+        Task.detached {
+            result.set(await process.exitCode())
+            done.fulfill()
+        }
+        await fulfillment(of: [done], timeout: seconds)
+        return result.peek()
     }
 }
