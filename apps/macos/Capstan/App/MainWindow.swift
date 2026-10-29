@@ -7,10 +7,13 @@ struct MainWindow: View {
     @Bindable var model: AppModel
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var narrow = false
+    @State private var compactToolbar = false
     @State private var inspectorShown = true
     @State private var inspectorSheet = false
 
     private static let foldWidth: CGFloat = 900
+    /// Under this width the content column cannot hold the title, the whole filter and the search.
+    private static let compactToolbarWidth: CGFloat = 1180
     init(model: AppModel) {
         self.model = model
     }
@@ -54,7 +57,7 @@ struct MainWindow: View {
             }
             ToolbarItem(placement: .principal) {
                 if showsKindFilter {
-                    KindFilter(model: model)
+                    KindFilter(model: model, compact: compactToolbar || narrow)
                 } else if showsProjectMenu {
                     ProjectMenu(model: model)
                 }
@@ -62,6 +65,11 @@ struct MainWindow: View {
         }
         .tint(Tokens.color(.accent))
         .frame(minWidth: 640, minHeight: 480)
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.width < Self.compactToolbarWidth
+        } action: { compact in
+            Task { @MainActor in compactToolbar = compact }
+        }
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Self.foldWidth
         } action: { isNarrow in
@@ -121,7 +129,9 @@ struct MainWindow: View {
     private var title: String {
         switch model.selection {
         case .inbox: return model.inboxKind == .message ? "Messages to PM" : "Waiting for you"
-        case .project(let hostId, let projectId): return projectName(hostId, projectId) ?? "Waiting for you"
+        case .project(let hostId, let projectId):
+            // The count is of the rows below, so the title says which project filters them.
+            return (projectName(hostId, projectId) ?? "Waiting for you") + " · " + String(model.inboxTotal())
         case .agents(let hostId, let projectId): return "Agents" + projectSuffix(hostId, projectId)
         case .plans(let hostId, let projectId): return "Plans" + projectSuffix(hostId, projectId)
         case .hosts: return "Hosts"
@@ -154,9 +164,27 @@ struct MainWindow: View {
 /// The one filter of the inbox: All N, Proposals, Prompts, Designs, and Messages and Merges under More.
 private struct KindFilter: View {
     @Bindable var model: AppModel
+    /// A narrow window folds the whole filter into one menu so nothing is cut off.
+    let compact: Bool
 
     var body: some View {
         let current = KindTab(kind: model.inboxKind)
+        if compact {
+            Menu {
+                ForEach(KindTab.allCases, id: \.self) { tab in
+                    Button(tab == .all ? "All \(model.inboxTotal())" : tab.title) { model.inboxKind = tab.kind }
+                }
+            } label: {
+                chip(current == .all ? "All \(model.inboxTotal())" : current.title, selected: true)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        } else {
+            full(current)
+        }
+    }
+
+    private func full(_ current: KindTab) -> some View {
         HStack(spacing: 2) {
             ForEach(KindTab.visible, id: \.self) { tab in
                 segment(tab, selected: current == tab)

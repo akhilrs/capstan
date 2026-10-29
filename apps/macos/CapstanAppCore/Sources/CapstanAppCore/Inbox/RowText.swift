@@ -201,7 +201,8 @@ public struct ProjectKey: Hashable, Sendable {
     }
 }
 
-/// The numbers of the sidebar: aggregates across hosts and the waiting count of each project.
+/// The numbers of the sidebar: aggregates across hosts and the waiting count of each project. They count the rows the
+/// inbox lists (forwarded ones too), so a count never differs from the rows shown.
 public struct SidebarCounts: Sendable, Equatable {
     public let waiting: Int
     public let agents: Int
@@ -210,7 +211,7 @@ public struct SidebarCounts: Sendable, Equatable {
     public let perProject: [ProjectKey: Int]
 
     public static func make(_ hosts: [HostModel]) -> SidebarCounts {
-        let rows = inbox(hosts, filter: InboxFilter(includeForwarded: false)).flatMap(\.rows)
+        let rows = inbox(hosts).flatMap(\.rows)
         var per: [ProjectKey: Int] = [:]
         for row in rows { per[ProjectKey(hostId: row.id.hostId, projectId: row.id.projectId), default: 0] += 1 }
         let projects = hosts.flatMap { $0.projects.values }
@@ -234,8 +235,7 @@ public enum SidebarText {
             return ("live", .green)
         case .noHeartbeat: return ("no heartbeat", .yellow)
         case .reconnecting: return ("reconnecting", .yellow)
-        case .stopped(.user): return ("stopped", .grey)
-        case .stopped: return ("stopped", .red)
+        case .stopped: return ("stopped", .grey)
         }
     }
 
@@ -276,10 +276,12 @@ public struct FooterStatus: Sendable, Equatable {
                 tone: loading ? .blue : .green, state: live[0].state, loading: loading)
         }
         let worst = hosts.max { severity($0.state) < severity($1.state) } ?? hosts[0]
-        let spec = CapsuleChoice.make(state: worst.state, anyLoading: worst.loading, heartbeatPulse: false, reduceMotion: true)
+        var tone = CapsuleChoice.make(state: worst.state, anyLoading: worst.loading, heartbeatPulse: false, reduceMotion: true).tone
+        // The dot is grey for a stopped host; the banner above the list says why.
+        if case .stopped? = worst.state { tone = .grey }
         let name = HostText.name(worst.name)
         return FooterStatus(
-            text: name + " " + phrase(worst, now: now), tone: spec.tone, state: worst.state, loading: worst.loading)
+            text: name + " " + phrase(worst, now: now), tone: tone, state: worst.state, loading: worst.loading)
     }
 
     private static func severity(_ state: ConnectionState?) -> Int {
