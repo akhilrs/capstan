@@ -64,7 +64,7 @@ public struct AvailabilityText: Sendable, Equatable {
         case .silent:
             self.init(
                 "Silent", "speaker.slash", "The project has not sent events lately.",
-                "Check that the project's Capstan is running on the host.")
+                "The project's Capstan is not answering in time. It is often just busy and comes back by itself; if it stays silent, check that it is running.")
         case .refused:
             self.init(
                 "Refused", "xmark.octagon", "The host refused to share this project's events.",
