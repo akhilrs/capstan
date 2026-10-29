@@ -40,10 +40,10 @@ fn ledger_before(file: &Path) {
     db.close().unwrap();
 }
 
-/// Name and SQL of every schema object except the new index, and every `controller_events` row.
+/// Name and SQL of every schema object except the new index (and the one a later migration adds), and every `controller_events` row.
 fn snapshot(conn: &Connection) -> (BTreeSet<(String, String)>, Vec<String>) {
     let mut schema = conn
-        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ?")
+        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name <> 'controller_events_by_successor'")
         .unwrap();
     let schema = schema
         .query_map([INDEX], |r| Ok((r.get(0)?, r.get(1)?)))

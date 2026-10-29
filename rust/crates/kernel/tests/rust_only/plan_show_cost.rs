@@ -3,7 +3,9 @@
 //! scan of the event log per requirement link), so the work does not grow with the other plans or links of the ledger.
 
 use crate::fixture::Fixture;
-use capstan_kernel::areas::links::{PACKAGE_LINKS_OF_ONE, PLAN_LINKS_OF_ALL, PLAN_LINK_OF_ONE};
+use capstan_kernel::areas::links::{
+    PACKAGE_LINKS_OF_ONE, PLAN_LINKS_OF_ALL, PLAN_LINK_OF_ONE, REQUIREMENT_REPORT_OF_CHAIN,
+};
 use capstan_kernel::plan_body::parse_plan_body;
 use rusqlite::{types::Null, Connection};
 use serde_json::Value;
@@ -159,4 +161,24 @@ fn both_link_statements_search_the_primary_key_and_never_scan() {
         );
         assert!(!plan.iter().any(|l| l.starts_with("SCAN")), "{plan:?}");
     }
+}
+
+#[test]
+fn the_replacement_chain_of_a_requirement_link_reads_the_successor_index_and_not_the_event_log() {
+    let f = Fixture::new();
+    let conn = db(&f);
+    let plan = plan_of(&conn, REQUIREMENT_REPORT_OF_CHAIN);
+    assert!(
+        plan.iter()
+            .any(|l| l.contains("SEARCH e USING INDEX controller_events_by_successor")),
+        "{plan:?}"
+    );
+    // No step of the walk reads the event log any other way (a scan, or the primary key by project).
+    assert!(
+        !plan
+            .iter()
+            .any(|l| l.contains("controller_events")
+                && !l.contains("controller_events_by_successor")),
+        "{plan:?}"
+    );
 }

@@ -161,6 +161,20 @@ impl LinkRow {
     }
 }
 
+/// The latest accepted report of a bound agent or of the agents it replaced, made since the binding. The parameters are the
+/// bound agent, the project (twice) and the time of the binding. The walk down the replacements uses the partial index of
+/// the replacement events by successor; without it each step read the payload of every event of the project.
+pub const REQUIREMENT_REPORT_OF_CHAIN: &str = "WITH RECURSIVE chain(agent_id) AS (
+SELECT ?
+UNION
+SELECT e.entity_id FROM controller_events e INDEXED BY controller_events_by_successor JOIN chain c
+  ON json_extract(e.payload_json, '$.details.successorId') = c.agent_id
+WHERE e.project_id = ? AND e.entity_type = 'agent' AND e.to_state = 'replaced')
+SELECT r.report_id FROM agent_reports r
+WHERE r.project_id = ? AND r.agent_id IN (SELECT agent_id FROM chain)
+AND r.state = 'accepted' AND r.created_at >= ?
+ORDER BY r.sequence DESC LIMIT 1";
+
 /// What `#wantedState` reads of a link row.
 struct LinkFacts<'a> {
     synced_state: &'a str,
@@ -188,16 +202,7 @@ fn wanted_state(
         // The bound agent and the agents it replaced count, but only reports made since the binding.
         let report = query_opt(
             &kernel.database,
-            "WITH RECURSIVE chain(agent_id) AS (
-               SELECT ?
-               UNION
-               SELECT e.entity_id FROM controller_events e JOIN chain c
-                 ON json_extract(e.payload_json, '$.details.successorId') = c.agent_id
-               WHERE e.project_id = ? AND e.entity_type = 'agent' AND e.to_state = 'replaced')
-             SELECT r.report_id FROM agent_reports r
-             WHERE r.project_id = ? AND r.agent_id IN (SELECT agent_id FROM chain)
-               AND r.state = 'accepted' AND r.created_at >= ?
-             ORDER BY r.sequence DESC LIMIT 1",
+            REQUIREMENT_REPORT_OF_CHAIN,
             [
                 bound_agent_id,
                 kernel.project_id.as_str(),
