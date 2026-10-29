@@ -635,6 +635,58 @@ pub fn external_links(kernel: &Kernel, credential: &str) -> KernelResult<Value> 
     Ok(Value::Array(link_records(kernel)?))
 }
 
+/// The link of one plan, by its full primary key.
+pub const PLAN_LINK_OF_ONE: &str = "SELECT * FROM external_links WHERE project_id = ? AND ref_kind = 'plan' AND ref_id = ? AND system = 'nexora'";
+/// The links of the packages of one plan (`<plan-id>/<package-id>`): `/` is followed by `0` in ASCII, so the range of `?2` to
+/// `?3` holds exactly those refs.
+pub const PACKAGE_LINKS_OF_ONE: &str = "SELECT * FROM external_links WHERE project_id = ?1 AND ref_kind = 'package' AND ref_id >= ?2 AND ref_id < ?3 AND system = 'nexora'";
+/// The links of every plan, requirement and package links left out.
+pub const PLAN_LINKS_OF_ALL: &str =
+    "SELECT * FROM external_links WHERE project_id = ? AND ref_kind = 'plan' AND system = 'nexora'";
+
+/// `planLinks`: the links `plan show` prints. For one plan its own link and those of its packages, otherwise every plan
+/// link; a requirement link is never read, so the cost follows what is shown and not the size of the ledger.
+pub fn plan_links(kernel: &Kernel, credential: &str, plan_id: Option<&str>) -> KernelResult<Value> {
+    kernel.authorize(credential, "plan:read")?;
+    let mut rows = match plan_id {
+        Some(plan_id) => {
+            safe_id_str(plan_id, "plan id")?;
+            let mut rows = query_all(
+                &kernel.database,
+                PLAN_LINK_OF_ONE,
+                [kernel.project_id.as_str(), plan_id],
+                LinkRow::from_row,
+            )?;
+            rows.extend(query_all(
+                &kernel.database,
+                PACKAGE_LINKS_OF_ONE,
+                [
+                    kernel.project_id.as_str(),
+                    format!("{plan_id}/").as_str(),
+                    format!("{plan_id}0").as_str(),
+                ],
+                LinkRow::from_row,
+            )?);
+            rows
+        }
+        None => query_all(
+            &kernel.database,
+            PLAN_LINKS_OF_ALL,
+            [&kernel.project_id],
+            LinkRow::from_row,
+        )?,
+    };
+    // The order `external_links` lists them in.
+    rows.sort_by(|a, b| {
+        (&a.linked_at, &a.ref_kind, &a.ref_id).cmp(&(&b.linked_at, &b.ref_kind, &b.ref_id))
+    });
+    Ok(Value::Array(
+        rows.iter()
+            .map(|row| link_record(kernel, row))
+            .collect::<KernelResult<Vec<_>>>()?,
+    ))
+}
+
 /// `wantedNexoraState`: the wanted Nexora status of one ref; null when the ledger has none.
 pub fn wanted_nexora_state(
     kernel: &Kernel,

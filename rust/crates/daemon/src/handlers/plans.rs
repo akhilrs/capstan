@@ -938,9 +938,10 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
     let credential = call.credential.to_string();
     let links: Vec<Value> = {
         let credential = credential.clone();
+        let scope = rest.first().cloned();
         env.deps
             .kernel
-            .run(move |core| core.external_links(&credential))?
+            .run(move |core| core.plan_links(&credential, scope.as_deref()))?
             .as_array()
             .cloned()
             .unwrap_or_default()
