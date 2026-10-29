@@ -641,10 +641,7 @@ impl OldController {
     }
 
     fn alive(&self) -> bool {
-        // SAFETY: signal 0 only checks that the pid exists.
-        let exists = unsafe { libc::kill(self.pid as libc::pid_t, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-        exists && !capstan_process::is_zombie(self.pid)
+        capstan_testkit::is_running(self.pid as i32)
     }
 
     fn stop(&mut self) {

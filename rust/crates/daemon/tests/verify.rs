@@ -403,10 +403,7 @@ impl Drop for World {
 
 /// Whether the process exists and is not a zombie.
 fn alive(pid: i64) -> bool {
-    // SAFETY: signal 0 only checks that the pid exists.
-    let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-    exists && !capstan_process::is_zombie(pid)
+    capstan_testkit::is_running(pid as i32)
 }
 
 /// Not a test: the process a gate command leaves running in another session. It is this test binary rather than

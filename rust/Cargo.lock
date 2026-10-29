@@ -230,6 +230,7 @@ dependencies = [
  "capstan-kernel",
  "capstan-ledger",
  "capstan-process",
+ "capstan-testkit",
  "getrandom 0.4.3",
  "libc",
  "regex",

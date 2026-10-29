@@ -33,11 +33,7 @@ fn options(directory: &Path, command: &str) -> RunOptions {
 }
 
 fn running(pid: u32) -> bool {
-    // SAFETY: signal 0 only checks that the pid exists.
-    let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
-    // A zombie waiting for its parent is not running.
-    exists && !capstan_process::is_zombie(i64::from(pid))
+    capstan_testkit::is_running(pid as i32)
 }
 
 /// Waits (bounded) for the process to end; the bound is a deadline for a failing run, not a pause in a passing one.
