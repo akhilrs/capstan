@@ -71,7 +71,7 @@ struct PlansScreen: View {
 
     /// A plan row with a disclosure for its packages; a plan without details has nothing to expand.
     private func planBlock(_ row: PlanRow, key: ProjectKey) -> some View {
-        let plan = model.project(key.hostId, key.projectId)?.plans.values.first { HostText.name($0.planId) == row.planId }
+        let plan = model.project(key.hostId, key.projectId).flatMap { PlanRow.plan(for: row, in: $0) }
         let packages = plan.map(PackageRow.rows) ?? []
         let ref = PlanRef(hostId: key.hostId, projectId: key.projectId, planId: row.planId)
         return VStack(alignment: .leading, spacing: Tokens.space[0]) {

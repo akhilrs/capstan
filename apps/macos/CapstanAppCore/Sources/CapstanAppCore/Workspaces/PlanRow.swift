@@ -57,6 +57,11 @@ public struct PlanRow: Sendable, Equatable {
     /// Packages that are reported and not integrated yet: where a waiting integration item may belong.
     public var hasUnintegratedWork: Bool { reportedOnly > 0 }
 
+    /// The stored plan a row was made from. A row carries the cleaned plan id, so plans are matched on the cleaned id.
+    public static func plan(for row: PlanRow, in project: ProjectModel) -> StoredPlan? {
+        project.plans.values.first { HostText.name($0.planId) == row.planId }
+    }
+
     /// The rows of a project in plan order.
     public static func rows(_ project: ProjectModel) -> [PlanRow] {
         let plans: [StoredPlan] = Array(project.plans.values)

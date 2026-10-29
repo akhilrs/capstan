@@ -71,6 +71,21 @@ final class WorkspacesTests: XCTestCase {
         XCTAssertEqual(row.words, "4 of 4 integrated")
     }
 
+    func testPlanLookupFindsTheStoredPlanOfARow() {
+        var project = ProjectModel(projectId: "a", root: "/a", snapshotComplete: true)
+        let first = plan(4, 0, 0, 0)
+        project.plans[first.key] = first
+        let row = PlanRow(first)
+        XCTAssertEqual(PlanRow.plan(for: row, in: project)?.key, first.key)
+        let dirty = StoredPlan(
+            key: "plan:q", planId: "q\nx", sequence: 2, title: first.title, state: "approved", packages: first.packages)
+        project.plans[dirty.key] = dirty
+        XCTAssertEqual(PlanRow.plan(for: PlanRow(dirty), in: project)?.key, dirty.key)
+        XCTAssertEqual(PlanRow.plan(for: row, in: project)?.key, first.key)
+        let empty = ProjectModel(projectId: "b", root: "/b", snapshotComplete: true)
+        XCTAssertNil(PlanRow.plan(for: row, in: empty))
+    }
+
     func testProjectPauseControl() {
         XCTAssertEqual(ProjectPauseControl(decide: true, busy: false, runPaused: false).action, .pause)
         XCTAssertEqual(ProjectPauseControl(decide: true, busy: false, runPaused: false).state, .enabled)
