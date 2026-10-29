@@ -60,6 +60,8 @@ pub fn write_project(directory: &Path, identity: &Identity) -> PathBuf {
         std::fs::write(&file, text).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
+    // A scratch daemon is never listed or polled by `cstan events`.
+    std::fs::write(capstan.join("undiscoverable"), "").unwrap();
     std::fs::create_dir(&state).expect("the state directory");
     std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
     state
