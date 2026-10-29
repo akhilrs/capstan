@@ -155,6 +155,12 @@ fn replay_in(
         let socket = substitute(string(d, "socket"), &root);
         FakeDaemon::start(Path::new(&socket), d.get("reply").unwrap())
     });
+    if scratch_daemon {
+        // Keep the scratch project out of host-wide discovery; created before the snapshot so it is no change.
+        let marker = scratch.0.join("proj/.capstan/undiscoverable");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "").unwrap();
+    }
     let original = snapshot(&scratch.0);
     let real_now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

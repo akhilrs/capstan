@@ -13,6 +13,10 @@ use capstan_daemon::deps::SOCKET_NAME;
 
 use crate::controllers::{operator_key, Proc};
 
+/// A root holding this file (any content) is skipped by discovery: it is never asked for its key nor polled. Test and
+/// scratch daemons create it; a real project that does is hidden from `cstan events`.
+pub const UNDISCOVERABLE_MARKER: &str = ".capstan/undiscoverable";
+
 /// How long one controller may take to answer.
 const ASK_TIMEOUT_MS: u64 = 2_000;
 
@@ -183,15 +187,32 @@ fn socket_of(root: &Path) -> PathBuf {
     root.join(".capstan/state").join(SOCKET_NAME)
 }
 
-/// One endpoint per canonical root among the roots of `procs` and `extra_roots`, sorted by root.
+/// One endpoint per canonical root among the roots of `procs` and `extra_roots`, sorted by root. A root holding
+/// `UNDISCOVERABLE_MARKER` is left out.
 pub fn discover(
     procs: &[Proc],
     extra_roots: &[PathBuf],
     probe: &dyn ProjectProbe,
 ) -> Vec<Endpoint> {
+    discover_asked(procs, extra_roots, &[], probe)
+}
+
+/// `discover`, where the roots in `asked` are a caller's own choice and are kept even when they hold the marker. A
+/// root of `asked` that is not also in `procs` or `extra_roots` is listed too.
+pub fn discover_asked(
+    procs: &[Proc],
+    extra_roots: &[PathBuf],
+    asked: &[PathBuf],
+    probe: &dyn ProjectProbe,
+) -> Vec<Endpoint> {
+    let canonical = |root: &PathBuf| std::fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+    let asked: BTreeSet<PathBuf> = asked.iter().map(canonical).collect();
     let mut roots: BTreeMap<PathBuf, Option<u32>> = BTreeMap::new();
     let mut note = |root: PathBuf, pid: Option<u32>| {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
+        if !asked.contains(&root) && root.join(UNDISCOVERABLE_MARKER).exists() {
+            return;
+        }
         let slot = roots.entry(root).or_insert(pid);
         *slot = match (*slot, pid) {
             (Some(a), Some(b)) => Some(a.min(b)),
@@ -204,6 +225,9 @@ pub fn discover(
         }
     }
     for root in extra_roots {
+        note(root.clone(), None);
+    }
+    for root in &asked {
         note(root.clone(), None);
     }
     std::thread::scope(|scope| {

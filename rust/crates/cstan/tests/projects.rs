@@ -7,8 +7,8 @@ use std::sync::Mutex;
 
 use cstan_front::controllers::Proc;
 use cstan_front::projects::{
-    call_within, classify, discover, helper_threads, project_id, Credential, EndpointState, Live,
-    ProjectProbe,
+    call_within, classify, discover, discover_asked, helper_threads, project_id, Credential,
+    EndpointState, Live, ProjectProbe, UNDISCOVERABLE_MARKER,
 };
 
 const KEY: &str = "k3y-0123456789abcdef0123456789abcdef-secret";
@@ -349,4 +349,105 @@ fn many_sequential_calls_to_a_fast_peer_all_answer() {
         let got = call_within(&root, &key, &["head".to_string()], 2_000);
         assert!(matches!(got, Some(Ok(_))), "call {i}: {got:?}");
     }
+}
+
+/// Counts `key` and `ask` calls per root; every root has a key and answers Ready.
+struct Counting {
+    keys: Mutex<HashMap<PathBuf, usize>>,
+    asks: Mutex<HashMap<PathBuf, usize>>,
+}
+
+impl ProjectProbe for Counting {
+    fn key(&self, root: &Path) -> Option<Credential> {
+        *self
+            .keys
+            .lock()
+            .unwrap()
+            .entry(root.to_path_buf())
+            .or_default() += 1;
+        Some(Credential::new(KEY))
+    }
+    fn ask(&self, root: &Path, _: &Credential) -> EndpointState {
+        *self
+            .asks
+            .lock()
+            .unwrap()
+            .entry(root.to_path_buf())
+            .or_default() += 1;
+        EndpointState::Ready
+    }
+}
+
+fn mark(root: &Path) {
+    std::fs::write(root.join(UNDISCOVERABLE_MARKER), "").unwrap();
+}
+
+#[test]
+fn an_undiscoverable_root_is_dropped_before_key_or_ask() {
+    let dir = tmp("undiscoverable");
+    let daemon_open = project(&dir, "daemon-open");
+    let daemon_marked = project(&dir, "daemon-marked");
+    let extra_open = project(&dir, "extra-open");
+    let extra_marked = project(&dir, "extra-marked");
+    let both_marked = project(&dir, "both-marked");
+    for root in [&daemon_marked, &extra_marked, &both_marked] {
+        mark(root);
+    }
+    let probe = Counting {
+        keys: Mutex::new(HashMap::new()),
+        asks: Mutex::new(HashMap::new()),
+    };
+    let found = discover(
+        &[
+            proc(1, &daemon_open),
+            proc(2, &daemon_marked),
+            proc(3, &both_marked),
+        ],
+        &[
+            extra_open.clone(),
+            extra_marked.clone(),
+            both_marked.clone(),
+        ],
+        &probe,
+    );
+    let mut roots: Vec<_> = found.iter().map(|e| e.root.clone()).collect();
+    roots.sort();
+    let mut want = vec![daemon_open.clone(), extra_open.clone()];
+    want.sort();
+    assert_eq!(roots, want);
+    assert!(found.iter().all(|e| e.state == EndpointState::Ready));
+    for map in [probe.keys.lock().unwrap(), probe.asks.lock().unwrap()] {
+        let mut called: Vec<_> = map.keys().cloned().collect();
+        called.sort();
+        assert_eq!(called, want);
+        assert!(map.values().all(|n| *n == 1));
+    }
+}
+
+#[test]
+fn a_marked_root_that_is_asked_for_is_still_followed() {
+    let dir = tmp("asked");
+    let named = project(&dir, "named");
+    let process = project(&dir, "process");
+    let cursor = project(&dir, "cursor");
+    for root in [&named, &process, &cursor] {
+        mark(root);
+    }
+    let probe = Counting {
+        keys: Mutex::new(HashMap::new()),
+        asks: Mutex::new(HashMap::new()),
+    };
+    // `named` is asked for and also arrives as a cursor root; `process` and `cursor` are not asked for.
+    let found = discover_asked(
+        &[proc(1, &process)],
+        &[named.clone(), cursor.clone()],
+        std::slice::from_ref(&named),
+        &probe,
+    );
+    let roots: Vec<_> = found.iter().map(|e| e.root.clone()).collect();
+    assert_eq!(roots, vec![named.clone()]);
+    assert_eq!(probe.asks.lock().unwrap().get(&named), Some(&1));
+    assert_eq!(probe.asks.lock().unwrap().len(), 1);
+    // Without being asked for, the same root is dropped.
+    assert!(discover(&[], &[named], &probe).is_empty());
 }

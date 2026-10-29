@@ -523,6 +523,8 @@ impl Live {
             std::fs::write(&file, body).unwrap();
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
+        // A scratch daemon is never listed or polled by `cstan events`.
+        std::fs::write(self.repo.join(".capstan/undiscoverable"), "").unwrap();
         std::fs::create_dir(&state).unwrap();
         std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
         // The project directory is not part of the repository's content.
