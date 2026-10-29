@@ -49,7 +49,12 @@ public struct PlanRow: Sendable, Equatable {
 
     /// The rows of a project in plan order.
     public static func rows(_ project: ProjectModel) -> [PlanRow] {
-        project.plans.values.sorted { ($0.sequence, $0.planId) < ($1.sequence, $1.planId) }.map { PlanRow($0) }
+        let plans: [StoredPlan] = Array(project.plans.values)
+        let ordered: [StoredPlan] = plans.sorted { (left: StoredPlan, right: StoredPlan) -> Bool in
+            if left.sequence != right.sequence { return left.sequence < right.sequence }
+            return left.planId < right.planId
+        }
+        return ordered.map { (plan: StoredPlan) -> PlanRow in PlanRow(plan) }
     }
 }
 

@@ -23,10 +23,13 @@ enum HostLabel {
 
     /// The projects of a host in name order.
     static func projects(_ host: HostModel?) -> [ProjectModel] {
-        (host?.projects.values).map { Array($0) }?.sorted {
-            let a = projectName($0), b = projectName($1)
-            return a == b ? $0.projectId < $1.projectId : a.localizedStandardCompare(b) == .orderedAscending
-        } ?? []
+        guard let host else { return [] }
+        let all: [ProjectModel] = Array(host.projects.values)
+        return all.sorted { (left: ProjectModel, right: ProjectModel) -> Bool in
+            let a: String = projectName(left), b: String = projectName(right)
+            if a == b { return left.projectId < right.projectId }
+            return a.localizedStandardCompare(b) == .orderedAscending
+        }
     }
 
     /// The glyph of a connection state in a pill.

@@ -60,11 +60,15 @@ public struct SoundCatalog: Equatable, Sendable {
     private static func entries(
         _ files: [String], group: SoundGroup, make: (String) -> SoundChoice
     ) -> [SoundEntry] {
-        let kept = Set(files.filter(isSoundFile)).sorted {
-            let a = title(file: $0).lowercased(), b = title(file: $1).lowercased()
-            return a == b ? $0 < $1 : a < b
+        let unique: Set<String> = Set(files.filter(isSoundFile))
+        let kept: [String] = unique.sorted { (left: String, right: String) -> Bool in
+            let a: String = title(file: left).lowercased(), b: String = title(file: right).lowercased()
+            if a == b { return left < right }
+            return a < b
         }
-        return kept.map { SoundEntry(choice: make($0), group: group, title: title(file: $0)) }
+        return kept.map { (file: String) -> SoundEntry in
+            SoundEntry(choice: make(file), group: group, title: title(file: file))
+        }
     }
 
     private static func isSoundFile(_ name: String) -> Bool {

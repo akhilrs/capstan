@@ -43,13 +43,18 @@ public struct AgentRow: Sendable, Equatable {
 
     /// The rows of a project, by role and then agent id.
     public static func rows(_ project: ProjectModel) -> [AgentRow] {
-        project.agents.values
-            .map { (agent: $0, row: AgentRow(agent: $0, in: project)) }
-            .sorted {
-                $0.row.role == $1.row.role
-                    ? $0.agent.agentId < $1.agent.agentId
-                    : $0.row.role.localizedStandardCompare($1.row.role) == .orderedAscending
-            }
-            .map { $0.row }
+        let agents: [StoredAgent] = Array(project.agents.values)
+        let pairs: [(agent: StoredAgent, row: AgentRow)] = agents.map { (agent: StoredAgent) -> (agent: StoredAgent, row: AgentRow) in
+            (agent: agent, row: AgentRow(agent: agent, in: project))
+        }
+        let ordered: [(agent: StoredAgent, row: AgentRow)] = pairs.sorted(by: precedes)
+        return ordered.map { (pair: (agent: StoredAgent, row: AgentRow)) -> AgentRow in pair.row }
+    }
+
+    private static func precedes(
+        _ left: (agent: StoredAgent, row: AgentRow), _ right: (agent: StoredAgent, row: AgentRow)
+    ) -> Bool {
+        if left.row.role == right.row.role { return left.agent.agentId < right.agent.agentId }
+        return left.row.role.localizedStandardCompare(right.row.role) == .orderedAscending
     }
 }
