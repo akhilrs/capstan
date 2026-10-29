@@ -65,16 +65,15 @@ final class LiveProcessRunnerTests: XCTestCase {
     }
 
     /// The exit code, or nil after `seconds`, so a child that never reports an exit fails the test instead of hanging it.
+    /// The timeout belongs to XCTest, not to the cooperative pool the code under test may be holding.
     private func exitCode(of process: any RunningProcess, within seconds: Double) async -> Int32? {
-        await withTaskGroup(of: Int32?.self) { group in
-            group.addTask { await process.exitCode() }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(seconds))
-                return nil
-            }
-            let first: Int32?? = await group.next()
-            group.cancelAll()
-            return first ?? nil
+        let done = expectation(description: "child exit")
+        let result = Latch<Int32>()
+        Task.detached {
+            result.set(await process.exitCode())
+            done.fulfill()
         }
+        await fulfillment(of: [done], timeout: seconds)
+        return result.peek()
     }
 }

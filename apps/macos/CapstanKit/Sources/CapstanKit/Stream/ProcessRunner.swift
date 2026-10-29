@@ -67,6 +67,11 @@ final class Latch<Value: Sendable>: @unchecked Sendable {
         for waiter in resumed { waiter.resume(returning: newValue) }
     }
 
+    /// The value if it is set, without waiting.
+    func peek() -> Value? {
+        lock.withLock { value }
+    }
+
     func wait() async -> Value {
         await withCheckedContinuation { (continuation: CheckedContinuation<Value, Never>) in
             let ready: Value? = lock.withLock {
@@ -221,13 +226,16 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         return String(decoding: tail, as: UTF8.self)
     }
 
+    /// Returns at once: the signals are sent from a dispatch queue, so no caller waits on Foundation's process lock.
     func terminate(grace: TimeInterval) {
-        guard process.isRunning else { return }
-        process.terminate()
-        let pid = process.processIdentifier
-        let child = self.process
-        DispatchQueue.global().asyncAfter(deadline: .now() + max(grace, 0)) {
-            if child.isRunning { kill(pid, SIGKILL) }
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            guard process.isRunning else { return }
+            process.terminate()
+            let pid = process.processIdentifier
+            let child = process
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + max(grace, 0)) {
+                if child.isRunning { kill(pid, SIGKILL) }
+            }
         }
     }
 
