@@ -5,6 +5,8 @@ import Foundation
 /// The kernel counts cumulatively (assigned includes reported, reported includes integrated).
 public struct PlanRow: Sendable, Equatable {
     public let planId: String
+    public let state: String
+    public let sequence: Int64
     public let title: String
     public let titleUnverified: Bool
     public let total: Int64
@@ -18,6 +20,8 @@ public struct PlanRow: Sendable, Equatable {
 
     public init(_ plan: StoredPlan) {
         planId = HostText.name(plan.planId)
+        state = HostText.name(plan.state)
+        sequence = plan.sequence
         titleUnverified = !plan.title.verified
         let shown = HostText.clean(plan.title.displayPlain, maxBytes: HostText.codeCap)
         title = plan.title.verified && !shown.trimmingCharacters(in: .whitespaces).isEmpty ? shown : planId
@@ -44,6 +48,9 @@ public struct PlanRow: Sendable, Equatable {
         return parts.joined(separator: ", ")
     }
 
+    /// Every package is integrated.
+    public var isDone: Bool { total > 0 && integrated == total }
+
     /// Packages that are reported and not integrated yet: where a waiting integration item may belong.
     public var hasUnintegratedWork: Bool { reportedOnly > 0 }
 
@@ -62,5 +69,21 @@ public enum IntegrationLink {
     /// How many integration items wait in the project.
     public static func waitingCount(_ project: ProjectModel) -> Int {
         project.waiting.values.filter { $0.kind == .integration }.count
+    }
+}
+
+/// The filter of the Plans toolbar.
+public enum PlanFilter: CaseIterable, Sendable, Equatable {
+    case active, done
+
+    public var title: String { self == .active ? "Active" : "Done" }
+
+    public func matches(_ row: PlanRow) -> Bool {
+        self == .done ? row.isDone : !row.isDone
+    }
+
+    public static func counts(_ rows: [PlanRow]) -> (active: Int, done: Int) {
+        let done = rows.filter(\.isDone).count
+        return (rows.count - done, done)
     }
 }

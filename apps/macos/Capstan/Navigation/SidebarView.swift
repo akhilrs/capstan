@@ -39,7 +39,7 @@ struct SidebarView: View {
 
     private func nav(_ title: String, symbol: String, count: Int, item: NavItem) -> some View {
         HStack(spacing: Tokens.space[1]) {
-            Label(title, systemImage: symbol)
+            Label { Text(verbatim: title) } icon: { Image(systemName: symbol) }
             Spacer(minLength: Tokens.space[0])
             if count > 0 { Count(value: count) }
         }

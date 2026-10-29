@@ -16,7 +16,7 @@ struct InboxRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.space[1]) {
-            Image(systemName: glyph)
+            Image(systemName: row.kind.glyph)
                 .frame(width: 20)
                 .foregroundStyle(selected ? Tokens.color(.accent) : Tokens.color(.label2))
             VStack(alignment: .leading, spacing: 2) {
@@ -86,14 +86,17 @@ struct InboxRowView: View {
         case .stale: return .yellow
         }
     }
+}
 
-    private var glyph: String {
-        switch row.kind {
+extension WaitingKind {
+    /// The SF Symbol of the kind, in rows and inspectors.
+    var glyph: String {
+        switch self {
         case .op: return "terminal"
-        case .prompt: return "hand.raised"
-        case .design: return "paintpalette"
+        case .prompt: return "shield"
+        case .design: return "photo"
         case .message: return "bubble.left"
-        case .integration: return "arrow.triangle.merge"
+        case .integration: return "arrow.triangle.branch"
         case .other: return "questionmark.circle"
         }
     }

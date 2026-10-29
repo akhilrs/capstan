@@ -1,3 +1,4 @@
+import AppKit
 import CapstanAppCore
 import CapstanKit
 import SwiftUI
@@ -40,10 +41,10 @@ struct InspectorScreen: View {
             VStack(alignment: .leading, spacing: Tokens.space[2]) {
                 header(row, item)
                 if let hint = mode.terminalHint {
-                    Banner(tone: .yellow, text: hint)
+                    Banner(tone: .grey, text: hint)
                 }
                 if item.needsTerminal && mode == .interactive {
-                    Banner(tone: .yellow, text: "This item can only be answered in a terminal")
+                    Banner(tone: .grey, text: "This item can only be answered in a terminal")
                 }
                 kindBody(row, item, detail, mode)
                 if showOutcome {
@@ -74,10 +75,11 @@ struct InspectorScreen: View {
 
     private func header(_ row: InboxRowID, _ item: StoredWaiting) -> some View {
         let project = model.project(row.hostId, row.projectId)
-        return VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            Text(verbatim: item.kind.groupTitle).font(.system(size: 15, weight: .semibold))
-            HStack(spacing: Tokens.space[0]) {
-                Text(verbatim: TextBudget.displayPrefix(project?.displayName ?? row.projectId, maxBytes: 64).text)
+        let name = TextBudget.displayPrefix(project?.displayName ?? row.projectId, maxBytes: 64).text
+        return VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            HStack(spacing: Tokens.space[0] + 2) {
+                Image(systemName: item.kind.glyph).foregroundStyle(Tokens.color(.accent))
+                Text(verbatim: RowText.kindName(item.kind) + " · " + name)
                     .font(.system(size: 12))
                     .foregroundStyle(Tokens.color(.label2))
                 ForEach(
@@ -88,7 +90,19 @@ struct InspectorScreen: View {
                     StatePill(word: pill.word, symbol: pillSymbol(pill), tone: pillTone(pill))
                 }
             }
+            Text(verbatim: RowText.inspectorTitle(kind: item.kind, key: item.key, summary: item.summary.displayPlain))
+                .font(.system(size: 20, weight: .semibold))
+            MetaList(rows: meta(row, item))
         }
+    }
+
+    private func meta(_ row: InboxRowID, _ item: StoredWaiting) -> [MetaRow] {
+        func plain(_ s: String) -> UntrustedText { UntrustedText(raw: s, verified: true, truncated: false) }
+        var rows = [MetaRow(label: "Host", value: plain(hostName(row.hostId)))]
+        let age = AgeText.short(since: item.since, now: Date())
+        rows.append(MetaRow(label: "Proposed", value: plain(age.isEmpty ? item.since : age + " ago")))
+        rows.append(MetaRow(label: "Request", value: plain(item.requestId)))
+        return rows
     }
 
     private func pillSymbol(_ pill: Pill) -> String {
@@ -125,7 +139,19 @@ struct InspectorScreen: View {
     }
 
     private func summaryOnly(_ item: StoredWaiting) -> some View {
-        UntrustedTextBlock(text: item.summary, label: "From the host")
+        let words = item.summary.displayPlain.split(separator: " ", maxSplits: 1).map(String.init)
+        let state = words.first ?? ""
+        let branch = words.count > 1 ? words[1] : ""
+        return VStack(alignment: .leading, spacing: Tokens.space[2]) {
+            if item.kind == .integration {
+                MetaList(rows: [
+                    MetaRow(label: "Branch", value: UntrustedText(raw: branch, verified: item.summary.verified, truncated: false)),
+                    MetaRow(label: "State", value: UntrustedText(raw: state, verified: item.summary.verified, truncated: false)),
+                ])
+            } else {
+                UntrustedTextBlock(text: item.summary, label: "From the host · untrusted text")
+            }
+        }
     }
 
     private func notReceived(_ text: String) -> some View {
@@ -136,18 +162,22 @@ struct InspectorScreen: View {
         let command = detail?.operatorBody?.command
         return VStack(alignment: .leading, spacing: Tokens.space[2]) {
             if let command {
-                UntrustedTextBlock(text: command, label: "Command")
+                UntrustedTextBlock(text: command, label: "Command · untrusted text, shown as written")
             } else {
                 UntrustedTextBlock(text: item.summary, label: "Summary")
                 Text("Full command not received yet").font(.system(size: 12)).foregroundStyle(Tokens.color(.yellow))
             }
             if mode == .interactive {
                 let canApprove = (command?.verified ?? false) && isAvailable(.opApprove, row)
+                Text(verbatim: "Deny is applied on the host now. Approve goes to the project manager, who confirms with you and runs it.")
+                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
                 HStack {
-                    Button("Deny") { confirmDeny = true }
-                        .disabled(sending || !isAvailable(.opDeny(note: nil), row))
                     Spacer()
-                    Button("Approve") { run(.opApprove, row) }
+                    Button { confirmDeny = true } label: { Text("Deny…") }
+                        .buttonStyle(.capstanQuiet)
+                        .disabled(sending || !isAvailable(.opDeny(note: nil), row))
+                    Button { run(.opApprove, row) } label: { Text("Send approval to PM") }
+                        .buttonStyle(.capstanPrimary)
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(sending || !canApprove)
                 }
@@ -161,7 +191,7 @@ struct InspectorScreen: View {
     private func promptBody(_ row: InboxRowID, _ item: StoredWaiting, _ detail: ItemDetail?, _ mode: InspectorMode) -> some View {
         let prompt = detail?.promptBody
         return VStack(alignment: .leading, spacing: Tokens.space[2]) {
-            UntrustedTextBlock(text: prompt?.text ?? item.summary, label: "Prompt")
+            UntrustedTextBlock(text: prompt?.text ?? item.summary, label: "Prompt · untrusted text")
             if let prompt {
                 ForEach(OptionRows.make(prompt.options, needsTerminal: item.needsTerminal)) { option in
                     optionRow(option, prompt: prompt, row: row, mode: mode)
@@ -169,7 +199,8 @@ struct InspectorScreen: View {
                 if mode == .interactive {
                     HStack {
                         Spacer()
-                        Button("Escape") { run(.promptEsc, row) }
+                        Button { run(.promptEsc, row) } label: { Text("Escape") }
+                            .buttonStyle(.capstanQuiet)
                             .disabled(sending || !isAvailable(.promptEsc, row))
                     }
                 }
@@ -208,11 +239,17 @@ struct InspectorScreen: View {
     private func designBody(_ row: InboxRowID, _ item: StoredWaiting, _ detail: ItemDetail?, _ mode: InspectorMode) -> some View {
         let design = detail?.designBody
         return VStack(alignment: .leading, spacing: Tokens.space[2]) {
-            UntrustedTextBlock(text: item.summary, label: "Summary")
+            UntrustedTextBlock(text: item.summary, label: "Screens · untrusted text")
             if let design {
-                UntrustedTextBlock(text: design.link, label: "Design link")
-                Button("Show the full link\u{2026}") { linkToConfirm = design.link }
-                    .disabled(!LinkCheck.isOpenable(design.link.raw) || !design.link.verified)
+                UntrustedTextBlock(text: design.link, label: "Link · untrusted, not opened until you choose")
+                HStack {
+                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(design.link.raw, forType: .string) } label: { Text("Copy link") }
+                        .buttonStyle(.capstanQuiet)
+                        .disabled(!design.link.verified)
+                    Button { linkToConfirm = design.link } label: { Text("Open in browser…") }
+                        .buttonStyle(.capstanQuiet)
+                        .disabled(!LinkCheck.isOpenable(design.link.raw) || !design.link.verified)
+                }
                 if mode == .interactive {
                     DesignDecision(
                         link: design.link, enabled: !sending, approveAvailable: isAvailable(.designApprove(link: "x", askedUser: "Approved"), row),
@@ -229,13 +266,13 @@ struct InspectorScreen: View {
     private func messageBody(_ row: InboxRowID, _ item: StoredWaiting, _ detail: ItemDetail?, _ mode: InspectorMode) -> some View {
         let message = detail?.messageBody
         return VStack(alignment: .leading, spacing: Tokens.space[2]) {
-            UntrustedTextBlock(text: message?.body ?? item.summary, label: "Message")
+            UntrustedTextBlock(text: message?.body ?? item.summary, label: "Message · untrusted text")
             if message == nil {
                 notReceived("Full message not received yet")
             }
             if mode == .interactive, message != nil {
                 ReplyComposer(
-                    title: "Reply", sendLabel: "Send reply", enabled: !sending && isAvailable(.messageReply("x"), row),
+                    title: "Your reply", sendLabel: "Send reply", enabled: !sending && isAvailable(.messageReply("x"), row),
                     onSend: { text in run(.messageReply(text), row) })
             }
         }
@@ -306,6 +343,7 @@ struct ReplyComposer: View {
                 } label: {
                     Text(verbatim: sendLabel)
                 }
+                .buttonStyle(.capstanPrimary)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!enabled || state != .ready)
             }
@@ -330,10 +368,12 @@ private struct DesignDecision: View {
                 ReplyComposer(title: "What should change?", sendLabel: "Send changes", enabled: enabled && changesAvailable, onSend: onChanges)
             }
             HStack {
-                Button { asking.toggle() } label: { Text(verbatim: asking ? "Hide the box" : "Request changes") }
-                    .disabled(!changesAvailable)
                 Spacer()
-                Button("Approve", action: onApprove)
+                Button { asking.toggle() } label: { Text(verbatim: asking ? "Hide the box" : "Request changes") }
+                    .buttonStyle(.capstanQuiet)
+                    .disabled(!changesAvailable)
+                Button(action: onApprove) { Text("Approve design") }
+                    .buttonStyle(.capstanPrimary)
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!enabled || !approveAvailable || !link.verified || !LinkCheck.isOpenable(link.raw))
             }

@@ -20,6 +20,8 @@ final class AppModel {
     var selection: SidebarSelection {
         didSet {
             guard selection != oldValue else { return }
+            selectedAgent = nil
+            selectedPlan = nil
             if !restoring {
                 cancelPendingRow()
                 restoredSelection = nil
@@ -30,6 +32,10 @@ final class AppModel {
     var selectedRow: InboxRowID?
     var inboxKind: WaitingKind?
     var inboxSearch = ""
+    var agentFilter = AgentFilter.all
+    var planFilter = PlanFilter.active
+    var selectedAgent: String?
+    var selectedPlan: PlanRef?
     var hostsFocus: HostsFocus?
     private(set) var busy = BusyTracker()
     private(set) var settings: AppSettings
@@ -593,6 +599,13 @@ final class AppModel {
         }
         notifications.settingsChanged(new)
     }
+}
+
+/// A plan of a project of a host, as the Plans screen selects it.
+struct PlanRef: Hashable {
+    let hostId: UUID
+    let projectId: String
+    let planId: String
 }
 
 /// Hands out increasing numbers from any thread; a connection state carries its number to the main actor.

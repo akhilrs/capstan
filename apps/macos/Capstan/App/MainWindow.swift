@@ -56,10 +56,27 @@ struct MainWindow: View {
                     .padding(.horizontal, Tokens.space[1])
             }
             ToolbarItem(placement: .principal) {
-                if showsKindFilter {
+                switch model.selection {
+                case .inbox, .project:
                     KindFilter(model: model, compact: compactToolbar || narrow)
-                } else if showsProjectMenu {
-                    ProjectMenu(model: model)
+                case .agents:
+                    HStack(spacing: Tokens.space[1]) {
+                        AgentFilterBar(model: model)
+                        ProjectMenu(model: model)
+                    }
+                case .plans:
+                    PlanFilterBar(model: model)
+                case .hosts:
+                    EmptyView()
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                if case .hosts = model.selection {
+                    Button {
+                        if model.presented == nil { model.presented = .addHost(editing: nil) }
+                    } label: {
+                        Label { Text("Add host…") } icon: { Image(systemName: "square.and.pencil") }
+                    }
                 }
             }
         }
@@ -93,8 +110,8 @@ struct MainWindow: View {
             InboxScreen(model: model)
         case .agents(let hostId, let projectId):
             AgentsScreen(model: model, hostId: hostId, projectId: projectId)
-        case .plans(let hostId, let projectId):
-            PlansScreen(model: model, hostId: hostId, projectId: projectId)
+        case .plans:
+            PlansScreen(model: model)
         case .hosts:
             HostsScreen(model: model)
         }
@@ -107,15 +124,16 @@ struct MainWindow: View {
             InspectorScreen(model: model, row: model.selectedRow)
         case .hosts:
             HostsInspector(model: model)
-        case .agents, .plans:
-            EmptyView()
+        case .agents(let hostId, let projectId):
+            AgentInspector(model: model, hostId: hostId, projectId: projectId)
+        case .plans:
+            PlanInspector(model: model)
         }
     }
 
     private var hasInspector: Bool {
         switch model.selection {
-        case .inbox, .project, .hosts: return true
-        case .agents, .plans: return false
+        case .inbox, .project, .hosts, .agents, .plans: return true
         }
     }
 
@@ -148,20 +166,6 @@ struct MainWindow: View {
     private func projectSuffix(_ hostId: UUID, _ projectId: String) -> String {
         projectName(hostId, projectId).map { " · " + $0 } ?? ""
     }
-
-    private var showsKindFilter: Bool {
-        switch model.selection {
-        case .inbox, .project: return true
-        default: return false
-        }
-    }
-
-    private var showsProjectMenu: Bool {
-        switch model.selection {
-        case .agents, .plans: return true
-        default: return false
-        }
-    }
 }
 
 /// The one filter of the inbox: All N, Proposals, Prompts, Designs, and Messages and Merges under More.
@@ -175,7 +179,9 @@ private struct KindFilter: View {
         if compact {
             Menu {
                 ForEach(KindTab.allCases, id: \.self) { tab in
-                    Button(tab == .all ? "All \(model.inboxTotal())" : tab.title) { model.inboxKind = tab.kind }
+                    Button { model.inboxKind = tab.kind } label: {
+                        Text(verbatim: tab == .all ? "All \(model.inboxTotal())" : tab.title)
+                    }
                 }
             } label: {
                 chip(current == .all ? "All \(model.inboxTotal())" : current.title, selected: true)
@@ -194,7 +200,7 @@ private struct KindFilter: View {
             }
             Menu {
                 ForEach(KindTab.more, id: \.self) { tab in
-                    Button(tab.title) { model.inboxKind = tab.kind }
+                    Button { model.inboxKind = tab.kind } label: { Text(verbatim: tab.title) }
                 }
             } label: {
                 chip(KindTab.more.contains(current) ? current.title : "More", selected: KindTab.more.contains(current))
@@ -225,6 +231,67 @@ private struct KindFilter: View {
     }
 }
 
+/// A row of text segments in the toolbar; the selected one is filled and in the accent.
+private struct Segment<T: Hashable>: Identifiable {
+    let value: T
+    let title: String
+    var id: T { value }
+}
+
+private struct SegmentBar<T: Hashable>: View {
+    let items: [Segment<T>]
+    let selected: T
+    let onSelect: (T) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items) { item in
+                let on = item.value == selected
+                Button { onSelect(item.value) } label: {
+                    Text(verbatim: item.title)
+                        .font(.system(size: 13, weight: on ? .semibold : .regular))
+                        .foregroundStyle(on ? Tokens.color(.accent) : Tokens.color(.label))
+                        .padding(.horizontal, Tokens.space[1] + 2)
+                        .padding(.vertical, Tokens.space[0])
+                        .background(on ? Tokens.color(.fill2) : Color.clear, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+}
+
+/// All N, Need attention N, Paused N for the agents of the project in view.
+private struct AgentFilterBar: View {
+    let model: AppModel
+
+    var body: some View {
+        let rows: [AgentRow]
+        if case .agents(let hostId, let projectId) = model.selection, let project = model.project(hostId, projectId) {
+            rows = AgentRow.rows(project)
+        } else {
+            rows = []
+        }
+        return SegmentBar(
+            items: AgentFilter.allCases.map { Segment(value: $0, title: $0.title + " " + String($0.count(rows))) },
+            selected: model.agentFilter, onSelect: { model.agentFilter = $0 })
+    }
+}
+
+/// Active N and Done for the plans of every project.
+private struct PlanFilterBar: View {
+    let model: AppModel
+
+    var body: some View {
+        let rows = model.hostModels.values.flatMap { $0.projects.values.flatMap { PlanRow.rows($0) } }
+        let counts = PlanFilter.counts(rows)
+        return SegmentBar(
+            items: [Segment(value: PlanFilter.active, title: "Active \(counts.active)"), Segment(value: PlanFilter.done, title: "Done")],
+            selected: model.planFilter, onSelect: { model.planFilter = $0 })
+    }
+}
+
 /// Agents and Plans show one project at a time; this menu picks it.
 private struct ProjectMenu: View {
     let model: AppModel
@@ -232,10 +299,12 @@ private struct ProjectMenu: View {
     var body: some View {
         Menu {
             ForEach(model.hosts) { host in
-                Section(model.hosts.count > 1 ? HostLabel.hostName(host) : "Projects") {
+                Section {
                     ForEach(HostLabel.projects(model.hostModels[host.id]), id: \.projectId) { project in
-                        Button(HostLabel.projectName(project)) { open(host.id, project.projectId) }
+                        Button { open(host.id, project.projectId) } label: { Text(verbatim: HostLabel.projectName(project)) }
                     }
+                } header: {
+                    Text(verbatim: model.hosts.count > 1 ? HostLabel.hostName(host) : "Projects")
                 }
             }
         } label: {

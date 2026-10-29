@@ -48,7 +48,8 @@ enum HostLabel {
         switch availability {
         case .ready: return .green
         case .silent: return .yellow
-        case .noKey, .refused, .unsupported, .gone, .other: return .red
+        case .noKey, .refused: return .red
+        case .unsupported, .gone, .other: return .grey
         }
     }
 

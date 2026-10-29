@@ -58,3 +58,30 @@ public struct AgentRow: Sendable, Equatable {
         return left.row.role.localizedStandardCompare(right.row.role) == .orderedAscending
     }
 }
+
+/// The filter of the Agents toolbar: All, Need attention and Paused.
+public enum AgentFilter: CaseIterable, Sendable, Equatable {
+    case all, needAttention, paused
+
+    public var title: String {
+        switch self {
+        case .all: return "All"
+        case .needAttention: return "Need attention"
+        case .paused: return "Paused"
+        }
+    }
+
+    public func matches(_ row: AgentRow) -> Bool {
+        switch self {
+        case .all: return true
+        case .paused: return row.health == .paused
+        case .needAttention:
+            switch row.health {
+            case .needsYou, .stalled, .lost, .blocked: return true
+            default: return false
+            }
+        }
+    }
+
+    public func count(_ rows: [AgentRow]) -> Int { rows.filter(matches).count }
+}

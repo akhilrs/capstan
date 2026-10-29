@@ -108,11 +108,12 @@ final class RowTextTests: XCTestCase {
         XCTAssertEqual(FooterStatus.make([], now: now).text, "No hosts")
     }
 
-    func test_StoppedHostIsGreyInTheSidebarAndTheFooter() {
+    func test_StoppedHostIsRedAfterAFailureAndGreyWhenTheUserStoppedIt() {
         let failed = ConnectionState.stopped(.repeatedFailure)
-        XCTAssertEqual(SidebarText.hostStatus(state: failed, projects: []).tone, .grey)
+        XCTAssertEqual(SidebarText.hostStatus(state: failed, projects: []).tone, .red)
+        XCTAssertEqual(SidebarText.hostStatus(state: .stopped(.user), projects: []).tone, .grey)
         let status = FooterStatus.make([.init(name: "a", state: failed, loading: false)], now: Date())
-        XCTAssertEqual(status.tone, .grey)
+        XCTAssertEqual(status.tone, .red)
         XCTAssertEqual(status.text, "a stopped")
     }
 

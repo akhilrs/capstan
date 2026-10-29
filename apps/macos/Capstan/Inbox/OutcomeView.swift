@@ -19,14 +19,14 @@ struct OutcomeView: View {
                 } else {
                     Image(systemName: symbol(presentation.tone)).foregroundStyle(presentation.tone.color)
                 }
-                Text(verbatim: presentation.title).font(.system(size: 13, weight: .medium))
+                Text(verbatim: presentation.title).font(.system(size: 13, weight: .semibold))
                 Spacer()
                 ForEach(Array(presentation.actions.enumerated()), id: \.offset) { _, action in
                     switch action {
-                    case .refresh: Button("Refresh", action: onRefresh)
+                    case .refresh: Button("Refresh", action: onRefresh).buttonStyle(.capstanPrimary)
                     case .retry:
-                        if let id = pendingId { Button("Retry") { onRetry(id) } }
-                    case .tryAgain: Button("Try again", action: onTryAgain)
+                        if let id = pendingId { Button("Retry") { onRetry(id) }.buttonStyle(.capstanPrimary) }
+                    case .tryAgain: Button("Try again", action: onTryAgain).buttonStyle(.capstanQuiet)
                     }
                 }
             }
@@ -35,7 +35,10 @@ struct OutcomeView: View {
             }
         }
         .padding(Tokens.space[2])
-        .background(Tokens.color(.fill), in: RoundedRectangle(cornerRadius: Tokens.radius.block))
+        .background(
+            (presentation.tone == .neutral || presentation.tone == .grey ? Tokens.color(.fill2) : presentation.tone.color.opacity(0.12)),
+            in: RoundedRectangle(cornerRadius: Tokens.radius.block)
+        )
         .accessibilityElement(children: .contain)
     }
 
@@ -58,11 +61,11 @@ struct OutcomeView: View {
 
     private func symbol(_ tone: Tone) -> String {
         switch tone {
-        case .green: return "checkmark.circle.fill"
-        case .blue: return "arrow.right.circle.fill"
-        case .yellow: return "exclamationmark.triangle.fill"
-        case .red: return "xmark.octagon.fill"
-        case .grey, .neutral: return "circle.dashed"
+        case .green: return "checkmark"
+        case .blue: return "arrow.right"
+        case .yellow: return "arrow.clockwise"
+        case .red: return "exclamationmark.circle"
+        case .grey, .neutral: return "checkmark.circle"
         }
     }
 }

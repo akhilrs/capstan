@@ -108,4 +108,24 @@ final class WorkspacesTests: XCTestCase {
         XCTAssertEqual(PauseControl(capabilities: caps, busy: [key], key: key, paused: false).pause, .disabled("Sending"))
         XCTAssertEqual(PauseControl(capabilities: caps, busy: [], key: key, paused: false).pause, .enabled)
     }
+
+    func testAgentFilterCounts() throws {
+        let rows = [
+            AgentRow(agent: try agent(id: "a"), health: .working),
+            AgentRow(agent: try agent(id: "b"), health: .stalled),
+            AgentRow(agent: try agent(id: "c"), health: .needsYou),
+            AgentRow(agent: try agent(id: "d", paused: true), health: .working),
+        ]
+        XCTAssertEqual(AgentFilter.all.count(rows), 4)
+        XCTAssertEqual(AgentFilter.needAttention.count(rows), 2)
+        XCTAssertEqual(AgentFilter.paused.count(rows), 1)
+    }
+
+    func testPlanFilterSplitsDoneFromActive() {
+        let rows = [PlanRow(plan(3, 3, 3, 3)), PlanRow(plan(3, 2, 1, 0)), PlanRow(plan(0, 0, 0, 0))]
+        XCTAssertEqual(PlanFilter.counts(rows).done, 1)
+        XCTAssertEqual(PlanFilter.counts(rows).active, 2)
+        XCTAssertTrue(PlanFilter.done.matches(rows[0]))
+        XCTAssertTrue(PlanFilter.active.matches(rows[2]))
+    }
 }

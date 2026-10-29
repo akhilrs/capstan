@@ -10,10 +10,11 @@ struct UntrustedTextBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.space[1]) {
             HStack(spacing: Tokens.space[0]) {
-                Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
+                Image(systemName: "exclamationmark.triangle").imageScale(.small)
                 Text(verbatim: label).font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(Tokens.color(.label2))
+            Divider()
             if !text.verified {
                 Text("The host could not vouch for this text, so it is not shown.")
                     .font(.system(size: 12))

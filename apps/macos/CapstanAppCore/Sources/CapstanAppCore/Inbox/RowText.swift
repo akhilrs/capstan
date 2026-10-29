@@ -52,12 +52,41 @@ public enum RowText {
     }
 
     /// `design:8/onboarding` as `plan-8 / onboarding`.
-    static func designName(key: String) -> String? {
+    public static func designName(key: String) -> String? {
         guard key.hasPrefix("design:") else { return nil }
         let rest = key.dropFirst("design:".count)
         let parts = rest.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
         return "plan-\(parts[0]) / \(parts[1])"
+    }
+
+    /// The kind as the inspector's caption names it.
+    public static func kindName(_ kind: WaitingKind) -> String {
+        switch kind {
+        case .op: return "Command proposal"
+        case .prompt: return "Permission prompt"
+        case .design: return "Design approval"
+        case .message: return "Message"
+        case .integration: return "Ready to merge"
+        case .other(let name): return name
+        }
+    }
+
+    /// The headline of the inspector.
+    public static func inspectorTitle(kind: WaitingKind, key: String, summary: String) -> String {
+        switch kind {
+        case .op: return "The operator wants to run a command"
+        case .prompt: return "An agent asks for permission"
+        case .design: return (designName(key: key) ?? "The design") + " is ready"
+        case .message: return "A message needs an answer"
+        case .integration:
+            let text = summary.trimmingCharacters(in: .whitespaces)
+            let branch = text.firstIndex(of: " ").map { String(text[text.index(after: $0)...]).trimmingCharacters(in: .whitespaces) } ?? ""
+            let state = text.split(separator: " ").first.map(String.init) ?? ""
+            let name = branch.isEmpty ? "The integration" : branch
+            return name + (state == "merged" ? " is ready to merge" : " has a merge conflict")
+        case .other(let name): return name
+        }
     }
 
     public static func secondary(_ row: InboxRow) -> RowSecondary {
@@ -235,7 +264,8 @@ public enum SidebarText {
             return ("live", .green)
         case .noHeartbeat: return ("no heartbeat", .yellow)
         case .reconnecting: return ("reconnecting", .yellow)
-        case .stopped: return ("stopped", .grey)
+        case .stopped(.user): return ("stopped", .grey)
+        case .stopped: return ("stopped", .red)
         }
     }
 
@@ -290,9 +320,7 @@ public struct FooterStatus: Sendable, Equatable {
                 tone: loading ? .blue : .green, state: live[0].state, loading: loading)
         }
         let worst = hosts.max { severity($0.state) < severity($1.state) } ?? hosts[0]
-        var tone = CapsuleChoice.make(state: worst.state, anyLoading: worst.loading, heartbeatPulse: false, reduceMotion: true).tone
-        // The dot is grey for a stopped host; the banner above the list says why.
-        if case .stopped? = worst.state { tone = .grey }
+        let tone = CapsuleChoice.make(state: worst.state, anyLoading: worst.loading, heartbeatPulse: false, reduceMotion: true).tone
         return FooterStatus(
             name: HostText.name(worst.name), detail: phrase(worst, now: now), tone: tone, state: worst.state,
             loading: worst.loading)
