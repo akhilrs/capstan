@@ -5,6 +5,7 @@ import SwiftUI
 /// The plans of every project with a progress bar and the counts in words, grouped by project.
 struct PlansScreen: View {
     let model: AppModel
+    @State private var expanded: Set<PlanRef> = []
 
     var body: some View {
         let groups = projectGroups()
@@ -19,8 +20,10 @@ struct PlansScreen: View {
                         Text(verbatim: group.name)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Tokens.color(.label2))
-                        ForEach(group.rows, id: \.planId) { row in
-                            planRow(row, key: group.key)
+                        LazyVStack(alignment: .leading, spacing: Tokens.space[1]) {
+                            ForEach(group.rows, id: \.planId) { row in
+                                planBlock(row, key: group.key)
+                            }
                         }
                     }
                 }
@@ -63,6 +66,34 @@ struct PlansScreen: View {
         HStack(spacing: Tokens.space[0]) {
             RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 10, height: 10)
             Text(verbatim: word)
+        }
+    }
+
+    /// A plan row with a disclosure for its packages; a plan without details has nothing to expand.
+    private func planBlock(_ row: PlanRow, key: ProjectKey) -> some View {
+        let plan = model.project(key.hostId, key.projectId)?.plans.values.first { HostText.name($0.planId) == row.planId }
+        let packages = plan.map(PackageRow.rows) ?? []
+        let ref = PlanRef(hostId: key.hostId, projectId: key.projectId, planId: row.planId)
+        return VStack(alignment: .leading, spacing: Tokens.space[0]) {
+            HStack(alignment: .top, spacing: Tokens.space[0]) {
+                if packages.isEmpty {
+                    Color.clear.frame(width: 20, height: 1)
+                } else {
+                    Button {
+                        if expanded.contains(ref) { expanded.remove(ref) } else { expanded.insert(ref) }
+                    } label: {
+                        Image(systemName: expanded.contains(ref) ? "chevron.down" : "chevron.right")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Packages")
+                    .accessibilityValue(Text(verbatim: expanded.contains(ref) ? "shown" : "hidden"))
+                }
+                planRow(row, key: key)
+            }
+            if !packages.isEmpty, expanded.contains(ref) {
+                PackageRowsView(plan: row, packages: packages)
+            }
         }
     }
 

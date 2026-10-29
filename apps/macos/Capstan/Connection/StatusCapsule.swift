@@ -10,12 +10,13 @@ struct StatusCapsule: View {
     @State private var flash = false
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let status = FooterStatus.make(hosts, now: context.date)
-            let pulse = CapsuleChoice.make(
-                state: status.state, anyLoading: status.loading, heartbeatPulse: model.settings.heartbeatPulse,
-                reduceMotion: reduceMotion
-            ).pulse
+        // Only the age in the words depends on the clock; the tone, the dot and the name change with the model.
+        let status = FooterStatus.make(hosts, now: .now)
+        let pulse = CapsuleChoice.make(
+            state: status.state, anyLoading: status.loading, heartbeatPulse: model.settings.heartbeatPulse,
+            reduceMotion: reduceMotion
+        ).pulse
+        HStack(spacing: 0) {
             HStack(spacing: Tokens.space[1]) {
                 if case .connecting? = status.state {
                     ProgressView().controlSize(.mini)
@@ -27,17 +28,32 @@ struct StatusCapsule: View {
                         .scaleEffect(flash ? 1.5 : 1)
                 }
                 if let name = status.name {
-                    Text(verbatim: name).font(.system(size: 12, weight: .semibold))
+                    Text(verbatim: name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                Text(verbatim: status.detail)
+                detail(status)
                     .font(.system(size: 12))
                     .foregroundStyle(Tokens.color(.label2))
+                    .layoutPriority(1)
             }
             .padding(.horizontal, Tokens.space[2])
             .padding(.vertical, Tokens.space[0] + 2)
             .glassEffect(.regular, in: Capsule())
             .accessibilityElement(children: .combine)
-            .onChange(of: lastLine(status.state)) { _, _ in beat(pulse) }
+            Spacer(minLength: 0)
+        }
+        .onChange(of: lastLine(status.state)) { _, _ in beat(pulse) }
+    }
+
+    /// The words after the name. Those that carry an age or a countdown redraw alone once a second.
+    @ViewBuilder
+    private func detail(_ status: FooterStatus) -> some View {
+        if status.detail.contains(where: { $0.isASCII && $0.isNumber }) && status.name != nil {
+            TickingText { now in FooterStatus.make(hosts, now: now).detail }
+        } else {
+            Text(verbatim: status.detail).lineLimit(1).fixedSize()
         }
     }
 

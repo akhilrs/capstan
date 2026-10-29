@@ -17,6 +17,8 @@ public struct PlanRow: Sendable, Equatable {
     public let assignedOnly: Int64
     public let notStarted: Int64
     public let progress: PlanProgress
+    /// Packages the host did not list in the plan's details.
+    public let omittedPackages: Int64
 
     public init(_ plan: StoredPlan) {
         planId = HostText.name(plan.planId)
@@ -36,6 +38,7 @@ public struct PlanRow: Sendable, Equatable {
         assignedOnly = started - sent
         notStarted = total - started
         progress = PlanProgress(plan)
+        omittedPackages = max(plan.packageDetailsOmitted ?? 0, 0)
     }
 
     /// N of M integrated, then N reported, N assigned and N not started for each bucket above 0.

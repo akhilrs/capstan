@@ -48,6 +48,43 @@ extension WaitingKind: Codable {
     }
 }
 
+extension PackageState: Codable {
+    public var wireName: String {
+        switch self {
+        case .unassigned: return "unassigned"
+        case .assigned: return "assigned"
+        case .reported: return "reported"
+        case .integrated: return "integrated"
+        case .confirmed: return "confirmed"
+        case .cancelled: return "cancelled"
+        case .other(let name): return name
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(wire: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wireName)
+    }
+}
+
+extension PackageDetail {
+    var json: JSONValue {
+        var members: [String: JSONValue] = [
+            "id": .string(id), "title": .string(title.raw), "role": .string(role), "state": .string(state.wireName),
+            "dependsOn": .array(dependsOn.map { JSONValue.string($0) }),
+        ]
+        if let assigneeAgentId { members["assigneeAgentId"] = .string(assigneeAgentId) }
+        if let review { members["review"] = .string(review) }
+        if let integrationId { members["integrationId"] = .string(integrationId) }
+        if let integrationState { members["integrationState"] = .string(integrationState) }
+        return .object(members)
+    }
+}
+
 extension Cursor: Codable {
     public init(from decoder: Decoder) throws {
         let text = try decoder.singleValueContainer().decode(String.self)
@@ -74,11 +111,19 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
     public var summary: UntrustedText
     public var contentHash: String
     public var needsTerminal: Bool
+    /// Filled for kind integration; saved files from before the host sent these decode them as nil.
+    public var integrationState: String?
+    public var branch: UntrustedText?
+    public var headSha: String?
 
     public init(
         key: String, requestId: String, kind: WaitingKind, since: String, summary: UntrustedText,
-        contentHash: String, needsTerminal: Bool
+        contentHash: String, needsTerminal: Bool, integrationState: String? = nil, branch: UntrustedText? = nil,
+        headSha: String? = nil
     ) {
+        self.integrationState = integrationState
+        self.branch = branch
+        self.headSha = headSha
         self.key = key
         self.requestId = requestId
         self.kind = kind
@@ -91,15 +136,20 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
     init(_ item: WaitingItem) {
         self.init(
             key: item.key, requestId: item.requestId, kind: item.kind, since: item.since, summary: item.summary,
-            contentHash: item.contentHash, needsTerminal: item.needsTerminal)
+            contentHash: item.contentHash, needsTerminal: item.needsTerminal, integrationState: item.integrationState,
+            branch: item.branch, headSha: item.headSha)
     }
 
     var json: JSONValue {
-        .object([
+        var members: [String: JSONValue] = [
             "key": .string(key), "requestId": .string(requestId), "kind": .string(kind.wireName),
             "since": .string(since), "summary": .string(summary.raw), "contentHash": .string(contentHash),
             "needsTerminal": .bool(needsTerminal),
-        ])
+        ]
+        if let integrationState { members["integrationState"] = .string(integrationState) }
+        if let branch { members["branch"] = .string(branch.raw) }
+        if let headSha { members["headSha"] = .string(headSha) }
+        return .object(members)
     }
 }
 
@@ -175,8 +225,16 @@ public struct StoredPlan: Codable, Sendable, Equatable {
     public var title: UntrustedText
     public var state: String
     public var packages: StoredCounts
+    /// Nil from a host that does not send them, and in saved files from before it did.
+    public var packageDetails: [PackageDetail]?
+    public var packageDetailsOmitted: Int64?
 
-    public init(key: String, planId: String, sequence: Int64, title: UntrustedText, state: String, packages: StoredCounts) {
+    public init(
+        key: String, planId: String, sequence: Int64, title: UntrustedText, state: String, packages: StoredCounts,
+        packageDetails: [PackageDetail]? = nil, packageDetailsOmitted: Int64? = nil
+    ) {
+        self.packageDetails = packageDetails
+        self.packageDetailsOmitted = packageDetailsOmitted
         self.key = key
         self.planId = planId
         self.sequence = sequence
@@ -190,18 +248,22 @@ public struct StoredPlan: Codable, Sendable, Equatable {
             key: item.key, planId: item.planId, sequence: item.sequence, title: item.title, state: item.state,
             packages: StoredCounts(
                 total: item.packages.total, assigned: item.packages.assigned, reported: item.packages.reported,
-                integrated: item.packages.integrated))
+                integrated: item.packages.integrated),
+            packageDetails: item.packageDetails, packageDetailsOmitted: item.packageDetailsOmitted)
     }
 
     var json: JSONValue {
-        .object([
+        var members: [String: JSONValue] = [
             "key": .string(key), "planId": .string(planId), "sequence": .int(sequence), "title": .string(title.raw),
             "state": .string(state),
             "packages": .object([
                 "total": .int(packages.total), "assigned": .int(packages.assigned),
                 "reported": .int(packages.reported), "integrated": .int(packages.integrated),
             ]),
-        ])
+        ]
+        if let packageDetails { members["packageDetails"] = .array(packageDetails.map { $0.json }) }
+        if let packageDetailsOmitted { members["packageDetailsOmitted"] = .int(packageDetailsOmitted) }
+        return .object(members)
     }
 }
 

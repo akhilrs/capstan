@@ -9,16 +9,25 @@ struct ConnectionBanners: View {
 
     var body: some View {
         if let config = model.hosts.first(where: { $0.id == hostId }) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let specs = BannerChoice.make(
-                    state: model.connection[hostId], anyLoading: anyLoading(model.hostModels[hostId]),
-                    decide: model.capabilities[hostId]?.decide, hostName: config.displayName,
-                    destination: config.destination, now: context.date)
-                VStack(alignment: .leading, spacing: Tokens.space[1]) {
-                    ForEach(Array(specs.enumerated()), id: \.offset) { _, spec in
-                        banner(spec)
-                    }
+            // Only the late-heartbeat banner reads the clock; the others are static and the retry line ticks alone.
+            if case .noHeartbeat? = model.connection[hostId] {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    list(config, now: context.date)
                 }
+            } else {
+                list(config, now: .now)
+            }
+        }
+    }
+
+    private func list(_ config: HostConfig, now: Date) -> some View {
+        let specs = BannerChoice.make(
+            state: model.connection[hostId], anyLoading: anyLoading(model.hostModels[hostId]),
+            decide: model.capabilities[hostId]?.decide, hostName: config.displayName,
+            destination: config.destination, now: now)
+        return VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            ForEach(Array(specs.enumerated()), id: \.offset) { _, spec in
+                banner(spec)
             }
         }
     }
