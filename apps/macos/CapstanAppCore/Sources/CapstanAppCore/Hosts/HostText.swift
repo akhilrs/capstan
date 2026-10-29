@@ -94,8 +94,25 @@ public struct AvailabilityText: Sendable, Equatable {
 }
 
 /// A project of the host has no complete snapshot yet: a first load, or a reload after a resync.
+/// True while a ready project still waits for its snapshot. A project that is not ready (unsupported, refused, gone)
+/// never gets one, so it must not keep the host in "Loading".
 public func anyLoading(_ host: HostModel?) -> Bool {
-    host?.projects.values.contains { !$0.snapshotComplete } ?? false
+    host?.projects.values.contains { $0.availability == .ready && !$0.snapshotComplete } ?? false
+}
+
+/// The one state that stands for several hosts: live if any host is live, then the next most connected.
+public func aggregateConnection(_ states: [ConnectionState]) -> ConnectionState? {
+    func rank(_ state: ConnectionState) -> Int {
+        switch state {
+        case .live: return 0
+        case .noHeartbeat: return 1
+        case .reconnecting: return 2
+        case .connecting: return 3
+        case .stopped(.user): return 5
+        case .stopped: return 4
+        }
+    }
+    return states.min { rank($0) < rank($1) }
 }
 
 public enum HostLimits {

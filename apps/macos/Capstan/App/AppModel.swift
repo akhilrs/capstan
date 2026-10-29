@@ -15,6 +15,7 @@ final class AppModel {
     var hosts: [HostConfig]
     var hostModels: [UUID: HostModel]
     var connection: [UUID: ConnectionState]
+    private var connectionNumber: [UUID: Int] = [:]
     var capabilities: [UUID: HostCapabilities]
     var selection: SidebarSelection {
         didSet {
@@ -177,6 +178,8 @@ final class AppModel {
         let id = config.id
         let generation = (generations[id] ?? 0) + 1
         generations[id] = generation
+        let numbering = StateNumbering()
+        connectionNumber[id] = 0
         let engine = HostStoreEngine(
             hostId: id, persistence: FilePersistence(directory: directory), clock: SystemClock(),
             onChange: { [weak self] model in
@@ -195,7 +198,11 @@ final class AppModel {
                 }
             },
             onConnection: { [weak self] state in
-                Task { @MainActor [weak self] in self?.applyConnection(state, hostId: id, generation: generation) }
+                // Numbered here, in the engine's order, because separate tasks may reach the main actor out of order.
+                let number = numbering.next()
+                Task { @MainActor [weak self] in
+                    self?.applyConnection(state, number: number, hostId: id, generation: generation)
+                }
             })
         let session = HostSession(
             config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock())
@@ -235,8 +242,9 @@ final class AppModel {
         resolvePendingRow(final: false)
     }
 
-    private func applyConnection(_ state: ConnectionState, hostId: UUID, generation: Int) {
-        guard generations[hostId] == generation else { return }
+    private func applyConnection(_ state: ConnectionState, number: Int, hostId: UUID, generation: Int) {
+        guard generations[hostId] == generation, number > (connectionNumber[hostId] ?? 0) else { return }
+        connectionNumber[hostId] = number
         var reconnected = false
         if case .live = state, case .reconnecting? = connection[hostId] { reconnected = true }
         connection[hostId] = state
@@ -562,5 +570,18 @@ final class AppModel {
             defaults.set(data, forKey: AppModel.settingsKey)
         }
         notifications.settingsChanged(new)
+    }
+}
+
+/// Hands out increasing numbers from any thread; a connection state carries its number to the main actor.
+private final class StateNumbering: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = 0
+
+    func next() -> Int {
+        lock.withLock {
+            last += 1
+            return last
+        }
     }
 }

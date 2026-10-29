@@ -64,6 +64,22 @@ final class HostSessionTests: XCTestCase {
         guard case .live? = state else { return XCTFail("expected live, got \(String(describing: state))") }
     }
 
+    func testRealisticStreamWithMixedProjectsGoesLiveAndStaysLive() async throws {
+        let cursor = makeCursor(["p1", "p2"])
+        let session = makeSession()
+        runner.enqueue(FakeScript(chunks: [
+            Wire.hello,
+            Wire.project("p1", state: "ready"), Wire.project("p2", state: "ready"),
+            Wire.project("p3", state: "unsupported"), Wire.project("p4", state: "unsupported"),
+            Wire.snapshotEnd, Wire.cursor(cursor), Wire.heartbeat,
+        ]))
+        await startAndWait(session)
+        await eventually("one batch") { await self.consumer.batches.count >= 1 }
+        await waitForState("live") { if case .live = $0 { return true } else { return false } }
+        let state = await consumer.lastState()
+        guard case .live? = state else { return XCTFail("expected live, got \(String(describing: state))") }
+    }
+
     func testBatchesEndAtCursorLinesAndApplyIsAwaited() async throws {
         let first = makeCursor(["p1"], sequence: 1)
         let second = makeCursor(["p1"], sequence: 2)
