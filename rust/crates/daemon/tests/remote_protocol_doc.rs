@@ -154,13 +154,13 @@ fn section_names() -> Vec<String> {
 }
 
 #[test]
-fn the_document_is_a_draft_with_its_ten_sections() {
+fn the_document_is_approved_with_its_ten_sections() {
     let mut lines = DOC.lines();
     assert_eq!(lines.next(), Some("# Remote protocol v1"));
     assert_eq!(lines.next(), Some(""));
     assert_eq!(
         lines.next(),
-        Some("Status: draft (v1, awaiting approval)"),
+        Some("Status: approved (v1)"),
         "the status line comes right after the title"
     );
     let sections = section_names();
