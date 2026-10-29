@@ -73,7 +73,7 @@ public actor HostSession {
     private var currentProcess: (any RunningProcess)?
     private var watchdogTask: Task<Void, Never>?
     private var watchdogFired = false
-    private var terminatedConnection = 0
+    private var terminatedConnections: Set<Int> = []
     private var refreshRestartRequested = false
     private var lastLineAt: Date
     private var liveSince: Date?
@@ -155,8 +155,7 @@ public actor HostSession {
 
     /// Ends a child once: the stop, refresh and watchdog paths and the read loop's own cleanup may all reach for it.
     private func terminate(_ process: any RunningProcess, connection id: Int) {
-        guard terminatedConnection != id else { return }
-        terminatedConnection = id
+        guard terminatedConnections.insert(id).inserted else { return }
         process.terminate()
     }
 

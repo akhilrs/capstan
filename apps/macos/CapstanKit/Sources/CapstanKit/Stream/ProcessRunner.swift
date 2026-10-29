@@ -115,7 +115,7 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         process.standardError = errPipe
 
         let outputDone = self.outputDone
-        process.terminationHandler = { [self] _ in finish() }
+        process.terminationHandler = { [weak self] _ in self?.finish() }
         try process.run()
 
         let outHandle = outPipe.fileHandleForReading
