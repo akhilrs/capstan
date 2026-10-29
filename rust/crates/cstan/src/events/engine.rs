@@ -59,6 +59,8 @@ struct Info {
     state: EndpointState,
     /// The ledger epoch and head of a ready project.
     at: Option<(String, u64)>,
+    /// Reported ready though the poll missed: the root is slow, and is not synced in this cycle.
+    held: bool,
 }
 
 struct Engine<'a> {
@@ -71,6 +73,8 @@ struct Engine<'a> {
     known: BTreeMap<PathBuf, (String, EndpointState)>,
     last_line_ms: u64,
     noted: BTreeSet<String>,
+    /// Per root: the consecutive missed polls and the clock time of the first of them.
+    misses: HashMap<PathBuf, (u32, u64)>,
 }
 
 pub(super) fn run(
@@ -89,6 +93,7 @@ pub(super) fn run(
         known: BTreeMap::new(),
         last_line_ms,
         noted: BTreeSet::new(),
+        misses: HashMap::new(),
     };
     match engine.main() {
         Ok(()) | Err(Halt::Sink) => 0,
@@ -271,11 +276,25 @@ impl Engine<'_> {
         let mut taken: HashMap<String, PathBuf> = HashMap::new();
         for endpoint in endpoints {
             let root = endpoint.root;
+            let mut held = false;
             let (id, state, at) = if endpoint.state == EndpointState::Ready {
                 match self.head(&root) {
-                    Ok((id, epoch, head)) => (Some(id), EndpointState::Ready, Some((epoch, head))),
+                    Ok((id, epoch, head)) => {
+                        if !self.reported_ready(&root) {
+                            self.misses.remove(&root);
+                        }
+                        (Some(id), EndpointState::Ready, Some((epoch, head)))
+                    }
                     Err(Fail::Halt(halt)) => return Err(halt),
+                    Err(Fail::Down(EndpointState::Silent)) if self.miss(&root) => {
+                        held = true;
+                        let id = self.known.get(&root).map(|(id, _)| id.clone());
+                        (id, EndpointState::Ready, None)
+                    }
                     Err(Fail::Down(state)) => {
+                        if state != EndpointState::Silent {
+                            self.misses.remove(&root);
+                        }
                         self.note(&format!(
                             "{} cannot be followed now ({})",
                             root_text(&root),
@@ -285,6 +304,7 @@ impl Engine<'_> {
                     }
                 }
             } else {
+                self.misses.remove(&root);
                 (self.project_id_of(&root), endpoint.state, None)
             };
             let Some(id) = id else { continue };
@@ -305,6 +325,7 @@ impl Engine<'_> {
                 id,
                 state,
                 at,
+                held,
             });
         }
 
@@ -333,12 +354,14 @@ impl Engine<'_> {
         self.emit(batch)?;
 
         for info in &infos {
-            if info.state != EndpointState::Ready {
+            if info.state != EndpointState::Ready || info.held {
                 continue;
             }
             self.check_stop()?;
             match self.sync(info) {
-                Ok(()) => {}
+                Ok(()) => {
+                    self.misses.remove(&info.root);
+                }
                 Err(Fail::Halt(halt)) => return Err(halt),
                 Err(Fail::Down(state)) => self.down(info, state)?,
             }
@@ -367,8 +390,35 @@ impl Engine<'_> {
         }
     }
 
+    fn reported_ready(&self, root: &Path) -> bool {
+        matches!(self.known.get(root), Some((_, EndpointState::Ready)))
+    }
+
+    /// Counts one missed poll of `root`; true when the root is still to be reported ready, because it was last
+    /// reported ready and fewer than the allowed misses, and less than the allowed time, have passed since the first.
+    fn miss(&mut self, root: &Path) -> bool {
+        let now = self.deps.clock.now_ms();
+        let entry = self.misses.entry(root.to_path_buf()).or_insert((0, now));
+        entry.0 = entry.0.saturating_add(1);
+        let (count, first) = *entry;
+        let limits = &self.deps.limits;
+        let hold = count < limits.silent_after_misses
+            && now.saturating_sub(first) < limits.silent_after_ms
+            && self.reported_ready(root);
+        if hold {
+            self.note(&format!("{} is slow to answer", root_text(root)));
+        }
+        hold
+    }
+
     /// A project that answered `head` and then failed: its new state, as a project line and in the entry.
     fn down(&mut self, info: &Info, state: EndpointState) -> Result<(), Halt> {
+        if state == EndpointState::Silent && self.miss(&info.root) {
+            return Ok(());
+        }
+        if state != EndpointState::Silent {
+            self.misses.remove(&info.root);
+        }
         self.note(&format!(
             "{} cannot be followed now ({})",
             root_text(&info.root),

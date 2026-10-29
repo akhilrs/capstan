@@ -77,6 +77,10 @@ pub struct Limits {
     pub heartbeat_ms: u64,
     /// The most bytes of snapshot items held for one project.
     pub snapshot_buffer_bytes: usize,
+    /// Consecutive missed polls after which a project last reported ready is reported silent.
+    pub silent_after_misses: u32,
+    /// Time since the first missed poll after which such a project is reported silent.
+    pub silent_after_ms: u64,
 }
 
 impl Default for Limits {
@@ -87,6 +91,8 @@ impl Default for Limits {
             min_poll_ms: 1_000,
             heartbeat_ms: 15_000,
             snapshot_buffer_bytes: 64 * 1024 * 1024,
+            silent_after_misses: 3,
+            silent_after_ms: 10_000,
         }
     }
 }

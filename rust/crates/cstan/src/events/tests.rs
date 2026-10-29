@@ -1100,3 +1100,135 @@ fn a_null_page_anchor_gives_zeros_in_the_entry() {
         (5, "0000000000000000")
     );
 }
+
+// ------------------------------------------------------------------------------------ silent hysteresis
+
+/// Runs one ready root from a cursor at its head, one poll a second; `call` is "head" or "page" and `misses[n]`
+/// says whether the n-th call of that kind goes unanswered. Gives the run and the states of the project lines.
+fn flaky(
+    name: &str,
+    call: &'static str,
+    misses: &[bool],
+    tweak: impl FnOnce(&mut Limits),
+) -> (Run, Vec<String>) {
+    let dir = tmp(name);
+    let a = project(&dir, "a");
+    let la = led("pa", 2);
+    let cursor = cursor_text(vec![("pa", entry(&la, &a, 2, 0))]);
+    let world = world(vec![(&a, la)]);
+    let script = misses.to_vec();
+    let seen = AtomicU64::new(0);
+    *world.on_call.lock().unwrap() = Some(Box::new(move |name| {
+        if name != call {
+            return None;
+        }
+        let n = seen.fetch_add(1, Ordering::SeqCst) as usize;
+        script
+            .get(n)
+            .copied()
+            .unwrap_or(false)
+            .then_some(FeedFailure::NoAnswer)
+    }));
+    let mut s = setup();
+    s.plan.cursor = Some(cursor);
+    s.stop_at = misses.len() as u64 * 1000 + 500;
+    tweak(&mut s.limits);
+    let out = run(&world, s);
+    let states = json_lines(&out)
+        .iter()
+        .filter(|l| l["kind"] == "project")
+        .map(|l| l["state"].as_str().unwrap().to_string())
+        .collect();
+    (out, states)
+}
+
+fn ever_down(out: &Run) -> bool {
+    cursors(out).iter().any(|c| c["pa"].d.is_some())
+}
+
+#[test]
+fn a_ready_root_that_misses_two_polls_is_never_reported_silent() {
+    let (out, states) = flaky("two", "head", &[false, true, true, false, false], |_| {});
+    assert_eq!(states, ["ready"]);
+    assert!(!ever_down(&out));
+    assert!(out.err.contains("slow"));
+}
+
+#[test]
+fn the_third_consecutive_miss_reports_silent_with_d_and_the_first_answer_reports_ready() {
+    let (out, states) = flaky(
+        "three",
+        "head",
+        &[false, true, true, true, true, false],
+        |_| {},
+    );
+    assert_eq!(states, ["ready", "silent", "ready"]);
+    let cs = cursors(&out);
+    assert!(cs.iter().any(|c| c["pa"].d.is_some()));
+    assert_eq!(cs.last().unwrap()["pa"].d, None);
+}
+
+#[test]
+fn an_answer_between_misses_resets_the_count() {
+    let (out, states) = flaky(
+        "reset",
+        "head",
+        &[false, true, true, false, true, true, false],
+        |_| {},
+    );
+    assert_eq!(states, ["ready"]);
+    assert!(!ever_down(&out));
+}
+
+#[test]
+fn ten_seconds_after_the_first_miss_report_silent_on_the_second() {
+    let (_, states) = flaky("ten", "head", &[false, true, true, false], |l| {
+        l.silent_after_ms = 900
+    });
+    assert_eq!(states, ["ready", "silent", "ready"]);
+}
+
+#[test]
+fn a_root_first_seen_silent_is_reported_silent_at_once() {
+    let (out, states) = flaky("first", "head", &[true, false], |_| {});
+    assert_eq!(states, ["silent", "ready"]);
+    assert!(ever_down(&out));
+}
+
+#[test]
+fn a_gone_root_is_reported_at_once() {
+    let dir = tmp("gone");
+    let a = project(&dir, "a");
+    let la = led("pa", 2);
+    let cursor = cursor_text(vec![("pa", entry(&la, &a, 2, 0))]);
+    let world = world(vec![(&a, la)]);
+    let w = world.clone();
+    *world.on_sleep.lock().unwrap() = Some(Box::new(move |at| {
+        let state = if at >= 1000 {
+            EndpointState::Gone
+        } else {
+            EndpointState::Ready
+        };
+        w.led.lock().unwrap().values_mut().next().unwrap().probe = Some(state);
+    }));
+    let mut s = setup();
+    s.plan.cursor = Some(cursor);
+    s.stop_at = 1500;
+    let out = run(&world, s);
+    let states: Vec<String> = json_lines(&out)
+        .iter()
+        .filter(|l| l["kind"] == "project")
+        .map(|l| l["state"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(states, ["ready", "gone"]);
+}
+
+#[test]
+fn misses_inside_a_sync_follow_the_same_rule() {
+    let (out, states) = flaky("sync1", "page", &[false, true, true], |_| {});
+    assert_eq!(states, ["ready"]);
+    assert!(!ever_down(&out));
+    let (out, states) = flaky("sync2", "page", &[false, true, true, true, false], |_| {});
+    assert_eq!(states, ["ready", "silent", "ready"]);
+    assert!(ever_down(&out));
+}
