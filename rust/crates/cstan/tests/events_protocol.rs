@@ -118,6 +118,8 @@ fn project(label: &str, seed: impl FnOnce(&Core, &Creds)) -> (Project, Creds) {
         "stateDirectory": state.to_string_lossy(),
         "maxSlices": 4, "maxRunMs": 3_600_000, "maxDispatches": 16,
     });
+    // Test daemons are never listed or polled by `cstan events`.
+    std::fs::write(root.join(cstan_front::projects::UNDISCOVERABLE_MARKER), "").unwrap();
     for (name, text) in [
         ("project.json", format!("{config:#}\n")),
         ("operator.key", format!("{OPERATOR}\n")),

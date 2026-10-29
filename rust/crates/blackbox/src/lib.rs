@@ -445,6 +445,8 @@ impl World {
         };
         mode(&project.join(".capstan"), 0o700);
         mode(&project.join(".capstan/state"), 0o700);
+        // Test daemons are never listed or polled by `cstan events`.
+        std::fs::write(project.join(".capstan/undiscoverable"), "").unwrap();
         let bare = builder.bare;
         let mut random = [0u8; 20];
         getrandom::fill(&mut random).unwrap();

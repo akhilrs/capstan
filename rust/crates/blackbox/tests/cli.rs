@@ -632,3 +632,9 @@ fn a_folder_that_is_not_a_repository_or_has_no_commit_is_named_with_the_exact_fi
         "{text}"
     );
 }
+
+#[test]
+fn the_standard_world_is_undiscoverable() {
+    let w = World::standard("undiscoverable");
+    assert!(w.project.join(".capstan/undiscoverable").is_file());
+}

@@ -13,6 +13,10 @@ use capstan_daemon::deps::SOCKET_NAME;
 
 use crate::controllers::{operator_key, Proc};
 
+/// A root holding this file (any content) is skipped by discovery: it is never asked for its key nor polled. Test and
+/// scratch daemons create it; a real project that does is hidden from `cstan events`.
+pub const UNDISCOVERABLE_MARKER: &str = ".capstan/undiscoverable";
+
 /// How long one controller may take to answer.
 const ASK_TIMEOUT_MS: u64 = 2_000;
 
@@ -192,6 +196,9 @@ pub fn discover(
     let mut roots: BTreeMap<PathBuf, Option<u32>> = BTreeMap::new();
     let mut note = |root: PathBuf, pid: Option<u32>| {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
+        if root.join(UNDISCOVERABLE_MARKER).exists() {
+            return;
+        }
         let slot = roots.entry(root).or_insert(pid);
         *slot = match (*slot, pid) {
             (Some(a), Some(b)) => Some(a.min(b)),
