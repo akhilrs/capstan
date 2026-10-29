@@ -176,14 +176,11 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
             publishExitIfReady()
         }
         // The termination handler is the first way to learn of the exit; this poll is the second, so a handler that
-        // does not run cannot leave `exitCode` waiting for good.
+        // does not run cannot leave `exitCode` waiting for good. There is no `waitUntilExit` thread: it polls the
+        // run loop of its thread, and a plain thread has no run-loop source, so it returns at once and spins a core
+        // for as long as the child lives.
         Thread.detachNewThread { [self] in
-            while process.isRunning { usleep(20_000) }
-            finish()
-        }
-        // The third: Foundation's own blocking wait, on a thread of its own. Any one of the three ends the wait.
-        Thread.detachNewThread { [self] in
-            process.waitUntilExit()
+            while process.isRunning { usleep(50_000) }
             finish()
         }
     }
