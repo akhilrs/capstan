@@ -226,7 +226,11 @@ final class AppModel {
             })
         let session = HostSession(
             config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock(),
-            diagnostic: { AppModel.log.notice("\(config.displayName, privacy: .public): \($0, privacy: .public)") })
+            diagnostic: { what, detail in
+                // The detail can carry host stderr text: it stays private.
+                AppModel.log.notice(
+                    "\(config.displayName, privacy: .public): \(what, privacy: .public) \(detail ?? "", privacy: .private)")
+            })
         engines[id] = engine
         sessions[id] = session
         connection[id] = .connecting

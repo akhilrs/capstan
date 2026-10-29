@@ -65,8 +65,9 @@ public actor HostSession {
     private let consumer: any StreamConsumer
     private let clock: any SessionClock
     private let jitter: @Sendable () -> Double
-    /// One short line for each connect, restart and end of a stream, so a restart can be traced to its cause.
-    private let diagnostic: (@Sendable (String) -> Void)?
+    /// One short line for each connect, restart and end of a stream, so a restart can be traced to its cause. The
+    /// second text is host text (an error or stderr) that a log must keep private.
+    private let diagnostic: (@Sendable (String, String?) -> Void)?
     private let decoder = LineDecoder()
 
     public private(set) var state: ConnectionState = .connecting
@@ -100,7 +101,7 @@ public actor HostSession {
     public init(
         config: HostConfig, runner: any ProcessRunner, consumer: any StreamConsumer, clock: any SessionClock,
         jitter: @escaping @Sendable () -> Double = { Double.random(in: 0.8...1.2) },
-        diagnostic: (@Sendable (String) -> Void)? = nil
+        diagnostic: (@Sendable (String, String?) -> Void)? = nil
     ) {
         self.diagnostic = diagnostic
         self.config = config
@@ -186,7 +187,8 @@ public actor HostSession {
         while gen == generation {
             let outcome = await connectOnce(generation: gen)
             guard gen == generation else { return }
-            diagnostic?("connection \(connectionId) ended: \(HostSession.describe(outcome))")
+            let (what, detail) = HostSession.describe(outcome)
+            diagnostic?("connection \(connectionId) ended: \(what)", detail)
             switch outcome {
             case .superseded:
                 return
@@ -220,19 +222,20 @@ public actor HostSession {
         }
     }
 
-    private static func describe(_ outcome: Outcome) -> String {
+    /// The outcome in words, and the error or stderr text it carries, which may be host text.
+    private static func describe(_ outcome: Outcome) -> (String, String?) {
         switch outcome {
-        case .superseded: return "superseded"
-        case .stop(let reason): return "stop \(reason)"
-        case .restartNow: return "restart now"
-        case .retry(let error, let counts): return "retry \(error) failure=\(counts)"
+        case .superseded: return ("superseded", nil)
+        case .stop(let reason): return ("stop", "\(reason)")
+        case .restartNow: return ("restart now", nil)
+        case .retry(let error, let counts): return ("retry, counts as failure: \(counts)", "\(error)")
         }
     }
 
     private func connectOnce(generation gen: Int) async -> Outcome {
         connectionId += 1
         let id = connectionId
-        diagnostic?("connection \(id) starting")
+        diagnostic?("connection \(id) starting", nil)
         watchdogFired = false
         refreshRestartRequested = false
         let quiet = refreshRestartPending
@@ -326,9 +329,9 @@ public actor HostSession {
             return .superseded
         }
         if connectionId == id { currentProcess = nil }
-        if watchdogFired { diagnostic?("connection \(id): no line for \(Int(heartbeatTimeout)) s") }
+        if watchdogFired { diagnostic?("connection \(id): no line for \(Int(heartbeatTimeout)) s", nil) }
         if refreshRestartRequested {
-            diagnostic?("connection \(id): refresh restart")
+            diagnostic?("connection \(id): refresh restart", nil)
             // The partial batch is read again with the snapshots after the restart.
             terminate(process, connection: id)
             return .restartNow
