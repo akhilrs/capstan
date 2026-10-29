@@ -88,6 +88,7 @@ code prompt_relay.expire
 code prompt_relay.finish
 code prompt_relay.interrupted
 code prompt_relay.refuse
+code remote.decide
 code report.announce
 code report.record
 code review.announce

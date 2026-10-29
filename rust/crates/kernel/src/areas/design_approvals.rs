@@ -5,6 +5,7 @@
 //! Operations by `ControllerCore` method name (`dispatch`): `recordDesignDecision` takes the mutation context and one
 //! input object; `designApprovals` takes (planId, packageId|null).
 
+use crate::auth::AuthenticatedActor;
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{execute, query_all, query_opt, safe_id, safe_text};
@@ -140,152 +141,200 @@ pub fn record_design_decision(
     context: &MutationContext,
     input: &Value,
 ) -> KernelResult<Value> {
-    let plan_id = safe_id(field(input, "planId"), "plan id")?;
-    let package_id = safe_id(field(input, "packageId"), "package id")?;
-    let decision = match field(input, "decision").as_str() {
-        Some(d @ ("approved" | "changes")) => d,
-        _ => {
-            return Err(KernelError::type_error(
-                "the decision must be approved or changes",
-            ))
-        }
-    };
-    let asked_user = safe_text(field(input, "askedUser"), "--asked-user", MAX_BYTES, false)?;
-    if asked_user.len() > MAX_BYTES {
-        return Err(KernelError::type_error(format!(
-            "--asked-user must be at most {MAX_BYTES} bytes"
-        )));
-    }
-    let link = match input.get("link") {
-        None | Some(Value::Null) => None,
-        Some(value) => Some(safe_text(value, "--link", MAX_BYTES, false)?),
-    };
-    if link.as_ref().is_some_and(|l| l.len() > MAX_BYTES) {
-        return Err(KernelError::type_error(format!(
-            "--link must be at most {MAX_BYTES} bytes"
-        )));
-    }
-    if decision == "approved" && link.is_none() {
-        return Err(KernelError::type_error(
-            "--link is required: the design the user approved (a URL or repository path)",
-        ));
-    }
+    let args = DesignDecision::parse(input)?;
     kernel.mutate(context, "design.decide", "plan:write", input, |actor| {
-        if actor.role != "PM" && actor.role != "operator" {
-            return Err(KernelError::controller(
-                "only the PM or the operator records a design decision",
+        apply_design_decision(kernel, actor, &args)
+    })
+}
+
+/// The checked arguments of a design decision.
+pub(crate) struct DesignDecision {
+    pub plan_id: String,
+    pub package_id: String,
+    pub decision: String,
+    pub asked_user: String,
+    pub link: Option<String>,
+}
+
+impl DesignDecision {
+    /// The checks of `recordDesignDecision` that come before the mutation.
+    pub(crate) fn parse(input: &Value) -> KernelResult<Self> {
+        let plan_id = safe_id(field(input, "planId"), "plan id")?;
+        let package_id = safe_id(field(input, "packageId"), "package id")?;
+        let decision = match field(input, "decision").as_str() {
+            Some(d @ ("approved" | "changes")) => d,
+            _ => {
+                return Err(KernelError::type_error(
+                    "the decision must be approved or changes",
+                ))
+            }
+        };
+        let asked_user = safe_text(field(input, "askedUser"), "--asked-user", MAX_BYTES, false)?;
+        if asked_user.len() > MAX_BYTES {
+            return Err(KernelError::type_error(format!(
+                "--asked-user must be at most {MAX_BYTES} bytes"
+            )));
+        }
+        let link = match input.get("link") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(safe_text(value, "--link", MAX_BYTES, false)?),
+        };
+        if link.as_ref().is_some_and(|l| l.len() > MAX_BYTES) {
+            return Err(KernelError::type_error(format!(
+                "--link must be at most {MAX_BYTES} bytes"
+            )));
+        }
+        if decision == "approved" && link.is_none() {
+            return Err(KernelError::type_error(
+                "--link is required: the design the user approved (a URL or repository path)",
             ));
         }
-        if plans::plan_row(kernel, plan_id)?.is_none() {
-            return Err(KernelError::controller(format!("plan {plan_id} does not exist")));
-        }
-        let package = query_opt(
+        Ok(Self {
+            plan_id: plan_id.to_string(),
+            package_id: package_id.to_string(),
+            decision: decision.to_string(),
+            asked_user,
+            link,
+        })
+    }
+}
+
+/// The body of the `design.decide` mutation, run by whoever holds the transaction.
+pub(crate) fn apply_design_decision(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    args: &DesignDecision,
+) -> KernelResult<MutationOutput> {
+    let (plan_id, package_id, decision) = (
+        args.plan_id.as_str(),
+        args.package_id.as_str(),
+        args.decision.as_str(),
+    );
+    let (asked_user, link) = (&args.asked_user, &args.link);
+    if actor.role != "PM" && actor.role != "operator" {
+        return Err(KernelError::controller(
+            "only the PM or the operator records a design decision",
+        ));
+    }
+    if plans::plan_row(kernel, plan_id)?.is_none() {
+        return Err(KernelError::controller(format!(
+            "plan {plan_id} does not exist"
+        )));
+    }
+    let package = query_opt(
+        &kernel.database,
+        "SELECT assignee_agent_id, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
+        [&kernel.project_id, plan_id, package_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+    )?;
+    let Some((assignee, cancelled_at)) = package else {
+        return Err(KernelError::controller(format!(
+            "plan {plan_id} has no package {package_id}"
+        )));
+    };
+    if cancelled_at.is_some() {
+        return Err(KernelError::controller(format!(
+            "package_cancelled: package {package_id} of plan {plan_id} was cancelled"
+        )));
+    }
+    let body = approved_body(kernel, plan_id)?;
+    if !body
+        .as_deref()
+        .is_some_and(|b| package_is_design(b, package_id))
+    {
+        return Err(KernelError::controller(format!(
+            "package {package_id} of plan {plan_id} is not a design package (design: true in the plan)"
+        )));
+    }
+    let Some(report_id) = latest_report(kernel, plan_id, package_id)? else {
+        return Err(KernelError::controller(format!(
+            "design package {package_id} of plan {plan_id} has no report yet; decide once its designer has reported"
+        )));
+    };
+    let now = kernel.now();
+    let sequence = query_opt(
+        &kernel.database,
+        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM design_approvals WHERE project_id = ?",
+        [&kernel.project_id],
+        |row| row.get::<_, i64>(0),
+    )?
+    .unwrap_or(1);
+    execute(
+        &kernel.database,
+        "INSERT INTO design_approvals(project_id, decision_id, sequence, plan_id, package_id, decision, report_id, link, asked_user, decided_by, decided_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![
+            kernel.project_id,
+            kernel.env.uuid(),
+            sequence,
+            plan_id,
+            package_id,
+            decision,
+            report_id,
+            link,
+            asked_user,
+            actor.actor_id,
+            now
+        ],
+    )?;
+    let dependents: Vec<String> = body
+        .as_deref()
+        .map(|b| dependents_of_package(b, package_id))
+        .unwrap_or_default();
+    let mut assigned_dependents = Vec::new();
+    for dependent in &dependents {
+        let held = query_opt(
             &kernel.database,
-            "SELECT assignee_agent_id, cancelled_at FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ?",
-            [&kernel.project_id, plan_id, package_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
-        )?;
-        let Some((assignee, cancelled_at)) = package else {
-            return Err(KernelError::controller(format!(
-                "plan {plan_id} has no package {package_id}"
-            )));
-        };
-        if cancelled_at.is_some() {
-            return Err(KernelError::controller(format!(
-                "package_cancelled: package {package_id} of plan {plan_id} was cancelled"
-            )));
-        }
-        let body = approved_body(kernel, plan_id)?;
-        if !body.as_deref().is_some_and(|b| package_is_design(b, package_id)) {
-            return Err(KernelError::controller(format!(
-                "package {package_id} of plan {plan_id} is not a design package (design: true in the plan)"
-            )));
-        }
-        let Some(report_id) = latest_report(kernel, plan_id, package_id)? else {
-            return Err(KernelError::controller(format!(
-                "design package {package_id} of plan {plan_id} has no report yet; decide once its designer has reported"
-            )));
-        };
-        let now = kernel.now();
-        let sequence = query_opt(
-            &kernel.database,
-            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM design_approvals WHERE project_id = ?",
-            [&kernel.project_id],
-            |row| row.get::<_, i64>(0),
+            "SELECT assignee_agent_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
+            [&kernel.project_id, plan_id, dependent],
+            |row| row.get::<_, Option<String>>(0),
         )?
-        .unwrap_or(1);
-        execute(
-            &kernel.database,
-            "INSERT INTO design_approvals(project_id, decision_id, sequence, plan_id, package_id, decision, report_id, link, asked_user, decided_by, decided_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            rusqlite::params![
-                kernel.project_id,
-                kernel.env.uuid(),
-                sequence,
-                plan_id,
-                package_id,
-                decision,
-                report_id,
-                link,
-                asked_user,
-                actor.actor_id,
-                now
-            ],
-        )?;
-        let dependents: Vec<String> = body
-            .as_deref()
-            .map(|b| dependents_of_package(b, package_id))
-            .unwrap_or_default();
-        let mut assigned_dependents = Vec::new();
-        for dependent in &dependents {
-            let held = query_opt(
-                &kernel.database,
-                "SELECT assignee_agent_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
-                [&kernel.project_id, plan_id, dependent],
-                |row| row.get::<_, Option<String>>(0),
-            )?
-            .flatten();
-            if let Some(agent) = held {
-                assigned_dependents.push(json!({"packageId": dependent, "agentId": agent}));
-            }
+        .flatten();
+        if let Some(agent) = held {
+            assigned_dependents.push(json!({"packageId": dependent, "agentId": agent}));
         }
-        let mut message_id = Value::Null;
-        if decision == "changes" {
-            if let Some(designer) = assignee {
-                let text = format!(
-                    "Design changes requested for package {package_id} of plan {plan_id}.\nDesign: {}\nThe user said: {asked_user}\nRevise the design, commit it (amend your commit) and report again with cstan report; the next decision is about your new report.{}",
-                    link.as_deref().unwrap_or("(no link given)"),
-                    if assigned_dependents.is_empty() {
-                        String::new()
-                    } else {
-                        "\nPackages that depend on this design are already assigned; the PM will tell their developers what changes.".to_string()
-                    }
-                );
-                if let Some(id) =
-                    message_notices::notice_to_agent(kernel, "work_package", &designer, &text, &now, true)?
-                {
-                    message_id = json!(id);
+    }
+    let mut message_id = Value::Null;
+    if decision == "changes" {
+        if let Some(designer) = assignee {
+            let text = format!(
+                "Design changes requested for package {package_id} of plan {plan_id}.\nDesign: {}\nThe user said: {asked_user}\nRevise the design, commit it (amend your commit) and report again with cstan report; the next decision is about your new report.{}",
+                link.as_deref().unwrap_or("(no link given)"),
+                if assigned_dependents.is_empty() {
+                    String::new()
+                } else {
+                    "\nPackages that depend on this design are already assigned; the PM will tell their developers what changes.".to_string()
                 }
+            );
+            if let Some(id) = message_notices::notice_to_agent(
+                kernel,
+                "work_package",
+                &designer,
+                &text,
+                &now,
+                true,
+            )? {
+                message_id = json!(id);
             }
         }
-        let record = json!({
-            "planId": plan_id,
-            "packageId": package_id,
-            "decision": decision,
-            "reportId": report_id,
-            "link": link,
-            "askedUser": asked_user,
-            "decidedAt": now,
-            "messageId": message_id,
-            "assignedDependents": assigned_dependents,
-        });
-        Ok(MutationOutput::new(
-            record,
-            MutationEvent::new("plan", plan_id, 0).with_details(json!({
-                "packageId": package_id, "designDecision": decision, "reportId": report_id,
-            })),
-        ))
-    })
+    }
+    let record = json!({
+        "planId": plan_id,
+        "packageId": package_id,
+        "decision": decision,
+        "reportId": report_id,
+        "link": link,
+        "askedUser": asked_user,
+        "decidedAt": now,
+        "messageId": message_id,
+        "assignedDependents": assigned_dependents,
+    });
+    Ok(MutationOutput::new(
+        record,
+        MutationEvent::new("plan", plan_id, 0).with_details(json!({
+            "packageId": package_id, "designDecision": decision, "reportId": report_id,
+        })),
+    ))
 }
 
 /// `designApprovals`: the decisions of one design package, or of every design package of the plan, oldest first, each

@@ -1554,6 +1554,100 @@ fn feed_plan_needs_attention() {
     assert_eq!(events[1]["body"]["state"], "blocked");
 }
 
+/// One remote decision made as the owner: `parse` of the words, then `Core::decide`.
+fn decide_remote(rig: &Rig, request: &str, nonce: &str, rest: &[&str]) -> Value {
+    let hash = capstan_kernel::areas::snapshot_feed::content_hash(&rig.core, request)
+        .unwrap()
+        .expect("the request waits");
+    let mut words: Vec<String> = [request, "--expect", &hash[..12], "--nonce", nonce]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    words.extend(rest.iter().map(|word| word.to_string()));
+    let input = capstan_kernel::areas::remote_decisions::parse(&words).unwrap();
+    rig.core.decide(&rig.ctx("owner"), &input).unwrap()
+}
+
+fn only_decision(events: &[Value]) -> &Value {
+    let found = events_of(events, "decision.remote");
+    assert_eq!(found.len(), 1, "{events:#?}");
+    found[0]
+}
+
+#[test]
+fn feed_decision_remote() {
+    let rig = Rig::new();
+    let denied = rig.propose("rm -rf build", "clean");
+    let denied_id = denied["proposalId"].as_str().unwrap().to_string();
+    let forwarded = rig.propose("git push origin main", "ship");
+    let forwarded_id = forwarded["proposalId"].as_str().unwrap().to_string();
+    let sequence = |id: &str| -> String {
+        rig.db()
+            .query_row(
+                "SELECT sequence FROM operator_proposals WHERE proposal_id = ?",
+                [id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            .to_string()
+    };
+
+    // applied: the event is the decision, and it asks for the item again
+    let (result, events) = rig.run(|r| {
+        decide_remote(
+            r,
+            &format!("op:{denied_id}"),
+            "nonce-0001",
+            &["--client", "phone", "deny", "no"],
+        )
+    });
+    let event = only_decision(&events);
+    let body = &event["body"];
+    assert_eq!(event["entity"]["type"], "remote_decision");
+    assert_eq!(event["entity"]["id"], result["decisionId"]);
+    assert_eq!(body["requestId"], json!(format!("op:{denied_id}")));
+    assert_eq!(body["outcome"], "applied");
+    assert_eq!(body["verb"], "deny");
+    assert_eq!(body["client"], "phone");
+    assert_eq!(body["contentHash"], result["contentHash"]);
+    assert!(body["messageId"].is_null() && body["replaces"].is_null());
+    assert_eq!(
+        body["effects"],
+        json!([{"section": "waiting", "op": "invalidate", "key": format!("op:{}", sequence(&denied_id)), "fields": {}}])
+    );
+    assert_eq!(event["seq"], result["eventSeq"]);
+
+    // forwarded: the message to the PM is named
+    let (first, events) =
+        rig.run(|r| decide_remote(r, &format!("op:{forwarded_id}"), "nonce-0002", &["approve"]));
+    let body = &only_decision(&events)["body"];
+    assert_eq!(body["outcome"], "forwarded");
+    assert_eq!(body["verb"], "approve");
+    assert_eq!(body["client"], "remote");
+    assert_eq!(body["messageId"], first["messageId"]);
+    assert!(body["replaces"].is_null());
+    assert_eq!(
+        body["effects"][0]["key"],
+        json!(format!("op:{}", sequence(&forwarded_id)))
+    );
+    let (_, events) =
+        rig.run(|r| decide_remote(r, &format!("op:{forwarded_id}"), "nonce-0003", &["approve"]));
+    let body = &only_decision(&events)["body"];
+    assert_eq!(body["replaces"], first["messageId"]);
+
+    // an agent and the run: the key is in their own section
+    let (_, events) = rig.run(|r| decide_remote(r, "agent:dev-1", "nonce-0004", &["pause"]));
+    assert_eq!(
+        only_decision(&events)["body"]["effects"],
+        json!([{"section": "agents", "op": "invalidate", "key": "dev-1", "fields": {}}])
+    );
+    let (_, events) = rig.run(|r| decide_remote(r, "run", "nonce-0005", &["pause"]));
+    assert_eq!(
+        only_decision(&events)["body"]["effects"],
+        json!([{"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
+    );
+}
+
 #[test]
 fn feed_run_changed() {
     let rig = Rig::new();

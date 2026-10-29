@@ -115,3 +115,7 @@ The controller records an agent lost in two ways. The first is a pane that is go
 **What happens next.** A lost Supervisor is released by the controller (the pane is closed and the agent ends) and the next supervision tick starts a new one; if the Supervisor role is at its `max_active`, the refusal is logged once as `supervisor_spawn_refused` and the start is retried after a minute. A lost Developer or Verifier is not released automatically: the PM decides with `cstan replace` or `cstan release`.
 
 **Limits.** A role whose host command replaces the shell (exec) closes its pane when the CLI exits; that is the pane-gone case and is covered by it. A CLI wrapper that daemonizes and exits leaves no child process, so it looks dead; set `liveness.enabled = false` for such a setup.
+
+## Deciding remotely
+
+`cstan decide` (see [commands](commands.md)) lets the operator decide on a waiting item of a local project from any folder, with the operator key and without `CAPSTAN_SOCKET` or `CAPSTAN_TOKEN`. A remote decision is limited to what the operator may do at the terminal: denying a proposal, answering a design or a message, and pausing or resuming are applied, but an approval and the answer to a prompt are only forwarded to the PM as a message with the command to run, and a text answer or a session or window grant needs the terminal. The `--nonce` makes a retry safe: the same nonce again returns the first answer with `repeat` true and changes nothing.

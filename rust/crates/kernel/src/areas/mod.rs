@@ -24,6 +24,7 @@ pub mod plan_packages;
 pub mod plans;
 pub mod prompt_relay;
 pub mod reconcile;
+pub mod remote_decisions;
 pub mod reports;
 pub mod retention;
 pub mod reviews;

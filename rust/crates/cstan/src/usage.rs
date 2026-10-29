@@ -106,6 +106,7 @@ pub const ENTRIES: &[Entry] = &[
     e(OPERATOR, "op", "op full-auto on [<minutes>] --asked-user <text>", "Let the operator run commands without asking, for a while."),
     e(OPERATOR, "op", "op full-auto off", "End full-auto mode."),
     e(OPERATOR, "op", "op full-auto status", "Show whether full-auto mode is on."),
+    e(OPERATOR, "decide", "decide --project <root|projectId> [--json] <requestId> --expect <hash> --nonce <n> [--client <label>] <verb> [<args>]", "Decide on a waiting item (op:, prompt:, design:, message:, agent: or run) of a local project with its operator key; works from any folder and never starts a controller. A root starts with /, any other value is a project id. --project and --json go before the request id; the nonce makes a retry safe (a repeat prints repeat). Exit 1 on a refusal."),
     e(REVIEW, "verify", "verify <report-or-integration-id>", "Queue a gate run at the commit of a report or integration and print the run id."),
     e(REVIEW, "verify", "verify show <run-id>", "Show a run: state, commit, commands, exit code, failed step, duration, output tail and log path."),
     e(REVIEW, "verify", "verify list [<subject-id>]", "List the runs of a report or integration, or the latest runs."),

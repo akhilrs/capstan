@@ -215,10 +215,13 @@ always present but may be `null`):
 | `agent.blocked` | `agentId`, `kind`, `role`, `generation`, `paused`, `state`, `blocker` |
 | `run.changed` | `state`, `paused`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `integration.finished` | `integrationId`, `state` |
+| `decision.remote` | `requestId`, `outcome`, `verb`, `client`, `contentHash`, `messageId`, `replaces` |
 | `snapshot.invalidated` | `section`, `key` |
 
 Notes: `plan.needs_attention` comes from the controller's attention list, which lists agent episodes, not plans: its
-`planId` is `null`, its `state` is the episode kind and its entity is an agent. For `agent.blocked` the fields
+`planId` is `null`, its `state` is the episode kind and its entity is an agent. `decision.remote` is the record of a decision made with `cstan decide` (section 11): `messageId` and `replaces` may be `null`,
+and its one effect is an `invalidate` of the item the decision was made on (a `waiting` key, the agent id in `agents`, or
+`run`). For `agent.blocked` the fields
 `generation` and `paused` may be `null`; for `agent.lost` `paused` may be `null`. `snapshot.invalidated` carries the
 full item key of the snapshot (`integration:3`, an agent id), which is what `feed item` takes.
 
@@ -260,7 +263,7 @@ Error codes. The `feed` route (operator only) answers `unauthorized` (the key is
 caller is an agent or unknown), `unknown_command` (the daemon does not know `feed`), `invalid_request` (a bad
 subcommand, flag or value; the message names it) and `error` (the command failed; nothing is shown of the cause). The
 stream adds `bad_cursor` (the `--cursor` text does not decode and the server could not continue) and `internal`; both
-end the stream with exit code 1.
+end the stream with exit code 1. The codes of `cstan decide` are in section 11.
 
 Resync rules, per project. The client drops what it holds of the project and reads the snapshot again when:
 
@@ -324,9 +327,9 @@ runs or pastes a command, path or link from them without the person reading it.
 - The stream is read only: it writes nothing to a ledger and starts, stops and signals nothing.
 - A notification on a phone opens the app, and the app shows the item after it has read it from the host. A
   notification carries no decision and no text from an agent.
-- v1 has no decisions. A later version that adds them binds a decision to the request id of the item, its content hash
-  and a request nonce, so a decision on a stale or changed item is refused. A resumed pause may give an item a hash it had
-  before, which is why the nonce is part of the binding.
+- Decisions are made only with `cstan decide` (section 11), never on the stream. A decision is bound to the request id of
+  the item, its content hash and a request nonce, so a decision on a stale or changed item is refused. A resumed pause may
+  give an item a hash it had before, which is why the nonce is part of the binding.
 - Access to the stream is access to everything the feed carries (messages, prompts and commands of every agent): it is
   as strong as the SSH login that starts it.
 
@@ -379,3 +382,122 @@ Discovery: a controller is looked for among the running controller processes of 
 with `--root` or found in a cursor. A project whose controller never ran and that is not named is not listed. One
 probe waits at most 2000 ms for an answer. The stream follows at most 64 projects; more is an `error` with code
 `invalid_request` before the first line.
+
+## 11. Decisions
+
+A client acts on a waiting item with one command, `cstan decide`. It is not part of the stream: the stream stays read
+only (section 9), and every decision is a separate SSH call.
+
+### Transport
+
+```
+ssh <host> cstan decide ...
+```
+
+Synopsis: `decide --project <root|projectId> [--json] <requestId> --expect <hash> --nonce <n> [--client <label>] <verb> [<args>]`
+
+`--project` and `--json` come before the request id. A `--project` value that starts with `/` is a project root; any
+other value is a project id. The command works from any folder, uses the operator key of the project on the host and
+never starts a controller. With `--json` it writes one JSON object and a newline to standard output; without it, one
+readable line (`<requestId> <verb>: <outcome>`, then `(repeat)` and `, message <id>` when there are any). Standard
+error is for a person; a client does not parse it.
+
+### Binding
+
+A decision names the item it is about and the state of the item the person saw:
+
+- `<requestId>` is the `requestId` of the item (`op:…`, `prompt:…`, `design:…`, `message:…`, `agent:…` or `run`).
+  Other kinds are refused with `invalid_request`.
+- `--expect <hash>` is the `contentHash` of the item, as the snapshot or `feed hash` gave it: 12 to 64 lowercase hex
+  characters, a prefix of the full hash. A hash that is not the current one is refused with `hash_mismatch`.
+- `--nonce <n>` is chosen by the client for each decision: 8 to 64 characters of letters, digits, `_` and `-`. A resumed
+  pause may give an item a hash it had before, so the hash alone cannot tell a new decision from an old one.
+- `--client <label>` names the client (1 to 64 characters of letters, digits, space, `.`, `_` and `-`; default `remote`).
+  It is recorded and shown to the person who confirms a forward; it is text from the client and not to be trusted.
+
+### Verbs
+
+One row per accepted `(kind, verb)`; `kind` is the part of the request id before `:`, and `applied` and `forwarded` are
+the two outcomes.
+
+| kind | verb | outcome |
+|---|---|---|
+| op | deny | applied |
+| op | approve | forwarded |
+| prompt | option | forwarded |
+| prompt | esc | forwarded |
+| design | approve | applied |
+| design | changes | applied |
+| message | reply | applied |
+| agent | pause | applied |
+| agent | resume | applied |
+| run | pause | applied |
+| run | resume | applied |
+
+Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
+`design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
+`message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`. Text is cleaned
+and capped like the text of the feed (section 8).
+
+An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
+proposal or answer a prompt of an agent: a tap on a phone is not an approval. The controller sends the active PM a
+message instead. The message names the request, the verb and the exact command to run, and tells the PM to confirm with
+the person first; the text the client supplied (its label, the label of an option) comes after a heading that marks it
+as untrusted. Nothing is typed into any terminal and nothing is approved until the PM has the person's answer. A second
+forward of the same request and hash replaces the first: the result's `replaces` names the earlier message, which the
+PM is told not to act on, and an applied decision on the request ends the forwards still open. One request takes at most
+10 messages to the PM from remote clients (forwards and replies); the next is refused with `limit_reached`.
+
+Some answers are not made remotely and are refused with `needs_terminal`: a text answer to a prompt, an option that
+widens permissions or accepts typed text, a prompt with no option that can be answered remotely, a `--session` or
+`--window` grant on `op approve` or on a prompt, and a `message reply` to a message whose recipient is not the active PM.
+A reply goes only to the PM, as a message with the text marked as untrusted. It does not acknowledge the message it
+answers: that message stays pending until its recipient acknowledges it.
+
+### Result
+
+A decision that was made, or repeated, answers one object with these fields (`messageId` and `replaces` are present only
+when there is a message or an earlier forward):
+
+```json
+{"v":1,"decisionId":"remote-0000000004","requestId":"op:proposal-2","nonce":"n-7f3a91c2","outcome":"forwarded","repeat":false,"kind":"op","verb":"approve","contentHash":"b47b658cf5dd643526252edbaca2e5ef54b936794d728ddb6193be0f194dcf9a","eventSeq":57,"messageId":"3f0c2a9e-5d4b-4c1e-9a77-0e8d6b1f2c34","replaces":"8a1d5e72-93c0-4b6f-a2d1-5c7e90b4f3a8"}
+```
+
+`eventSeq` is the `seq` of the `decision.remote` event (section 5) the decision wrote. `contentHash` is the full hash the
+decision was checked against.
+
+### Refusal
+
+A refusal answers `{v, error {code, message}}` on standard output with `--json`, and `cstan decide: <code>: <message>` on
+standard error without it. `message` is for a person.
+
+```json
+{"v":1,"error":{"code":"hash_mismatch","message":"op:proposal-2 has changed since it was shown"}}
+```
+
+| code | meaning |
+|---|---|
+| `not_waiting` | the request is not waiting for a decision (decided already, or gone) |
+| `hash_mismatch` | `--expect` is not a prefix of the current content hash |
+| `nonce_reused` | the nonce was used for another decision |
+| `needs_terminal` | the answer is made at the terminal (see Verbs) |
+| `no_active_pm` | a forward or a reply needs an active PM and there is none |
+| `limit_reached` | the request already has 10 messages to the PM from remote clients |
+| `invalid_request` | the request id, a flag, the verb or its arguments are not valid |
+| `forbidden` | the caller is not the operator |
+| `unauthorized` | the operator key is not accepted |
+| `project_not_found` | `--project` names no project (no folder with a project, no running controller with that id) |
+| `no_operator_key` | the project has no usable operator key |
+| `not_answering` | the controller of the project did not answer in time |
+
+### Idempotency
+
+The nonce makes a retry safe. A call whose nonce already has a decision, with the same request id, verb, arguments, client
+and an `--expect` that is a prefix of the stored hash, answers the stored result with `repeat` true and changes nothing:
+no second message is sent and no second event is written. The same nonce with anything else is `nonce_reused`. A client
+that lost an answer repeats the call with the same nonce; it takes a new nonce for a new decision, even for the same item.
+
+### Exit codes
+
+`0` the decision was made or repeated; `1` the decision was refused (the refusal is written as above); `2` the command
+line was invalid (nothing is sent); `255` is SSH's own failure.

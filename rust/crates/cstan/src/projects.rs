@@ -183,7 +183,7 @@ pub fn project_id(root: &Path) -> Option<String> {
     (!id.is_empty()).then(|| id.to_string())
 }
 
-fn socket_of(root: &Path) -> PathBuf {
+pub fn socket_of(root: &Path) -> PathBuf {
     root.join(".capstan/state").join(SOCKET_NAME)
 }
 

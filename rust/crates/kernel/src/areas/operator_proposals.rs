@@ -1,6 +1,7 @@
 //! The operator proposals (src/controller/operator-proposals.ts), with the operator texts they send (the notice builders
 //! of src/operator.ts) and the command rules they use (src/operator-policy.ts).
 
+use crate::auth::AuthenticatedActor;
 use crate::canonical::{js_f64, js_number, sha256};
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
@@ -1092,7 +1093,6 @@ pub fn decide_operator_proposal(
         ));
     }
     let proposal_ttl = number_field(input, "proposalTtlMinutes");
-    let proposal_ttl_text = js_f64(proposal_ttl);
     let hash_value = field("hash").cloned();
     kernel.mutate(
         context,
@@ -1106,225 +1106,279 @@ pub fn decide_operator_proposal(
             "session": session.cloned().unwrap_or(Value::Null),
         }),
         |actor| {
-            let agent = kernel.agent_by_actor(&actor.actor_id)?;
-            let is_pm = matches!(&agent, Some(a) if a.kind == "PM");
-            if actor.role == "operator" {
-                if decision == "approve" {
-                    return Err(KernelError::controller(
-                        "approve_requires_pm: only an active PM agent approves an operator proposal; the operator may deny, cancel and show",
-                    ));
-                }
-            } else if !is_pm {
-                return Err(KernelError::controller(
-                    "approve_requires_pm: only an active PM agent decides an operator proposal",
-                ));
-            }
-            let Some(row) = operator_row(kernel, &proposal_id)? else {
-                return Err(KernelError::controller(format!(
-                    "unknown_proposal: proposal {proposal_id} does not exist"
-                )));
-            };
-            if row.state != "proposed" {
-                return Err(KernelError::controller(format!(
-                    "proposal_not_open: proposal {} is {}",
-                    row.proposal_id, row.state
-                )));
-            }
-            let now = kernel.now();
-            if is_older_than(&row.created_at, proposal_ttl, &now) {
-                return Err(KernelError::controller(format!(
-                    "proposal_expired: proposal {} waited longer than {proposal_ttl_text} minutes for a decision",
-                    row.proposal_id
-                )));
-            }
-            if decision == "approve" {
-                if matches!(&agent, Some(a) if a.agent_id == row.proposer_agent_id)
-                    || actor.actor_id == row.proposer_actor_id
-                {
-                    return Err(KernelError::controller(
-                        "self_approval: the proposer cannot approve its own proposal",
-                    ));
-                }
-                if operator_running(kernel)?.is_some() {
-                    return Err(KernelError::controller(
-                        "run_in_progress: an operator run is in progress; decide again when it ends",
-                    ));
-                }
-                if has_orphans(kernel)? {
-                    return Err(KernelError::controller(
-                        "orphan_running: a process of an abandoned operator run may still be alive; decide again when the controller has cleared it",
-                    ));
-                }
-                let matches_hash = hash_value
-                    .as_ref()
-                    .and_then(Value::as_str)
-                    .is_some_and(|hash| {
-                        (12..=64).contains(&hash.len())
-                            && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                            && row.command_sha.starts_with(hash)
-                    });
-                if !matches_hash {
-                    return Err(KernelError::controller(format!(
-                        "hash_mismatch: --hash must be at least {HASH_PREFIX_CHARS} hex characters of the hash in the proposal notice for this exact text"
-                    )));
-                }
-            }
-            let state = if decision == "approve" { "approved" } else { "denied" };
-            let is_window = |session: &Value| session.get("kind").and_then(Value::as_str) == Some("window");
-            let mut opened: Option<(Value, Vec<MutationEvent>)> = None;
-            if let Some(window_session) = session.filter(|session| is_window(session)) {
-                if row.kind != "command" {
-                    return Err(KernelError::controller(
-                        "session_not_for_restart: a restart is never granted for the session",
-                    ));
-                }
-                let spec = WindowSpec::parse(window_session)?;
-                opened = Some(approval_windows::open_window(
-                    kernel,
-                    actor,
-                    &spec,
-                    WindowSource::Proposal(&row.proposal_id),
-                    &OpenNoticeInput::of(input),
-                )?);
-            }
-            let mut grant: Option<Value> = None;
-            if let Some(session) = session.filter(|session| !is_window(session)) {
-                if row.kind != "command" {
-                    return Err(KernelError::controller(
-                        "session_not_for_restart: a restart is never granted for the session",
-                    ));
-                }
-                let session_kind = session.get("kind").and_then(Value::as_str);
-                if !matches!(session_kind, Some("exact" | "prefix" | "timed")) {
-                    return Err(KernelError::controller(
-                        "session_kind_invalid: a session grant is exact, prefix or timed",
-                    ));
-                }
-                let exact = session_kind == Some("exact");
-                let timed = session_kind == Some("timed");
-                if timed {
-                    let minutes = number_field(session, "maxMinutes");
-                    if !(minutes.fract() == 0.0
-                        && (1.0..=OPERATOR_HARD_MAX_SESSION_MINUTES as f64).contains(&minutes))
-                    {
-                        return Err(KernelError::controller(format!(
-                            "session_minutes_invalid: a timed grant lasts a whole number of minutes from 1 to {OPERATOR_HARD_MAX_SESSION_MINUTES}"
-                        )));
-                    }
-                }
-                let text: Value = if exact {
-                    json!(row.command)
-                } else if timed {
-                    json!(TIMED_GRANT_TEXT)
-                } else {
-                    match session.get("text") {
-                        None => {
-                            return Err(KernelError::controller(
-                                "session_prefix_missing: --session prefix needs the leading words",
-                            ))
-                        }
-                        Some(text) => text.clone(),
-                    }
-                };
-                let problem = if exact || timed { None } else { prefix_grant_problem(&text) };
-                if let Some(problem) = problem {
-                    return Err(KernelError::controller(format!(
-                        "session_prefix_refused: the prefix {problem}"
-                    )));
-                }
-                let text = text.as_str().unwrap_or("").to_string();
-                let own = words(&row.command);
-                if session_kind == Some("prefix")
-                    && !words(&text)
-                        .iter()
-                        .enumerate()
-                        .all(|(index, token)| own.get(index) == Some(token))
-                {
-                    return Err(KernelError::controller(
-                        "session_prefix_mismatch: the prefix must be the start of the command being approved",
-                    ));
-                }
-                let sequence = query_opt(
-                    &kernel.database,
-                    "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM operator_grants WHERE project_id = ?",
-                    [&kernel.project_id],
-                    |r| r.get::<_, i64>(0),
-                )?
-                .unwrap_or(1);
-                let max_minutes = number_field(session, "maxMinutes");
-                let expires_at = iso_from_millis((parse_iso_ms(&now) as f64 + max_minutes * 60_000.0) as i64);
-                let grant_id = format!("grant-{sequence}");
-                execute(
-                    &kernel.database,
-                    "INSERT INTO operator_grants(project_id, grant_id, sequence, kind, text, command_sha, created_by, source_proposal_id, created_at, expires_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    rusqlite::params![
-                        kernel.project_id,
-                        grant_id,
-                        sequence,
-                        session_kind,
-                        text,
-                        sha256(&text),
-                        actor.actor_id,
-                        row.proposal_id,
-                        now,
-                        expires_at
-                    ],
-                )?;
-                grant = operator_grants::grant_record_of(kernel, &grant_id)?;
-            }
-            execute(
-                &kernel.database,
-                "UPDATE operator_proposals SET state = ?, decided_by_actor_id = ?, decided_at = ?, decision_note = ?, updated_at = ?
-                 WHERE project_id = ? AND proposal_id = ?",
-                rusqlite::params![
-                    state,
-                    actor.actor_id,
-                    now,
-                    note,
-                    now,
-                    kernel.project_id,
-                    row.proposal_id
-                ],
-            )?;
-            let mut record = record_of(kernel, &row.proposal_id)?;
-            if let Some((window, _)) = &opened {
-                record["window"] = window.clone();
-            }
-            message_notices::notice_to_agent(kernel, "operator_proposal_update",
-                &row.proposer_agent_id,
-                &decision_notice(&record, state)?,
-                &now,
-                false,
-            )?;
-            let mut output = MutationOutput::new(
-                record,
-                operator_event(
-                    &row.proposal_id,
-                    Some("proposed"),
-                    state,
-                    json!({"decidedBy": actor.actor_id}),
-                ),
-            );
-            if let Some((_, events)) = opened {
-                output.extra_events.extend(events);
-            }
-            if let Some(grant) = &grant {
-                output.extra_events.push(MutationEvent {
-                    to_state: Some("created".into()),
-                    details: Some(json!({
-                        "event": "operator.grant_created",
-                        "kind": grant["kind"],
-                        "text": grant["text"],
-                        "expiresAt": grant["expiresAt"],
-                        "proposalId": row.proposal_id,
-                    })),
-                    ..MutationEvent::new("operator_grant", text_of(grant, "grantId"), 0)
-                });
-            }
-            Ok(output)
+            apply_operator_decision(
+                kernel,
+                actor,
+                &OperatorDecision {
+                    proposal_id: &proposal_id,
+                    decision: &decision,
+                    hash: hash_value.as_ref(),
+                    note: note.as_deref(),
+                    session,
+                    proposal_ttl_minutes: proposal_ttl,
+                    input,
+                },
+            )
         },
     )
+}
+
+/// What `apply_operator_decision` decides: the validated input of `decideOperatorProposal`.
+pub(crate) struct OperatorDecision<'a> {
+    pub proposal_id: &'a str,
+    pub decision: &'a str,
+    pub hash: Option<&'a Value>,
+    pub note: Option<&'a str>,
+    pub session: Option<&'a Value>,
+    pub proposal_ttl_minutes: f64,
+    pub input: &'a Value,
+}
+
+/// The body of the `operator.decide` mutation, run by whoever holds the transaction.
+pub(crate) fn apply_operator_decision(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    args: &OperatorDecision<'_>,
+) -> KernelResult<MutationOutput> {
+    let proposal_id = args.proposal_id.to_string();
+    let decision = args.decision.to_string();
+    let hash_value = args.hash.cloned();
+    let note: Option<String> = args.note.map(str::to_string);
+    let session = args.session;
+    let input = args.input;
+    let proposal_ttl = args.proposal_ttl_minutes;
+    let proposal_ttl_text = js_f64(proposal_ttl);
+
+    let agent = kernel.agent_by_actor(&actor.actor_id)?;
+    let is_pm = matches!(&agent, Some(a) if a.kind == "PM");
+    if actor.role == "operator" {
+        if decision == "approve" {
+            return Err(KernelError::controller(
+                "approve_requires_pm: only an active PM agent approves an operator proposal; the operator may deny, cancel and show",
+            ));
+        }
+    } else if !is_pm {
+        return Err(KernelError::controller(
+            "approve_requires_pm: only an active PM agent decides an operator proposal",
+        ));
+    }
+    let Some(row) = operator_row(kernel, &proposal_id)? else {
+        return Err(KernelError::controller(format!(
+            "unknown_proposal: proposal {proposal_id} does not exist"
+        )));
+    };
+    if row.state != "proposed" {
+        return Err(KernelError::controller(format!(
+            "proposal_not_open: proposal {} is {}",
+            row.proposal_id, row.state
+        )));
+    }
+    let now = kernel.now();
+    if is_older_than(&row.created_at, proposal_ttl, &now) {
+        return Err(KernelError::controller(format!(
+            "proposal_expired: proposal {} waited longer than {proposal_ttl_text} minutes for a decision",
+            row.proposal_id
+        )));
+    }
+    if decision == "approve" {
+        if matches!(&agent, Some(a) if a.agent_id == row.proposer_agent_id)
+            || actor.actor_id == row.proposer_actor_id
+        {
+            return Err(KernelError::controller(
+                "self_approval: the proposer cannot approve its own proposal",
+            ));
+        }
+        if operator_running(kernel)?.is_some() {
+            return Err(KernelError::controller(
+                "run_in_progress: an operator run is in progress; decide again when it ends",
+            ));
+        }
+        if has_orphans(kernel)? {
+            return Err(KernelError::controller(
+                "orphan_running: a process of an abandoned operator run may still be alive; decide again when the controller has cleared it",
+            ));
+        }
+        let matches_hash = hash_value
+            .as_ref()
+            .and_then(Value::as_str)
+            .is_some_and(|hash| {
+                (12..=64).contains(&hash.len())
+                    && hash
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    && row.command_sha.starts_with(hash)
+            });
+        if !matches_hash {
+            return Err(KernelError::controller(format!(
+                "hash_mismatch: --hash must be at least {HASH_PREFIX_CHARS} hex characters of the hash in the proposal notice for this exact text"
+            )));
+        }
+    }
+    let state = if decision == "approve" {
+        "approved"
+    } else {
+        "denied"
+    };
+    let is_window = |session: &Value| session.get("kind").and_then(Value::as_str) == Some("window");
+    let mut opened: Option<(Value, Vec<MutationEvent>)> = None;
+    if let Some(window_session) = session.filter(|session| is_window(session)) {
+        if row.kind != "command" {
+            return Err(KernelError::controller(
+                "session_not_for_restart: a restart is never granted for the session",
+            ));
+        }
+        let spec = WindowSpec::parse(window_session)?;
+        opened = Some(approval_windows::open_window(
+            kernel,
+            actor,
+            &spec,
+            WindowSource::Proposal(&row.proposal_id),
+            &OpenNoticeInput::of(input),
+        )?);
+    }
+    let mut grant: Option<Value> = None;
+    if let Some(session) = session.filter(|session| !is_window(session)) {
+        if row.kind != "command" {
+            return Err(KernelError::controller(
+                "session_not_for_restart: a restart is never granted for the session",
+            ));
+        }
+        let session_kind = session.get("kind").and_then(Value::as_str);
+        if !matches!(session_kind, Some("exact" | "prefix" | "timed")) {
+            return Err(KernelError::controller(
+                "session_kind_invalid: a session grant is exact, prefix or timed",
+            ));
+        }
+        let exact = session_kind == Some("exact");
+        let timed = session_kind == Some("timed");
+        if timed {
+            let minutes = number_field(session, "maxMinutes");
+            if !(minutes.fract() == 0.0
+                && (1.0..=OPERATOR_HARD_MAX_SESSION_MINUTES as f64).contains(&minutes))
+            {
+                return Err(KernelError::controller(format!(
+                    "session_minutes_invalid: a timed grant lasts a whole number of minutes from 1 to {OPERATOR_HARD_MAX_SESSION_MINUTES}"
+                )));
+            }
+        }
+        let text: Value = if exact {
+            json!(row.command)
+        } else if timed {
+            json!(TIMED_GRANT_TEXT)
+        } else {
+            match session.get("text") {
+                None => {
+                    return Err(KernelError::controller(
+                        "session_prefix_missing: --session prefix needs the leading words",
+                    ))
+                }
+                Some(text) => text.clone(),
+            }
+        };
+        let problem = if exact || timed {
+            None
+        } else {
+            prefix_grant_problem(&text)
+        };
+        if let Some(problem) = problem {
+            return Err(KernelError::controller(format!(
+                "session_prefix_refused: the prefix {problem}"
+            )));
+        }
+        let text = text.as_str().unwrap_or("").to_string();
+        let own = words(&row.command);
+        if session_kind == Some("prefix")
+            && !words(&text)
+                .iter()
+                .enumerate()
+                .all(|(index, token)| own.get(index) == Some(token))
+        {
+            return Err(KernelError::controller(
+                "session_prefix_mismatch: the prefix must be the start of the command being approved",
+            ));
+        }
+        let sequence = query_opt(
+            &kernel.database,
+            "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM operator_grants WHERE project_id = ?",
+            [&kernel.project_id],
+            |r| r.get::<_, i64>(0),
+        )?
+        .unwrap_or(1);
+        let max_minutes = number_field(session, "maxMinutes");
+        let expires_at =
+            iso_from_millis((parse_iso_ms(&now) as f64 + max_minutes * 60_000.0) as i64);
+        let grant_id = format!("grant-{sequence}");
+        execute(
+            &kernel.database,
+            "INSERT INTO operator_grants(project_id, grant_id, sequence, kind, text, command_sha, created_by, source_proposal_id, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                kernel.project_id,
+                grant_id,
+                sequence,
+                session_kind,
+                text,
+                sha256(&text),
+                actor.actor_id,
+                row.proposal_id,
+                now,
+                expires_at
+            ],
+        )?;
+        grant = operator_grants::grant_record_of(kernel, &grant_id)?;
+    }
+    execute(
+        &kernel.database,
+        "UPDATE operator_proposals SET state = ?, decided_by_actor_id = ?, decided_at = ?, decision_note = ?, updated_at = ?
+         WHERE project_id = ? AND proposal_id = ?",
+        rusqlite::params![
+            state,
+            actor.actor_id,
+            now,
+            note,
+            now,
+            kernel.project_id,
+            row.proposal_id
+        ],
+    )?;
+    let mut record = record_of(kernel, &row.proposal_id)?;
+    if let Some((window, _)) = &opened {
+        record["window"] = window.clone();
+    }
+    message_notices::notice_to_agent(
+        kernel,
+        "operator_proposal_update",
+        &row.proposer_agent_id,
+        &decision_notice(&record, state)?,
+        &now,
+        false,
+    )?;
+    let mut output = MutationOutput::new(
+        record,
+        operator_event(
+            &row.proposal_id,
+            Some("proposed"),
+            state,
+            json!({"decidedBy": actor.actor_id}),
+        ),
+    );
+    if let Some((_, events)) = opened {
+        output.extra_events.extend(events);
+    }
+    if let Some(grant) = &grant {
+        output.extra_events.push(MutationEvent {
+            to_state: Some("created".into()),
+            details: Some(json!({
+                "event": "operator.grant_created",
+                "kind": grant["kind"],
+                "text": grant["text"],
+                "expiresAt": grant["expiresAt"],
+                "proposalId": row.proposal_id,
+            })),
+            ..MutationEvent::new("operator_grant", text_of(grant, "grantId"), 0)
+        });
+    }
+    Ok(output)
 }
 
 fn has_orphans(kernel: &Kernel) -> KernelResult<bool> {

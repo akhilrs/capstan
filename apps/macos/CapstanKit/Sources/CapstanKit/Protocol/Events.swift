@@ -11,7 +11,7 @@ public enum FeedEventType {
         "review.verdict", "verify.result",
         "finding.raised", "finding.resolved",
         "agent.registered", "agent.lost", "agent.paused", "agent.resumed", "agent.ended", "agent.blocked",
-        "run.changed", "integration.finished", "snapshot.invalidated",
+        "run.changed", "integration.finished", "decision.remote", "snapshot.invalidated",
     ]
 }
 

@@ -57,122 +57,18 @@ pub fn transition_run(
         Some(text) => pause_reason_text(&Value::String(text.to_string()))?,
     };
     let payload = json!({"toState": to_state});
-    let apply = |actor: &AuthenticatedActor,
-                 caller: &AuthenticatedActor|
-     -> KernelResult<MutationOutput> {
-        let run = query_opt(
-            &kernel.database,
-            "SELECT state, state_version FROM run_controls WHERE project_id = ?",
-            [&kernel.project_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-        )?;
-        let Some((run_state, run_version)) = run else {
-            return Err(KernelError::controller("run control record is missing"));
+    let apply =
+        |actor: &AuthenticatedActor, caller: &AuthenticatedActor| -> KernelResult<MutationOutput> {
+            apply_run_transition(
+                kernel,
+                context,
+                actor,
+                caller,
+                &state_text,
+                reason,
+                &pause_reason,
+            )
         };
-        if state_text == "paused" && run_state == "paused" {
-            let open = open_run_pause(kernel)?;
-            return Err(KernelError::conflict(format!(
-                "run is already paused: {}",
-                open.map_or("no reason recorded".to_string(), |p| p.reason)
-            )));
-        }
-        if state_text == "active" && run_state == "active" {
-            return Err(KernelError::conflict("run is not paused"));
-        }
-        if state_text == "completed" {
-            if exists(
-                &kernel.database,
-                "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
-                [&kernel.project_id],
-            )? {
-                return Err(KernelError::conflict(
-                    "run cannot complete with unresolved Supervisor findings",
-                ));
-            }
-            let unfinished_work = exists(
-                &kernel.database,
-                "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state NOT IN ('accepted', 'canceled') LIMIT 1",
-                [&kernel.project_id],
-            )?;
-            let uncertain_authority = exists(
-                &kernel.database,
-                "SELECT 1 AS present FROM assignments WHERE project_id = ? AND authority_state IN ('active', 'unknown') LIMIT 1",
-                [&kernel.project_id],
-            )?;
-            if unfinished_work || uncertain_authority {
-                return Err(KernelError::conflict(
-                    "run cannot complete while work is open or assignment authority is not contained",
-                ));
-            }
-            if exists(
-                &kernel.database,
-                "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state = 'accepted' AND input_revision <> ? LIMIT 1",
-                rusqlite::params![kernel.project_id, context.input_revision],
-            )? {
-                return Err(KernelError::conflict(
-                    "run cannot complete with work accepted against a stale input revision",
-                ));
-            }
-        }
-        if !kernel.is_transition_allowed("run_control", &run_state, &state_text, actor)? {
-            return Err(KernelError::TransitionAuthorization(format!(
-                "transition table rejects run state {run_state} -> {state_text}"
-            )));
-        }
-        let now = kernel.now();
-        execute(
-            &kernel.database,
-            "UPDATE run_controls SET state = ?, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND state = ?",
-            [&state_text, &now, &kernel.project_id, &run_state],
-        )?;
-        if caller.role == "operator" {
-            let action_payload = if reason.is_none() {
-                json!({"from": run_state, "to": state_text})
-            } else {
-                json!({"from": run_state, "to": state_text, "reason": pause_reason})
-            };
-            execute(
-                &kernel.database,
-                "INSERT INTO operator_actions(project_id, action_id, action_type, target_id, actor_id, request_id,
-                   input_revision, payload_json, created_at)
-                 VALUES (?, ?, 'run.transition', ?, ?, ?, ?, ?, ?)",
-                rusqlite::params![
-                    kernel.project_id,
-                    kernel.env.uuid(),
-                    kernel.project_id,
-                    caller.actor_id,
-                    context.request_id,
-                    context.input_revision,
-                    canonical_json(&action_payload),
-                    now
-                ],
-            )?;
-        }
-        if state_text == "paused" {
-            open_pause(kernel, "run", None, &pause_reason, &caller.actor_id, &now)?;
-        } else if run_state == "paused" {
-            close_pause(kernel, "run", None, &pause_reason, &caller.actor_id, &now)?;
-        }
-        if caller.role == "operator" && state_text == "paused" {
-            message_notices::notice_to_pm(kernel, "pause_notice",
-                &format!("The operator paused the run: {pause_reason}. Workers are held and spawn, plan assign, request-review and integrate are refused until `cstan resume --reason \"<text>\"`. You keep receiving messages."),
-                &now,
-                false,
-            )?;
-        } else if caller.role == "operator" && run_state == "paused" && state_text == "active" {
-            message_notices::notice_to_pm(kernel, "pause_notice",
-                &format!("The operator resumed the run: {pause_reason}. Held messages are delivered in order."),
-                &now,
-                false,
-            )?;
-        }
-        let mut event = MutationEvent::new("run_control", &kernel.project_id, run_version + 1)
-            .transition(&run_state, &state_text);
-        if reason.is_some() {
-            event = event.with_details(json!({"reason": pause_reason}));
-        }
-        Ok(MutationOutput::new(json!({"state": state_text}), event))
-    };
     if matches!(state_text.as_str(), "canceled" | "completed" | "failed") {
         kernel.mutate_as_controller(context, "run.transition", "run:control", &payload, apply)
     } else {
@@ -184,6 +80,133 @@ pub fn transition_run(
             |actor| apply(actor, actor),
         )
     }
+}
+
+/// The body of the `run.transition` mutation, run by whoever holds the transaction. `actor` is the principal the transition
+/// is checked for and `caller` the one who asked.
+pub(crate) fn apply_run_transition(
+    kernel: &Kernel,
+    context: &MutationContext,
+    actor: &AuthenticatedActor,
+    caller: &AuthenticatedActor,
+    state_text: &str,
+    reason: Option<&str>,
+    pause_reason: &str,
+) -> KernelResult<MutationOutput> {
+    let state_text = state_text.to_string();
+    let pause_reason = pause_reason.to_string();
+    let run = query_opt(
+        &kernel.database,
+        "SELECT state, state_version FROM run_controls WHERE project_id = ?",
+        [&kernel.project_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    let Some((run_state, run_version)) = run else {
+        return Err(KernelError::controller("run control record is missing"));
+    };
+    if state_text == "paused" && run_state == "paused" {
+        let open = open_run_pause(kernel)?;
+        return Err(KernelError::conflict(format!(
+            "run is already paused: {}",
+            open.map_or("no reason recorded".to_string(), |p| p.reason)
+        )));
+    }
+    if state_text == "active" && run_state == "active" {
+        return Err(KernelError::conflict("run is not paused"));
+    }
+    if state_text == "completed" {
+        if exists(
+            &kernel.database,
+            "SELECT 1 AS present FROM findings WHERE project_id = ? AND state <> 'resolved' LIMIT 1",
+            [&kernel.project_id],
+        )? {
+            return Err(KernelError::conflict(
+                "run cannot complete with unresolved Supervisor findings",
+            ));
+        }
+        let unfinished_work = exists(
+            &kernel.database,
+            "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state NOT IN ('accepted', 'canceled') LIMIT 1",
+            [&kernel.project_id],
+        )?;
+        let uncertain_authority = exists(
+            &kernel.database,
+            "SELECT 1 AS present FROM assignments WHERE project_id = ? AND authority_state IN ('active', 'unknown') LIMIT 1",
+            [&kernel.project_id],
+        )?;
+        if unfinished_work || uncertain_authority {
+            return Err(KernelError::conflict(
+                "run cannot complete while work is open or assignment authority is not contained",
+            ));
+        }
+        if exists(
+            &kernel.database,
+            "SELECT 1 AS present FROM work_items WHERE project_id = ? AND state = 'accepted' AND input_revision <> ? LIMIT 1",
+            rusqlite::params![kernel.project_id, context.input_revision],
+        )? {
+            return Err(KernelError::conflict(
+                "run cannot complete with work accepted against a stale input revision",
+            ));
+        }
+    }
+    if !kernel.is_transition_allowed("run_control", &run_state, &state_text, actor)? {
+        return Err(KernelError::TransitionAuthorization(format!(
+            "transition table rejects run state {run_state} -> {state_text}"
+        )));
+    }
+    let now = kernel.now();
+    execute(
+        &kernel.database,
+        "UPDATE run_controls SET state = ?, state_version = state_version + 1, updated_at = ? WHERE project_id = ? AND state = ?",
+        [&state_text, &now, &kernel.project_id, &run_state],
+    )?;
+    if caller.role == "operator" {
+        let action_payload = if reason.is_none() {
+            json!({"from": run_state, "to": state_text})
+        } else {
+            json!({"from": run_state, "to": state_text, "reason": pause_reason})
+        };
+        execute(
+            &kernel.database,
+            "INSERT INTO operator_actions(project_id, action_id, action_type, target_id, actor_id, request_id,
+               input_revision, payload_json, created_at)
+             VALUES (?, ?, 'run.transition', ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                kernel.project_id,
+                kernel.env.uuid(),
+                kernel.project_id,
+                caller.actor_id,
+                context.request_id,
+                context.input_revision,
+                canonical_json(&action_payload),
+                now
+            ],
+        )?;
+    }
+    if state_text == "paused" {
+        open_pause(kernel, "run", None, &pause_reason, &caller.actor_id, &now)?;
+    } else if run_state == "paused" {
+        close_pause(kernel, "run", None, &pause_reason, &caller.actor_id, &now)?;
+    }
+    if caller.role == "operator" && state_text == "paused" {
+        message_notices::notice_to_pm(kernel, "pause_notice",
+            &format!("The operator paused the run: {pause_reason}. Workers are held and spawn, plan assign, request-review and integrate are refused until `cstan resume --reason \"<text>\"`. You keep receiving messages."),
+            &now,
+            false,
+        )?;
+    } else if caller.role == "operator" && run_state == "paused" && state_text == "active" {
+        message_notices::notice_to_pm(kernel, "pause_notice",
+            &format!("The operator resumed the run: {pause_reason}. Held messages are delivered in order."),
+            &now,
+            false,
+        )?;
+    }
+    let mut event = MutationEvent::new("run_control", &kernel.project_id, run_version + 1)
+        .transition(&run_state, &state_text);
+    if reason.is_some() {
+        event = event.with_details(json!({"reason": pause_reason}));
+    }
+    Ok(MutationOutput::new(json!({"state": state_text}), event))
 }
 
 /// The open pause row of the run, or none.
@@ -369,74 +392,112 @@ fn agent_pause_change(
     let reason = pause_reason_text(input.get("reason").unwrap_or(&Value::Null))?;
     kernel.mutate(
         context,
-        if pausing { "agent.pause" } else { "agent.resume" },
+        if pausing {
+            "agent.pause"
+        } else {
+            "agent.resume"
+        },
         "run:control",
         &json!({"agentId": agent_id, "reason": reason}),
-        |actor| {
-            let caller = kernel.agent_by_actor(&actor.actor_id)?;
-            if actor.role != "operator" && !matches!(&caller, Some(c) if c.kind == "PM") {
-                return Err(KernelError::controller(
-                    "only the operator or the active PM pauses or resumes an agent",
-                ));
-            }
-            let target = match kernel.agent_row(&agent_id)? {
-                Some(target) if target.state == "active" => target,
-                _ => return Err(KernelError::controller("the agent is not active")),
-            };
-            if pausing && matches!(&caller, Some(c) if c.agent_id == target.agent_id) {
-                return Err(KernelError::controller("an agent cannot pause itself"));
-            }
-            let open = pause_rows(kernel)?
-                .into_iter()
-                .find(|p| p.scope == "agent" && p.agent_id.as_deref() == Some(&target.agent_id));
-            let now = kernel.now();
-            if pausing {
-                if let Some(open) = &open {
-                    return Err(KernelError::conflict(format!(
-                        "agent {} is already paused: {}",
-                        target.agent_id, open.reason
-                    )));
-                }
-                open_pause(kernel, "agent", Some(&target.agent_id), &reason, &actor.actor_id, &now)?;
-                if actor.role == "operator" {
-                    message_notices::notice_to_pm(kernel, "pause_notice",
-                        &format!("The operator paused {}: {reason}. Its messages are held until `cstan resume {} --reason \"<text>\"`.", target.agent_id, target.agent_id),
-                        &now,
-                        false,
-                    )?;
-                }
-            } else {
-                if open.is_none() {
-                    return Err(KernelError::conflict(format!(
-                        "agent {} is not paused",
-                        target.agent_id
-                    )));
-                }
-                close_pause(kernel, "agent", Some(&target.agent_id), &reason, &actor.actor_id, &now)?;
-                if actor.role == "operator" {
-                    message_notices::notice_to_pm(kernel, "pause_notice",
-                        &format!("The operator resumed {}: {reason}. Its held messages are delivered in order.", target.agent_id),
-                        &now,
-                        false,
-                    )?;
-                }
-            }
-            let record = open.unwrap_or(PauseRecord {
-                scope: "agent".into(),
-                agent_id: Some(target.agent_id.clone()),
-                reason: reason.clone(),
-                actor_id: actor.actor_id.clone(),
-                paused_at: now,
-            });
-            let (from, to) = if pausing { ("active", "paused") } else { ("paused", "active") };
-            Ok(MutationOutput::new(
-                record.to_value(),
-                MutationEvent::new("agent", &target.agent_id, target.generation)
-                    .transition(from, to)
-                    .with_details(json!({"reason": reason, "scope": "agent"})),
-            ))
-        },
+        |actor| apply_agent_pause_change(kernel, actor, &agent_id, &reason, pausing),
     )
+}
+
+/// The body of the `agent.pause` and `agent.resume` mutations, run by whoever holds the transaction.
+pub(crate) fn apply_agent_pause_change(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    agent_id: &str,
+    reason: &str,
+    pausing: bool,
+) -> KernelResult<MutationOutput> {
+    let agent_id = agent_id.to_string();
+    let reason = reason.to_string();
+    let caller = kernel.agent_by_actor(&actor.actor_id)?;
+    if actor.role != "operator" && !matches!(&caller, Some(c) if c.kind == "PM") {
+        return Err(KernelError::controller(
+            "only the operator or the active PM pauses or resumes an agent",
+        ));
+    }
+    let target = match kernel.agent_row(&agent_id)? {
+        Some(target) if target.state == "active" => target,
+        _ => return Err(KernelError::controller("the agent is not active")),
+    };
+    if pausing && matches!(&caller, Some(c) if c.agent_id == target.agent_id) {
+        return Err(KernelError::controller("an agent cannot pause itself"));
+    }
+    let open = pause_rows(kernel)?
+        .into_iter()
+        .find(|p| p.scope == "agent" && p.agent_id.as_deref() == Some(&target.agent_id));
+    let now = kernel.now();
+    if pausing {
+        if let Some(open) = &open {
+            return Err(KernelError::conflict(format!(
+                "agent {} is already paused: {}",
+                target.agent_id, open.reason
+            )));
+        }
+        open_pause(
+            kernel,
+            "agent",
+            Some(&target.agent_id),
+            &reason,
+            &actor.actor_id,
+            &now,
+        )?;
+        if actor.role == "operator" {
+            message_notices::notice_to_pm(kernel, "pause_notice",
+                &format!("The operator paused {}: {reason}. Its messages are held until `cstan resume {} --reason \"<text>\"`.", target.agent_id, target.agent_id),
+                &now,
+                false,
+            )?;
+        }
+    } else {
+        if open.is_none() {
+            return Err(KernelError::conflict(format!(
+                "agent {} is not paused",
+                target.agent_id
+            )));
+        }
+        close_pause(
+            kernel,
+            "agent",
+            Some(&target.agent_id),
+            &reason,
+            &actor.actor_id,
+            &now,
+        )?;
+        if actor.role == "operator" {
+            message_notices::notice_to_pm(
+                kernel,
+                "pause_notice",
+                &format!(
+                    "The operator resumed {}: {reason}. Its held messages are delivered in order.",
+                    target.agent_id
+                ),
+                &now,
+                false,
+            )?;
+        }
+    }
+    let record = open.unwrap_or(PauseRecord {
+        scope: "agent".into(),
+        agent_id: Some(target.agent_id.clone()),
+        reason: reason.clone(),
+        actor_id: actor.actor_id.clone(),
+        paused_at: now,
+    });
+    let (from, to) = if pausing {
+        ("active", "paused")
+    } else {
+        ("paused", "active")
+    };
+    Ok(MutationOutput::new(
+        record.to_value(),
+        MutationEvent::new("agent", &target.agent_id, target.generation)
+            .transition(from, to)
+            .with_details(json!({"reason": reason, "scope": "agent"})),
+    ))
 }
 
 /// The operations of this area, by the `ControllerCore` method name; `None` for a name that is not this area's.
