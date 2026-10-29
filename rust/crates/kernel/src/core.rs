@@ -636,6 +636,11 @@ impl Core {
         links::external_links(&self.kernel, credential)
     }
 
+    /// The links of one plan and its packages, or of every plan: what `plan show` prints.
+    pub fn plan_links(&self, credential: &str, plan_id: Option<&str>) -> KernelResult<Value> {
+        links::plan_links(&self.kernel, credential, plan_id)
+    }
+
     /// `ControllerCore.wantedNexoraState`.
     pub fn wanted_nexora_state(
         &self,

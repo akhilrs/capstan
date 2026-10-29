@@ -14,6 +14,7 @@ mod integration_settle;
 mod message_classes;
 mod plan_amend;
 mod plan_reassign;
+mod plan_show_cost;
 mod prompt_relay_backfill;
 mod remote_decisions;
 mod restart_summary;
