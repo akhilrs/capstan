@@ -101,7 +101,8 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
     private var finished = false
     private let outputDone = Latch<Void>()
     private let exit = Latch<Int32>()
-    private let errorDone = DispatchSemaphore(value: 0)
+    private var errorDrained = false
+    private var exitPublished = false
 
     init(executable: URL, arguments: [String]) throws {
         let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
@@ -126,7 +127,8 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         }
         Thread.detachNewThread { [self] in
             readError(errHandle)
-            errorDone.signal()
+            lock.withLock { errorDrained = true }
+            publishExitIfReady()
         }
         // The termination handler is the first way to learn of the exit; this poll is the second, so a handler that
         // does not run cannot leave `exitCode` waiting for good.
@@ -144,8 +146,26 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
             return true
         }
         guard first else { return }
-        // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open.
-        _ = errorDone.wait(timeout: .now() + 0.25)
+        publishExitIfReady()
+        // Give the reader of standard error a moment: a helper the child left behind may hold the pipe open. The wait
+        // is a timer, not a blocked thread.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.25) { [self] in
+            publishExit()
+        }
+    }
+
+    private func publishExitIfReady() {
+        let ready: Bool = lock.withLock { finished && errorDrained }
+        if ready { publishExit() }
+    }
+
+    private func publishExit() {
+        let first: Bool = lock.withLock {
+            guard !exitPublished else { return false }
+            exitPublished = true
+            return true
+        }
+        guard first else { return }
         let status = process.terminationStatus
         exit.set(process.terminationReason == .uncaughtSignal ? 128 + status : status)
     }

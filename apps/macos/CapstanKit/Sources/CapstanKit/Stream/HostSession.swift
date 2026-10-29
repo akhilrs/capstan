@@ -46,7 +46,9 @@ public actor HostSession {
     static let liveResetSeconds: TimeInterval = 60
     static let maxFailuresInRow = 5
     static let refreshCoalesceSeconds: TimeInterval = 1
-    static let refreshGapSeconds: TimeInterval = 5
+    /// Interim (plan-73 moves the re-read into the stream): a refresh restarts the stream at most this often, with
+    /// every project invalidated meanwhile coalesced into the one restart.
+    static let refreshGapSeconds: TimeInterval = 60
     static let liveRepublishSeconds: TimeInterval = 5
     /// Error codes that mean this client cannot get a stream from the host by trying again.
     static let rejectingCodes: Set<String> = ["unauthorized", "forbidden", "unknown_command", "invalid_request"]
@@ -75,6 +77,10 @@ public actor HostSession {
     private var watchdogFired = false
     private var terminatedConnections: Set<Int> = []
     private var refreshRestartRequested = false
+    /// The next connect follows a refresh restart: the host stays live, as nothing failed.
+    private var refreshRestartPending = false
+    /// The last child started; the next one waits for it to be gone, so a host never has two ssh sessions.
+    private var previousProcess: (any RunningProcess, Int)?
     private var lastLineAt: Date
     private var liveSince: Date?
     private var lastLivePublish: Date?
@@ -112,6 +118,7 @@ public actor HostSession {
     public func stop() async {
         generation += 1
         cancelWork()
+        refreshRestartPending = false
         runTask?.cancel()
         runTask = nil
         refreshTask = nil
@@ -122,6 +129,7 @@ public actor HostSession {
     /// The manual retry: drops any wait, resets the backoff and connects now.
     public func restart() {
         cancelWork()
+        refreshRestartPending = false
         runTask?.cancel()
         attempt = 0
         failures = 0
@@ -208,10 +216,20 @@ public actor HostSession {
         let id = connectionId
         watchdogFired = false
         refreshRestartRequested = false
-        liveSince = nil
-        lastLivePublish = nil
-        await publish(.connecting)
-        guard gen == generation else { return .superseded }
+        let quiet = refreshRestartPending
+        refreshRestartPending = false
+        if let (old, oldId) = previousProcess {
+            terminate(old, connection: oldId)
+            _ = await old.exitCode()
+            previousProcess = nil
+            guard gen == generation else { return .superseded }
+        }
+        if !quiet {
+            liveSince = nil
+            lastLivePublish = nil
+            await publish(.connecting)
+            guard gen == generation else { return .superseded }
+        }
         let resume = await currentCursor()
         guard gen == generation else { return .superseded }
 
@@ -223,6 +241,7 @@ public actor HostSession {
             return .retry(.ssh(tail: hostText("could not start ssh")), countsAsFailure: true)
         }
         currentProcess = process
+        previousProcess = (process, id)
         lastLineAt = clock.now()
         let watchdog = Task { await self.watch(connection: id) }
         watchdogTask = watchdog
@@ -409,6 +428,7 @@ public actor HostSession {
         lastRefreshRestart = clock.now()
         if let process = currentProcess {
             refreshRestartRequested = true
+            refreshRestartPending = true
             terminate(process, connection: connectionId)
         }
     }
