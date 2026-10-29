@@ -354,3 +354,193 @@ fn the_documentation_tables_hold_exactly_the_constants() {
         assert!(doc.contains(sentence), "{sentence}");
     }
 }
+
+fn configuration_doc() -> String {
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/reference/configuration.md"),
+    )
+    .unwrap()
+}
+
+#[test]
+fn the_failure_reasons_and_unsafe_families_are_fixed() {
+    assert_eq!(
+        DOC_FAILURE_REASONS,
+        ["merge_failed", "index_lock_left", "timeout"]
+    );
+    for key in [
+        "remote.*.pushurl",
+        "extensions.partialClone",
+        "remote.*.promisor",
+        "remote.*.partialclonefilter",
+        "core.sshCommand",
+        "core.gitProxy",
+        "core.askPass",
+        "remote.*.receivepack",
+        "remote.*.uploadpack",
+        "remote.*.vcs",
+        "remote.*.proxy",
+        "credential.*",
+        "url.*.insteadOf",
+        "url.*.pushInsteadOf",
+        "include.path",
+        "includeIf.*",
+    ] {
+        assert!(DOC_UNSAFE_FAMILIES.contains(&key), "{key}");
+    }
+    for entry in DOC_UNSAFE_FAMILIES {
+        let parts: Vec<&str> = entry.split('.').collect();
+        let ok = match parts.as_slice() {
+            [s, v] => !s.contains('*') && (!v.contains('*') || *v == "*"),
+            [s, mid, v] => !s.contains('*') && *mid == "*" && !v.contains('*'),
+            _ => false,
+        };
+        assert!(ok && parts.iter().all(|p| !p.is_empty()), "{entry}");
+    }
+}
+
+#[test]
+fn the_safety_section_lists_every_push_family() {
+    let doc = configuration_doc();
+    let mut lines = doc
+        .lines()
+        .skip_while(|l| *l != "## Merge and push safety")
+        .skip(1);
+    let mut rows = Vec::new();
+    for line in lines.by_ref() {
+        if line.starts_with("## ") {
+            panic!("no table in the safety section");
+        }
+        if line.starts_with('|') {
+            rows.push(line.to_string());
+            break;
+        }
+    }
+    rows.extend(
+        lines
+            .by_ref()
+            .take_while(|l| l.starts_with('|'))
+            .map(String::from),
+    );
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| {
+            r.trim()
+                .trim_matches('|')
+                .split('|')
+                .map(|c| c.trim().to_string())
+                .collect()
+        })
+        .collect();
+    assert_eq!(cells[0], ["Key", "Scope"]);
+    let mut push_keys = Vec::new();
+    for row in &cells[2..] {
+        assert_eq!(row.len(), 2, "{row:?}");
+        assert!(
+            ["merge", "push", "both"].contains(&row[1].as_str()),
+            "{row:?}"
+        );
+        if row[1] != "merge" {
+            let key = row[0].trim_matches('`').to_string();
+            push_keys.push(key);
+        }
+    }
+    let mut want: Vec<String> = DOC_UNSAFE_FAMILIES.iter().map(|s| s.to_string()).collect();
+    want.sort();
+    push_keys.sort();
+    assert_eq!(push_keys, want);
+    let section: String = doc
+        .lines()
+        .skip_while(|l| *l != "## Merge and push safety")
+        .skip(1)
+        .take_while(|l| !l.starts_with("## "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for heading in [
+        "### Allowed in merges",
+        "### Refused setups",
+        "### Residuals",
+        "### Re-check",
+    ] {
+        assert!(section.lines().any(|l| l == heading), "{heading}");
+    }
+    let mut tags = Vec::new();
+    for heading in ["### Refused setups", "### Residuals"] {
+        for line in section
+            .lines()
+            .skip_while(|l| *l != heading)
+            .skip(1)
+            .take_while(|l| !l.starts_with('#'))
+            .filter(|l| l.starts_with("- "))
+        {
+            let tag = line[2..]
+                .strip_prefix('`')
+                .and_then(|r| r.split_once('`'))
+                .unwrap_or_else(|| panic!("untagged bullet {line}"))
+                .0;
+            tags.push(tag.to_string());
+        }
+    }
+    assert_eq!(
+        tags,
+        [
+            "alternates",
+            "git-lfs",
+            "sha256",
+            "shallow-grafts",
+            "safe-directory",
+            "global-config",
+            "dbus",
+            "home",
+            "batchmode",
+            "group-kill",
+            "sparse-checkout",
+            "isolated-cost",
+            "identity",
+            "gitfile-outside",
+            "http-alternates",
+            "lc-all",
+            "credential-helper",
+        ]
+    );
+}
+
+fn visit(dir: &Path, words: &[String], hits: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|n| n == "target") {
+                continue;
+            }
+            visit(&path, words, hits);
+        } else if let Ok(text) = std::fs::read_to_string(&path) {
+            for word in words {
+                if text.contains(word.as_str()) {
+                    hits.push(format!("{}: {word}", path.display()));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_removed_failure_reasons_appear_nowhere() {
+    let words = [
+        ["tree", "mismatch"].join("_"),
+        ["no", "merge", "head"].join("_"),
+    ];
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let mut hits = Vec::new();
+    visit(&root.join("docs"), &words, &mut hits);
+    if let Ok(crates) = std::fs::read_dir(root.join("rust/crates")) {
+        for krate in crates.flatten() {
+            for sub in ["src", "tests"] {
+                visit(&krate.path().join(sub), &words, &mut hits);
+            }
+        }
+    }
+    assert!(hits.is_empty(), "{hits:?}");
+}

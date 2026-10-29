@@ -409,6 +409,10 @@ A root git call refuses to run when the repository's local config sets any of th
 | `remote.*.receivepack` |
 | `remote.*.uploadpack` |
 | `remote.*.vcs` |
+| `remote.*.pushurl` |
+| `extensions.partialClone` |
+| `remote.*.promisor` |
+| `remote.*.partialclonefilter` |
 | `url.*.insteadOf` |
 | `url.*.pushInsteadOf` |
 | `protocol.*.allow` |
@@ -439,8 +443,6 @@ A merge that started and failed reports one of these.
 | `merge_failed` |
 | `index_lock_left` |
 | `timeout` |
-| `tree_mismatch` |
-| `no_merge_head` |
 
 ### Push reasons
 
@@ -458,6 +460,117 @@ A push that is not made or fails reports one of these.
 | `rejected` |
 | `timeout` |
 | `unreachable` |
+
+## Merge and push safety
+
+A merge or a push from the app refuses a repository whose local config sets a key below. `Scope` says which of the two refuses it: `merge`, `push` or `both` (`*` stands for any name). Every key of the merge list is also in the push list, so today no key is merge-only.
+
+| Key | Scope |
+| --- | --- |
+| `merge.*.driver` | both |
+| `filter.*.clean` | both |
+| `filter.*.smudge` | both |
+| `filter.*.process` | both |
+| `diff.external` | push |
+| `diff.*.textconv` | push |
+| `diff.*.command` | push |
+| `core.sshCommand` | push |
+| `core.askPass` | push |
+| `core.gitProxy` | push |
+| `core.pager` | push |
+| `core.editor` | push |
+| `core.attributesFile` | both |
+| `core.worktree` | both |
+| `core.bare` | both |
+| `core.alternateRefsCommand` | both |
+| `sequence.editor` | push |
+| `submodule.*.update` | push |
+| `mergetool.*.cmd` | push |
+| `push.recurseSubmodules` | push |
+| `http.proxy` | push |
+| `http.proxyAuthMethod` | push |
+| `http.sslVerify` | push |
+| `http.sslCert` | push |
+| `http.sslKey` | push |
+| `http.sslCAInfo` | push |
+| `http.sslCAPath` | push |
+| `http.sslBackend` | push |
+| `http.pinnedPubkey` | push |
+| `http.followRedirects` | push |
+| `http.extraHeader` | push |
+| `http.cookieFile` | push |
+| `http.curloptResolve` | push |
+| `http.*.proxy` | push |
+| `http.*.proxyAuthMethod` | push |
+| `http.*.sslVerify` | push |
+| `http.*.sslCert` | push |
+| `http.*.sslKey` | push |
+| `http.*.sslCAInfo` | push |
+| `http.*.sslCAPath` | push |
+| `http.*.sslBackend` | push |
+| `http.*.pinnedPubkey` | push |
+| `http.*.followRedirects` | push |
+| `http.*.extraHeader` | push |
+| `http.*.cookieFile` | push |
+| `http.*.curloptResolve` | push |
+| `ssh.variant` | push |
+| `remote.*.proxy` | push |
+| `remote.*.proxyAuthMethod` | push |
+| `credential.*` | push |
+| `gpg.program` | push |
+| `gpg.*.program` | push |
+| `remote.*.receivepack` | push |
+| `remote.*.uploadpack` | push |
+| `remote.*.vcs` | push |
+| `remote.*.pushurl` | push |
+| `extensions.partialClone` | both |
+| `remote.*.promisor` | both |
+| `remote.*.partialclonefilter` | both |
+| `url.*.insteadOf` | push |
+| `url.*.pushInsteadOf` | push |
+| `protocol.*.allow` | push |
+| `include.path` | both |
+| `includeIf.*` | both |
+
+### Allowed in merges
+
+These keys do not stop a merge, each for the reason given. Any key that is not in the merge list is allowed, for example `core.excludesFile`, `filter.*.required` alone, `merge.*.name`, `core.untrackedCache` and the other `extensions.*` keys.
+
+- `core.sparseCheckout`, `core.sparseCheckoutCone`: only narrow which files are checked out.
+- `core.symlinks`, `core.autocrlf`, `core.eol`: change how files are written, never what runs.
+- `diff.*.textconv`, `diff.external`: run only for a diff, and a merge makes none.
+- `gpg.program`, `gpg.format`: used only to sign, and a merge commit made here is not signed.
+- `submodule.*.update`, `submodule.*.url`: used only by submodule commands, which a merge does not run.
+- `extensions.objectFormat`: names the hash; `sha256` is refused separately (see below).
+
+### Refused setups
+
+- `alternates`: a repository with a non-empty `objects/info/alternates` (a clone made with `--reference` or `--shared`) is refused for merges from the app. Run `git repack -a -d`, then remove `.git/objects/info/alternates`.
+- `git-lfs`: a repository that uses Git LFS is refused for merges from the app.
+- `sha256`: a repository with the sha256 object format is refused for merges from the app.
+- `shallow-grafts`: a shallow clone or a repository with `info/grafts` is refused for merges from the app. Run `git fetch --unshallow` and remove `.git/info/grafts`.
+- `safe-directory`: a checkout owned by another uid, or one that relies on `safe.directory` in the global config, is refused.
+
+### Residuals
+
+What these checks do not cover.
+
+- `global-config`: the trusted global and system git config is not checked, and variables the root calls drop are not forwarded.
+- `dbus`: `USER`, `LOGNAME`, `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` are not forwarded.
+- `home`: `HOME` must be set.
+- `batchmode`: ssh runs in BatchMode, so an unknown host key fails the call.
+- `group-kill`: killing the process group on a timeout also ends helper daemons and their cache writes.
+- `sparse-checkout`: `core.sparseCheckout` is allowed, so a merge can touch files outside the sparse set.
+- `isolated-cost`: the isolated merge checkout costs time and disk in a large repository.
+- `identity`: a merge needs a git identity (`no_identity` otherwise).
+- `gitfile-outside`: a `.git` file that points outside the project root is accepted.
+- `http-alternates`: `objects/info/http-alternates` is not checked.
+- `lc-all`: stderr is classified only with `LC_ALL=C`, so a differently localised message may be reported as `merge_failed`.
+- `credential-helper`: a repository-local `credential.*` is refused for push; set `credential.helper` in the global config.
+
+### Re-check
+
+The merge list is re-checked against git's documentation whenever the merge's git command set or minimum version changes.
 
 ## Cache
 

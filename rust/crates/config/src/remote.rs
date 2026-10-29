@@ -319,6 +319,10 @@ pub const DOC_UNSAFE_FAMILIES: &[&str] = &[
     "remote.*.receivepack",
     "remote.*.uploadpack",
     "remote.*.vcs",
+    "remote.*.pushurl",
+    "extensions.partialClone",
+    "remote.*.promisor",
+    "remote.*.partialclonefilter",
     "url.*.insteadOf",
     "url.*.pushInsteadOf",
     "protocol.*.allow",
@@ -339,13 +343,7 @@ pub const DOC_REFUSAL_CODES: &[&str] = &[
 ];
 
 /// The reasons a merge that started then failed.
-pub const DOC_FAILURE_REASONS: &[&str] = &[
-    "merge_failed",
-    "index_lock_left",
-    "timeout",
-    "tree_mismatch",
-    "no_merge_head",
-];
+pub const DOC_FAILURE_REASONS: &[&str] = &["merge_failed", "index_lock_left", "timeout"];
 
 /// The reasons a push is not made or fails.
 pub const DOC_PUSH_REASONS: &[&str] = &[
