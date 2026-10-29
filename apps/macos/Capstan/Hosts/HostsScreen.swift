@@ -34,21 +34,17 @@ struct HostsScreen: View {
             line += " · Capstan " + TextBudget.displayPrefix(version.displayPlain, maxBytes: 32).text
         }
         line += " · \(list.count) project" + (list.count == 1 ? "" : "s")
-        return Button {
-            model.hostsFocus = HostsFocus(hostId: host.id)
-        } label: {
-            HStack(spacing: Tokens.space[1]) {
-                Circle()
-                    .fill(status.tone == .green ? status.tone.color : Color.clear)
-                    .overlay(Circle().strokeBorder(status.tone.color, lineWidth: status.tone == .green ? 0 : 1.5))
-                    .frame(width: 8, height: 8)
-                Text(verbatim: HostLabel.hostName(host)).font(.system(size: 15, weight: .semibold))
-                Text(verbatim: line).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
+        // Not a button: the header is not selectable, so no focus or selection ring can surround it.
+        return HStack(spacing: Tokens.space[1]) {
+            Circle()
+                .fill(status.tone == .green ? status.tone.color : Color.clear)
+                .overlay(Circle().strokeBorder(status.tone.color, lineWidth: status.tone == .green ? 0 : 1.5))
+                .frame(width: 8, height: 8)
+            Text(verbatim: HostLabel.hostName(host)).font(.system(size: 15, weight: .semibold))
+            Text(verbatim: line).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
     }
 
     private func table(_ host: HostConfig) -> some View {

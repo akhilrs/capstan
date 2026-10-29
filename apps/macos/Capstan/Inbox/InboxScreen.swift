@@ -8,19 +8,50 @@ struct InboxScreen: View {
     @Bindable var model: AppModel
 
     var body: some View {
+        Group {
+            if case .project(let hostId, let projectId) = model.selection,
+                let project = model.project(hostId, projectId), project.availability != .ready, project.waiting.isEmpty
+            {
+                // Not ready and nothing to show: say why and what to do, never skeleton rows.
+                ProjectStateView(model: model, hostId: hostId, project: project)
+            } else {
+                content
+            }
+        }
+        .onChange(of: model.visibleRowIDs) { _, ids in pruneSelection(ids) }
+        .onAppear { pruneSelection(model.visibleRowIDs) }
+    }
+
+    /// The inspector keeps a row only while the list still shows it.
+    private func pruneSelection(_ ids: [InboxRowID]) {
+        if let selected = model.selectedRow, !ids.contains(selected) { model.selectedRow = nil }
+    }
+
+    /// The compact banner above rows of a project that is not ready: what it means, and Check again.
+    @ViewBuilder
+    private var stateBanner: some View {
         if case .project(let hostId, let projectId) = model.selection,
             let project = model.project(hostId, projectId), project.availability != .ready
         {
-            // A project that is not ready has no snapshot to wait for: say why and what to do, never skeleton rows.
-            ProjectStateView(model: model, hostId: hostId, project: project)
-        } else {
-            content
+            let text = AvailabilityText(project.availability)
+            HStack(spacing: Tokens.space[1]) {
+                StatePill(word: text.word, symbol: text.symbol, tone: HostLabel.tone(project.availability))
+                Text(verbatim: text.fix).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2)).lineLimit(2)
+                Spacer(minLength: Tokens.space[0])
+                Button { model.refresh(hostId: hostId, projectIds: [projectId]) } label: { Text("Check again") }
+                    .buttonStyle(.capstanQuiet)
+            }
+            .padding(Tokens.space[2])
+            .background(Tokens.color(.fill2), in: RoundedRectangle(cornerRadius: Tokens.radius.row))
+            .padding(.horizontal, Tokens.space[3])
+            .padding(.bottom, Tokens.space[1])
         }
     }
 
     private var content: some View {
         let groups = model.displayGroups()
         return VStack(alignment: .leading, spacing: 0) {
+            stateBanner
             ForEach(model.hosts) { config in
                 if !isLive(config.id) {
                     ConnectionBanners(model: model, hostId: config.id)

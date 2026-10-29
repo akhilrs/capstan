@@ -35,12 +35,18 @@ struct InspectorScreen: View {
     }
 
     private func content(_ row: InboxRowID, _ item: StoredWaiting) -> some View {
-        let mode = InspectorMode.make(decide: model.capabilities[row.hostId]?.decide ?? false, kind: item.kind)
+        // A project that is not ready shows its last rows with the decisions locked.
+        let locked = model.project(row.hostId, row.projectId).map { $0.availability != .ready } ?? false
+        let mode = locked
+            ? InspectorMode.readOnlyNoDecide
+            : InspectorMode.make(decide: model.capabilities[row.hostId]?.decide ?? false, kind: item.kind)
         let detail = model.detail(row)
         return ScrollView {
             VStack(alignment: .leading, spacing: Tokens.space[2]) {
                 header(row, item)
-                if let hint = mode.terminalHint {
+                if locked {
+                    Banner(tone: .grey, text: "The project is not ready, so decisions are locked until it answers again")
+                } else if let hint = mode.terminalHint {
                     Banner(tone: .grey, text: hint)
                 }
                 if item.needsTerminal && mode == .interactive {
