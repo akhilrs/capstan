@@ -151,11 +151,25 @@ final class WorkspacesTests: XCTestCase {
         XCTAssertEqual(rows.map { PlanFilter.filter(of: $0) }, [
             .active, .active, .active, .done, .done, .done, .done, .done, .done,
         ])
-        XCTAssertEqual(PlanFilter.counts(rows).active, 3)
+        XCTAssertEqual(PlanFilter.counts(rows).active, 2)
         XCTAssertEqual(PlanFilter.counts(rows).done, 6)
-        XCTAssertTrue(PlanFilter.active.matches(rows[1]))
+        XCTAssertFalse(PlanFilter.active.matches(rows[1]))
+        XCTAssertFalse(PlanFilter.done.matches(rows[1]))
         XCTAssertEqual(rows[1].metaLine, "draft · 3 packages")
         XCTAssertEqual(rows[1].pill(waiting: 0), PlanPill(word: "Draft", tone: .grey))
+    }
+
+    func testDraftsAreGroupedPerProjectAndLeftOutOfTheActiveList() {
+        let first = [plan(state: "approved"), plan(state: "draft"), plan(state: "draft"), plan(state: "signed_off")]
+        let second = [plan(state: "draft"), plan(state: "in_review")]
+        XCTAssertEqual(PlanFilter.drafts(in: first).count, 2)
+        XCTAssertEqual(PlanFilter.drafts(in: second).count, 1)
+        XCTAssertEqual(first.filter(PlanFilter.active.matches).map(\.state), ["approved"])
+        XCTAssertEqual(second.filter(PlanFilter.active.matches).map(\.state), ["in_review"])
+        XCTAssertTrue(PlanFilter.drafts(in: first).allSatisfy { $0.pill(waiting: 0) == PlanPill(word: "Draft", tone: .grey) })
+        XCTAssertEqual(PlanFilter.draftsWord(1), "1 draft")
+        XCTAssertEqual(PlanFilter.draftsWord(2), "2 drafts")
+        XCTAssertEqual(PlanFilter.counts(first + second).active, 2)
     }
 
     private func integrationItem(_ key: String, since: String) throws -> StoredWaiting {

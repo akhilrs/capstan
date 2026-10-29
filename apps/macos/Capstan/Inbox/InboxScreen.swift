@@ -151,6 +151,10 @@ struct InboxScreen: View {
                     KindGroupHeader(title: group.header, quiet: group.quiet)
                 }
             }
+            // Keeps the last row above the floating status capsule.
+            Color.clear.frame(height: StatusCapsule.reservedHeight)
+                .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                .accessibilityHidden(true)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)

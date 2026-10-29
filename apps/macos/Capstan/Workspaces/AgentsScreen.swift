@@ -32,6 +32,8 @@ struct AgentsScreen: View {
                     } else {
                         table(rows)
                     }
+                    // Keeps the last row above the floating status capsule.
+                    Color.clear.frame(height: StatusCapsule.reservedHeight)
                 }
                 .padding(Tokens.space[3])
             }
