@@ -22,11 +22,20 @@ struct PackageRowsView: View {
         }
     }
 
+    /// Green for integrated, blue for reported, the full text colour for the outlined and dashed circles.
+    private func iconColor(_ package: PackageRow) -> Color {
+        switch package.pillTone {
+        case .green: return Tokens.color(.green)
+        case .blue: return Tokens.color(.blue)
+        default: return Tokens.color(.label)
+        }
+    }
+
     private func packageRow(_ package: PackageRow) -> some View {
         HStack(alignment: .top, spacing: Tokens.space[1]) {
             Image(systemName: package.statusIcon)
-                .imageScale(.small)
-                .foregroundStyle(package.pillTone == .grey ? Tokens.color(.label) : package.pillTone.color)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(iconColor(package))
                 .frame(width: 16, height: 16)
             VStack(alignment: .leading, spacing: Tokens.space[0]) {
                 HStack {

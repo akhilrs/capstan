@@ -24,31 +24,67 @@ struct PlansScreen: View {
                             ForEach(group.rows, id: \.planId) { row in
                                 planRow(row, key: group.key)
                             }
+                            if !group.drafts.isEmpty {
+                                draftsRow(group)
+                            }
                         }
                     }
                 }
+                // The status capsule floats over the foot of the column; this space in the scrolled content keeps the
+                // last row above it.
+                Color.clear.frame(height: StatusCapsule.reservedHeight)
             }
             .padding(Tokens.space[3])
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // The status capsule floats over the foot of the column; the last card scrolls clear of it.
-        .contentMargins(.bottom, StatusCapsule.reservedHeight, for: .scrollContent)
+    }
+
+    @State private var openDrafts: Set<ProjectKey> = []
+
+    /// `N drafts` with a disclosure; open, it lists the project's draft plans as ordinary rows.
+    private func draftsRow(_ group: ProjectPlans) -> some View {
+        let open = openDrafts.contains(group.key)
+        return VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            Button {
+                if open { openDrafts.remove(group.key) } else { openDrafts.insert(group.key) }
+            } label: {
+                HStack(spacing: Tokens.space[1]) {
+                    Image(systemName: open ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold)).frame(width: 12)
+                    Text(verbatim: PlanFilter.draftsWord(group.drafts.count)).font(.system(size: 13))
+                    Spacer()
+                }
+                .foregroundStyle(Tokens.color(.label2))
+                .padding(Tokens.space[2])
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(open ? "expanded" : "collapsed")
+            if open {
+                ForEach(group.drafts, id: \.planId) { row in
+                    planRow(row, key: group.key)
+                }
+            }
+        }
     }
 
     private struct ProjectPlans {
         let key: ProjectKey
         let name: String
         let rows: [PlanRow]
+        let drafts: [PlanRow]
     }
 
     private func projectGroups() -> [ProjectPlans] {
         model.hosts.flatMap { host -> [ProjectPlans] in
             HostLabel.projects(model.hostModels[host.id]).compactMap { project -> ProjectPlans? in
-                let rows = PlanRow.rows(project).filter(model.planFilter.matches)
-                guard !rows.isEmpty else { return nil }
+                let all = PlanRow.rows(project)
+                let rows = all.filter(model.planFilter.matches)
+                let drafts = model.planFilter == .active ? PlanFilter.drafts(in: all) : []
+                guard !rows.isEmpty || !drafts.isEmpty else { return nil }
                 return ProjectPlans(
                     key: ProjectKey(hostId: host.id, projectId: project.projectId),
-                    name: HostLabel.projectName(project), rows: rows)
+                    name: HostLabel.projectName(project), rows: rows, drafts: drafts)
             }
         }
     }

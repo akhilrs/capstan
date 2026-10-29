@@ -20,6 +20,8 @@ struct HostsScreen: View {
                         table(host)
                     }
                 }
+                // Keeps the last row above the floating status capsule.
+                Color.clear.frame(height: StatusCapsule.reservedHeight)
             }
             .padding(Tokens.space[3])
             .frame(maxWidth: .infinity, alignment: .leading)

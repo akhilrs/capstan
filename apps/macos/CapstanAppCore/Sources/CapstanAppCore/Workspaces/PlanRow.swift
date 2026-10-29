@@ -146,8 +146,9 @@ public struct PlanPill: Sendable, Equatable {
 }
 
 /// The filter of the Plans toolbar. Done is a plan that is signed off, cancelled, superseded, rejected or failed, or
-/// whose packages are all integrated. Active is the rest, a draft included (it reads `draft · N packages` with a Draft
-/// pill): the design has Active and Done only. The host's plan states are draft, in_review, approved, superseded and signed_off.
+/// whose packages are all integrated. Active is the rest; its live plans are listed first and a project's drafts are
+/// collapsed into one `N drafts` row after them (`drafts(in:)`), so the Active count is the live plans only. The
+/// design has Active and Done only. The host's plan states are draft, in_review, approved, superseded and signed_off.
 public enum PlanFilter: CaseIterable, Sendable, Equatable {
     case active, done
 
@@ -166,10 +167,20 @@ public enum PlanFilter: CaseIterable, Sendable, Equatable {
         }
     }
 
+    /// The row belongs to this filter and is listed directly: a draft is not, it sits in the project's drafts row.
     public func matches(_ row: PlanRow) -> Bool {
-        PlanFilter.filter(of: row) == self
+        PlanFilter.filter(of: row) == self && !(self == .active && row.state == "draft")
     }
 
+    /// The draft plans of a project, in the order given: the rows under its `N drafts` row on the Active tab.
+    public static func drafts(in rows: [PlanRow]) -> [PlanRow] {
+        rows.filter { PlanFilter.filter(of: $0) == .active && $0.state == "draft" }
+    }
+
+    /// The label of the drafts row: `1 draft`, `3 drafts`.
+    public static func draftsWord(_ count: Int) -> String { count == 1 ? "1 draft" : "\(count) drafts" }
+
+    /// The Active count leaves drafts out.
     public static func counts(_ rows: [PlanRow]) -> (active: Int, done: Int) {
         (
             rows.filter { PlanFilter.active.matches($0) }.count,
