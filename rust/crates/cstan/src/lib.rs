@@ -9,6 +9,7 @@ pub mod config_cmd;
 pub mod controllers;
 pub mod dash;
 pub mod design_guide;
+pub mod events;
 pub mod git;
 pub mod gitignore;
 pub mod init;

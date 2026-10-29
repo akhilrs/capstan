@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use cstan_front::controllers::Proc;
-use cstan_front::projects::{discover, Credential, EndpointState, Live, ProjectProbe};
+use cstan_front::projects::{
+    call_within, classify, discover, helper_threads, project_id, Credential, EndpointState, Live,
+    ProjectProbe,
+};
 
 const KEY: &str = "k3y-0123456789abcdef0123456789abcdef-secret";
 
@@ -226,4 +229,124 @@ fn discover_creates_nothing() {
     let found = discover(&[proc(1, &a)], &[], &Live);
     assert_eq!(found[0].state, EndpointState::NoKey);
     assert_eq!(listing(&dir), before);
+}
+
+#[test]
+fn classify_maps_codes() {
+    assert_eq!(classify("unauthorized"), EndpointState::Refused);
+    assert_eq!(classify("forbidden"), EndpointState::Refused);
+    assert_eq!(classify("unknown_command"), EndpointState::Unsupported);
+    assert_eq!(classify("error"), EndpointState::Silent);
+    assert_eq!(classify(""), EndpointState::Silent);
+}
+
+#[test]
+fn project_id_reads_the_config() {
+    let dir = tmp("pid");
+    let a = project(&dir, "a");
+    assert_eq!(project_id(&a), None);
+    std::fs::write(a.join(".capstan/project.json"), r#"{"projectId":"proj-a"}"#).unwrap();
+    assert_eq!(project_id(&a).as_deref(), Some("proj-a"));
+    std::fs::write(a.join(".capstan/project.json"), "{").unwrap();
+    assert_eq!(project_id(&a), None);
+}
+
+struct Rendezvous(std::sync::Barrier);
+
+impl ProjectProbe for Rendezvous {
+    fn key(&self, _: &Path) -> Option<Credential> {
+        Some(Credential::new(KEY))
+    }
+    fn ask(&self, _: &Path, _: &Credential) -> EndpointState {
+        // Every probe waits for all the others; this passes only when they run at the same time.
+        self.0.wait();
+        EndpointState::Ready
+    }
+}
+
+#[test]
+fn discover_probes_roots_in_parallel() {
+    let dir = tmp("parallel");
+    let roots: Vec<PathBuf> = (0..64)
+        .map(|i| project(&dir, &format!("p{i:02}")))
+        .collect();
+    let probe = std::sync::Arc::new(Rendezvous(std::sync::Barrier::new(64)));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(discover(&[], &roots, probe.as_ref()).len());
+    });
+    // A serial discovery would wait on the barrier for ever; the timeout turns that into a failure.
+    assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(10)), Ok(64));
+}
+
+#[test]
+fn call_within_ends_a_trickling_peer_at_the_total_deadline() {
+    let dir = tmp("trickle");
+    let root = project(&dir, "p");
+    let listener = UnixListener::bind(root.join(".capstan/state/control.sock")).unwrap();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut line = String::new();
+            let _ = BufReader::new(stream.try_clone().unwrap()).read_line(&mut line);
+            for _ in 0..12 {
+                if stream.write_all(b" ").is_err() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+    });
+    let started = std::time::Instant::now();
+    let answer = call_within(&root, &Credential::new(KEY), &["head".to_string()], 2_000);
+    assert!(answer.is_none());
+    assert!(started.elapsed() < std::time::Duration::from_millis(2_500));
+}
+
+#[test]
+fn a_trickling_peer_across_many_polls_leaves_one_helper_thread() {
+    let dir = tmp("flight");
+    let root = project(&dir, "p");
+    let listener = UnixListener::bind(root.join(".capstan/state/control.sock")).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            std::thread::spawn(move || {
+                let mut line = String::new();
+                let _ = BufReader::new(stream.try_clone().unwrap()).read_line(&mut line);
+                for _ in 0..40 {
+                    if stream.write_all(b" ").is_err() {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            });
+        }
+    });
+    let key = Credential::new(KEY);
+    let mut most = 0;
+    for _ in 0..10 {
+        assert!(call_within(&root, &key, &["head".to_string()], 100).is_none());
+        most = most.max(helper_threads(&root));
+    }
+    assert_eq!(most, 1);
+}
+
+#[test]
+fn many_sequential_calls_to_a_fast_peer_all_answer() {
+    let dir = tmp("sequential");
+    let root = project(&dir, "p");
+    let listener = UnixListener::bind(root.join(".capstan/state/control.sock")).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut line = String::new();
+            let _ = BufReader::new(stream.try_clone().unwrap()).read_line(&mut line);
+            let _ = writeln!(stream, r#"{{"ok":true,"result":{{"projectId":"x"}}}}"#);
+        }
+    });
+    let key = Credential::new(KEY);
+    for i in 0..200 {
+        let got = call_within(&root, &key, &["head".to_string()], 2_000);
+        assert!(matches!(got, Some(Ok(_))), "call {i}: {got:?}");
+    }
 }
