@@ -9,12 +9,14 @@ use crate::kernel::Kernel;
 use crate::plan_body::{cut_at_word, cut_hard, format_subject, COMMIT_TYPES};
 use crate::records::{MAX_CONFLICT_FILES, MAX_CONFLICT_PATH_CHARS};
 use crate::types::MutationContext;
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -1202,7 +1204,15 @@ impl GitRepo {
         if call.args.iter().any(|arg| bad_text(arg)) {
             return Err(unavailable("a git argument holds a NUL or a newline"));
         }
-        if let Some(arg) = call.args.iter().find(|arg| refused_option(arg)) {
+        // `rev-parse --git-dir` and `--git-common-dir` only print a path; for every other call they select the repository.
+        let query = |arg: &str| {
+            subcommand == "rev-parse" && matches!(arg, "--git-dir" | "--git-common-dir")
+        };
+        if let Some(arg) = call
+            .args
+            .iter()
+            .find(|arg| !query(arg) && refused_option(arg))
+        {
             return Err(unavailable(format!("the git option {arg} is not allowed")));
         }
         for (key, value) in &call.config_env {
@@ -2733,6 +2743,538 @@ pub fn recover_integrations(deps: &IntegrationDeps, scope: Scope) -> IntegrateRe
         }
     }
     Ok(())
+}
+
+/// Why a merge request is refused: a code from `DOC_REFUSAL_CODES` and the names it concerns, escaped, sorted and cut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Refusal {
+    code: &'static str,
+    files: Vec<String>,
+    omitted: usize,
+}
+
+impl Refusal {
+    /// Each name goes once through `printable_path`; the escaped strings are sorted by their bytes, made unique and cut
+    /// at `MAX_CONFLICT_FILES`, and `omitted` counts the unique names cut.
+    pub fn new(code: &'static str, names: Vec<Vec<u8>>) -> Refusal {
+        debug_assert!(
+            capstan_config::remote::DOC_REFUSAL_CODES.contains(&code),
+            "unknown refusal code {code}"
+        );
+        let unique: BTreeSet<String> = names.iter().map(|name| printable_path(name)).collect();
+        let omitted = unique.len().saturating_sub(MAX_CONFLICT_FILES);
+        Refusal {
+            code,
+            files: unique.into_iter().take(MAX_CONFLICT_FILES).collect(),
+            omitted,
+        }
+    }
+
+    pub fn code(&self) -> &'static str {
+        self.code
+    }
+
+    pub fn files(&self) -> &[String] {
+        &self.files
+    }
+
+    pub fn omitted(&self) -> usize {
+        self.omitted
+    }
+}
+
+/// The answer of the check before a merge into the root checkout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Preflight {
+    AlreadyInHead,
+    Ready { old_head: String },
+    Refused(Refusal),
+}
+
+/// The result of a merge into the root checkout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum RootMerge {
+    Merged {
+        commit: String,
+    },
+    AlreadyInHead,
+    Refused(Refusal),
+    Failed {
+        reason: &'static str,
+        restored: bool,
+    },
+}
+
+impl RootMerge {
+    pub fn failed(reason: &'static str, restored: bool) -> RootMerge {
+        debug_assert!(
+            capstan_config::remote::DOC_FAILURE_REASONS.contains(&reason),
+            "unknown failure reason {reason}"
+        );
+        RootMerge::Failed { reason, restored }
+    }
+}
+
+/// How far a push got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PushState {
+    Pushed,
+    Skipped,
+    Failed,
+}
+
+/// The result of a push: the state and, unless it pushed, the reason from `DOC_PUSH_REASONS`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PushOutcome {
+    pub state: PushState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+}
+
+impl PushOutcome {
+    pub fn pushed() -> PushOutcome {
+        PushOutcome {
+            state: PushState::Pushed,
+            reason: None,
+        }
+    }
+
+    pub fn skipped(reason: &'static str) -> PushOutcome {
+        Self::with_reason(PushState::Skipped, reason)
+    }
+
+    pub fn failed(reason: &'static str) -> PushOutcome {
+        Self::with_reason(PushState::Failed, reason)
+    }
+
+    fn with_reason(state: PushState, reason: &'static str) -> PushOutcome {
+        debug_assert!(
+            capstan_config::remote::DOC_PUSH_REASONS.contains(&reason),
+            "unknown push reason {reason}"
+        );
+        PushOutcome {
+            state,
+            reason: Some(reason),
+        }
+    }
+}
+
+/// What git's config error output says about the repository's configuration.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigError {
+    /// The repository's own config file cannot be read or parsed.
+    Unreadable,
+    /// Git is unavailable for any other reason; `message` is the line that tells why.
+    Unavailable { message: String },
+}
+
+/// The substrings of the five git messages whose line names a file; the sixth ("unknown error occurred while reading
+/// the configuration files") names none, so it only counts through the warning lines printed with it.
+const CONFIG_ERROR_PATH_MARKERS: [&str; 4] = [
+    "bad config line",
+    "unable to access",
+    "Permission denied",
+    "unable to read config file",
+];
+
+fn config_error_message(lines: &[&str]) -> String {
+    lines
+        .iter()
+        .find(|line| line.starts_with("fatal:") || line.starts_with("error:"))
+        .or_else(|| lines.iter().find(|line| !line.trim().is_empty()))
+        .map(|line| line.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// The path a config error line names: the rest after ` in file ` or the text inside the first pair of single quotes.
+fn config_error_path(line: &str) -> Option<&str> {
+    if line.contains("bad config line") {
+        return line.split_once(" in file ").map(|(_, path)| path.trim());
+    }
+    let rest = line.split_once('\'')?.1;
+    Some(rest.split_once('\'')?.0)
+}
+
+/// Canonical form of a path that may not exist: the path itself, else its parent plus the file name, else as given.
+fn canonical_or_joined(path: &Path) -> PathBuf {
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => match std::fs::canonicalize(parent) {
+            Ok(real) => real.join(name),
+            Err(_) => path.to_path_buf(),
+        },
+        _ => path.to_path_buf(),
+    }
+}
+
+/// Classifies the stderr of a git call that failed while reading the configuration. `git_dir` and `common_dir` are
+/// absolute; a relative path in a line is relative to `root`, the child's `-C` directory. Relies on `LC_ALL=C` stderr.
+#[doc(hidden)]
+pub fn classify_config_error(
+    stderr: &[u8],
+    root: &Path,
+    git_dir: &Path,
+    common_dir: &Path,
+) -> ConfigError {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.lines().collect();
+    if let Some(line) = lines
+        .iter()
+        .find(|line| line.contains("detected dubious ownership"))
+    {
+        return ConfigError::Unavailable {
+            message: line.trim().to_string(),
+        };
+    }
+    let own: Vec<PathBuf> = [git_dir, common_dir]
+        .iter()
+        .filter(|dir| dir.is_dir())
+        .flat_map(|dir| [dir.join("config"), dir.join("config.worktree")])
+        .map(|path| canonical_or_joined(&path))
+        .collect();
+    let names_repo_config = lines.iter().any(|line| {
+        CONFIG_ERROR_PATH_MARKERS
+            .iter()
+            .any(|marker| line.contains(marker))
+            && config_error_path(line).is_some_and(|path| {
+                !path.is_empty() && own.contains(&canonical_or_joined(&root.join(path)))
+            })
+    });
+    if names_repo_config {
+        return ConfigError::Unreadable;
+    }
+    ConfigError::Unavailable {
+        message: config_error_message(&lines),
+    }
+}
+
+/// The git dir and the common dir of `root` when `git rev-parse` failed: `root/.git` if it is a directory, else the
+/// `gitdir:` path of a gitfile (relative to `root`); the common dir follows `commondir` when present. Anything
+/// unreadable gives `(root/.git, root/.git)`, which matches nothing the classification would trust.
+#[doc(hidden)]
+pub fn repo_dirs_fallback(root: &Path) -> (PathBuf, PathBuf) {
+    let dot_git = root.join(".git");
+    let missing = || (dot_git.clone(), dot_git.clone());
+    let git_dir = if dot_git.is_dir() {
+        dot_git.clone()
+    } else {
+        let Ok(content) = std::fs::read_to_string(&dot_git) else {
+            return missing();
+        };
+        let Some(path) = content
+            .lines()
+            .find_map(|line| line.strip_prefix("gitdir:"))
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+        else {
+            return missing();
+        };
+        let dir = root.join(path);
+        if !dir.is_dir() {
+            return missing();
+        }
+        dir
+    };
+    let common_dir = match std::fs::read_to_string(git_dir.join("commondir")) {
+        Ok(content) if !content.trim().is_empty() => git_dir.join(content.trim()),
+        _ => git_dir.clone(),
+    };
+    (git_dir, common_dir)
+}
+
+/// Which git call the repository-local configuration is checked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsafeScope {
+    /// A merge into the root checkout: the deny-list `MERGE_UNSAFE_FAMILIES`.
+    Merge,
+    /// A push: every key of `DOC_UNSAFE_FAMILIES`.
+    Push,
+}
+
+/// What the repository-local configuration holds for one scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnsafeConfig {
+    Clean,
+    /// The refused keys, as `git config --list` prints them.
+    Keys(Vec<String>),
+    /// The repository's own config file cannot be read or parsed.
+    Unreadable,
+}
+
+impl UnsafeConfig {
+    /// `unsafe_config` with the refused keys, or with `(config unreadable)`; `None` when clean.
+    pub fn into_refusal(self) -> Option<Refusal> {
+        match self {
+            UnsafeConfig::Clean => None,
+            UnsafeConfig::Keys(keys) => Some(Refusal::new(
+                "unsafe_config",
+                keys.iter().map(|key| key.as_bytes().to_vec()).collect(),
+            )),
+            UnsafeConfig::Unreadable => Some(Refusal::new(
+                "unsafe_config",
+                vec![b"(config unreadable)".to_vec()],
+            )),
+        }
+    }
+}
+
+/// The local keys a merge into the root checkout refuses (patterns as in `DOC_UNSAFE_FAMILIES`). Hooks and fsmonitor are
+/// pinned off by `run_root` and are not listed.
+pub const MERGE_UNSAFE_FAMILIES: &[&str] = &[
+    "core.alternateRefsCommand",
+    "merge.*.driver",
+    "filter.*.clean",
+    "filter.*.smudge",
+    "filter.*.process",
+    "core.attributesFile",
+    "core.worktree",
+    "core.bare",
+    "include.path",
+    "includeIf.*",
+    "extensions.partialClone",
+    "remote.*.promisor",
+    "remote.*.partialclonefilter",
+];
+
+/// The git subcommands a merge into the root checkout runs (plan-106: `check-ref-format --branch`, its steps 1 to 10 and
+/// the merge commit). Each is audited to run no program of the repository's choosing; a subcommand not listed needs a
+/// new audit.
+pub const MERGE_AUDITED_COMMANDS: &[&str] = &[
+    "rev-parse",
+    "symbolic-ref",
+    "check-ref-format",
+    "merge-base",
+    "status",
+    "diff-tree",
+    "diff-index",
+    "diff-files",
+    "ls-files",
+    "merge-tree",
+    "commit-tree",
+    "read-tree",
+    "update-index",
+    "update-ref",
+    "config",
+];
+
+/// The files of the common dir a merge refuses when they hold something, relative to the common dir.
+const MERGE_REFUSED_FILES: [&str; 3] = ["objects/info/alternates", "info/grafts", "shallow"];
+
+/// Whether a file holds a line that is neither blank (only whitespace or `\r`) nor a `#` comment.
+fn has_content_line(bytes: &[u8]) -> bool {
+    bytes.split(|byte| *byte == b'\n').any(|line| {
+        !line.iter().all(|byte| byte.is_ascii_whitespace()) && line.first() != Some(&b'#')
+    })
+}
+
+/// Whether `path` makes a merge refuse: a regular file (a symlink to one is followed) with a content line, or anything
+/// else that is there but is not a readable regular file (a directory, a dangling link, an unreadable file). Absent is
+/// fine.
+fn repo_file_refuses(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => match std::fs::read(path) {
+            Ok(bytes) => has_content_line(&bytes),
+            Err(_) => true,
+        },
+        Ok(_) => true,
+        Err(err) => {
+            err.kind() != std::io::ErrorKind::NotFound || std::fs::symlink_metadata(path).is_ok()
+        }
+    }
+}
+
+/// The directories of one repository, read once and used for every classification.
+struct RepoDirs {
+    root: PathBuf,
+    git_dir: PathBuf,
+    common_dir: PathBuf,
+}
+
+/// Splits a config key at its first and last dot: section, subsection (none when there is one dot), variable.
+fn split_config_key(key: &str) -> Option<(&str, Option<&str>, &str)> {
+    let first = key.find('.')?;
+    let last = key.rfind('.')?;
+    if first == last {
+        Some((&key[..first], None, &key[first + 1..]))
+    } else {
+        Some((&key[..first], Some(&key[first + 1..last]), &key[last + 1..]))
+    }
+}
+
+/// Section and variable match without case, the subsection exactly; `*` as a subsection matches any (also an empty)
+/// one, `*` as the variable of a two-part pattern matches every key of the section.
+fn config_key_matches(pattern: &str, key: &str) -> bool {
+    let (Some((p_section, p_sub, p_var)), Some((k_section, k_sub, k_var))) =
+        (split_config_key(pattern), split_config_key(key))
+    else {
+        return false;
+    };
+    if !p_section.eq_ignore_ascii_case(k_section) {
+        return false;
+    }
+    if p_sub.is_none() && p_var == "*" {
+        return true;
+    }
+    let sub_matches = match (p_sub, k_sub) {
+        (None, None) => true,
+        (Some("*"), Some(_)) => true,
+        (Some(wanted), Some(found)) => wanted == found,
+        _ => false,
+    };
+    sub_matches && p_var.eq_ignore_ascii_case(k_var)
+}
+
+/// Whether a value is a git false (`false`, `no`, `off`, `0`, empty); a key alone is true.
+fn config_value_is_false(value: Option<&str>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    ["false", "no", "off", ""]
+        .iter()
+        .any(|word| value.eq_ignore_ascii_case(word))
+        || value.parse::<i64>().is_ok_and(|number| number == 0)
+}
+
+/// Key and value of each entry; `None` is a key alone.
+type ConfigEntries = Vec<(String, Option<String>)>;
+
+/// The entries of `git config -z --list`: key, then a newline and the value; a key alone means true.
+fn parse_config_entries(stdout: &[u8]) -> ConfigEntries {
+    stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| match entry.iter().position(|byte| *byte == b'\n') {
+            Some(at) => (
+                String::from_utf8_lossy(&entry[..at]).into_owned(),
+                Some(String::from_utf8_lossy(&entry[at + 1..]).into_owned()),
+            ),
+            None => (String::from_utf8_lossy(entry).into_owned(), None),
+        })
+        .collect()
+}
+
+impl GitRepo {
+    /// Reads the git dir and the common dir once each (a relative answer is relative to the root); when `rev-parse`
+    /// fails the files decide, as `repo_dirs_fallback` does.
+    fn repo_dirs(&self, call: &RootCall) -> IntegrateResult<RepoDirs> {
+        let ask = |flag: &str| -> IntegrateResult<Option<PathBuf>> {
+            let out = self.run_root(&RootCall {
+                args: vec!["rev-parse".into(), flag.into()],
+                ..call.clone()
+            })?;
+            if out.code != 0 {
+                return Ok(None);
+            }
+            let text = out.stdout.strip_suffix(b"\n").unwrap_or(&out.stdout);
+            if text.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(self.root.join(Path::new(OsStr::from_bytes(text)))))
+        };
+        let git_dir = ask("--git-dir")?;
+        let common_dir = ask("--git-common-dir")?;
+        let (git_dir, common_dir) = match (git_dir, common_dir) {
+            (Some(git_dir), Some(common_dir)) => (git_dir, common_dir),
+            _ => repo_dirs_fallback(&self.root),
+        };
+        Ok(RepoDirs {
+            root: self.root.clone(),
+            git_dir,
+            common_dir,
+        })
+    }
+
+    /// One `git config -z --list` read of a scope flag; `Ok(None)` when the file cannot be read.
+    fn read_config_entries(
+        &self,
+        call: &RootCall,
+        dirs: &RepoDirs,
+        flag: &str,
+    ) -> IntegrateResult<Option<ConfigEntries>> {
+        let out = self.run_root(&RootCall {
+            args: vec!["config".into(), flag.into(), "-z".into(), "--list".into()],
+            ..call.clone()
+        })?;
+        if out.code == 0 {
+            return Ok(Some(parse_config_entries(&out.stdout)));
+        }
+        match classify_config_error(&out.stderr, &dirs.root, &dirs.git_dir, &dirs.common_dir) {
+            ConfigError::Unreadable => Ok(None),
+            ConfigError::Unavailable { message } => Err(unavailable(message)),
+        }
+    }
+
+    /// Checks the repository-local configuration (`.git/config`, and `config.worktree` when
+    /// `extensions.worktreeConfig` is on) against the keys refused for `scope`. The user's global and system
+    /// configuration is not looked at.
+    pub fn unsafe_repo_config(&self, scope: UnsafeScope) -> IntegrateResult<UnsafeConfig> {
+        let call = RootCall {
+            args: Vec::new(),
+            timeout: GIT_TIMEOUT,
+            config_env: Vec::new(),
+            network: false,
+            user_config: scope == UnsafeScope::Push,
+        };
+        let dirs = self.repo_dirs(&call)?;
+        let Some(mut entries) = self.read_config_entries(&call, &dirs, "--local")? else {
+            return Ok(UnsafeConfig::Unreadable);
+        };
+        let worktree_config = entries
+            .iter()
+            .rev()
+            .find(|(key, _)| key.eq_ignore_ascii_case("extensions.worktreeconfig"))
+            .is_some_and(|(_, value)| !config_value_is_false(value.as_deref()));
+        let has_file = std::fs::symlink_metadata(dirs.git_dir.join("config.worktree")).is_ok();
+        if worktree_config && has_file {
+            let Some(more) = self.read_config_entries(&call, &dirs, "--worktree")? else {
+                return Ok(UnsafeConfig::Unreadable);
+            };
+            entries.extend(more);
+        }
+        let families: &[&str] = match scope {
+            UnsafeScope::Merge => MERGE_UNSAFE_FAMILIES,
+            UnsafeScope::Push => capstan_config::remote::DOC_UNSAFE_FAMILIES,
+        };
+        let mut keys: Vec<String> = Vec::new();
+        for (key, value) in &entries {
+            let refused = families.iter().any(|pattern| {
+                config_key_matches(pattern, key)
+                    && (!key.eq_ignore_ascii_case("core.bare")
+                        || !config_value_is_false(value.as_deref()))
+            });
+            if refused && !keys.contains(key) {
+                keys.push(key.clone());
+            }
+        }
+        if scope == UnsafeScope::Merge {
+            for name in MERGE_REFUSED_FILES {
+                let path = dirs.common_dir.join(name);
+                if repo_file_refuses(&path) {
+                    let shown = path.strip_prefix(&dirs.root).unwrap_or(&path);
+                    keys.push(shown.to_string_lossy().into_owned());
+                }
+            }
+        }
+        Ok(if keys.is_empty() {
+            UnsafeConfig::Clean
+        } else {
+            UnsafeConfig::Keys(keys)
+        })
+    }
 }
 
 #[cfg(test)]
