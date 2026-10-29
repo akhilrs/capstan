@@ -17,8 +17,22 @@ final class HostSessionTests: XCTestCase {
     }
 
     private func makeSession(config: HostConfig = makeConfig(), consumer: RecordingConsumer? = nil) -> HostSession {
+        // The waits read `self.consumer`: a consumer a test brings becomes it.
+        if let consumer { self.consumer = consumer }
         HostSession(
             config: config, runner: runner, consumer: consumer ?? self.consumer, clock: clock, jitter: { 1.0 })
+    }
+
+    /// Moves the clock on in steps of 10 s, a heartbeat from the newest child at each, so the watchdog stays quiet.
+    private func advanceKeepingAlive(by seconds: TimeInterval) async {
+        var left = seconds
+        while left > 0 {
+            let step = min(10, left)
+            clock.advance(by: step)
+            runner.child(at: runner.startCount - 1).send(Wire.heartbeat)
+            await settle()
+            left -= step
+        }
     }
 
     /// Delivers the connection's first cursor line: only then does a refresh request count.
@@ -511,8 +525,7 @@ final class HostSessionTests: XCTestCase {
         clock.advance(by: 1)
         await settle()
         XCTAssertEqual(runner.startCount, 2)
-        clock.advance(by: HostSession.refreshGapSeconds - 1.1)
-        await settle()
+        await advanceKeepingAlive(by: HostSession.refreshGapSeconds - 1.1)
         XCTAssertEqual(runner.startCount, 2)
         clock.advance(by: 0.1)
         await eventually("second restart") { self.runner.startCount == 3 }

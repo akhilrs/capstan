@@ -181,6 +181,11 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
             while process.isRunning { usleep(20_000) }
             finish()
         }
+        // The third: Foundation's own blocking wait, on a thread of its own. Any one of the three ends the wait.
+        Thread.detachNewThread { [self] in
+            process.waitUntilExit()
+            finish()
+        }
     }
 
     /// Records the exit once, from whichever of the termination handler and the poll sees it first.
