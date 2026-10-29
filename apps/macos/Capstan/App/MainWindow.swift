@@ -7,12 +7,23 @@ struct MainWindow: View {
     @Bindable var model: AppModel
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var narrow = false
-    @State private var compactToolbar = false
+    @State private var windowWidth: CGFloat = 1400
     @State private var inspectorSheet = false
 
     private static let foldWidth: CGFloat = 900
-    /// Under this width the content column cannot hold the title, the whole filter and the search.
-    private static let compactToolbarWidth: CGFloat = 1180
+    /// The widths the toolbar needs beside the title: the whole filter, the search field and the gaps.
+    private static let filterWidth: CGFloat = 340
+    private static let searchWidth: CGFloat = 220
+    private static let sidebarWidth: CGFloat = 248
+    private static let inspectorWidth: CGFloat = 360
+
+    /// Whether the content column is too narrow for the title, the whole filter and the search; the filter then folds
+    /// into one menu, so no label is cut and nothing overlaps the title.
+    private var compactToolbar: Bool {
+        let titleWidth = CGFloat(titleText(compact: false).count) * 8.5 + 40
+        let room = windowWidth - Self.sidebarWidth - Self.inspectorWidth
+        return room < titleWidth + Self.filterWidth + Self.searchWidth + 48
+    }
     init(model: AppModel) {
         self.model = model
     }
@@ -49,28 +60,21 @@ struct MainWindow: View {
             }
         }
         .toolbar {
+            // One item for the title capsule and the filter capsule, so the spacing between them is fixed. Each is
+            // glass of its own; the system's shared background is off, or it would draw one capsule around both.
             ToolbarItem(placement: .navigation) {
-                Text(verbatim: title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .lineLimit(1)
-                    .fixedSize()
-                    .padding(.horizontal, Tokens.space[1])
-            }
-            ToolbarItem(placement: .navigation) {
-                switch model.selection {
-                case .inbox, .project:
-                    KindFilter(model: model, compact: compactToolbar || narrow)
-                case .agents:
-                    HStack(spacing: Tokens.space[1]) {
-                        AgentFilterBar(model: model)
-                        ProjectMenu(model: model)
-                    }
-                case .plans:
-                    PlanFilterBar(model: model)
-                case .hosts, .messages:
-                    EmptyView()
+                HStack(spacing: Tokens.space[1]) {
+                    Text(verbatim: title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, Tokens.space[2])
+                        .padding(.vertical, Tokens.space[0] + 2)
+                        .glassEffect(.regular, in: Capsule())
+                    filterCapsule
                 }
             }
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .primaryAction) {
                 if case .hosts = model.selection {
                     Button {
@@ -86,10 +90,10 @@ struct MainWindow: View {
         .toolbar(removing: .title)
         .navigationTitle("")
         .frame(minWidth: 640, minHeight: 480)
-        .onGeometryChange(for: Bool.self) { proxy in
-            proxy.size.width < Self.compactToolbarWidth
-        } action: { compact in
-            Task { @MainActor in compactToolbar = compact }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            Task { @MainActor in windowWidth = width }
         }
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < Self.foldWidth
@@ -154,11 +158,30 @@ struct MainWindow: View {
             set: { _ in })
     }
 
-    private var title: String {
+    @ViewBuilder
+    private var filterCapsule: some View {
+        switch model.selection {
+        case .inbox, .project:
+            KindFilter(model: model, compact: compactToolbar || narrow).padding(3).glassEffect(.regular, in: Capsule())
+        case .agents:
+            HStack(spacing: Tokens.space[1]) {
+                AgentFilterBar(model: model).padding(3).glassEffect(.regular, in: Capsule())
+                ProjectMenu(model: model)
+            }
+        case .plans:
+            PlanFilterBar(model: model).padding(3).glassEffect(.regular, in: Capsule())
+        case .hosts, .messages:
+            EmptyView()
+        }
+    }
+
+    private var title: String { titleText(compact: compactToolbar || narrow) }
+
+    /// The title; the compact window has no filter capsule to carry the count, so it joins the title there.
+    private func titleText(compact: Bool) -> String {
         switch model.selection {
         case .inbox:
-            // The compact window has no filter capsule to carry the count.
-            return compactToolbar || narrow ? "Waiting for you · " + String(model.inboxTotal()) : "Waiting for you"
+            return compact ? "Waiting for you · " + String(model.inboxTotal()) : "Waiting for you"
         case .project(let hostId, let projectId):
             // The count is of the rows below, so the title says which project filters them.
             return (projectName(hostId, projectId) ?? "Waiting for you") + " · " + String(model.inboxTotal())

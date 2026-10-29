@@ -31,7 +31,7 @@ final class LiveProcessRunnerTests: XCTestCase {
 
     /// Runs `body` off the main executor and fails the test when it has not finished within `limit` seconds.
     private func bounded(
-        _ name: String, limit: TimeInterval = 20, file: StaticString = #filePath, line: UInt = #line,
+        _ name: String, limit: TimeInterval = 10, file: StaticString = #filePath, line: UInt = #line,
         _ body: @escaping @Sendable () async throws -> Void
     ) async {
         let done = expectation(description: name)
@@ -78,6 +78,30 @@ final class LiveProcessRunnerTests: XCTestCase {
                 XCTAssertEqual(code, 2)
                 XCTAssertEqual(process.stderrTail(), "cstan: unknown command: events\n")
             }
+        }
+    }
+
+    /// A line must reach the reader as soon as the child flushes it, not when 64 KiB have collected.
+    func testALineArrivesWhenTheChildWritesItNotWhenThePipeIsFull() async throws {
+        let process = try launch("printf 'one\\n'; sleep 5; printf 'two\\n'")
+        await bounded("first line") {
+            var iterator = process.lines.makeAsyncIterator()
+            let began = Date()
+            let first = try await iterator.next()
+            XCTAssertEqual(first.map { String(decoding: $0, as: UTF8.self) }, "one")
+            XCTAssertLessThan(Date().timeIntervalSince(began), 3, "the first line waited for the second")
+        }
+    }
+
+    /// A grandchild that keeps standard error open must not hold the exit back.
+    func testAGrandchildHoldingStderrOpenDoesNotDelayTheExit() async throws {
+        let process = try launch("sleep 6 & echo last words >&2; exit 4")
+        await bounded("exit with open stderr") {
+            let began = Date()
+            let code = await process.exitCode()
+            XCTAssertEqual(code, 4)
+            XCTAssertEqual(process.stderrTail(), "last words\n")
+            XCTAssertLessThan(Date().timeIntervalSince(began), 1.5, "the exit waited for the open pipe")
         }
     }
 

@@ -80,6 +80,9 @@ public actor HostSession {
     private var watchdogFired = false
     private var terminatedConnections: Set<Int> = []
     private var refreshRestartRequested = false
+    /// The current connection has delivered its first cursor line: what came before it is the initial snapshot or the
+    /// catch-up, and an invalidate in it must not restart the stream.
+    private var connectionSawCursor = false
     /// The next connect follows a refresh restart: the host stays live, as nothing failed.
     private var refreshRestartPending = false
     /// The last child started; the next one waits for it to be gone, so a host never has two ssh sessions.
@@ -144,7 +147,7 @@ public actor HostSession {
     /// Asks for the given projects to be read again. v1 has no remote item read, so the stream restarts without
     /// those projects in its cursor and the host sends their snapshots again.
     public func refresh(projectIds: Set<String>) {
-        guard runTask != nil, !projectIds.isEmpty else { return }
+        guard runTask != nil, connectionSawCursor, !projectIds.isEmpty else { return }
         pendingRefresh.formUnion(projectIds)
         guard refreshTask == nil else { return }
         let gen = generation
@@ -238,6 +241,7 @@ public actor HostSession {
         diagnostic?("connection \(id) starting", nil)
         watchdogFired = false
         refreshRestartRequested = false
+        connectionSawCursor = false
         let quiet = refreshRestartPending
         refreshRestartPending = false
         if let (old, oldId) = previousProcess {
@@ -301,6 +305,7 @@ public actor HostSession {
                     await noteLive()
                     await consumer.apply(host: config.id, lines: batch)
                     batch = []
+                    connectionSawCursor = true
                     if !refreshRestartRequested {
                         cursor = next
                         cursorLoaded = true
