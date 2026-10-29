@@ -13,7 +13,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
+use std::ffi::OsString;
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -588,6 +590,11 @@ const BIG: RunOptions = RunOptions {
 pub struct GitRepo {
     root: PathBuf,
     extra_env: Vec<(String, String)>,
+    seams: GitSeams,
+    /// The absolute path of git, resolved by the first `run_root` call of this repository (and its clones).
+    git_path: Arc<OnceLock<PathBuf>>,
+    /// The probed git version (major, minor), filled by the first successful probe.
+    version: Arc<OnceLock<(u32, u32)>>,
 }
 
 /// What `mergeIntoBranch` found.
@@ -620,6 +627,732 @@ impl MergeResult {
             }
             Self::Failed { reason } => json!({"kind": "failed", "reason": reason}),
         }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------ root runner
+
+/// The git version a `run_root` call needs at least.
+const MIN_GIT: (u32, u32) = (2, 39);
+const ROOT_STDOUT_CAP: usize = 16 * 1024 * 1024;
+const PROBE_STDOUT_CAP: usize = 4 * 1024;
+const ROOT_STDERR_CAP: usize = 64 * 1024;
+const DEFAULT_READER_DETACH: Duration = Duration::from_secs(2);
+
+/// The names every `run_root` child gets (PATH and the fixed values); nothing else is passed except
+/// `FORWARDED_USER_ENV` with `user_config`, the `GIT_CONFIG_*` of `config_env` and the two pins of a call without it.
+pub const FIXED_CHILD_ENV: &[&str] = &[
+    "PATH",
+    "LC_ALL",
+    "GIT_TERMINAL_PROMPT",
+    "GCM_INTERACTIVE",
+    "GIT_EDITOR",
+    "GIT_PAGER",
+    "PAGER",
+];
+
+/// The user's environment a call with `user_config` forwards when it is set. The whole contract.
+pub const FORWARDED_USER_ENV: &[&str] = &[
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_NOSYSTEM",
+    "SSH_AUTH_SOCK",
+    "TMPDIR",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+];
+
+/// The settings passed as `-c` on every `run_root` call; nothing in the user's or the repository's config changes them.
+pub const ROOT_CONFIG_OVERRIDES: &[(&str, &str)] = &[
+    ("core.hooksPath", "/dev/null"),
+    ("core.fsmonitor", "false"),
+    ("commit.gpgSign", "false"),
+    ("push.gpgSign", "false"),
+    ("push.pushOption", ""),
+    ("gc.auto", "0"),
+    ("maintenance.auto", "false"),
+    ("submodule.recurse", "false"),
+    ("protocol.allow", "never"),
+    ("protocol.ext.allow", "never"),
+    ("protocol.fd.allow", "never"),
+    ("protocol.git.allow", "never"),
+    ("protocol.http.allow", "never"),
+    ("protocol.file.allow", "user"),
+    ("protocol.https.allow", "always"),
+    ("protocol.ssh.allow", "always"),
+];
+
+/// Global and transport options that can override the pins or run a program.
+const REFUSED_OPTIONS: &[&str] = &[
+    "-c",
+    "-C",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--upload-pack",
+    "--receive-pack",
+    "--exec",
+];
+
+/// Short options refused with their attached form too (`-ufoo`): `-u` is the upload-pack program.
+const REFUSED_SHORT_PREFIXES: &[&str] = &["-u"];
+
+/// One `run_root` call.
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct RootCall {
+    pub args: Vec<String>,
+    pub timeout: Duration,
+    pub config_env: Vec<(String, String)>,
+    pub network: bool,
+    pub user_config: bool,
+}
+
+/// What a `run_root` child printed; `stderr` is cut to 64 KiB.
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct RootOutput {
+    pub code: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+/// Switches for tests, all off by default. They travel with a clone and `with_env`, not with `new` or
+/// `worktree_dirty`.
+#[doc(hidden)]
+#[derive(Clone, Debug, Default)]
+pub struct GitSeams {
+    pub force_old_git: bool,
+    pub push_timeout: Option<Duration>,
+    pub probe_timeout: Option<Duration>,
+    pub allow_http: bool,
+    pub forward_env: Option<Vec<(String, String)>>,
+    pub git_program: Option<PathBuf>,
+    pub child_path: Option<String>,
+    pub reader_detach: Option<Duration>,
+    pub skip_version_probe: bool,
+    pub skip_ssh_probe: bool,
+}
+
+/// The time one call has in all.
+pub(crate) struct Deadline {
+    until: Instant,
+}
+
+impl Deadline {
+    pub(crate) fn new(total: Duration) -> Deadline {
+        Deadline {
+            until: Instant::now() + total,
+        }
+    }
+
+    /// The least of `per_child` and the time left; `None` once the deadline has passed.
+    pub(crate) fn child_timeout(&self, per_child: Duration) -> Option<Duration> {
+        let left = self.until.checked_duration_since(Instant::now())?;
+        if left.is_zero() {
+            return None;
+        }
+        Some(per_child.min(left))
+    }
+}
+
+fn unavailable(message: impl Into<String>) -> IntegrateError {
+    integration_error("git_unavailable", message.into())
+}
+
+/// Whether `key` is one a call may not set: a pin or `core.sshCommand`. Section and variable compare without case,
+/// the subsection exactly, as git does.
+fn is_pinned_key(key: &str) -> bool {
+    fn same(a: &str, b: &str) -> bool {
+        let split = |k: &str| -> (String, Option<String>, String) {
+            let first = k.find('.');
+            let last = k.rfind('.');
+            match (first, last) {
+                (Some(f), Some(l)) if f != l => (
+                    k[..f].to_ascii_lowercase(),
+                    Some(k[f + 1..l].to_string()),
+                    k[l + 1..].to_ascii_lowercase(),
+                ),
+                (Some(f), _) => (
+                    k[..f].to_ascii_lowercase(),
+                    None,
+                    k[f + 1..].to_ascii_lowercase(),
+                ),
+                _ => (k.to_ascii_lowercase(), None, String::new()),
+            }
+        };
+        split(a) == split(b)
+    }
+    ROOT_CONFIG_OVERRIDES
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(std::iter::once("core.sshCommand"))
+        .any(|pinned| same(pinned, key))
+}
+
+fn refused_option(arg: &str) -> bool {
+    if REFUSED_SHORT_PREFIXES
+        .iter()
+        .any(|short| arg.starts_with(short) && !arg.starts_with("--"))
+    {
+        return true;
+    }
+    // Git takes any unambiguous abbreviation of a long option, so a name that is a prefix of a refused one is refused.
+    let name = arg.split('=').next().unwrap_or(arg);
+    REFUSED_OPTIONS.iter().any(|option| {
+        arg == *option
+            || (option.starts_with("--")
+                && name.len() > 2
+                && name.starts_with("--")
+                && option.starts_with(name))
+    })
+}
+
+/// A git boolean that is true: `true`, `yes`, `on` or a non-zero integer, without case.
+fn git_true(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    matches!(value.as_str(), "true" | "yes" | "on")
+        || value.parse::<i64>().is_ok_and(|number| number != 0)
+}
+
+fn bad_text(text: &str) -> bool {
+    text.contains('\0') || text.contains('\n')
+}
+
+/// The first x.y[.z] after "git version ": (major, minor).
+fn parse_git_version(text: &str) -> Option<(u32, u32)> {
+    let rest = text.trim_start().strip_prefix("git version ")?;
+    let token: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let mut parts = token.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
+/// Reads one pipe on a thread, keeping at most `keep` bytes; with `overflow_on_excess` a byte past `keep` stops the
+/// read and raises the flag, else the rest is read and dropped.
+struct Capture {
+    buffer: Arc<Mutex<Vec<u8>>>,
+    overflow: Arc<AtomicBool>,
+    handle: std::thread::JoinHandle<()>,
+}
+
+fn capture<R: Read + Send + 'static>(
+    mut pipe: R,
+    keep: usize,
+    overflow_on_excess: bool,
+) -> Capture {
+    let buffer = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let overflow = Arc::new(AtomicBool::new(false));
+    let handle = {
+        let buffer = buffer.clone();
+        let overflow = overflow.clone();
+        std::thread::spawn(move || {
+            let mut chunk = [0u8; 16384];
+            loop {
+                match pipe.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let mut held = buffer.lock().expect("the buffer lock");
+                        let room = keep - held.len();
+                        held.extend_from_slice(&chunk[..n.min(room)]);
+                        if n > room && overflow_on_excess {
+                            overflow.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    };
+    Capture {
+        buffer,
+        overflow,
+        handle,
+    }
+}
+
+/// What the runner decided before the leader's own status was looked at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Decided {
+    Timeout,
+    TooLarge,
+}
+
+/// The negated process id that `kill` takes for the group led by `pid`; `None` when it does not fit.
+fn group_target(pid: u32) -> Option<i32> {
+    i32::try_from(pid)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .map(|pid| -pid)
+}
+
+/// The result of a call from the leader's status: a decided timeout or cap wins whatever the status says; a leader
+/// killed by a signal is `killed`; stdout short of end of file is `output_incomplete`; else the exit code.
+fn final_code(
+    decided: Option<Decided>,
+    status: std::process::ExitStatus,
+    stdout_eof: bool,
+) -> Result<i32, &'static str> {
+    match decided {
+        Some(Decided::Timeout) => return Err("timeout"),
+        Some(Decided::TooLarge) => return Err("output_too_large"),
+        None => {}
+    }
+    let Some(code) = status.code() else {
+        return Err("killed");
+    };
+    if !stdout_eof {
+        return Err("output_incomplete");
+    }
+    Ok(code)
+}
+
+impl Capture {
+    /// Waits up to `detach` for the reader to end, then takes what it has and whether it ended; a reader still blocked
+    /// is left behind.
+    fn settle(&self, detach: Duration) -> (Vec<u8>, bool) {
+        let until = Instant::now() + detach;
+        while !self.handle.is_finished() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let finished = self.handle.is_finished();
+        let held = std::mem::take(&mut *self.buffer.lock().expect("the buffer lock"));
+        (held, finished)
+    }
+}
+
+impl GitRepo {
+    fn detach(&self) -> Duration {
+        self.seams.reader_detach.unwrap_or(DEFAULT_READER_DETACH)
+    }
+
+    /// The environment of the user that a call with `user_config` forwards, limited to `FORWARDED_USER_ENV`.
+    fn user_env(&self) -> Vec<(String, String)> {
+        let source: Vec<(String, String)> = match &self.seams.forward_env {
+            Some(list) => list.clone(),
+            None => std::env::vars().collect(),
+        };
+        source
+            .into_iter()
+            .filter(|(name, _)| FORWARDED_USER_ENV.contains(&name.as_str()))
+            .collect()
+    }
+
+    fn fixed_env(&self) -> Vec<(String, String)> {
+        let path = self
+            .seams
+            .child_path
+            .clone()
+            .or_else(|| std::env::var("PATH").ok())
+            .unwrap_or_else(|| "/usr/bin:/bin".into());
+        vec![
+            ("PATH".into(), path),
+            ("LC_ALL".into(), "C".into()),
+            ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+            ("GCM_INTERACTIVE".into(), "never".into()),
+            ("GIT_EDITOR".into(), "true".into()),
+            ("GIT_PAGER".into(), "cat".into()),
+            ("PAGER".into(), "cat".into()),
+        ]
+    }
+
+    /// The absolute path of git: the `git_program` seam, else `git` found on the child PATH. Resolved once.
+    fn git_program(&self) -> IntegrateResult<PathBuf> {
+        if let Some(path) = self.git_path.get() {
+            return Ok(path.clone());
+        }
+        let found = match &self.seams.git_program {
+            Some(program) => program.clone(),
+            None => {
+                let path = self
+                    .seams
+                    .child_path
+                    .clone()
+                    .or_else(|| std::env::var("PATH").ok())
+                    .unwrap_or_else(|| "/usr/bin:/bin".into());
+                std::env::split_paths(&path)
+                    .map(|dir| dir.join("git"))
+                    .find(|candidate| candidate.is_file())
+                    .ok_or_else(|| unavailable("git was not found on PATH"))?
+            }
+        };
+        if !found.is_file() {
+            return Err(unavailable(format!(
+                "git could not be run ({} was not found)",
+                found.display()
+            )));
+        }
+        let absolute = std::path::absolute(&found)
+            .map_err(|error| unavailable(format!("git could not be run ({error})")))?;
+        Ok(self.git_path.get_or_init(|| absolute).clone())
+    }
+
+    /// The only place that spawns a child for `run_root`, the version probe and the ssh probes. The child starts in a
+    /// new session and is its own process group; the group is killed on every exit path and the leader is always
+    /// reaped before this returns.
+    fn spawn_capped(
+        &self,
+        program: &Path,
+        program_args: &[OsString],
+        env: &[(String, String)],
+        timeout: Duration,
+        stdout_cap: usize,
+    ) -> IntegrateResult<RootOutput> {
+        let mut command = Command::new(program);
+        command
+            .args(program_args)
+            .env_clear()
+            .envs(env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // SAFETY: the closure runs between fork and exec and calls only setsid, which is async-signal-safe.
+        unsafe {
+            command.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        // A just-written executable can still be open for writing in another thread's forked child (ETXTBSY).
+        let mut attempt = 1;
+        let mut child = loop {
+            match command.spawn() {
+                Ok(child) => break child,
+                Err(error) if attempt < 5 && error.raw_os_error() == Some(libc::ETXTBSY) => {
+                    attempt += 1;
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(error) => {
+                    return Err(unavailable(format!("git could not be run ({error})")));
+                }
+            }
+        };
+        let pid = child.id();
+        let out = capture(
+            child.stdout.take().expect("stdout is piped"),
+            stdout_cap,
+            true,
+        );
+        let err = capture(
+            child.stderr.take().expect("stderr is piped"),
+            ROOT_STDERR_CAP,
+            false,
+        );
+        let detach = self.detach();
+        let Some(target) = group_target(pid) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            out.settle(detach);
+            err.settle(detach);
+            return Err(unavailable(
+                "git could not be run (its process id is out of range)",
+            ));
+        };
+        let started = Instant::now();
+        let mut decided: Option<Decided> = None;
+        let mut failure: Option<IntegrateError> = None;
+        #[cfg_attr(target_os = "linux", allow(unused_mut))]
+        let mut reaped: Option<std::process::ExitStatus> = None;
+        loop {
+            if out.overflow.load(Ordering::SeqCst) {
+                decided = Some(Decided::TooLarge);
+                break;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                // SAFETY: an all-zero siginfo_t is a valid value, and waitid only writes to it.
+                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                // SAFETY: `info` is a live siginfo_t; WNOWAIT leaves the leader unreaped, so its pgid stays ours.
+                let rc = unsafe {
+                    libc::waitid(
+                        libc::P_PID,
+                        pid as libc::id_t,
+                        &mut info,
+                        libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                    )
+                };
+                if rc == 0 {
+                    // SAFETY: si_pid is read after a successful waitid.
+                    if unsafe { info.si_pid() } != 0 {
+                        break;
+                    }
+                } else {
+                    let error = std::io::Error::last_os_error();
+                    if error.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    failure = Some(unavailable(format!("git could not be run ({error})")));
+                    break;
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    reaped = Some(status);
+                    break;
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    failure = Some(unavailable(format!("git could not be run ({error})")));
+                    break;
+                }
+            }
+            if started.elapsed() >= timeout {
+                decided = Some(Decided::Timeout);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // The group dies on every path; ESRCH (nothing left) and EPERM are ignored.
+        // SAFETY: kill takes no pointers; `target` is the negated pid of the child we started.
+        unsafe {
+            libc::kill(target, libc::SIGKILL);
+        }
+        let status = match reaped {
+            Some(status) => Ok(status),
+            None => child.wait(),
+        };
+        let (stdout, stdout_eof) = out.settle(detach);
+        let flooded = out.overflow.load(Ordering::SeqCst);
+        let (stderr, _) = err.settle(detach);
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let status =
+            status.map_err(|error| unavailable(format!("git could not be run ({error})")))?;
+        if decided.is_none() && flooded {
+            decided = Some(Decided::TooLarge);
+        }
+        match final_code(decided, status, stdout_eof && !flooded) {
+            Ok(code) => Ok(RootOutput {
+                code,
+                stdout,
+                stderr,
+            }),
+            Err("timeout") => Err(integration_error("timeout", "git timed out".into())),
+            Err("output_too_large") => Err(integration_error(
+                "output_too_large",
+                "git printed too much".into(),
+            )),
+            Err("killed") => Err(integration_error("killed", "git was killed".into())),
+            Err(code) => Err(integration_error(
+                code,
+                "git did not finish its output".into(),
+            )),
+        }
+    }
+
+    /// The git version, probed once per repository and its clones; at least `MIN_GIT`, else `git_unavailable`.
+    fn check_version(&self, program: &Path, deadline: &Deadline) -> IntegrateResult<()> {
+        if self.seams.force_old_git {
+            return Err(unavailable("git is older than 2.39"));
+        }
+        if self.seams.skip_version_probe {
+            return Ok(());
+        }
+        if self.version.get().is_some() {
+            return Ok(());
+        }
+        let per_child = self.seams.probe_timeout.unwrap_or(GIT_TIMEOUT);
+        let timeout = deadline
+            .child_timeout(per_child)
+            .ok_or_else(|| integration_error("timeout", "git timed out".into()))?;
+        let output = self.spawn_capped(
+            program,
+            &[OsString::from("--version")],
+            &self.fixed_env(),
+            timeout,
+            PROBE_STDOUT_CAP,
+        )?;
+        let version = Some(output.code)
+            .filter(|code| *code == 0)
+            .and_then(|_| parse_git_version(&utf8(&output.stdout)))
+            .ok_or_else(|| unavailable("the version of git could not be read"))?;
+        if version < MIN_GIT {
+            return Err(unavailable(format!(
+                "git {}.{} is older than {}.{}",
+                version.0, version.1, MIN_GIT.0, MIN_GIT.1
+            )));
+        }
+        let _ = self.version.set(version);
+        Ok(())
+    }
+
+    /// Refuses a call that must not reach git.
+    fn check_call(call: &RootCall) -> IntegrateResult<()> {
+        let Some(subcommand) = call.args.first() else {
+            return Err(unavailable("a git call needs a subcommand"));
+        };
+        if call.args.iter().any(|arg| bad_text(arg)) {
+            return Err(unavailable("a git argument holds a NUL or a newline"));
+        }
+        if let Some(arg) = call.args.iter().find(|arg| refused_option(arg)) {
+            return Err(unavailable(format!("the git option {arg} is not allowed")));
+        }
+        for (key, value) in &call.config_env {
+            if bad_text(key) || bad_text(value) {
+                return Err(unavailable("a git setting holds a NUL or a newline"));
+            }
+            if is_pinned_key(key) {
+                return Err(unavailable(format!("the git setting {key} is pinned")));
+            }
+        }
+        let networked = matches!(subcommand.as_str(), "push" | "ls-remote");
+        if call.network != networked {
+            return Err(unavailable(format!(
+                "git {subcommand} does not match network={}",
+                call.network
+            )));
+        }
+        if call.network && !call.user_config {
+            return Err(unavailable("a network call needs the user's git config"));
+        }
+        Ok(())
+    }
+
+    /// Runs git in the project root with the pins of `ROOT_CONFIG_OVERRIDES` and the environment of `call`.
+    /// `extra_env` is not applied.
+    pub(crate) fn run_root(&self, call: &RootCall) -> IntegrateResult<RootOutput> {
+        Self::check_call(call)?;
+        let deadline = Deadline::new(call.timeout);
+        let program = self.git_program()?;
+        self.check_version(&program, &deadline)?;
+
+        let mut env = self.fixed_env();
+        if call.user_config {
+            env.extend(self.user_env());
+        } else {
+            env.push(("GIT_CONFIG_NOSYSTEM".into(), "1".into()));
+            env.push(("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()));
+        }
+        if !call.config_env.is_empty() {
+            env.push(("GIT_CONFIG_COUNT".into(), call.config_env.len().to_string()));
+            for (index, (key, value)) in call.config_env.iter().enumerate() {
+                env.push((format!("GIT_CONFIG_KEY_{index}"), key.clone()));
+                env.push((format!("GIT_CONFIG_VALUE_{index}"), value.clone()));
+            }
+        }
+        let mut args = self.root_base_args();
+        if call.network && !self.seams.skip_ssh_probe {
+            let ssh_command = self.ssh_command(&program, &env, &deadline)?;
+            args.push("-c".into());
+            args.push(format!("core.sshCommand={ssh_command}").into());
+        }
+        args.extend(call.args.iter().map(OsString::from));
+        let timeout = deadline
+            .child_timeout(call.timeout)
+            .ok_or_else(|| integration_error("timeout", "git timed out".into()))?;
+        self.spawn_capped(&program, &args, &env, timeout, ROOT_STDOUT_CAP)
+    }
+
+    /// The arguments every `run_root` child starts with: the repository and the pins.
+    fn root_base_args(&self) -> Vec<OsString> {
+        let mut args: Vec<OsString> = vec![
+            "--no-replace-objects".into(),
+            "-C".into(),
+            self.root.clone().into(),
+        ];
+        for (key, value) in ROOT_CONFIG_OVERRIDES {
+            let value = if self.seams.allow_http && *key == "protocol.http.allow" {
+                "always"
+            } else {
+                value
+            };
+            args.push("-c".into());
+            args.push(format!("{key}={value}").into());
+        }
+        args
+    }
+
+    /// The `core.sshCommand` a network call runs with: the user's global value, else the system one, else
+    /// `ssh -o BatchMode=yes`. Read on every call, so a change in the user's config is seen at once.
+    fn ssh_command(
+        &self,
+        program: &Path,
+        env: &[(String, String)],
+        deadline: &Deadline,
+    ) -> IntegrateResult<String> {
+        let nosystem = env
+            .iter()
+            .find(|(name, _)| name == "GIT_CONFIG_NOSYSTEM")
+            .is_some_and(|(_, value)| git_true(value));
+        let scopes: &[&str] = if nosystem {
+            &["--global"]
+        } else {
+            &["--global", "--system"]
+        };
+        for scope in scopes {
+            if let Some(value) = self.read_ssh_command(program, env, deadline, scope)? {
+                return Ok(value);
+            }
+        }
+        Ok("ssh -o BatchMode=yes".into())
+    }
+
+    fn read_ssh_command(
+        &self,
+        program: &Path,
+        env: &[(String, String)],
+        deadline: &Deadline,
+        scope: &str,
+    ) -> IntegrateResult<Option<String>> {
+        let per_child = self.seams.probe_timeout.unwrap_or(GIT_TIMEOUT);
+        let timeout = deadline
+            .child_timeout(per_child)
+            .filter(|timeout| !timeout.is_zero())
+            .ok_or_else(|| integration_error("timeout", "git timed out".into()))?;
+        let mut args = self.root_base_args();
+        for word in [
+            "config",
+            "-z",
+            "--includes",
+            scope,
+            "--get",
+            "core.sshCommand",
+        ] {
+            args.push(word.into());
+        }
+        let output = self.spawn_capped(program, &args, env, timeout, PROBE_STDOUT_CAP)?;
+        match output.code {
+            1 => Ok(None),
+            0 => {
+                let mut bytes = output.stdout;
+                if bytes.last() == Some(&0) {
+                    bytes.pop();
+                }
+                let value = String::from_utf8(bytes)
+                    .map_err(|_| unavailable("core.sshCommand is not valid text"))?;
+                if bad_text(&value) {
+                    return Err(unavailable("core.sshCommand holds a NUL or a newline"));
+                }
+                Ok(Some(value))
+            }
+            code => Err(unavailable(format!(
+                "core.sshCommand could not be read (git exited {code})"
+            ))),
+        }
+    }
+
+    /// `run_root` for tests.
+    #[doc(hidden)]
+    pub fn root_git(&self, call: &RootCall) -> IntegrateResult<RootOutput> {
+        self.run_root(call)
     }
 }
 
@@ -695,7 +1428,19 @@ impl GitRepo {
         Self {
             root: root.into(),
             extra_env: Vec::new(),
+            seams: GitSeams::default(),
+            git_path: Arc::new(OnceLock::new()),
+            version: Arc::new(OnceLock::new()),
         }
+    }
+
+    /// Sets the test seams; the path of git is resolved again under them.
+    #[doc(hidden)]
+    pub fn with_seams(mut self, seams: GitSeams) -> Self {
+        self.seams = seams;
+        self.git_path = Arc::new(OnceLock::new());
+        self.version = Arc::new(OnceLock::new());
+        self
     }
 
     pub fn with_env(mut self, extra_env: Vec<(String, String)>) -> Self {
@@ -1988,4 +2733,89 @@ pub fn recover_integrations(deps: &IntegrationDeps, scope: Scope) -> IntegrateRe
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod root_runner_tests {
+    use super::*;
+
+    #[test]
+    fn child_timeout_is_the_least_of_the_limit_and_the_time_left() {
+        let deadline = Deadline::new(Duration::from_secs(60));
+        let short = deadline
+            .child_timeout(Duration::from_secs(2))
+            .expect("time left");
+        assert_eq!(short, Duration::from_secs(2));
+        let long = deadline
+            .child_timeout(Duration::from_secs(600))
+            .expect("time left");
+        assert!(long <= Duration::from_secs(60) && long > Duration::from_secs(50));
+        let passed = Deadline::new(Duration::ZERO);
+        assert!(passed.child_timeout(Duration::from_secs(1)).is_none());
+    }
+
+    fn exited(code: i32) -> std::process::ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(code << 8)
+    }
+
+    fn signalled(signal: i32) -> std::process::ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(signal)
+    }
+
+    #[test]
+    fn a_decided_timeout_wins_whatever_the_leader_reports() {
+        for status in [exited(0), exited(3), signalled(9)] {
+            assert_eq!(
+                final_code(Some(Decided::Timeout), status, true),
+                Err("timeout")
+            );
+            assert_eq!(
+                final_code(Some(Decided::Timeout), status, false),
+                Err("timeout")
+            );
+        }
+    }
+
+    #[test]
+    fn a_decided_cap_wins_whatever_the_leader_reports() {
+        for status in [exited(0), exited(3), signalled(9)] {
+            assert_eq!(
+                final_code(Some(Decided::TooLarge), status, true),
+                Err("output_too_large")
+            );
+        }
+    }
+
+    #[test]
+    fn an_undecided_call_follows_the_leader() {
+        assert_eq!(final_code(None, signalled(9), true), Err("killed"));
+        assert_eq!(final_code(None, signalled(9), false), Err("killed"));
+        assert_eq!(final_code(None, exited(0), true), Ok(0));
+        assert_eq!(final_code(None, exited(3), true), Ok(3));
+        assert_eq!(final_code(None, exited(0), false), Err("output_incomplete"));
+        assert_eq!(final_code(None, exited(3), false), Err("output_incomplete"));
+    }
+
+    #[test]
+    fn the_group_target_is_the_negated_pid_or_none() {
+        assert_eq!(group_target(1234), Some(-1234));
+        assert_eq!(group_target(u32::MAX), None);
+        assert_eq!(group_target(i32::MAX as u32 + 1), None);
+        assert_eq!(group_target(0), None);
+    }
+
+    #[test]
+    fn the_version_is_the_first_x_y_after_git_version() {
+        assert_eq!(
+            parse_git_version("git version 2.39.5 (Apple Git-154)\n"),
+            Some((2, 39))
+        );
+        assert_eq!(
+            parse_git_version("git version 2.43.0.windows.1"),
+            Some((2, 43))
+        );
+        assert_eq!(parse_git_version("something else"), None);
+    }
 }
