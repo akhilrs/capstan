@@ -162,6 +162,10 @@ public actor HostSession {
     }
 
     /// Ends a child once: the stop, refresh and watchdog paths and the read loop's own cleanup may all reach for it.
+    /// The connection ids whose child was ended, for tests: it never holds an id older than the current connection.
+    var terminatedConnectionIds: Set<Int> { terminatedConnections }
+    var currentConnectionId: Int { connectionId }
+
     private func terminate(_ process: any RunningProcess, connection id: Int) {
         guard terminatedConnections.insert(id).inserted else { return }
         process.terminate()
@@ -224,6 +228,8 @@ public actor HostSession {
             previousProcess = nil
             guard gen == generation else { return .superseded }
         }
+        // Only the current connection can still be terminated again; older ids need no record.
+        terminatedConnections = terminatedConnections.filter { $0 >= id }
         if !quiet {
             liveSince = nil
             lastLivePublish = nil
@@ -309,6 +315,9 @@ public actor HostSession {
             terminate(process, connection: id)
             return .restartNow
         }
+        // Every other way out (error, decision, watchdog, exit) is a real reconnect: it must show itself, so a quiet
+        // refresh restart that was asked for meanwhile does not hide it.
+        refreshRestartPending = false
         if decision != nil || watchdogFired { terminate(process, connection: id) }
         if !batch.isEmpty {
             await consumer.apply(host: config.id, lines: batch)

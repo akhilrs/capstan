@@ -449,6 +449,40 @@ final class HostSessionTests: XCTestCase {
         }
     }
 
+    func testAFailureAfterARefreshRestartShowsConnectingAgain() async throws {
+        runner.enqueue(FakeScript(chunks: [Wire.hello]))
+        runner.enqueue(FakeScript(chunks: [Wire.hello], exit: 255))
+        let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))
+        await startAndWait(session)
+        await waitForState("live") { if case .live = $0 { return true } else { return false } }
+        await session.refresh(projectIds: ["p1"])
+        await settle()
+        clock.advance(by: 1)
+        await eventually("restart") { self.runner.startCount == 2 }
+        // The second child fails: the host must show the reconnect, and the next connect must show connecting.
+        await waitForState("attempt 1") { self.isReconnecting($0, attempt: 1) }
+        let before = await consumer.states.count
+        clock.advance(by: 1)
+        await eventually("third start") { self.runner.startCount == 3 }
+        let states = await consumer.states
+        XCTAssertTrue(states.dropFirst(before).contains { if case .connecting = $0 { return true } else { return false } })
+    }
+
+    func testTerminatedConnectionsNeverKeepOldIds() async throws {
+        for _ in 0..<5 { runner.enqueue(FakeScript(chunks: [Wire.hello], exit: 255)) }
+        let session = makeSession()
+        await startAndWait(session)
+        for n in 1...4 {
+            await waitForState("attempt \(n)") { self.isReconnecting($0, attempt: n) }
+            clock.advance(by: Double(1 << (n - 1)))
+            await eventually("start \(n + 1)") { self.runner.startCount == n + 1 }
+        }
+        await settle()
+        let current = await session.currentConnectionId
+        let ids = await session.terminatedConnectionIds
+        XCTAssertTrue(ids.allSatisfy { $0 >= current }, "ids: \(ids), current: \(current)")
+    }
+
     func testInvalidateEveryTwoSecondsForThreeMinutesRestartsAtMostThreeTimesAndStaysLive() async throws {
         runner.enqueue(FakeScript(chunks: [Wire.hello]))
         let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))

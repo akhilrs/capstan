@@ -23,6 +23,16 @@ final class LiveProcessRunnerTests: XCTestCase {
         XCTAssertEqual(process.stderrTail(), "problem\n")
     }
 
+    func testAFastChildsStderrIsWholeRightAfterItsExit() async throws {
+        for _ in 0..<20 {
+            let process = try LiveProcessRunner().start(
+                sh, ["-c", "echo 'cstan: unknown command: events' >&2; exit 2"])
+            let code = await process.exitCode()
+            XCTAssertEqual(code, 2)
+            XCTAssertEqual(process.stderrTail(), "cstan: unknown command: events\n")
+        }
+    }
+
     func testStderrTailKeepsTheLast4096Bytes() async throws {
         let process = try LiveProcessRunner().start(
             sh, ["-c", "i=0; while [ $i -lt 600 ]; do echo 0123456789; i=$((i+1)); done >&2; echo last >&2"])
