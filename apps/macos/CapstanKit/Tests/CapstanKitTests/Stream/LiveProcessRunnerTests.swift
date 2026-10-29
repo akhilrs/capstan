@@ -8,24 +8,62 @@ final class LiveProcessRunnerTests: XCTestCase {
     private let sh = URL(fileURLWithPath: "/bin/sh")
     private let tracker = Tracker()
 
-    /// Remembers every child so a test that fails or times out does not leave one running.
+    /// Remembers every child so a test that fails, times out or throws does not leave one running. Each child writes
+    /// its pid to a file of its own first; the file name is also in its command line, which lets the cleanup tell the
+    /// child from an unrelated process that reused the pid.
     private final class Tracker: @unchecked Sendable {
         private let lock = NSLock()
         private var children: [any RunningProcess] = []
+        private var pidFiles: [String] = []
 
-        func add(_ child: any RunningProcess) { lock.withLock { children.append(child) } }
-        func all() -> [any RunningProcess] { lock.withLock { children } }
+        func add(_ child: any RunningProcess, pidFile: String) {
+            lock.withLock {
+                children.append(child)
+                pidFiles.append(pidFile)
+            }
+        }
+
+        /// SIGKILL to every child that is still alive and to its direct children, then removes the pid files.
+        func killAll() {
+            let (running, files) = lock.withLock { (children, pidFiles) }
+            // terminate returns at once: the signals are sent from a dispatch queue.
+            for child in running { child.terminate(grace: 0) }
+            for file in files {
+                defer { try? FileManager.default.removeItem(atPath: file) }
+                guard let text = try? String(contentsOfFile: file, encoding: .utf8),
+                      let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 1,
+                      kill(pid, 0) == 0,
+                      Tracker.run("/bin/ps", ["-o", "command=", "-p", "\(pid)"]).contains(file)
+                else { continue }
+                // Grandchildren first, so they are not orphaned when their parent goes.
+                _ = Tracker.run("/usr/bin/pkill", ["-KILL", "-P", "\(pid)"])
+                kill(pid, SIGKILL)
+            }
+        }
+
+        private static func run(_ path: String, _ arguments: [String]) -> String {
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: path)
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return "" }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
+        }
     }
 
     override func tearDown() {
-        // terminate returns at once: the signals are sent from a dispatch queue.
-        for child in tracker.all() { child.terminate(grace: 0) }
+        tracker.killAll()
         super.tearDown()
     }
 
     private func launch(_ script: String) throws -> any RunningProcess {
-        let child = try LiveProcessRunner().start(sh, ["-c", script])
-        tracker.add(child)
+        let pidFile = NSTemporaryDirectory() + "capstan-live-runner-\(UUID().uuidString).pid"
+        let child = try LiveProcessRunner().start(sh, ["-c", "echo $$ > '\(pidFile)'; \(script)"])
+        tracker.add(child, pidFile: pidFile)
         return child
     }
 
@@ -144,7 +182,7 @@ final class LiveProcessRunnerTests: XCTestCase {
     }
 
     func testTerminateKillsAChildThatIgnoresTerm() async throws {
-        let process = try launch("trap '' TERM; echo ready; while :; do :; done")
+        let process = try launch("trap '' TERM; echo ready; while :; do sleep 1; done")
         await bounded("kill after grace") {
             var iterator = process.lines.makeAsyncIterator()
             let first = try await iterator.next()
@@ -157,7 +195,7 @@ final class LiveProcessRunnerTests: XCTestCase {
     }
 
     func testTerminateEndsAWellBehavedChild() async throws {
-        let process = try launch("echo ready; while :; do :; done")
+        let process = try launch("echo ready; while :; do sleep 1; done")
         await bounded("terminate") {
             var iterator = process.lines.makeAsyncIterator()
             _ = try await iterator.next()
