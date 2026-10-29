@@ -12,7 +12,7 @@ struct MainWindow: View {
 
     private static let foldWidth: CGFloat = 900
     /// The widths the toolbar needs beside the title: the whole filter, the search field and the gaps.
-    private static let filterWidth: CGFloat = 340
+    private static let filterWidth: CGFloat = 440
     private static let searchWidth: CGFloat = 220
     private static let sidebarWidth: CGFloat = 248
     private static let inspectorWidth: CGFloat = 360
@@ -76,12 +76,22 @@ struct MainWindow: View {
             }
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .primaryAction) {
-                if case .hosts = model.selection {
+                switch model.selection {
+                case .hosts:
                     Button {
                         if model.presented == nil { model.presented = .addHost(editing: nil) }
                     } label: {
                         Label { Text("Add host…") } icon: { Image(systemName: "square.and.pencil") }
                     }
+                case .plans:
+                    // A new plan starts as a message to the PM.
+                    Button {
+                        model.selection = .messages
+                    } label: {
+                        Label { Text("New plan") } icon: { Image(systemName: "square.and.pencil") }
+                    }
+                default:
+                    EmptyView()
                 }
             }
         }
@@ -201,7 +211,7 @@ struct MainWindow: View {
     }
 }
 
-/// The one filter of the inbox: All N, Proposals, Prompts, Designs, and Messages and Merges under More.
+/// The one filter of the inbox: All N, Proposals, Prompts, Designs, Messages and Merges.
 private struct KindFilter: View {
     @Bindable var model: AppModel
     /// A narrow window folds the whole filter into one menu so nothing is cut off.
@@ -231,16 +241,6 @@ private struct KindFilter: View {
             ForEach(KindTab.visible, id: \.self) { tab in
                 segment(tab, selected: current == tab)
             }
-            Menu {
-                ForEach(KindTab.more, id: \.self) { tab in
-                    Button { model.inboxKind = tab.kind } label: { Text(verbatim: tab.title) }
-                }
-            } label: {
-                chip(KindTab.more.contains(current) ? current.title : "More", selected: KindTab.more.contains(current))
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
     }
 
@@ -322,7 +322,6 @@ private struct PlanFilterBar: View {
         return SegmentBar(
             items: [
                 Segment(value: PlanFilter.active, title: "Active \(counts.active)"),
-                Segment(value: PlanFilter.drafts, title: "Drafts \(counts.drafts)"),
                 Segment(value: PlanFilter.done, title: "Done"),
             ],
             selected: model.planFilter, onSelect: { model.planFilter = $0 })

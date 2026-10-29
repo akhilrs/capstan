@@ -2,10 +2,10 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// The plans of every project with a progress bar and the counts in words, grouped by project.
+/// The plans of every project as cards: title, one meta line and the progress bar, grouped by project. A plan's
+/// packages are in the inspector, not here.
 struct PlansScreen: View {
     let model: AppModel
-    @State private var expanded: Set<PlanRef> = []
 
     var body: some View {
         let groups = projectGroups()
@@ -22,7 +22,7 @@ struct PlansScreen: View {
                             .foregroundStyle(Tokens.color(.label2))
                         LazyVStack(alignment: .leading, spacing: Tokens.space[1]) {
                             ForEach(group.rows, id: \.planId) { row in
-                                planBlock(row, key: group.key)
+                                planRow(row, key: group.key)
                             }
                         }
                     }
@@ -31,6 +31,8 @@ struct PlansScreen: View {
             .padding(Tokens.space[3])
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // The status capsule floats over the foot of the column; the last card scrolls clear of it.
+        .contentMargins(.bottom, StatusCapsule.reservedHeight, for: .scrollContent)
     }
 
     private struct ProjectPlans {
@@ -69,38 +71,13 @@ struct PlansScreen: View {
         }
     }
 
-    /// A plan row with a disclosure for its packages; a plan without details has nothing to expand.
-    private func planBlock(_ row: PlanRow, key: ProjectKey) -> some View {
-        let plan = model.project(key.hostId, key.projectId).flatMap { PlanRow.plan(for: row, in: $0) }
-        let packages = plan.map(PackageRow.rows) ?? []
-        let ref = PlanRef(hostId: key.hostId, projectId: key.projectId, planId: row.planId)
-        return VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            HStack(alignment: .top, spacing: Tokens.space[0]) {
-                if packages.isEmpty {
-                    Color.clear.frame(width: 20, height: 1)
-                } else {
-                    Button {
-                        if expanded.contains(ref) { expanded.remove(ref) } else { expanded.insert(ref) }
-                    } label: {
-                        Image(systemName: expanded.contains(ref) ? "chevron.down" : "chevron.right")
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Packages")
-                    .accessibilityValue(Text(verbatim: expanded.contains(ref) ? "shown" : "hidden"))
-                }
-                planRow(row, key: key)
-            }
-            if !packages.isEmpty, expanded.contains(ref) {
-                PackageRowsView(plan: row, packages: packages)
-            }
-        }
-    }
-
     private func planRow(_ row: PlanRow, key: ProjectKey) -> some View {
         let ref = PlanRef(hostId: key.hostId, projectId: key.projectId, planId: row.planId)
         let selected = model.selectedPlan == ref
-        let waiting = model.project(key.hostId, key.projectId).map(IntegrationLink.waitingCount) ?? 0
+        // Only a waiting item that a package of this plan names counts for it; none is claimed otherwise.
+        let waiting = model.project(key.hostId, key.projectId).map {
+            IntegrationLink.waiting(for: PlanRow.plan(for: row, in: $0), in: $0).count
+        } ?? 0
         return Button {
             model.selectedPlan = ref
         } label: {
@@ -109,13 +86,11 @@ struct PlansScreen: View {
                     Text(verbatim: "plan-\(row.sequence) · " + row.title)
                         .font(.system(size: 13, weight: .semibold)).lineLimit(1)
                     Spacer()
-                    if row.hasUnintegratedWork, waiting > 0 {
-                        StatePill(word: "\(waiting) waits for you", symbol: "hand.raised", tone: .yellow)
-                    } else {
-                        StatePill(word: row.state.replacingOccurrences(of: "_", with: " ").capitalized, symbol: "circle", tone: .grey)
+                    if let pill = row.pill(waiting: waiting) {
+                        StatePill(word: pill.word, symbol: nil, tone: pill.tone)
                     }
                 }
-                Text(verbatim: row.state + " · " + row.words).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                Text(verbatim: row.metaLine).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
                 PlanProgressBar(progress: row.progress)
             }
             .padding(Tokens.space[2])
@@ -155,7 +130,7 @@ struct PlanProgressBar: View {
     }
 }
 
-/// The plan the Plans screen selected: its stage, its counts, and the way to its agents and its waiting item.
+/// The plan the Plans screen selected: its header, its bar, its packages, and the way to its agents and its waiting item.
 struct PlanInspector: View {
     let model: AppModel
 
@@ -163,15 +138,20 @@ struct PlanInspector: View {
         if let ref = model.selectedPlan, let project = model.project(ref.hostId, ref.projectId),
             let row = PlanRow.rows(project).first(where: { $0.planId == ref.planId })
         {
-            let waiting = IntegrationLink.waitingCount(project)
+            let stored = PlanRow.plan(for: row, in: project)
+            let packages = stored.map { PackageRow.rows($0, in: project) } ?? []
+            let waiting = IntegrationLink.waiting(for: stored, in: project).first
             VStack(alignment: .leading, spacing: Tokens.space[2]) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Tokens.space[2]) {
-                        Text(verbatim: "Plan · " + HostLabel.projectName(project) + " · " + row.state)
+                        Text(verbatim: "Plan · " + HostLabel.projectName(project) + " · " + row.stateWord)
                             .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
                         Text(verbatim: "plan-\(row.sequence) · " + row.title).font(.system(size: 20, weight: .semibold))
                         PlanProgressBar(progress: row.progress)
-                        Text(verbatim: row.words).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                        Text(verbatim: row.summaryLine).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                        if !packages.isEmpty {
+                            PackageRowsView(plan: row, packages: packages).padding(.top, Tokens.space[1])
+                        }
                     }
                 }
                 HStack {
@@ -180,7 +160,13 @@ struct PlanInspector: View {
                         model.selection = .agents(hostId: ref.hostId, projectId: ref.projectId)
                     } label: { Text("Show agents") }
                     .buttonStyle(.capstanQuiet)
-                    if row.hasUnintegratedWork, waiting > 0 {
+                    if row.hasUnintegratedWork, let waiting {
+                        Button {
+                            model.showMain(row: InboxRowID(hostId: ref.hostId, projectId: ref.projectId, key: waiting.key))
+                        } label: { Text("Open the waiting item") }
+                        .buttonStyle(.capstanPrimary)
+                    } else if row.hasUnintegratedWork, IntegrationLink.waitingCount(project) > 0 {
+                        // The host did not say which item is this plan's: open the project's integration list.
                         Button {
                             model.showProject(hostId: ref.hostId, projectId: ref.projectId, kind: .integration)
                         } label: { Text("Open the waiting item") }

@@ -2,10 +2,13 @@ import CapstanAppCore
 import CapstanKit
 import SwiftUI
 
-/// The footer capsule at the bottom left of the content column: `build-host live · heartbeat 3 s ago`, or the worst
+/// The footer capsule at the bottom left of the content column: `build-host live · updated 3 s ago`, or the worst
 /// state of several hosts, or `N hosts live`. It floats on glass; the dot carries the tone and the words carry the state.
 struct StatusCapsule: View {
     let model: AppModel
+    /// The room the capsule takes at the foot of the content column: its height and the gap around it. Lists keep
+    /// this much empty below their last row, so the capsule never covers one.
+    static let reservedHeight: CGFloat = 28 + Tokens.space[2] * 2
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flash = false
 
