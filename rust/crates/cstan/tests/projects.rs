@@ -359,11 +359,21 @@ struct Counting {
 
 impl ProjectProbe for Counting {
     fn key(&self, root: &Path) -> Option<Credential> {
-        *self.keys.lock().unwrap().entry(root.to_path_buf()).or_default() += 1;
+        *self
+            .keys
+            .lock()
+            .unwrap()
+            .entry(root.to_path_buf())
+            .or_default() += 1;
         Some(Credential::new(KEY))
     }
     fn ask(&self, root: &Path, _: &Credential) -> EndpointState {
-        *self.asks.lock().unwrap().entry(root.to_path_buf()).or_default() += 1;
+        *self
+            .asks
+            .lock()
+            .unwrap()
+            .entry(root.to_path_buf())
+            .or_default() += 1;
         EndpointState::Ready
     }
 }
@@ -393,7 +403,11 @@ fn an_undiscoverable_root_is_dropped_before_key_or_ask() {
             proc(2, &daemon_marked),
             proc(3, &both_marked),
         ],
-        &[extra_open.clone(), extra_marked.clone(), both_marked.clone()],
+        &[
+            extra_open.clone(),
+            extra_marked.clone(),
+            both_marked.clone(),
+        ],
         &probe,
     );
     let mut roots: Vec<_> = found.iter().map(|e| e.root.clone()).collect();
