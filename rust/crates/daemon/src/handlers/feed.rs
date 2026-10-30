@@ -4,7 +4,8 @@
 //! makes one kernel call, so no write falls between its reads; the handler reads nothing else.
 //!
 //! Subcommands take their optional values as flags (arguments are non-empty strings): `feed page --after <seq>:<k> --limit
-//! <n> [--anchor <16 hex>]`, `feed waiting --limit <n> [--after <key>] [--kind <kind>]`, `feed agents|plans --limit <n>
+//! <n> [--anchor <16 hex>]`, `feed recent --epoch <16 hex> --head <n> [--limit <n>]` (the newest outcomes at or below a head, at
+//! most 30 reads a minute for the project), `feed waiting --limit <n> [--after <key>] [--kind <kind>]`, `feed agents|plans --limit <n>
 //! [--after <key>]`, `feed item <section> <key>` and `feed hash <requestId>`.
 
 use super::shared::{
@@ -24,7 +25,10 @@ pub fn register(map: &mut HandlerMap) {
     map.insert("feed", feed);
 }
 
-const USAGE: &str = "feed takes head, page --after <seq>:<k> --limit <n> [--anchor <hex16>], snapshot, waiting --limit <n> [--after <key>] [--kind <kind>], agents --limit <n> [--after <key>], plans --limit <n> [--after <key>], item <section> <key> or hash <requestId>";
+const USAGE: &str = "feed takes head, page --after <seq>:<k> --limit <n> [--anchor <hex16>], snapshot, recent --epoch <hex16> --head <n> [--limit <n>], waiting --limit <n> [--after <key>] [--kind <kind>], agents --limit <n> [--after <key>], plans --limit <n> [--after <key>], item <section> <key> or hash <requestId>";
+
+/// The `--limit` of `feed recent` when none is given.
+pub const RECENT_DEFAULT_LIMIT: u32 = 20;
 
 /// What a message may not hold: control, format and line and paragraph separator characters.
 static UNSAFE_CHARS: LazyLock<Regex> =
@@ -93,6 +97,22 @@ impl Flags {
     fn limit(&self) -> Result<u32, CommandResponse> {
         number(self.required("--limit")?, "--limit")
     }
+
+    /// `--limit` of `recent`: 1 to 20, 20 when absent.
+    fn recent_limit(&self) -> Result<u32, CommandResponse> {
+        let limit = match self.get("--limit") {
+            Some(text) => number(text, "--limit")?,
+            None => RECENT_DEFAULT_LIMIT,
+        };
+        if (1..=event_feed::RECENT_MAX_LIMIT).contains(&limit) {
+            Ok(limit)
+        } else {
+            Err(invalid(&format!(
+                "--limit must be between 1 and {}",
+                event_feed::RECENT_MAX_LIMIT
+            )))
+        }
+    }
 }
 
 fn digits(text: &str) -> bool {
@@ -140,7 +160,8 @@ fn run(
     sub: &str,
     rest: &[String],
 ) -> Result<CommandResponse, CommandResponse> {
-    let kernel = &env.deps.kernel;
+    let deps = env.deps;
+    let kernel = &deps.kernel;
     Ok(match sub {
         "head" if rest.is_empty() => answer(kernel.run(event_feed::feed_head)),
         "snapshot" if rest.is_empty() => answer(kernel.run(snapshot_feed::snapshot_head)),
@@ -157,6 +178,29 @@ fn run(
                 kernel
                     .run(move |core| event_feed::feed_page(core, after, limit, anchor.as_deref())),
             )
+        }
+        "recent" => {
+            let flags = Flags::parse(rest, &["--epoch", "--head", "--limit"])?;
+            let epoch = anchor(flags.required("--epoch")?)
+                .map_err(|_| invalid("--epoch must be 16 lowercase hex characters"))?;
+            let head: u64 = number(flags.required("--head")?, "--head")?;
+            let limit = flags.recent_limit()?;
+            // Flags are checked first, so an invalid request does not use the quota.
+            let now = kernel.now_ms();
+            let allowed = env
+                .state
+                .recent_limiter
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .allow(&deps.options.project.project_id, now);
+            if !allowed {
+                return Err(fail(
+                    ErrorCode::Rejected,
+                    "rate_limited: at most 30 recent reads a minute for this project; wait and retry",
+                ));
+            }
+            let epoch = epoch.to_string();
+            answer(kernel.run(move |core| event_feed::recent_page(core, &epoch, head, limit)))
         }
         "waiting" => {
             let flags = Flags::parse(rest, &["--limit", "--after", "--kind"])?;

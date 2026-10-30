@@ -57,11 +57,14 @@ final class ReducerTests: XCTestCase {
 
     func testSnapshotLinesWithoutEndChangeNothingVisible() throws {
         var harness = try seeded()
-        let before = harness.host
+        // The first snapshot line starts the refresh; nothing else visible changes until the end mark.
+        var expected = harness.host
+        expected.projects["proj-a"]?.markFreshness { (marks: inout FreshnessMarks) -> Void in marks.refreshing = true }
         harness.apply(
             try StoreWire.snapshot("proj-a", "waiting", key: "op:7", item: StoreWire.waitingItem("op:7")),
             try StoreWire.snapshot("proj-a", "agents", key: "dev-2", item: StoreWire.agentItem("dev-2")))
-        XCTAssertEqual(harness.host, before)
+        XCTAssertEqual(harness.host, expected)
+        XCTAssertEqual(harness.host.projects["proj-a"]?.freshness?.refreshing, true)
         XCTAssertEqual(harness.staging.stagedProjectIds, ["proj-a"])
     }
 

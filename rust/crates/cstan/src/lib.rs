@@ -17,6 +17,7 @@ pub mod init;
 pub mod jsops;
 pub mod operator;
 pub mod projects;
+pub mod recent;
 pub mod render;
 pub mod routed;
 pub mod status;
@@ -378,6 +379,7 @@ impl Cli<'_> {
             "controllers" => return self.controllers(&rest),
             "events" => return events_plan(&rest).map(Flow::Events),
             "decide" => return self.decide(&rest),
+            "recent" => return self.recent(&rest),
             "start" => return self.start(&rest),
             "stop" => return self.stop(&rest),
             "restart" => return self.restart(&rest),
@@ -448,6 +450,16 @@ impl Cli<'_> {
             &controllers::processes(),
             decide::route_of(&plan.argv).1,
         );
+        self.io.out.extend_from_slice(reply.stdout.as_bytes());
+        self.io.err.extend_from_slice(reply.stderr.as_bytes());
+        Ok(Flow::Code(reply.exit))
+    }
+
+    /// `cstan recent`: the recent history of a local project, over its operator socket. Like `decide`, it never reads
+    /// the agent environment and never starts a daemon.
+    fn recent(&mut self, args: &[String]) -> Result<Flow, Fail> {
+        let plan = recent::plan(args).ok_or(Fail::Usage)?;
+        let reply = recent::run(&plan, &controllers::processes(), recent::TIMEOUT_MS);
         self.io.out.extend_from_slice(reply.stdout.as_bytes());
         self.io.err.extend_from_slice(reply.stderr.as_bytes());
         Ok(Flow::Code(reply.exit))

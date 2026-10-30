@@ -485,6 +485,7 @@ pub struct WaitEntry {
 pub struct CommandState {
     pub report_limiter: Mutex<ReportRateLimiter>,
     pub observe_limiter: Mutex<ReportRateLimiter>,
+    pub recent_limiter: Mutex<ReportRateLimiter>,
     pub finding_limiter: Mutex<ReportRateLimiter>,
     pub waits: Mutex<HashMap<String, WaitEntry>>,
     /// Held while this daemon merges into the remote branch; per daemon, never a static.
@@ -496,11 +497,15 @@ pub struct CommandState {
 /// `OBSERVE_RATE_LIMIT` of src/observe.ts.
 pub const OBSERVE_RATE_LIMIT: usize = 30;
 
+/// The most `feed recent` reads a minute for one project.
+pub const RECENT_RATE_LIMIT: usize = 30;
+
 impl Default for CommandState {
     fn default() -> Self {
         Self {
             report_limiter: Mutex::new(ReportRateLimiter::default()),
             observe_limiter: Mutex::new(ReportRateLimiter::new(OBSERVE_RATE_LIMIT)),
+            recent_limiter: Mutex::new(ReportRateLimiter::new(RECENT_RATE_LIMIT)),
             finding_limiter: Mutex::new(ReportRateLimiter::default()),
             waits: Mutex::new(HashMap::new()),
             remote_merge: Mutex::new(()),

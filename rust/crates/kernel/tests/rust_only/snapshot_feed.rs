@@ -2710,6 +2710,131 @@ fn each_integration_item_costs_one_row_and_two_reads_for_the_supersession_lookup
     assert_eq!(items.len(), 3);
 }
 
+// -------------------------------------------------------------------------------------------- signed-off plans
+
+fn sign_off(rig: &Rig, plan: &str, integration: &str) {
+    rig.review(integration, "pass", "fine");
+    rig.core
+        .record_signoff(
+            &rig.ctx("arch-1"),
+            &json!({"planId": plan, "integrationId": integration, "summary": "all merged"}),
+        )
+        .unwrap();
+}
+
+fn settle_outcome(rig: &Rig, integration: &str, outcome: &str) {
+    rig.core
+        .settle_integration(
+            &rig.ctx("owner"),
+            &json!({"integrationId": integration, "outcome": outcome}),
+        )
+        .unwrap();
+}
+
+fn plan_states(rig: &Rig) -> Vec<(String, String)> {
+    all_plans(&rig.core)
+        .into_iter()
+        .map(|item| (item.plan_id, item.state))
+        .collect()
+}
+
+/// A plan signed off on a merged integration of its report.
+fn signed_off_on_merged(rig: &Rig) -> String {
+    let plan = plan_of_a(rig, "dev-1");
+    let report = passed_report(rig, "dev-1", COMMIT);
+    merge(rig, "int-1", &[&report]);
+    sign_off(rig, &plan, "int-1");
+    plan
+}
+
+#[test]
+fn a_plan_signed_off_on_an_unconfirmed_integration_is_listed_until_it_is_confirmed() {
+    let rig = Rig::new();
+    let plan = signed_off_on_merged(&rig);
+    assert_eq!(plan_states(&rig), vec![(plan.clone(), "signed_off".into())]);
+    // The item lookup by key reads the same row.
+    let item = snapshot_item(&rig.core, "plans", "1").unwrap().unwrap();
+    assert_eq!(item["state"], "signed_off");
+    settle_outcome(&rig, "int-1", "confirmed");
+    assert_eq!(plan_states(&rig), Vec::new());
+    assert_eq!(snapshot_item(&rig.core, "plans", "1").unwrap(), None);
+}
+
+#[test]
+fn a_plan_signed_off_on_a_discarded_integration_is_not_listed() {
+    let rig = Rig::new();
+    signed_off_on_merged(&rig);
+    assert_eq!(plan_states(&rig).len(), 1);
+    settle_outcome(&rig, "int-1", "discarded");
+    assert_eq!(plan_states(&rig), Vec::new());
+    assert_eq!(snapshot_item(&rig.core, "plans", "1").unwrap(), None);
+}
+
+#[test]
+fn a_cancelled_signed_off_plan_is_not_listed() {
+    let rig = Rig::new();
+    let plan = signed_off_on_merged(&rig);
+    rig.core
+        .cancel_plan(&rig.ctx("owner"), &json!({"planId": plan}))
+        .unwrap();
+    assert_eq!(plan_states(&rig), Vec::new());
+    assert_eq!(snapshot_item(&rig.core, "plans", "1").unwrap(), None);
+}
+
+#[test]
+fn a_plan_with_a_confirmed_and_a_merged_integration_stays_listed_while_the_merged_one_waits() {
+    let rig = Rig::new();
+    let plan = signed_off_on_merged(&rig);
+    let again = passed_report(&rig, "dev-1", &"2".repeat(40));
+    merge(&rig, "int-2", &[&again]);
+    sign_off(&rig, &plan, "int-2");
+    settle_outcome(&rig, "int-1", "confirmed");
+    assert_eq!(plan_states(&rig), vec![(plan, "signed_off".into())]);
+    settle_outcome(&rig, "int-2", "confirmed");
+    assert_eq!(plan_states(&rig), Vec::new());
+}
+
+#[test]
+fn fifty_signed_off_plans_page_within_the_plans_budget() {
+    let rig = Rig::new();
+    let first = signed_off_on_merged(&rig);
+    let project = {
+        let db = rig.db();
+        db.query_row("SELECT project_id FROM plans LIMIT 1", [], |r| {
+            r.get::<_, String>(0)
+        })
+        .unwrap()
+    };
+    for n in 1..50 {
+        let plan = plan_of(&rig, &format!("Plan {n}"), &plain(1, "P"));
+        rig.db()
+            .execute(
+                "INSERT INTO plan_signoffs(project_id, plan_id, integration_id, architect_agent_id, summary, created_at)
+                 VALUES (?, ?, 'int-1', 'arch-1', 's', '2026-10-01T00:00:00.000Z')",
+                rusqlite::params![project, plan],
+            )
+            .unwrap();
+    }
+    let mut after: Option<String> = None;
+    let mut seen = Vec::new();
+    loop {
+        let (page, used) = plans_page_counted(&rig.core, after.as_deref(), 100, 2000).unwrap();
+        assert!(used <= 2000, "{used}");
+        seen.extend(
+            page.items
+                .iter()
+                .map(|item| (item.plan_id.clone(), item.state.clone())),
+        );
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    assert_eq!(seen.len(), 50);
+    assert!(seen.iter().all(|(_, state)| state == "signed_off"));
+    assert_eq!(seen[0].0, first);
+}
+
 // ------------------------------------------------------------------------------------------------ integration details
 
 fn store_details(rig: &Rig, integration: &str, details: &Value) {

@@ -3,6 +3,7 @@
 //! escaping it. To guard another statement, add a `Guarded` to `GUARDED`.
 
 use capstan_kernel::areas::event_feed::{feed_head, feed_page, Position};
+use capstan_kernel::areas::snapshot_feed::PLAN_ROWS_BASE;
 use capstan_kernel::canonical::sha256;
 use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::types::{InitialProject, ProjectInput};
@@ -205,6 +206,29 @@ fn the_hot_statements_read_through_an_index_covering_every_equality_column() {
         let plan = plan_of(&conn, sql).join("\n");
         assert!(plan.contains("project_id=? AND sequence=?"), "{plan}");
     }
+}
+
+/// The plans section reads its sign-off probes through the primary keys, and the backwards read of `recent_page` is the
+/// row statement above: a primary-key search with no temporary sort.
+#[test]
+fn the_plans_statement_and_the_recent_read_search_by_primary_key_without_a_sort() {
+    let (_dir, conn) = migrated();
+    let plans = plan_of(
+        &conn,
+        &format!("{PLAN_ROWS_BASE} AND sequence > ? ORDER BY sequence LIMIT ?"),
+    )
+    .join("\n");
+    assert!(!plans.contains("SCAN plan_signoffs"), "{plans}");
+    assert!(!plans.contains("SCAN integrations"), "{plans}");
+    assert!(!plans.contains("TEMP B-TREE"), "{plans}");
+    let one = plan_of(&conn, &format!("{PLAN_ROWS_BASE} AND sequence = ?")).join("\n");
+    assert!(!one.contains("SCAN plan_signoffs"), "{one}");
+    let read = plan_of(&conn, READ_ROW).join("\n");
+    assert!(
+        read.contains("SEARCH controller_events USING PRIMARY KEY"),
+        "{read}"
+    );
+    assert!(!read.contains("TEMP B-TREE"), "{read}");
 }
 
 #[test]
