@@ -28,6 +28,9 @@
 //! `integrationState` (null serializes as null). A plan without a readable approved revision lists its rows by package id
 //! with empty title and role. `packages.integrated` equals the details in state `integrated` plus `confirmed`. The new
 //! fields (`branch`, `packageDetails`, `packageDetailsOmitted`) are not yet in the protocol doc.
+//! A plan with a sign-off is listed with the state `signed_off` while one of its sign-offs is on an integration that is
+//! neither confirmed nor discarded, and leaves when that integration is confirmed or discarded. A cancelled plan is never
+//! listed. An integration confirm or discard raises the bare plans invalidate.
 //! A review verdict raises the bare plans invalidate but no invalidate of the plan's item key, and an integration start
 //! raises no plans invalidate yet, so a client holding the item can keep a stale `review` or a running
 //! `integrationState` until it re-reads plans.
@@ -609,15 +612,28 @@ pub fn agents_page_counted(
 
 // ---------------------------------------------------------------------------------------------------------- the plans
 
+/// The plans the plans section lists, before the paging condition. A plan with a sign-off is listed, as `signed_off`,
+/// while one of its sign-offs is on an integration that is neither confirmed nor discarded; a plan with none is listed in
+/// its own state. The sign-off tests are in-row subselects read through the primary keys of `plan_signoffs` and
+/// `integrations`, so they are not charged as reads of their own.
+#[doc(hidden)]
+pub const PLAN_ROWS_BASE: &str = "SELECT plan_id, sequence, title,
+                       CASE WHEN EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)
+                            THEN 'signed_off' ELSE state END, approved_revision FROM plans
+                 WHERE project_id = ? AND state IN ('draft', 'in_review', 'approved') AND cancelled_at IS NULL
+                   AND (NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)
+                        OR EXISTS (SELECT 1 FROM plan_signoffs s JOIN integrations i
+                                     ON i.project_id = s.project_id AND i.integration_id = s.integration_id
+                                    WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id
+                                      AND i.state NOT IN ('confirmed', 'discarded')))";
+
 fn plan_rows(
     core: &Core,
     after: i64,
     one: Option<i64>,
     limit: usize,
 ) -> KernelResult<Vec<Map<String, Value>>> {
-    let base = "SELECT plan_id, sequence, title, state, approved_revision FROM plans
-                 WHERE project_id = ? AND state IN ('draft', 'in_review', 'approved') AND cancelled_at IS NULL
-                   AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)";
+    let base = PLAN_ROWS_BASE;
     let (sql, params) = match one {
         Some(sequence) => (
             format!("{base} AND sequence = ?"),
@@ -960,7 +976,8 @@ fn plan_item(core: &Core, row: &Map<String, Value>) -> KernelResult<PlanItem> {
     })
 }
 
-/// The in-progress plans after the plan sequence `after`: not superseded, cancelled or signed off.
+/// The in-progress plans after the plan sequence `after`: not superseded or cancelled, and not signed off unless a sign-off's
+/// integration is still unconfirmed (such a plan has the state `signed_off`).
 pub fn plans_page(core: &Core, after: Option<&str>, limit: u32) -> KernelResult<Page<PlanItem>> {
     Ok(plans_page_counted(core, after, limit, MAX_READS)?.0)
 }

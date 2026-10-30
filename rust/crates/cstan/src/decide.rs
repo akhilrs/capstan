@@ -109,12 +109,12 @@ impl ProjectProbe for KeyOnly {
 }
 
 /// A refusal: one of `CLI_ERROR_CODES` or a code of the route, and a text for people.
-struct Refused {
-    code: String,
-    message: String,
+pub(crate) struct Refused {
+    pub(crate) code: String,
+    pub(crate) message: String,
 }
 
-fn refuse(code: &str, message: impl Into<String>) -> Refused {
+pub(crate) fn refuse(code: &str, message: impl Into<String>) -> Refused {
     Refused {
         code: code.to_string(),
         message: clean_text(&message.into()),
@@ -122,7 +122,7 @@ fn refuse(code: &str, message: impl Into<String>) -> Refused {
 }
 
 /// The root a `--project` value names. A value starting with `/` is a root; any other value is a project id.
-fn resolve(value: &str, procs: &[Proc]) -> Result<PathBuf, Refused> {
+pub(crate) fn resolve(value: &str, procs: &[Proc]) -> Result<PathBuf, Refused> {
     if value.starts_with('/') {
         let root = std::fs::canonicalize(value)
             .ok()

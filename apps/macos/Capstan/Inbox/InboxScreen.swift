@@ -59,13 +59,39 @@ struct InboxScreen: View {
                         .padding(.bottom, Tokens.space[1])
                 }
             }
-            if groups.isEmpty {
+            if let overview = overviewTarget(anythingWaiting: !groups.isEmpty) {
+                OverviewHost(model: model, hostId: overview.hostId, projectId: overview.projectId) {
+                    waitingSections(groups)
+                }
+                .focusable()
+                .onKeyPress(.downArrow) { move(groups.flatMap { $0.rows.map(\.id) }, by: 1) }
+                .onKeyPress(.upArrow) { move(groups.flatMap { $0.rows.map(\.id) }, by: -1) }
+            } else if groups.isEmpty {
                 placeholder
             } else {
                 list(groups)
             }
         }
         .searchable(text: $model.inboxSearch, placement: .toolbar, prompt: "Search")
+        .toolbar {
+            ToolbarItem {
+                if case .project = model.selection {
+                    Button { model.selection = .messages } label: { Label("Message PM", systemImage: "bubble.left") }
+                }
+            }
+        }
+    }
+
+    /// The project whose overview the list column shows: one is selected, the list is not narrowed by a kind or a
+    /// search, and the app holds the project. The cross-project view never shows an overview.
+    private func overviewTarget(anythingWaiting: Bool) -> (hostId: UUID, projectId: String)? {
+        guard case .project(let hostId, let projectId) = model.selection, model.project(hostId, projectId) != nil,
+            model.inboxKind == nil, model.inboxSearch.isEmpty
+        else { return nil }
+        guard OverviewModel.listColumn(selectedProjectId: projectId, anythingWaiting: anythingWaiting) == .overview else {
+            return nil
+        }
+        return (hostId, projectId)
     }
 
     private func isLive(_ hostId: UUID) -> Bool {
@@ -131,26 +157,7 @@ struct InboxScreen: View {
         let ids = groups.flatMap { $0.rows.map(\.id) }
         // The selection is drawn by the row, in the accent: a system list would draw it in the system accent.
         return List {
-            ForEach(groups) { group in
-                Section {
-                    ForEach(group.rows) { row in
-                        Button {
-                            model.selectedRow = row.id
-                        } label: {
-                            InboxRowView(
-                                row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id,
-                                quiet: group.quiet)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .accessibilityAddTraits(model.selectedRow == row.id ? .isSelected : [])
-                    }
-                } header: {
-                    KindGroupHeader(title: group.header, quiet: group.quiet)
-                }
-            }
+            waitingSections(groups)
             // Keeps the last row above the floating status capsule.
             Color.clear.frame(height: StatusCapsule.reservedHeight)
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -169,6 +176,32 @@ struct InboxScreen: View {
         }
     }
 
+    /// The waiting groups as list sections; the overview draws them under its status strip.
+    @ViewBuilder
+    private func waitingSections(_ groups: [DisplayGroup]) -> some View {
+        ForEach(groups) { group in
+            Section {
+                ForEach(group.rows) { row in
+                    Button {
+                        model.overview.selectedOutcomeId = nil
+                        model.selectedRow = row.id
+                    } label: {
+                        InboxRowView(
+                            row: row, forwarded: model.forwardShown(row.id), selected: model.selectedRow == row.id,
+                            quiet: group.quiet)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .accessibilityAddTraits(model.selectedRow == row.id ? .isSelected : [])
+                }
+            } header: {
+                KindGroupHeader(title: group.header, quiet: group.quiet)
+            }
+        }
+    }
+
     /// Moves the selection one row; the first press selects the first row.
     private func move(_ ids: [InboxRowID], by step: Int) -> KeyPress.Result {
         guard !ids.isEmpty else { return .ignored }
@@ -178,6 +211,60 @@ struct InboxScreen: View {
         }
         model.selectedRow = ids[min(max(index + step, 0), ids.count - 1)]
         return .handled
+    }
+}
+
+/// The overview of one project in the list column. It reads the content from the model, feeds the controller while it
+/// is shown, and turns the controls into calls on the model.
+private struct OverviewHost<Waiting: View>: View {
+    let model: AppModel
+    let hostId: UUID
+    let projectId: String
+    @ViewBuilder let waiting: () -> Waiting
+
+    private struct FeedKey: Equatable {
+        let hostId: UUID
+        let projectId: String
+        let epoch: String?
+        let head: Int64?
+        let complete: Bool
+        let availability: ProjectAvailability
+    }
+
+    var body: some View {
+        if let content = model.overviewContent(hostId: hostId, projectId: projectId),
+            let project = model.project(hostId, projectId)
+        {
+            OverviewView(
+                content: content, projectName: HostLabel.projectName(project),
+                anythingWaiting: !project.waiting.isEmpty, selectedOutcome: model.overview.selectedOutcomeId,
+                actions: actions, waiting: waiting)
+            .task(id: feedKey(project)) {
+                // Takes the model and the liveness now and every few seconds while the overview is shown.
+                while !Task.isCancelled {
+                    model.overviewFeed(hostId: hostId, projectId: projectId)
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
+        }
+    }
+
+    private func feedKey(_ project: ProjectModel) -> FeedKey {
+        FeedKey(
+            hostId: hostId, projectId: projectId, epoch: project.epoch, head: project.head,
+            complete: project.snapshotComplete, availability: project.availability)
+    }
+
+    private var actions: OverviewActions {
+        OverviewActions(
+            toggle: { section in model.overviewToggle(hostId: hostId, projectId: projectId, section: section) },
+            selectOutcome: { id in
+                model.selectedRow = nil
+                model.overview.selectedOutcomeId = id
+            },
+            retryHistory: { model.overviewRefreshed() },
+            viewAllAgents: { model.selection = .agents(hostId: hostId, projectId: projectId) },
+            refresh: { model.refreshSelection() })
     }
 }
 

@@ -446,13 +446,20 @@ public struct ProjectModel: Codable, Sendable, Equatable {
     public var snapshotComplete: Bool
     /// Since when the project has not been `ready`; its items are the last ones read.
     public var staleSince: Date?
+    /// How far the data can be trusted; saved files from before it decode it as nil.
+    public var freshness: FreshnessMarks?
+    /// The overview sections the person folded; saved files from before it decode it as nil (nothing folded).
+    public var foldedSections: [String]?
 
     public init(
         projectId: String, root: String, availability: ProjectAvailability = .ready, epoch: String? = nil,
         head: Int64? = nil, waiting: [String: StoredWaiting] = [:], agents: [String: StoredAgent] = [:],
         plans: [String: StoredPlan] = [:], run: StoredRun? = nil, details: [String: ItemDetail] = [:],
-        attention: [String: String] = [:], snapshotComplete: Bool = false, staleSince: Date? = nil
+        attention: [String: String] = [:], snapshotComplete: Bool = false, staleSince: Date? = nil,
+        freshness: FreshnessMarks? = nil, foldedSections: [String]? = nil
     ) {
+        self.freshness = freshness
+        self.foldedSections = foldedSections
         self.projectId = projectId
         self.root = root
         self.availability = availability
@@ -471,6 +478,9 @@ public struct ProjectModel: Codable, Sendable, Equatable {
     /// The project can be resumed from a saved cursor: its snapshot is complete and its run, if any, has a hash. A run
     /// whose hash is unknown (a `run.changed` not yet read) is read again in full instead, which brings the hash.
     var isResumable: Bool { snapshotComplete && (run?.hashKnown ?? true) }
+
+    /// The folded overview sections as a set.
+    public var folded: Set<String> { Set(foldedSections ?? []) }
 
     /// The last path component of the root; the project id when the root has none.
     public var displayName: String {

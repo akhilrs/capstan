@@ -636,3 +636,179 @@ pub fn rewrite_node_usage(args: &[String], text: &str) -> String {
     }
     text
 }
+
+// -------------------------------------------------------------------------------------------------- real daemon
+
+/// A real controller on a scratch git project, built the way `events_stream.rs` builds one: a ledger opened with
+/// `capstan_daemon::run::placeholder_inputs()`, an operator key, and a daemon that the first routed call starts. It is
+/// stopped, and its directory removed, when this drops.
+pub struct RealDaemon {
+    pub base: PathBuf,
+    pub root: PathBuf,
+}
+
+pub const REAL_OPERATOR: &str = "operator-0123456789abcdef0123456789abcdef0123456789";
+
+fn private_mode(path: &Path, mode: u32) {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+fn git_in(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .expect("git runs");
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+}
+
+impl RealDaemon {
+    /// Makes the project `project_id` and appends to its ledger `outcomes` rows the feed shows as outcomes
+    /// (`integration.finished`), then `fillers` rows it shows as nothing, before any daemon opens the ledger.
+    pub fn start(label: &str, project_id: &str, outcomes: u32, fillers: u32) -> RealDaemon {
+        let base = capstan_testkit::short_temp_root()
+            .join(format!("capstan-recent-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let root = base.join("proj");
+        std::fs::create_dir_all(&root).unwrap();
+        git_in(&root, &["init", "--quiet", "--initial-branch=main"]);
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        std::fs::write(root.join(".git/info/exclude"), ".capstan/\n").unwrap();
+        git_in(&root, &["add", "--all"]);
+        git_in(&root, &["commit", "--quiet", "-m", "chore: initial commit"]);
+        let root = std::fs::canonicalize(&root).unwrap();
+        let daemon = RealDaemon { base, root };
+        let capstan = daemon.root.join(".capstan");
+        let state = capstan.join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        private_mode(&capstan, 0o700);
+        private_mode(&state, 0o700);
+        let config = serde_json::json!({
+            "schemaVersion": 1, "projectId": project_id, "name": "Recent",
+            "stateDirectory": state.to_string_lossy(),
+            "maxSlices": 4, "maxRunMs": 3_600_000, "maxDispatches": 16,
+        });
+        // A test daemon is never listed by the discovery of other commands.
+        std::fs::write(
+            daemon
+                .root
+                .join(cstan_front::projects::UNDISCOVERABLE_MARKER),
+            "",
+        )
+        .unwrap();
+        for (name, text) in [
+            ("project.json", format!("{config:#}\n")),
+            ("operator.key", format!("{REAL_OPERATOR}\n")),
+        ] {
+            std::fs::write(capstan.join(name), text).unwrap();
+            private_mode(&capstan.join(name), 0o600);
+        }
+        let toml = "schema_version = 1\n[nexora]\ntrack = \"never\"\n[hosts.claude]\nkind = \"claude\"\n\
+             [architect]\nenabled = true\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n";
+        std::fs::write(daemon.root.join("capstan.toml"), toml).unwrap();
+        private_mode(&daemon.root.join("capstan.toml"), 0o600);
+        let initial = capstan_kernel::types::InitialProject {
+            project_id: project_id.into(),
+            name: "Recent".into(),
+            owner_credential: REAL_OPERATOR.into(),
+            initial_inputs: capstan_daemon::run::placeholder_inputs(),
+        };
+        let core = capstan_kernel::Core::open(
+            &state,
+            &initial,
+            &capstan_kernel::kernel::KernelOptions {
+                workspace_root: Some(daemon.root.clone()),
+                ..capstan_kernel::kernel::KernelOptions::default()
+            },
+            Box::new(capstan_kernel::SystemEnv),
+        )
+        .expect("the ledger opens");
+        core.close();
+        let path = capstan_ledger::resolve_database_path(&state).unwrap();
+        let db =
+            capstan_ledger::open_database(&path, &capstan_ledger::OpenOptions::default()).unwrap();
+        db.exec("PRAGMA foreign_keys = OFF").unwrap();
+        for (action, from, to, count) in [
+            ("integration.finish", "running", "merged", outcomes),
+            ("integration.begin", "queued", "running", fillers),
+        ] {
+            db.exec(&format!(
+                "INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
+                   state_version, actor_id, request_id, input_revision, payload_json, created_at)
+                 WITH last AS (SELECT project_id AS p, actor_id AS a, sequence AS s FROM controller_events ORDER BY sequence DESC LIMIT 1),
+                   n(i) AS (SELECT s + 1 FROM last UNION ALL SELECT i + 1 FROM n WHERE i < (SELECT s FROM last) + {count})
+                 SELECT (SELECT p FROM last), i, '{action}-' || i, 'integration', 'i' || i, '{from}', '{to}',
+                   0, (SELECT a FROM last), 'req-{action}-' || i, 0,
+                   '{{\"action\":\"{action}\",\"payload\":{{}}}}', '2026-01-01T00:00:00.000Z' FROM n WHERE {count} > 0"
+            ))
+            .unwrap();
+        }
+        db.close().unwrap();
+        daemon.cstan(&["ping"]);
+        // The daemon may write rows of its own as it starts; wait until the head holds still.
+        let mut last = daemon.head();
+        for _ in 0..40 {
+            thread::sleep(Duration::from_millis(500));
+            let now = daemon.head();
+            if now == last {
+                return daemon;
+            }
+            last = now;
+        }
+        panic!("the ledger head does not settle");
+    }
+
+    pub fn socket(&self) -> PathBuf {
+        self.root
+            .join(".capstan/state")
+            .join(capstan_daemon::deps::SOCKET_NAME)
+    }
+
+    /// One `cstan` run in the project, with nothing of the host's environment.
+    pub fn cstan(&self, args: &[&str]) -> std::process::Output {
+        Command::new(FRONT)
+            .args(args)
+            .current_dir(&self.root)
+            .env_clear()
+            .env("PATH", HOST_PATH)
+            .env("HOME", "/nonexistent")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("cstan runs")
+    }
+
+    /// The epoch and head of the feed.
+    pub fn head(&self) -> (String, u64) {
+        match capstan_client::call_feed(
+            &self.socket(),
+            REAL_OPERATOR,
+            &capstan_client::FeedCall::Head,
+            10_000,
+        ) {
+            Ok(capstan_client::Response::Ok {
+                result: Some(result),
+            }) => {
+                let head: Value =
+                    serde_json::from_str(&capstan_wire::js::stringify(&result, 0).to_utf8_lossy())
+                        .unwrap();
+                (
+                    head["epoch"].as_str().unwrap().to_string(),
+                    head["head"].as_u64().unwrap(),
+                )
+            }
+            other => panic!("feed head: {other:?}"),
+        }
+    }
+}
+
+impl Drop for RealDaemon {
+    fn drop(&mut self) {
+        self.cstan(&["stop"]);
+        let _ = std::fs::remove_dir_all(&self.base);
+    }
+}

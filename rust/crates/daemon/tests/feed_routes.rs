@@ -531,7 +531,151 @@ fn the_largest_pages_fit_the_response_limit_and_cross_a_socket() {
 #[test]
 fn the_handler_runs_one_kernel_closure_per_subcommand() {
     let source = include_str!("../src/handlers/feed.rs");
-    assert_eq!(source.matches(".run(").count(), 8);
+    assert_eq!(source.matches(".run(").count(), 9);
     assert_eq!(source.matches(".kernel").count(), 1);
     assert_eq!(source.matches("env.deps").count(), 1);
+}
+
+// ------------------------------------------------------------------------------------------------- recent history
+
+fn recent_args(epoch: &str, head: u64) -> Vec<String> {
+    vec![
+        "recent".into(),
+        "--epoch".into(),
+        epoch.into(),
+        "--head".into(),
+        head.to_string(),
+    ]
+}
+
+fn recent(w: &World, args: &[String]) -> Value {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    w.operator(&args)
+}
+
+fn head_of(w: &World) -> (String, u64) {
+    let answer = w.operator(&["head"]);
+    let head = result(&answer);
+    (
+        head["epoch"].as_str().unwrap().to_string(),
+        head["head"].as_u64().unwrap(),
+    )
+}
+
+#[test]
+fn recent_answers_what_the_kernel_answers() {
+    let w = World::new();
+    w.propose("ls");
+    let (epoch, head) = head_of(&w);
+    let answer = recent(&w, &recent_args(&epoch, head));
+    let result = result(&answer);
+    assert_eq!(result["head"], head);
+    assert_eq!(result["epoch"], epoch.as_str());
+    assert!(result["events"].is_array());
+    assert!(result["rowsRead"].as_u64().unwrap() <= 500);
+    assert!(result["rowsScanned"].as_u64().unwrap() >= 1);
+    assert_eq!(result["truncated"], false);
+    // With a limit, and the kernel's own answer for the same call.
+    let mut args = recent_args(&epoch, head);
+    args.extend(["--limit".into(), "3".into()]);
+    let answer = recent(&w, &args);
+    let direct = w.direct(move |core| event_feed::recent_page(core, &epoch, head, 3));
+    assert_eq!(*result_of(&answer), direct);
+    // A wrong epoch or a head beyond the ledger gives the ledger's position.
+    let (epoch, head) = head_of(&w);
+    let beyond = recent(&w, &recent_args(&epoch, head + 1));
+    assert_eq!(
+        result_of(&beyond),
+        &json!({"projectId": result_of(&beyond)["projectId"], "epoch": epoch, "head": head})
+    );
+    let wrong = recent(&w, &recent_args(&"0".repeat(16), head));
+    assert_eq!(result_of(&wrong)["epoch"], epoch.as_str());
+    assert!(result_of(&wrong).get("events").is_none());
+}
+
+fn result_of(answer: &Value) -> &Value {
+    result(answer)
+}
+
+#[test]
+fn recent_refuses_bad_flags_and_limits() {
+    let w = World::new();
+    let (epoch, head) = head_of(&w);
+    let good = recent_args(&epoch, head);
+    let with = |extra: &[&str]| -> Vec<String> {
+        let mut args = good.clone();
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    let cases: Vec<Vec<String>> = vec![
+        vec!["recent".into()],
+        vec!["recent".into(), "--head".into(), "1".into()],
+        vec!["recent".into(), "--epoch".into(), epoch.clone()],
+        vec![
+            "recent".into(),
+            "--epoch".into(),
+            "xyz".into(),
+            "--head".into(),
+            "1".into(),
+        ],
+        vec![
+            "recent".into(),
+            "--epoch".into(),
+            epoch.clone(),
+            "--head".into(),
+            "-1".into(),
+        ],
+        with(&["--limit", "0"]),
+        with(&["--limit", "21"]),
+        with(&["--limit", "x"]),
+        with(&["--limit"]),
+        with(&["--unknown", "1"]),
+        with(&["--limit", "5", "--limit", "5"]),
+        vec!["recent".into(), "extra".into()],
+    ];
+    for args in cases {
+        assert_eq!(code(&recent(&w, &args)), "invalid_request", "{args:?}");
+    }
+    for limit in ["1", "20"] {
+        assert_eq!(recent(&w, &with(&["--limit", limit]))["ok"], true);
+    }
+}
+
+#[test]
+fn the_thirty_first_recent_read_in_a_minute_is_rate_limited_and_invalid_requests_cost_nothing() {
+    let w = World::new();
+    let (epoch, head) = head_of(&w);
+    let good = recent_args(&epoch, head);
+    // Thirty invalid requests do not use the quota.
+    for _ in 0..30 {
+        let mut bad = good.clone();
+        bad.extend(["--limit".into(), "0".into()]);
+        assert_eq!(code(&recent(&w, &bad)), "invalid_request");
+    }
+    for call in 1..=30 {
+        assert_eq!(recent(&w, &good)["ok"], true, "call {call}");
+    }
+    let refused = recent(&w, &good);
+    assert_eq!(code(&refused), "rejected", "{refused}");
+    assert!(
+        refused["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("rate_limited: "),
+        "{refused}"
+    );
+    // The other subcommands are not limited by it.
+    assert_eq!(w.operator(&["head"])["ok"], true);
+}
+
+#[test]
+fn the_recent_quota_is_kept_for_each_project() {
+    use capstan_daemon::handlers::shared::{CommandState, RECENT_RATE_LIMIT};
+    let state = CommandState::default();
+    let mut limiter = state.recent_limiter.lock().unwrap();
+    for _ in 0..RECENT_RATE_LIMIT {
+        assert!(limiter.allow("project-a", 1_000));
+    }
+    assert!(!limiter.allow("project-a", 2_000));
+    assert!(limiter.allow("project-b", 2_000));
 }

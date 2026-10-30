@@ -29,6 +29,7 @@ final class AppModel {
                 restoredSelection = nil
             }
             saveSelection()
+            overviewSelected()
         }
     }
     var selectedRow: InboxRowID?
@@ -71,6 +72,8 @@ final class AppModel {
     @ObservationIgnored private var modelFlushScheduled = false
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
     @ObservationIgnored private var pendingTask: Task<Void, Never>?
+    /// The project overview's controllers, one per host, and what its views share.
+    let overview = OverviewStore()
 
     // MARK: Creating
 
@@ -209,6 +212,12 @@ final class AppModel {
         generations[id] = generation
         let numbering = StateNumbering()
         connectionNumber[id] = 0
+        let live: @Sendable (String, [FeedEvent]) -> Void = { [weak self] projectId, events in
+            Task { @MainActor [weak self] in
+                guard let self, self.generations[id] == generation else { return }
+                self.overviewLive(hostId: id, projectId: projectId, events: events)
+            }
+        }
         let engine = HostStoreEngine(
             hostId: id, persistence: FilePersistence(directory: directory), clock: SystemClock(),
             onChange: { [weak self] model in
@@ -238,7 +247,8 @@ final class AppModel {
                 Task { @MainActor [weak self] in
                     self?.applyConnection(state, number: number, hostId: id, generation: generation)
                 }
-            })
+            },
+            onLiveEvents: live)
         let session = HostSession(
             config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock(),
             diagnostic: { what, detail in
@@ -325,6 +335,7 @@ final class AppModel {
         var reconnected = false
         if case .live = state, case .reconnecting? = connection[hostId] { reconnected = true }
         connection[hostId] = state
+        overviewConnection(state, hostId: hostId, engine: engines[hostId])
         if reconnected, let config = hosts.first(where: { $0.id == hostId }) {
             probe(config, generation: generation)
         }
@@ -621,6 +632,7 @@ final class AppModel {
             for host in hosts { refresh(hostId: host.id, projectIds: readyProjects(hostId: host.id)) }
         case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
             refresh(hostId: hostId, projectIds: readyProjects(hostId: hostId).intersection([projectId]))
+            overviewRefreshed()
         case .hosts:
             guard let focus = hostsFocus else { return }
             refresh(hostId: focus.hostId, projectIds: readyProjects(hostId: focus.hostId))

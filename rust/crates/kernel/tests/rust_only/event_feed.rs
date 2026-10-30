@@ -1252,6 +1252,16 @@ fn feed_integration_finished() {
     assert_eq!(settled[0]["type"], "snapshot.invalidated");
     assert_eq!(settled[0]["body"]["key"], "integration:1");
     assert!(has_kind_invalidate(&settled[0], "integration"));
+    // A confirm or a discard ends the listing of a signed-off plan that waited for the integration.
+    assert!(
+        settled[0]["body"]["effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| { e["section"] == "plans" && e["op"] == "invalidate" && e["key"] == "plan" }),
+        "{}",
+        settled[0]["body"]["effects"]
+    );
 }
 
 #[test]

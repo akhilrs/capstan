@@ -380,4 +380,52 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(recorder.refreshes, [["proj-a"]])
         XCTAssertTrue(recorder.urgentRefreshes.isEmpty)
     }
+
+    func testOnlyTheTwoFreshnessTimesAreSavedAndAnOlderStoreDecodesWithNoMarks() async throws {
+        let hostId = UUID()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store)
+        await engine.apply(host: hostId, lines: try [StoreWire.hello()] + completeProject())
+        await engine.flush()
+        let saved = try XCTUnwrap(store.stored)
+        let marks = try XCTUnwrap(saved.projects["proj-a"]?.freshness)
+        XCTAssertNotNil(marks.lastKnownAt)
+        XCTAssertNil(marks.refreshFailedAt)
+        XCTAssertNil(marks.currentAsOf)
+        XCTAssertFalse(marks.refreshing)
+        XCTAssertTrue(marks.pending.isEmpty)
+
+        let data = try JSONEncoder().encode(saved)
+        var tree = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var projects = try XCTUnwrap(tree["projects"] as? [String: Any])
+        var project = try XCTUnwrap(projects["proj-a"] as? [String: Any])
+        project["freshness"] = nil
+        projects["proj-a"] = project
+        tree["projects"] = projects
+        let older = try JSONDecoder().decode(
+            PersistedHost.self, from: try JSONSerialization.data(withJSONObject: tree))
+        XCTAssertNil(older.projects["proj-a"]?.freshness)
+        XCTAssertNil(older.projects["proj-a"]?.foldedSections)
+    }
+
+    func testFoldedSectionsAreKeptPerProjectAcrossAReloadAndUnfold() async throws {
+        let hostId = UUID()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store)
+        let lines = try [StoreWire.hello()] + completeProject("proj-a") + completeProject("proj-b")
+        await engine.apply(host: hostId, lines: lines)
+        await engine.setFolded(projectId: "proj-a", ["plans", "outcomes"])
+        let reloaded = makeEngine(hostId: hostId, persistence: MemoryPersistence(initial: store.stored))
+        let model = await reloaded.current()
+        XCTAssertEqual(model.projects["proj-a"]?.folded, ["plans", "outcomes"])
+        XCTAssertEqual(model.projects["proj-b"]?.folded, [])
+
+        let second = MemoryPersistence(initial: store.stored)
+        let again = makeEngine(hostId: hostId, persistence: second)
+        await again.setFolded(projectId: "proj-a", [])
+        let last = makeEngine(hostId: hostId, persistence: MemoryPersistence(initial: second.stored))
+        let unfolded = await last.current()
+        XCTAssertEqual(unfolded.projects["proj-a"]?.folded, [])
+        XCTAssertNil(unfolded.projects["proj-a"]?.foldedSections)
+    }
 }

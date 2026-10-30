@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 const DOC: &str = include_str!("../../../../docs/remote-protocol.md");
 
 const SUBCOMMANDS: &[&str] = &[
-    "head", "page", "snapshot", "waiting", "agents", "plans", "item", "hash",
+    "head", "page", "snapshot", "waiting", "agents", "plans", "item", "hash", "recent",
 ];
 const PROJECT_STATES: &[&str] = &[
     "ready",
@@ -236,6 +236,31 @@ fn it_names_what_the_code_has() {
     for op in ["upsert", "remove", "invalidate"] {
         assert!(DOC.contains(&format!("`{op}`")), "effect op {op}");
     }
+}
+
+#[test]
+fn the_doc_states_recent_history_signed_off_plans_and_the_agent_branch() {
+    assert!(DOC.contains("### Recent history"));
+    for word in [
+        "oldestScanned",
+        "rowsScanned",
+        "rate_limited: ",
+        "unknown_command",
+        "display-only",
+    ] {
+        assert!(DOC.contains(word), "recent history names {word}");
+    }
+    for ty in event_feed::OUTCOME_TYPES {
+        let section = DOC.split("### Recent history").nth(1).unwrap();
+        assert!(section.contains(&format!("`{ty}`")), "outcome type {ty}");
+    }
+    assert!(DOC.contains("`signed_off`"));
+    let agent = DOC
+        .split("`AgentItem`: ")
+        .nth(1)
+        .and_then(|rest| rest.split("`PlanItem`").next())
+        .unwrap();
+    assert!(agent.contains("`branch`"), "AgentItem lists branch");
 }
 
 #[test]

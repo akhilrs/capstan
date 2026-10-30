@@ -1,0 +1,1 @@
+{"v":1,"error":{"code":"invalid_request","message":"feed takes head, page --after <seq>:<k> --limit <n> [--anchor <hex16>], snapshot, waiting --limit <n> [--after <key>] [--kind <kind>], agents --limit <n> [--after <key>], plans --limit <n> [--after <key>], item <section> <key> or hash <requestId>"}}

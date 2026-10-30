@@ -14,7 +14,10 @@ public actor HostStoreEngine: StreamConsumer {
     private let onRefresh: @Sendable (Set<String>) -> Void
     private let onUrgentRefresh: (@Sendable (Set<String>) -> Void)?
     private let onConnection: (@Sendable (ConnectionState) -> Void)?
+    private let onLiveEvents: (@Sendable (String, [FeedEvent]) -> Void)?
+    private let monotonic: any MonotonicClock
 
+    private var liveness = LivenessTracker()
     private var model: HostModel
     private var staging = Staging()
     private var connectionState: ConnectionState = .connecting
@@ -34,8 +37,12 @@ public actor HostStoreEngine: StreamConsumer {
         onNotify: @escaping @Sendable ([NotifyCandidate]) -> Void,
         onRefresh: @escaping @Sendable (Set<String>) -> Void,
         onUrgentRefresh: (@Sendable (Set<String>) -> Void)? = nil,
-        onConnection: (@Sendable (ConnectionState) -> Void)? = nil
+        onConnection: (@Sendable (ConnectionState) -> Void)? = nil,
+        onLiveEvents: (@Sendable (String, [FeedEvent]) -> Void)? = nil,
+        monotonic: any MonotonicClock = ContinuousMonotonicClock()
     ) {
+        self.onLiveEvents = onLiveEvents
+        self.monotonic = monotonic
         self.hostId = hostId
         self.persistence = persistence
         self.clock = clock
@@ -68,6 +75,11 @@ public actor HostStoreEngine: StreamConsumer {
         connectionState
     }
 
+    /// Whether the host sent a line within three of the given intervals, by the monotonic clock.
+    public func connectionLiveness(intervalSeconds: TimeInterval) -> ConnectionLiveness {
+        liveness.state(at: monotonic.seconds(), intervalSeconds: intervalSeconds)
+    }
+
     /// Every recorded forward of the host.
     public func forwards() -> [ForwardRecord] {
         model.forwards.keys.sorted().flatMap { model.forwards[$0] ?? [] }
@@ -86,6 +98,8 @@ public actor HostStoreEngine: StreamConsumer {
     public func apply(host: UUID, lines: [StreamLine]) async {
         guard host == hostId, !lines.isEmpty else { return }
         let now = clock.now()
+        liveness.noteLine(at: monotonic.seconds())
+        var liveEvents: [(String, FeedEvent)] = []
         var refresh = Set<String>()
         var urgent = Set<String>()
         var notify: [NotifyCandidate] = []
@@ -96,8 +110,15 @@ public actor HostStoreEngine: StreamConsumer {
             urgent.formUnion(output.urgent)
             notify.append(contentsOf: output.notify)
             if case .cursor = line { cursorSeen = true }
+            if case .event(let projectId, let event) = line { liveEvents.append((projectId, event)) }
         }
         onChange(model)
+        // The overview's history reads the events; nothing in it comes back into the store.
+        if let onLiveEvents {
+            for projectId in Set(liveEvents.map { $0.0 }).sorted() {
+                onLiveEvents(projectId, liveEvents.filter { $0.0 == projectId }.map { $0.1 })
+            }
+        }
         if !notify.isEmpty { onNotify(notify) }
         // Interim (plan-73 replaces the restart): a project that is not ready has nothing to read again.
         // A project whose snapshot is still arriving, or was never complete, is read in full anyway.
@@ -117,6 +138,18 @@ public actor HostStoreEngine: StreamConsumer {
     public func connection(host: UUID, _ state: ConnectionState) async {
         guard host == hostId else { return }
         connectionState = state
+        switch state {
+        case .connecting:
+            liveness.reset()
+        case .reconnecting, .stopped:
+            liveness.reset()
+            // The stream ended: a project that waited for a read keeps what it knew and notes the failure.
+            let before = model
+            StoreReducer.noteRefreshFailure(in: &model, now: clock.now())
+            if model != before { onChange(model) }
+        case .live, .noHeartbeat:
+            break
+        }
         onConnection?(state)
     }
 
@@ -151,6 +184,15 @@ public actor HostStoreEngine: StreamConsumer {
             records.removeFirst(records.count - HostStoreEngine.maxForwardsPerProject)
         }
         model.forwards[projectId] = records
+        onChange(model)
+        scheduleSave()
+    }
+
+    /// Records the overview sections the person folded for a project; an empty set unfolds all.
+    public func setFolded(projectId: String, _ folded: Set<String>) {
+        guard var project = model.projects[projectId] else { return }
+        project.foldedSections = folded.isEmpty ? nil : folded.sorted()
+        model.projects[projectId] = project
         onChange(model)
         scheduleSave()
     }

@@ -81,4 +81,25 @@ final class FixtureTests: XCTestCase {
         let lost = try XCTUnwrap(try KernelFixtures.event("agent.lost").body.agentBody)
         XCTAssertEqual(lost.reason?.raw, "pane_gone")
     }
+
+    func testASignedOffPlanItemDecodes() throws {
+        let text = "{\"key\":\"1\",\"planId\":\"plan-1\",\"sequence\":1,\"title\":\"Ledger\",\"state\":\"signed_off\","
+            + "\"packages\":{\"total\":3,\"assigned\":3,\"reported\":3,\"integrated\":3}}"
+        let plan = try PlanItem(json: try decodeJSON(Data(text.utf8)))
+        XCTAssertEqual(plan.state, "signed_off")
+        XCTAssertEqual(plan.packages.integrated, 3)
+        XCTAssertEqual(StoredPlan(plan).state, "signed_off")
+    }
+
+    func testAnAgentItemDecodesWithAndWithoutABranch() throws {
+        let plain = StoreWire.agentItem("dev-1")
+        let without = try AgentItem(json: try decodeJSON(Data(plain.utf8)))
+        XCTAssertNil(without.branch)
+        let tail = "\"contentHash\":\"agent-hash\"}"
+        let branched = plain.replacingOccurrences(of: tail, with: "\"contentHash\":\"agent-hash\",\"branch\":\"feat/x\"}")
+        let with = try AgentItem(json: try decodeJSON(Data(branched.utf8)))
+        XCTAssertEqual(with.branch?.raw, "feat/x")
+        XCTAssertEqual(StoredAgent(with).branch?.raw, "feat/x")
+        XCTAssertNil(StoredAgent(without).branch)
+    }
 }

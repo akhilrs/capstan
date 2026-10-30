@@ -142,6 +142,32 @@ A `feed page` answer is `{projectId, epoch, head, anchorOk, ahead, events, scann
 `anchor` is the history anchor of `scanned.seq`, read in the same call as the page, `null` when that sequence is 0 or
 the ledger lacks it (it is the `--anchor` of the next page); `rowsRead` is diagnostic.
 
+### Recent history
+
+`feed recent --epoch <hex16> --head <n> [--limit <n>]` reads the newest outcome events at or below `head`, so a client
+that has just connected can show what happened lately. `--epoch` and `--head` are the ones the client holds (`feed
+snapshot`); `--limit` is 1 to 20 and defaults to 20. The answer is `{projectId, epoch, head, events, oldestScanned,
+truncated, rowsRead, rowsScanned}`. `events` are the events of `feed page` (same ids, envelope and body) of the types
+`report.recorded`, `review.verdict`, `verify.result`, `integration.finished`, `plan.approved`, `plan.signed_off`,
+`design.decided`, `agent.lost`, `agent.blocked` and `finding.raised`, ordered by `(seq, k)` descending. The read goes
+backwards from `head` one ledger row at a time and takes a row whole: when the limit, the budget of 500 reads
+(`rowsRead`, rows and entity lookups together) or 48 KiB of events would stop inside a row, none of that row's events are
+returned. `oldestScanned` is the lowest sequence taken and `rowsScanned` the rows taken; `truncated` is false only when
+the read reached the first row of the ledger. `truncated` true with no events is a normal answer: the client says that
+there are no outcomes in the last `rowsScanned` rows. There is no continuation: the overview shows the newest window.
+
+An `epoch` that is not the ledger's, or a `head` beyond the ledger's, is refused with the answer `{projectId, epoch,
+head}` of the ledger, and the client reads the snapshot again. A `head` older than the ledger's is allowed and reads back
+from it. The client joins the answer with the live stream by `projectId`, `epoch`, `seq` and `k`: the answer holds only
+rows at or below the `head` the client passed, live events above it come from the stream, and when both have a key the
+live copy wins. An event is built from the current state of its entity, as `feed page` builds it, so an old event read
+again may show newer values than it did when it was live.
+
+The answer is display-only: the client shows it and applies no `effects` from it, and nothing is written. A call is
+limited to 30 a minute for a project; the next fails with `rejected` and a message starting `rate_limited: `. A host
+that does not know `recent` answers `invalid_request` (with its old usage text) or `unknown_command`; the client treats
+both as no recent history on this host.
+
 Item keys come from `KEY_KINDS`, in sort order:
 
 | section | kind | key | number comes from |
@@ -242,10 +268,13 @@ Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line
 `projectId`, `section` and `key`. `WaitingItem`: `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`,
 `needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`. `integrationState` (`merged` or
 `conflicted`), `branch` and `headSha` are set for kind `integration` and `null` for every other kind. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
-`contentHash`, `activity`, `activitySince`, `activitySeq`. The three activity fields are the agent's latest observed
+`contentHash`, `branch`, `activity`, `activitySince`, `activitySeq`. `branch` is optional (absent or `null` without a
+pane) and untrusted text (section 8). The three activity fields are the agent's latest observed
 activity state, the time it was observed and its sequence; they are `null` while the agent has no observation, and
 `contentHash` does not cover them. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
-integrated}`. `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`; the run item has no key of its own and
+integrated}`. `state` of a plan is `draft`, `in_review`, `approved` or `signed_off`: a plan with a sign-off stays in
+`plans`, as `signed_off`, while one of its sign-offs is on an integration that is neither confirmed nor discarded, and
+leaves when that integration is confirmed or discarded (a cancelled plan is never listed). `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`; the run item has no key of its own and
 its line uses `run`. `Page<T>`: `head`, `items`, `next`.
 
 #### `integrationDetails`
@@ -401,7 +430,7 @@ client keeps reading. The first event of a page is always returned. A poll inter
 
 The daemon route `feed` takes these subcommands: `head`, `page --after <seq>:<k> --limit <n> [--anchor <hex16>]`,
 `snapshot`, `waiting --limit <n> [--after <key>] [--kind <kind>]`, `agents --limit <n> [--after <key>]`,
-`plans --limit <n> [--after <key>]`, `item <section> <key>` and `hash <requestId>`.
+`plans --limit <n> [--after <key>]`, `item <section> <key>`, `hash <requestId>` and `recent --epoch <hex16> --head <n> [--limit <n>]`.
 
 The `head`, `snapshot` and `page` answers carry `anchor` (section 4).
 
