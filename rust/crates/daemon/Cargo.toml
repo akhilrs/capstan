@@ -19,6 +19,7 @@ path = "src/main.rs"
 # Every external crate the daemon phase may need is pinned here and in the sibling crates (the versions the kernel
 # already pins), so no later package touches Cargo.lock.
 [dependencies]
+capstan-process = { path = "../process" }
 capstan-herdr = { path = "../herdr" }
 capstan-launcher = { path = "../launcher" }
 capstan-cache = { path = "../cache" }

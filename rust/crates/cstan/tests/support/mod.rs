@@ -54,7 +54,7 @@ pub struct Scratch(pub PathBuf);
 
 impl Scratch {
     pub fn new(label: &str, index: usize) -> Scratch {
-        let path = std::env::temp_dir().join(format!(
+        let path = capstan_testkit::short_temp_root().join(format!(
             "capstan-cli-native-{label}-{}-{index}",
             std::process::id()
         ));
@@ -397,20 +397,15 @@ pub fn run_once(argv: &[String], settings: &Settings) -> Observed {
 /// Kills the daemons of the project at `project`: processes of this executable whose working directory is the project (nothing
 /// else is ever signalled).
 pub fn kill_daemons_of(project: &Path) {
-    if let Ok(entries) = std::fs::read_dir("/proc") {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(pid) = name.to_str().and_then(|n| n.parse::<i32>().ok()) else {
-                continue;
-            };
-            if std::fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|cwd| cwd == project)
-                && std::fs::read_link(format!("/proc/{pid}/exe"))
-                    .is_ok_and(|exe| exe == Path::new(FRONT))
-            {
-                // SAFETY: the process is a daemon of this scratch project, started by this test.
-                unsafe {
-                    libc::kill(pid, libc::SIGKILL);
-                }
+    let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let front = real(Path::new(FRONT));
+    for pid in capstan_process::pids() {
+        if capstan_process::cwd(pid).is_some_and(|cwd| cwd == project)
+            && capstan_process::executable(pid).is_some_and(|exe| real(&exe) == front)
+        {
+            // SAFETY: the process is a daemon of this scratch project, started by this test.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
             }
         }
     }

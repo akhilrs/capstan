@@ -270,17 +270,45 @@ impl Drop for DaemonServer {
 fn make_pipe() -> io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
     use std::os::fd::FromRawFd;
     let mut fds = [0 as libc::c_int; 2];
+    #[cfg(target_os = "linux")]
     // SAFETY: `fds` is a valid array of two ints; the descriptors it receives are owned below.
-    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) } != 0 {
+    let created = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) };
+    #[cfg(not(target_os = "linux"))]
+    // SAFETY: `fds` is a valid array of two ints; the descriptors it receives are owned below.
+    let created = unsafe { libc::pipe(fds.as_mut_ptr()) };
+    if created != 0 {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: pipe2 just returned these two descriptors and nothing else owns them.
-    Ok(unsafe {
+    // SAFETY: the pipe call just returned these two descriptors and nothing else owns them.
+    let ends = unsafe {
         (
             std::os::fd::OwnedFd::from_raw_fd(fds[0]),
             std::os::fd::OwnedFd::from_raw_fd(fds[1]),
         )
-    })
+    };
+    // Without pipe2 the flags are set after creation; a child spawned by another thread in between can inherit the
+    // wake pipe, which only keeps it open (std accepts the same window for its own descriptors on these systems).
+    #[cfg(not(target_os = "linux"))]
+    for end in [&ends.0, &ends.1] {
+        set_cloexec_nonblocking(end)?;
+    }
+    Ok(ends)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_cloexec_nonblocking(fd: &std::os::fd::OwnedFd) -> io::Result<()> {
+    let raw = fd.as_raw_fd();
+    // SAFETY: fcntl on an open descriptor this process owns; F_GETFL/F_SETFL/F_SETFD take integer arguments.
+    unsafe {
+        let flags = libc::fcntl(raw, libc::F_GETFL);
+        if flags < 0
+            || libc::fcntl(raw, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0
+            || libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC) < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 fn write_byte(fd: &std::os::fd::OwnedFd) -> io::Result<()> {
@@ -569,6 +597,21 @@ mod tests {
         );
         let relative = remove_stale_socket(std::path::Path::new("control.sock")).unwrap_err();
         assert_eq!(relative.to_string(), "control socket path must be absolute");
+    }
+
+    #[test]
+    fn a_socket_path_over_the_system_limit_is_refused_with_its_length() {
+        let dir = private_dir();
+        let mut name = String::from("c");
+        while dir.path().join(&name).as_os_str().len() <= capstan_wire::socket_path_limit() {
+            name.push('x');
+        }
+        let error = bind(&dir.path().join(&name)).unwrap_err();
+        assert!(
+            error.to_string().starts_with("control socket path is "),
+            "{error}"
+        );
+        assert!(!dir.path().join(&name).exists());
     }
 
     #[test]

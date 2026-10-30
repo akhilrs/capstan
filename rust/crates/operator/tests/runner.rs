@@ -33,10 +33,7 @@ fn options(directory: &Path, command: &str) -> RunOptions {
 }
 
 fn running(pid: u32) -> bool {
-    // A zombie waiting for its parent is not running.
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .map(|stat| !stat.contains(") Z "))
-        .unwrap_or(false)
+    capstan_testkit::is_running(pid as i32)
 }
 
 /// Waits (bounded) for the process to end; the bound is a deadline for a failing run, not a pause in a passing one.
@@ -648,9 +645,7 @@ impl Drop for Stray {
 }
 
 fn start_time(pid: i64) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    let rest = &stat[stat.rfind(')')? + 2..];
-    rest.split(' ').nth(19).map(str::to_string)
+    capstan_process::start_time(pid)
 }
 
 #[test]

@@ -411,16 +411,20 @@ fn resolve_collection(
             other => path.push(other),
         }
     }
-    let root = fs::canonicalize(project_root).unwrap_or_else(|_| {
-        project_root
-            .components()
-            .filter(|part| !matches!(part, std::path::Component::CurDir))
-            .collect()
-    });
-    if path.starts_with(&root) {
+    let written: PathBuf = project_root
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir))
+        .collect();
+    // The value is compared by name, so the project is compared both as written and resolved: one directory can be named
+    // through a symlink (`/tmp/...` and `/private/tmp/...` on macOS).
+    let roots = [
+        fs::canonicalize(project_root).unwrap_or_else(|_| written.clone()),
+        written,
+    ];
+    if roots.iter().any(|root| path.starts_with(root)) {
         return invalid(format!("{at} must be outside the project"));
     }
-    if root.starts_with(&path) {
+    if roots.iter().any(|root| root.starts_with(&path)) {
         return invalid(format!("{at} must not contain the project"));
     }
     if !path.exists() {

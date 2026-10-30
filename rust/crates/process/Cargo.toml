@@ -1,0 +1,15 @@
+[package]
+name = "capstan-process"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Facts about other processes, read from the operating system: start time, pids, environment, working directory"
+license = "MIT"
+publish = false
+
+[lib]
+name = "capstan_process"
+path = "src/lib.rs"
+
+[dependencies]
+libc = "=0.2.190"

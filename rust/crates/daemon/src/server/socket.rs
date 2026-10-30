@@ -54,6 +54,7 @@ pub struct SocketIdentity {
 
 /// Binds the listening socket with mode 0600 (the umask is 0077 while it is created, and the mode is set again after).
 pub fn bind(socket_path: &Path) -> io::Result<(UnixListener, SocketIdentity)> {
+    capstan_wire::check_socket_path(socket_path).map_err(io::Error::other)?;
     // SAFETY: umask has no preconditions; the previous mask is restored below.
     let previous = unsafe { libc::umask(0o077) };
     let bound = UnixListener::bind(socket_path);

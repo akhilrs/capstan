@@ -43,11 +43,11 @@ pub fn open_daemon_log(path: &Path) -> Result<File, String> {
 
 fn io_text(operation: &str, path: &Path, error: &std::io::Error) -> String {
     let code = match error.raw_os_error() {
-        Some(2) => "ENOENT",
-        Some(13) => "EACCES",
-        Some(20) => "ENOTDIR",
-        Some(40) => "ELOOP",
-        Some(21) => "EISDIR",
+        Some(libc::ENOENT) => "ENOENT",
+        Some(libc::EACCES) => "EACCES",
+        Some(libc::ENOTDIR) => "ENOTDIR",
+        Some(libc::ELOOP) => "ELOOP",
+        Some(libc::EISDIR) => "EISDIR",
         _ => return error.to_string(),
     };
     format!("{code}: {operation} '{}'", path.display())

@@ -43,16 +43,16 @@ pub struct Started {
 
 fn errno_name(error: &std::io::Error) -> Option<&'static str> {
     Some(match error.raw_os_error()? {
-        1 => "EPERM",
-        2 => "ENOENT",
-        7 => "E2BIG",
-        8 => "ENOEXEC",
-        12 => "ENOMEM",
-        13 => "EACCES",
-        20 => "ENOTDIR",
-        26 => "ETXTBSY",
-        36 => "ENAMETOOLONG",
-        40 => "ELOOP",
+        libc::EPERM => "EPERM",
+        libc::ENOENT => "ENOENT",
+        libc::E2BIG => "E2BIG",
+        libc::ENOEXEC => "ENOEXEC",
+        libc::ENOMEM => "ENOMEM",
+        libc::EACCES => "EACCES",
+        libc::ENOTDIR => "ENOTDIR",
+        libc::ETXTBSY => "ETXTBSY",
+        libc::ENAMETOOLONG => "ENAMETOOLONG",
+        libc::ELOOP => "ELOOP",
         _ => return None,
     })
 }
@@ -99,6 +99,9 @@ fn sleep_ms(ms: u64) {
 /// The daemon of the project, started if it does not answer: `{pid, started}`.
 pub fn ensure_daemon(options: &EnsureOptions) -> Result<Started, ClientError> {
     let socket = options.socket_path.as_path();
+    if let Err(message) = capstan_wire::check_socket_path(socket) {
+        return Err(unavailable_reason(Reason::StartFailed, message).into());
+    }
     let ping = || ping_daemon(socket, &options.credential, DEFAULT_TIMEOUT_MS);
     let first = ping();
     if let PingOutcome::Running { pid } = first {

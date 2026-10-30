@@ -45,8 +45,8 @@ fn git(dir: &Path, args: &[&str]) {
 
 /// `cache` is the text after the keys of `[cache]` (`None` leaves the section out).
 fn project(label: &str, cache: Option<&str>) -> Project {
-    let base =
-        std::env::temp_dir().join(format!("capstan-cachecmd-{label}-{}", std::process::id()));
+    let base = capstan_testkit::short_temp_root()
+        .join(format!("capstan-cachecmd-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let root = base.join("proj");
     let cache_dir = base.join("cache");

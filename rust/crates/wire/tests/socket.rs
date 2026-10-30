@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use capstan_wire::{call, AfterSend, Timeout, WireError, MAX_RESPONSE_BYTES};
+use capstan_wire::{
+    call, check_socket_path, socket_path_limit, AfterSend, Timeout, WireError, MAX_RESPONSE_BYTES,
+};
 
 fn socket_path(name: &str) -> (tempfile_dir::Dir, PathBuf) {
     let dir = tempfile_dir::Dir::new(name);
@@ -90,6 +92,34 @@ fn a_missing_or_dead_socket_was_not_sent() {
     let error = call(&path, FRAME, Timeout::Idle(Duration::from_secs(1))).unwrap_err();
     assert!(
         matches!(&error, WireError::NotSent { kind: std::io::ErrorKind::ConnectionRefused, code } if code == "ECONNREFUSED"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_socket_path_over_the_system_limit_is_named_and_not_sent() {
+    let (dir, _) = socket_path("long");
+    let base = dir.path().join("s");
+    let fill = |length: usize| {
+        let mut path = base.clone().into_os_string();
+        path.push("x".repeat(length - base.as_os_str().len()));
+        PathBuf::from(path)
+    };
+    let limit = socket_path_limit();
+    assert!(check_socket_path(&fill(limit)).is_ok());
+    let long = fill(limit + 1);
+    let message = check_socket_path(&long).unwrap_err();
+    assert!(
+        message.starts_with(&format!(
+            "control socket path is {} bytes, longer than the {limit}-byte limit of this system: ",
+            limit + 1
+        )),
+        "{message}"
+    );
+    assert!(message.contains(&long.display().to_string()), "{message}");
+    let error = call(&long, FRAME, Timeout::Idle(Duration::from_secs(1))).unwrap_err();
+    assert!(
+        matches!(&error, WireError::NotSent { kind: std::io::ErrorKind::InvalidInput, code } if code == "ENAMETOOLONG"),
         "{error:?}"
     );
 }

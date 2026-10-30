@@ -114,7 +114,7 @@ fn after_kill_9_the_next_command_restarts_the_daemon_and_nothing_is_duplicated()
     // SAFETY: the pid is the daemon the start command above started for this scratch project.
     unsafe { libc_kill(new_pid, 9) };
     until("the second daemon to die", 10, || {
-        (!std::path::Path::new(&format!("/proc/{new_pid}")).exists()).then_some(())
+        (!capstan_testkit::is_running(new_pid)).then_some(())
     });
     let restarted = w.op(&["start", "--json"]).ok().json();
     assert_eq!(restarted["started"], true);

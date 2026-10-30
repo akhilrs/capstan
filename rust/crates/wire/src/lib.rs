@@ -5,7 +5,9 @@ mod response;
 mod transport;
 
 pub use response::{frame, response, FrameError, Response};
-pub use transport::{call, AfterSend, Timeout, WireError};
+pub use transport::{
+    call, check_socket_path, nothing_listens, socket_path_limit, AfterSend, Timeout, WireError,
+};
 
 /// The longest request frame, without its newline.
 pub const MAX_FRAME_BYTES: usize = 65_536;
