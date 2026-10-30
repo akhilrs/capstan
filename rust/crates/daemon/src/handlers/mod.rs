@@ -12,6 +12,8 @@ pub mod agents;
 pub mod cache;
 pub mod cleanup;
 pub mod decide;
+pub mod decide_merge;
+pub mod decide_merge_seams;
 pub mod design;
 pub mod env;
 pub mod feed;
@@ -46,6 +48,9 @@ pub const REQUEST_TIMEOUT_MS: u64 = 5_000;
 pub const MAX_CONNECTIONS: usize = 64;
 pub const DRAIN_FLUSH_MS: u64 = 1_000;
 pub const STUB_STAGE: &str = "Stage 2e";
+/// How long `decide-merge` may run: the three phases of the handler and the margin their sum leaves (the deadline is 5 s
+/// later). The CLI reads it for its own wait.
+pub const DECIDE_MERGE_LIMIT_MS: u64 = 260_000;
 
 // ------------------------------------------------------------------------------------------------ routes
 
@@ -99,7 +104,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 36] = [
+pub const ROUTES: [Route; 37] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -136,11 +141,19 @@ pub const ROUTES: [Route; 36] = [
     route("about", Access::Read, "status"),
     route("feed", Access::Operator, "feed"),
     route("decide", Access::Operator, "decide"),
+    route("decide-merge", Access::Operator, "decide"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 7] = [
-    "cleanup", "cache", "verify", "design", "about", "feed", "decide",
+pub const RUST_ONLY_ROUTES: [&str; 8] = [
+    "cleanup",
+    "cache",
+    "verify",
+    "design",
+    "about",
+    "feed",
+    "decide",
+    "decide-merge",
 ];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
@@ -246,6 +259,7 @@ pub fn command_limit_ms(deps: &Deps, command: &str, identity: &Identity) -> Opti
         | "pm-restart" | "cache" | "verify" => Some(LAUNCHER_LIMIT_MS),
         // A replacement is a release and a spawn, each with its own budget, behind whatever else the launcher runs.
         "replace" => Some(3 * LAUNCHER_LIMIT_MS),
+        "decide-merge" => Some(DECIDE_MERGE_LIMIT_MS),
         _ => None,
     }
 }
@@ -717,8 +731,22 @@ mod tests {
         }
         assert_eq!(
             RUST_ONLY_ROUTES,
-            ["cleanup", "cache", "verify", "design", "about", "feed", "decide"]
+            [
+                "cleanup",
+                "cache",
+                "verify",
+                "design",
+                "about",
+                "feed",
+                "decide",
+                "decide-merge"
+            ]
         );
+        let merge = route_of("decide-merge").expect("the merge route");
+        assert_eq!(merge.access, Access::Operator);
+        assert_eq!(merge.owner, "decide");
+        assert!(merge.stub.is_none());
+        assert_eq!(DECIDE_MERGE_LIMIT_MS, 260_000);
     }
 
     #[test]

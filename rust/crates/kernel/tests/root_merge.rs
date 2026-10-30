@@ -709,6 +709,9 @@ fn a_timeout_at_update_ref_rolls_back_with_the_timeout_reason() {
 
 // ------------------------------------------------------------------------------------------------ the seam source scan
 
+/// The one file outside the tests directories that may call the seam setter: the decide-merge route's repository builder.
+const SEAM_CALLER: &str = "daemon/src/handlers/decide_merge_seams.rs";
+
 /// The 1-based lines of `text` that call the seam setter: the definition and mentions without a call do not count.
 fn seam_call_lines(text: &str) -> Vec<usize> {
     text.lines()
@@ -729,6 +732,23 @@ fn the_scan_matcher_finds_calls_and_not_the_definition() {
         seam_call_lines("pub fn with_merge_seams(mut self, s: MergeSeams) -> Self {").is_empty()
     );
     assert!(seam_call_lines("/// see with_merge_seams for tests").is_empty());
+}
+
+/// The hits of `seam_call_lines` in `file`, none in the one allowed file.
+fn file_hits(file: &Path, text: &str) -> Vec<usize> {
+    if file.ends_with(SEAM_CALLER) {
+        return Vec::new();
+    }
+    seam_call_lines(text)
+}
+
+#[test]
+fn the_allowed_file_may_call_the_setter_and_no_other_may() {
+    let call = "repo = repo.with_merge_seams(m.clone());";
+    let allowed = Path::new("/x/rust/crates/daemon/src/handlers/decide_merge_seams.rs");
+    let other = Path::new("/x/rust/crates/daemon/src/handlers/decide_merge.rs");
+    assert!(file_hits(allowed, call).is_empty());
+    assert_eq!(file_hits(other, call), vec![1]);
 }
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -754,7 +774,7 @@ fn no_source_outside_tests_calls_the_merge_seam_setter() {
     let mut hits = Vec::new();
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap();
-        for line in seam_call_lines(&text) {
+        for line in file_hits(&file, &text) {
             hits.push(format!("{}:{line}", file.display()));
         }
     }

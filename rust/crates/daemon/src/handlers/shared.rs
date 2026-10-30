@@ -77,6 +77,23 @@ pub enum ErrorCode {
     NoActivePm,
     LimitReached,
     Error,
+    MergeUnrecorded,
+    MergeDisabled,
+    InvalidCommit,
+    InvalidBranch,
+    NoIdentity,
+    RunPaused,
+    Busy,
+    NotReviewed,
+    NotVerified,
+    BranchMoved,
+    UnsafeConfig,
+    WrongBranch,
+    DirtyTree,
+    MergeConflict,
+    GitTooOld,
+    MergeFailed,
+    GitUnavailable,
 }
 
 impl ErrorCode {
@@ -105,6 +122,23 @@ impl ErrorCode {
             Self::NeedsTerminal => "needs_terminal",
             Self::NoActivePm => "no_active_pm",
             Self::LimitReached => "limit_reached",
+            Self::MergeUnrecorded => "merge_unrecorded",
+            Self::MergeDisabled => "merge_disabled",
+            Self::InvalidCommit => "invalid_commit",
+            Self::InvalidBranch => "invalid_branch",
+            Self::NoIdentity => "no_identity",
+            Self::RunPaused => "run_paused",
+            Self::Busy => "busy",
+            Self::NotReviewed => "not_reviewed",
+            Self::NotVerified => "not_verified",
+            Self::BranchMoved => "branch_moved",
+            Self::UnsafeConfig => "unsafe_config",
+            Self::WrongBranch => "wrong_branch",
+            Self::DirtyTree => "dirty_tree",
+            Self::MergeConflict => "merge_conflict",
+            Self::GitTooOld => "git_too_old",
+            Self::MergeFailed => "merge_failed",
+            Self::GitUnavailable => "git_unavailable",
             Self::Error => "error",
         }
     }
@@ -136,6 +170,23 @@ impl ErrorCode {
             Self::NoActivePm,
             Self::LimitReached,
             Self::Error,
+            Self::MergeUnrecorded,
+            Self::MergeDisabled,
+            Self::InvalidCommit,
+            Self::InvalidBranch,
+            Self::NoIdentity,
+            Self::RunPaused,
+            Self::Busy,
+            Self::NotReviewed,
+            Self::NotVerified,
+            Self::BranchMoved,
+            Self::UnsafeConfig,
+            Self::WrongBranch,
+            Self::DirtyTree,
+            Self::MergeConflict,
+            Self::GitTooOld,
+            Self::MergeFailed,
+            Self::GitUnavailable,
         ]
         .into_iter()
         .find(|code| code.as_str() == name)
@@ -436,6 +487,10 @@ pub struct CommandState {
     pub observe_limiter: Mutex<ReportRateLimiter>,
     pub finding_limiter: Mutex<ReportRateLimiter>,
     pub waits: Mutex<HashMap<String, WaitEntry>>,
+    /// Held while this daemon merges into the remote branch; per daemon, never a static.
+    pub remote_merge: Mutex<()>,
+    /// The test seams of the decide-merge route; `None` outside tests.
+    pub merge_seams: Mutex<Option<Arc<super::decide_merge_seams::DecideMergeSeams>>>,
 }
 
 /// `OBSERVE_RATE_LIMIT` of src/observe.ts.
@@ -448,6 +503,8 @@ impl Default for CommandState {
             observe_limiter: Mutex::new(ReportRateLimiter::new(OBSERVE_RATE_LIMIT)),
             finding_limiter: Mutex::new(ReportRateLimiter::default()),
             waits: Mutex::new(HashMap::new()),
+            remote_merge: Mutex::new(()),
+            merge_seams: Mutex::new(None),
         }
     }
 }

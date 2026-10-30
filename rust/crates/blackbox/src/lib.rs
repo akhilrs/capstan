@@ -1184,3 +1184,66 @@ fn which(program: &str) -> Option<PathBuf> {
             .find(|c| c.is_file())
     })
 }
+
+// ------------------------------------------------------------------------------------------------ a reviewed integration
+
+/// `step`'s result, once it ends: it must begin before `deadline`, and the wait for it is bounded at 60 s by `until`.
+fn bounded<T>(what: &str, deadline: Instant, step: impl FnOnce() -> T) -> T {
+    assert!(
+        Instant::now() < deadline,
+        "{what}: the helper ran over 5 minutes"
+    );
+    let mut step = Some(step);
+    until(what, 60, || step.take().map(|step| step()))
+}
+
+fn text_field(out: &Out, key: &str) -> String {
+    out.stdout
+        .lines()
+        .find_map(|l| l.strip_prefix(&format!("{key}: ")))
+        .unwrap_or_else(|| panic!("no {key} in {}", out.stdout))
+        .trim()
+        .to_string()
+}
+
+impl World {
+    /// What `landed()` of the cleanup suite does up to the merge, for a remote merge: `dev`'s branch is reported and
+    /// reviewed by `reviewer`, `pm` integrates it and the integration is reviewed too; nothing is merged into main. The
+    /// world needs the `pm`, `dev` and `reviewer` agents (and `[remote] merge = true` for a merge to be allowed). Returns
+    /// (integration id, integration branch, head sha). Each step is bounded at 60 s, the whole at 5 minutes.
+    pub fn with_reviewed_integration(
+        &mut self,
+        pm: &str,
+        dev: &str,
+        reviewer: &str,
+    ) -> (String, String, String) {
+        let deadline = Instant::now() + Duration::from_secs(300);
+        let (commit, _) = bounded("the branch", deadline, || {
+            self.give_branch(dev, "one.txt", "one\n", "feat: one")
+        });
+        let report = bounded("the report", deadline, || {
+            text_field(
+                &self.as_agent(dev, &["report", &commit, "one"]).ok(),
+                "reportId",
+            )
+        });
+        bounded("the review of the report", deadline, || {
+            self.begin_review(pm, &report, "reviewer", reviewer);
+            self.as_agent(reviewer, &["review", "pass", "fine"]).ok();
+        });
+        let integrated = bounded("the integration", deadline, || {
+            self.as_agent(pm, &["integrate", &report]).ok()
+        });
+        let (integration, branch) = (
+            text_field(&integrated, "integrationId"),
+            text_field(&integrated, "branch"),
+        );
+        bounded("the review of the integration", deadline, || {
+            self.begin_review(pm, &integration, "reviewer", reviewer);
+            self.as_agent(reviewer, &["review", "pass", "the merge is fine"])
+                .ok();
+        });
+        let head = self.git(&["rev-parse", &branch]);
+        (integration, branch, head)
+    }
+}

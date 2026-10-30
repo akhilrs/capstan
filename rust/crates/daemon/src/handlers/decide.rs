@@ -8,21 +8,41 @@ use super::shared::{
     fail, map_kernel_error, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode,
 };
 use super::HandlerMap;
-use capstan_kernel::areas::remote_decisions::{self, ERROR_CODES};
+use capstan_config::{Remote, RoleConfig};
+use capstan_kernel::areas::remote_decisions::{
+    self, DecideOptions, Kind, ERROR_CODES, MERGE_ERROR_CODES,
+};
 use capstan_kernel::{KernelError, KernelResult};
 use serde_json::Value;
 
-/// Registers the handler of the route this module serves (decide).
+/// Registers the handlers of the routes this module serves (decide and decide-merge).
 pub fn register(map: &mut HandlerMap) {
     map.insert("decide", decide);
+    map.insert("decide-merge", super::decide_merge::decide_merge);
 }
 
-/// A refusal of the kernel (`code: message`, the code one of `ERROR_CODES`) answers with that code; the other failures map
-/// as everywhere.
-fn refused(error: &KernelError) -> CommandResponse {
+/// The configuration as `capstan.toml` has it now, read with the loader of the daemon's start-up; `Err` is the text of
+/// the failure.
+pub(super) fn fresh_config(env: &CommandEnv<'_>) -> Result<RoleConfig, String> {
+    capstan_config::load_role_config(&env.deps.options.workspace_root).map_err(|e| e.to_string())
+}
+
+/// The options of a decision by `[remote]`: without a section (or without a readable file) the defaults.
+pub(super) fn options_of(remote: Option<&Remote>) -> DecideOptions {
+    match remote {
+        Some(remote) => DecideOptions {
+            messages_per_hour: remote.messages_per_hour,
+        },
+        None => DecideOptions::default(),
+    }
+}
+
+/// A refusal of the kernel (`code: message`, the code one of `ERROR_CODES` or `MERGE_ERROR_CODES`) answers with that
+/// code; the other failures map as everywhere.
+pub(super) fn refused(error: &KernelError) -> CommandResponse {
     if let KernelError::Controller(message) = error {
         if let Some((code, rest)) = message.split_once(':') {
-            if ERROR_CODES.contains(&code) {
+            if ERROR_CODES.contains(&code) || MERGE_ERROR_CODES.contains(&code) {
                 if let Some(code) = ErrorCode::parse(code) {
                     return fail(code, rest.trim());
                 }
@@ -49,10 +69,23 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
             })
         }
     };
+    if input.kind == Kind::Integration && input.verb == "merge" {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            "an integration merge goes through decide-merge",
+        ));
+    }
+    let options = match fresh_config(env) {
+        Ok(config) => options_of(Some(&config.remote)),
+        Err(error) => {
+            env.log("decide_config_failed", serde_json::json!({"error": error}));
+            options_of(None)
+        }
+    };
     let credential = call.credential.to_string();
     Some(answer(env.deps.kernel.run(move |core| {
         let context = crate::deps::new_context(core, &credential)?;
-        core.decide(&context, &input)
+        remote_decisions::decide_with(core, &context, &input, options)
     })))
 }
 
@@ -66,6 +99,31 @@ mod tests {
         for code in ERROR_CODES {
             let parsed = ErrorCode::parse(code).unwrap_or_else(|| panic!("{code} has no code"));
             assert_eq!(parsed.as_str(), *code);
+        }
+    }
+
+    #[test]
+    fn the_options_take_messages_per_hour_from_remote() {
+        let remote = Remote {
+            messages_per_hour: 7,
+            ..Remote::default()
+        };
+        assert_eq!(options_of(Some(&remote)).messages_per_hour, 7);
+        assert_eq!(options_of(Some(&Remote::default())).messages_per_hour, 30);
+        assert_eq!(options_of(None).messages_per_hour, 30);
+    }
+
+    #[test]
+    fn every_merge_code_parses_and_round_trips() {
+        for code in MERGE_ERROR_CODES {
+            let parsed = ErrorCode::parse(code).unwrap_or_else(|| panic!("{code} has no code"));
+            assert_eq!(parsed.as_str(), *code);
+            let error: KernelError = remote_decisions::Refusal {
+                code,
+                message: "text".into(),
+            }
+            .into();
+            assert_eq!(refused(&error), fail(parsed, "text"));
         }
     }
 

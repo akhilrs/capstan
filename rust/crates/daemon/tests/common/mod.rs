@@ -3,6 +3,7 @@
 //! is read (the packed format 2 of test/daemon-transcript-export.ts), the scratch project and repository a scenario runs
 //! in, the daemon process helper, the ledger's table dumps and the replay engine.
 
+pub mod merge;
 pub mod process;
 pub mod project;
 pub mod replay;

@@ -443,7 +443,11 @@ impl Cli<'_> {
     /// reads the agent environment and never starts a daemon.
     fn decide(&mut self, args: &[String]) -> Result<Flow, Fail> {
         let plan = decide::plan(args).ok_or(Fail::Usage)?;
-        let reply = decide::run(&plan, &controllers::processes(), decide::TIMEOUT_MS);
+        let reply = decide::run(
+            &plan,
+            &controllers::processes(),
+            decide::route_of(&plan.argv).1,
+        );
         self.io.out.extend_from_slice(reply.stdout.as_bytes());
         self.io.err.extend_from_slice(reply.stderr.as_bytes());
         Ok(Flow::Code(reply.exit))

@@ -119,3 +119,47 @@ The controller records an agent lost in two ways. The first is a pane that is go
 ## Deciding remotely
 
 `cstan decide` (see [commands](commands.md)) lets the operator decide on a waiting item of a local project from any folder, with the operator key and without `CAPSTAN_SOCKET` or `CAPSTAN_TOKEN`. A remote decision is limited to what the operator may do at the terminal: denying a proposal, answering a design or a message, and pausing or resuming are applied, but an approval and the answer to a prompt are only forwarded to the PM as a message with the command to run, and a text answer or a session or window grant needs the terminal. The `--nonce` makes a retry safe: the same nonce again returns the first answer with `repeat` true and changes nothing.
+
+## Remote merge
+
+`cstan decide --project <root|projectId> integration:<id> --expect <hash> --nonce <n> merge` merges a reviewed integration into the project's own branch from any folder, with the operator key. The controller makes the merge itself (a merge commit with the project's branch tip and the integration head as its parents), records the decision and confirms the integration; the PM gets one message, and the branch cleanup follows the project's settings. The command waits up to 300 seconds (the route may take 265), and a call that times out is safe to repeat with the same nonce.
+
+**Opt in.** A remote merge is off until `capstan.toml` says so:
+
+```toml
+[remote]
+merge = true
+```
+
+Setting `merge = false` (the kill switch) stops every new merge at once, with the daemon running: the answer is `merge_disabled`. A nonce that was already used still repeats its stored answer with `merge = false`; that is a read and changes nothing.
+
+**Gates.** All of them must pass, and a refusal changes nothing in the repository. Besides the refusals every decision has (`not_waiting`, `hash_mismatch`, `nonce_reused`, `invalid_request`), the codes are:
+
+| Code | Meaning |
+| --- | --- |
+| `merge_disabled` | `[remote] merge` is not `true`. |
+| `invalid_commit`, `invalid_branch` | The integration head or branch name is not valid. |
+| `no_identity` | The repository has no local `user.name` or `user.email`; the merge commit needs a committer. |
+| `run_paused` | The run is paused. |
+| `busy` | An integration or another remote merge is running. |
+| `not_reviewed` | The latest review of the integration has not passed. |
+| `not_verified` | No passed verify run at the integration head under the current `[verify]` commands. |
+| `branch_moved` | The integration branch is no longer at the head that was reviewed. |
+| `unsafe_config` | The repository's git configuration could run code during the merge (for example a `filter.lfs.smudge`). |
+| `wrong_branch` | The checkout is detached or not on the branch the merge goes into. |
+| `dirty_tree` | Tracked files have changes, a merge is in progress, or an untracked file is in the way of the merge. |
+| `merge_conflict` | The integration does not merge cleanly; the files are listed. |
+| `git_too_old` | git is older than the merge needs. |
+| `git_unavailable` | git could not be run. |
+| `merge_failed` | The merge failed after it began; the message says whether the checkout was restored. |
+| `merge_unrecorded` | The merge was made but its decision could not be recorded. |
+
+Hooks and `core.fsmonitor` of the repository are switched off for the merge, not refused.
+
+**Retry after `merge_unrecorded`.** Send the same call again with the same nonce: it records the decision and confirms the integration. A merge that changes `capstan.toml` (it turns `[remote] merge` off, or changes the `[verify]` commands) can make that retry refuse, because the gates read the file as it is now. Then check `git log` for the merge commit and confirm by hand: `cstan integrate confirm <integrationId>` as the PM.
+
+**An interrupted merge.** The controller writes the marker `.git/capstan-remote-merge` while it changes the checkout and removes it when the merge ends. If the daemon stopped in between, the marker stays and the next remote merge answers `merge_failed` with `interrupted`; the merge is reported and never aborted for you. No remote merge runs until you check `git status` and delete the marker. A marker for an integration head that is recorded later is removed by the retry that records it.
+
+**After the merge.** The branch cleanup and the PM message run after the answer. A cleanup lost to a daemon stop is redone with `cstan cleanup`.
+
+**Undo.** A remote merge is an ordinary merge commit: undo it with `git revert -m 1 <merge commit>` like any other.
