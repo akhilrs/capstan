@@ -263,7 +263,13 @@ final class WorkspacesTests: XCTestCase {
         let control = ProjectPauseControl(decide: true, busy: false, runPaused: paused)
         XCTAssertEqual(control.action, .resume)
         XCTAssertEqual(control.status, ProjectPauseControl.pausedWord)
-        XCTAssertEqual(RequestTarget.forRun(after)?.requestId, "run")
+        // The event drops the stale hash: no request target until the re-read brings the new one.
+        XCTAssertNil(RequestTarget.forRun(after))
+        var readLines: [String] = Self.feedStart
+        readLines.append(Self.runChanged("paused", true, seq: 27))
+        readLines.append(contentsOf: Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        let read = try feedModel(readLines)
+        XCTAssertEqual(RequestTarget.forRun(read)?.requestId, "run")
     }
 
     func testResumeArrivingThroughTheFeedTurnsTheControlBackToPause() throws {
