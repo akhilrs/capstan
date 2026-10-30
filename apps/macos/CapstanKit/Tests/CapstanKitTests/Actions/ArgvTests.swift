@@ -12,28 +12,44 @@ final class ArgvTests: XCTestCase {
     }
 
     func testExactArgsForEveryVerb() throws {
-        XCTAssertEqual(try args(.opDeny(note: nil)), head + tail("op:p1") + ["op", "deny"])
-        XCTAssertEqual(try args(.opDeny(note: "too risky")), head + tail("op:p1") + ["op", "deny", "too risky"])
-        XCTAssertEqual(try args(.opApprove), head + tail("op:p1") + ["op", "approve"])
-        XCTAssertEqual(try args(.promptOption(2), id: "prompt:r"), head + tail("prompt:r") + ["prompt", "option", "2"])
-        XCTAssertEqual(try args(.promptEsc, id: "prompt:r"), head + tail("prompt:r") + ["prompt", "esc"])
+        XCTAssertEqual(try args(.opDeny(note: nil)), head + tail("op:p1") + ["deny"])
+        XCTAssertEqual(try args(.opDeny(note: "too risky")), head + tail("op:p1") + ["deny", "too risky"])
+        XCTAssertEqual(try args(.opApprove), head + tail("op:p1") + ["approve"])
+        XCTAssertEqual(try args(.promptOption(1), id: "prompt:r"), head + tail("prompt:r") + ["option", "1"])
+        XCTAssertEqual(try args(.promptEsc, id: "prompt:r"), head + tail("prompt:r") + ["esc"])
         XCTAssertEqual(
             try args(.designApprove(link: "https://x/y", askedUser: "yes"), id: "design:d"),
-            head + tail("design:d") + ["design", "approve", "--link", "https://x/y", "--asked-user", "yes"])
+            head + tail("design:d") + ["approve", "--link", "https://x/y", "--asked-user", "yes"])
         XCTAssertEqual(
             try args(.designChanges(askedUser: "no", link: nil), id: "design:d"),
-            head + tail("design:d") + ["design", "changes", "--asked-user", "no"])
+            head + tail("design:d") + ["changes", "--asked-user", "no"])
         XCTAssertEqual(
             try args(.designChanges(askedUser: "no", link: "/a/b"), id: "design:d"),
-            head + tail("design:d") + ["design", "changes", "--asked-user", "no", "--link", "/a/b"])
-        XCTAssertEqual(try args(.messageReply("ok"), id: "message:m"), head + tail("message:m") + ["message", "reply", "ok"])
-        XCTAssertEqual(try args(.agentPause(reason: nil), id: "agent:a"), head + tail("agent:a") + ["agent", "pause"])
+            head + tail("design:d") + ["changes", "--asked-user", "no", "--link", "/a/b"])
+        XCTAssertEqual(try args(.messageReply("ok"), id: "message:m"), head + tail("message:m") + ["reply", "ok"])
+        XCTAssertEqual(try args(.agentPause(reason: nil), id: "agent:a"), head + tail("agent:a") + ["pause"])
         XCTAssertEqual(
             try args(.agentResume(reason: "go"), id: "agent:a"),
-            head + tail("agent:a") + ["agent", "resume", "--reason", "go"])
-        XCTAssertEqual(try args(.runPause(reason: nil), id: "run"), head + tail("run") + ["run", "pause"])
+            head + tail("agent:a") + ["resume", "--reason", "go"])
+        XCTAssertEqual(try args(.runPause(reason: nil), id: "run"), head + tail("run") + ["pause"])
         XCTAssertEqual(
-            try args(.runResume(reason: "go"), id: "run"), head + tail("run") + ["run", "resume", "--reason", "go"])
+            try args(.runResume(reason: "go"), id: "run"), head + tail("run") + ["resume", "--reason", "go"])
+    }
+
+    func testProjectPauseAndResumeSendTheRunRequestOverSsh() throws {
+        let run = makeRequest(verb: .runPause(reason: nil), requestId: "run")
+        XCTAssertEqual(
+            try run.remoteArguments(),
+            ["decide", "--project", "proj-1", "--json", "run", "--expect", testHash, "--nonce", testNonce,
+             "--client", "Mac", "pause"])
+        let ssh = try run.sshArguments(makeConfig())
+        XCTAssertEqual(
+            try ShParser.split(try XCTUnwrap(ssh.last)),
+            ["cstan", "decide", "--project", "proj-1", "--json", "run", "--expect", testHash, "--nonce", testNonce,
+             "--client", "Mac", "pause"])
+        XCTAssertEqual(
+            try makeRequest(verb: .runResume(reason: nil), requestId: "run").remoteArguments().suffix(2),
+            ["resume"])
     }
 
     func testEveryWordRoundTripsTheShellParser() throws {
@@ -125,10 +141,10 @@ final class ArgvTests: XCTestCase {
     }
 
     func testBlankOptionalTextMeansNone() throws {
-        XCTAssertEqual(try args(.opDeny(note: "")), head + tail("op:p1") + ["op", "deny"])
-        XCTAssertEqual(try args(.opDeny(note: " \n\t ")), head + tail("op:p1") + ["op", "deny"])
-        XCTAssertEqual(try args(.runPause(reason: "  "), id: "run"), head + tail("run") + ["run", "pause"])
-        XCTAssertEqual(try args(.agentResume(reason: ""), id: "agent:a"), head + tail("agent:a") + ["agent", "resume"])
+        XCTAssertEqual(try args(.opDeny(note: "")), head + tail("op:p1") + ["deny"])
+        XCTAssertEqual(try args(.opDeny(note: " \n\t ")), head + tail("op:p1") + ["deny"])
+        XCTAssertEqual(try args(.runPause(reason: "  "), id: "run"), head + tail("run") + ["pause"])
+        XCTAssertEqual(try args(.agentResume(reason: ""), id: "agent:a"), head + tail("agent:a") + ["resume"])
         XCTAssertThrowsError(try args(.messageReply(" "), id: "message:m"))
     }
 }
