@@ -528,6 +528,8 @@ pub struct RoleConfig {
     pub cleanup: Cleanup,
     /// The `[remote]` section; the default (merge and push off) when it is absent.
     pub remote: crate::remote::Remote,
+    /// The `[impact]` section; the default (first path component, no migrations, no steps) when it is absent.
+    pub impact: crate::impact::ImpactConfig,
     /// The `[cache]` section; `None` when it is absent.
     pub cache: Option<crate::cache::CacheConfig>,
     /// The `[verify]` section; `None` when it is absent.

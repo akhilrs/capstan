@@ -1,0 +1,32 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "integration:1",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "result": "passed",
+    "runId": "<id:2>"
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "verify_run"
+  },
+  "from": "running",
+  "id": "prustonly:daeca3b2245f3519:31",
+  "k": 0,
+  "seq": 31,
+  "to": "passed",
+  "ts": "<ts>",
+  "type": "verify.result"
+}

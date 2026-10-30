@@ -67,7 +67,7 @@ pub fn parse_config_with_home(
 }
 
 fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Result<RoleConfig> {
-    // `cleanup`, `remote`, `cache`, `verify`, `review` and `design` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
+    // `cleanup`, `remote`, `impact`, `cache`, `verify`, `review` and `design` are accepted but kept out of the list the refusal prints, which the frozen corpus pins.
     let known = Table::from_members(
         root.entries()
             .filter(|(key, _)| !UNPRINTED_TOP_LEVEL_KEYS.contains(key))
@@ -282,6 +282,8 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
     let cleanup = resolve_cleanup(optional_table(root.get("cleanup"), "cleanup")?)?;
     let remote = crate::remote::resolve_remote(optional_table(root.get("remote"), "remote")?)?;
 
+    let impact = crate::impact::resolve_impact(optional_table(root.get("impact"), "impact")?)?;
+
     let env_table = optional_table(root.get("env"), "env")?;
     reject_unknown_keys(env_table, ENV_KEYS, "env")?;
     let env_pass = passed_environment_names(env_table.get("pass"))?;
@@ -375,6 +377,7 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
         worktree,
         cleanup,
         remote,
+        impact,
         cache,
         verify,
         design,

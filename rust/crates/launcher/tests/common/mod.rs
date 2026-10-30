@@ -455,6 +455,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             ..Cleanup::default()
         },
         remote: capstan_config::Remote::default(),
+        impact: Default::default(),
         cache: None,
         verify: None,
         design: capstan_config::Design::default(),

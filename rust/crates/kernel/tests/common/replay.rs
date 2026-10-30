@@ -225,6 +225,10 @@ pub fn dump_tables(file: &Path) -> Value {
         .collect();
     let mut out = Map::new();
     for name in names {
+        // Rust-only table, absent from the Node recordings.
+        if name == "integration_details" {
+            continue;
+        }
         let columns: Vec<String> = conn
             .prepare(&format!("PRAGMA table_info({name})"))
             .unwrap()

@@ -10,6 +10,12 @@
       },
       {
         "fields": {},
+        "key": "integration:1",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
         "key": "integration",
         "op": "invalidate",
         "section": "waiting"

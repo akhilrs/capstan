@@ -12,21 +12,37 @@ final class ReducerTests: XCTestCase {
         return harness
     }
 
-    func testDocExamplesGiveOneMessagesGroupAWorkingAgentAndAPlanAtZeroOfThree() throws {
+    /// The item at `index` of the page example of the protocol document that holds `marker`, as JSON text.
+    private func docItemAt(_ marker: String, _ index: Int) throws -> String {
+        let block = try XCTUnwrap(ProtocolDoc.jsonBlocks().first { $0.text.contains(marker) }, marker)
+        let page = try decodeJSON(Data(block.text.utf8))
+        let item = try XCTUnwrap(page["items"]?[index])
+        return String(decoding: try JSONEncoder().encode(item), as: UTF8.self)
+    }
+
+    func testDocExamplesGiveOneMessagesGroupAnIntegrationAWorkingAgentAndAPlanAtZeroOfThree() throws {
         var harness = ReducerHarness()
         harness.apply(try docStreamStart())
         harness.apply(
             try StoreWire.snapshot("proj-a", "waiting", key: "message:3", item: try docItem("\"requestId\":\"message:msg-1\"")),
+            try StoreWire.snapshot(
+                "proj-a", "waiting", key: "integration:7", item: try docItemAt("\"requestId\":\"message:msg-1\"", 1)),
             try StoreWire.snapshot("proj-a", "agents", key: "dev-1", item: try docItem("\"requestId\":\"agent:dev-1\"")),
             try StoreWire.snapshot("proj-a", "plans", key: "1", item: try docItem("\"planId\":\"plan-1\"")))
         XCTAssertEqual(inbox([harness.host]), [], "nothing is visible before snapshotEnd")
         harness.apply(try StoreWire.end("proj-a"))
 
         let groups = inbox([harness.host])
-        XCTAssertEqual(groups.count, 1)
-        XCTAssertEqual(groups.first?.title, "Messages")
-        XCTAssertEqual(groups.first?.count, 1)
+        XCTAssertEqual(groups.map { $0.title }, ["Messages", "Ready to merge"])
+        XCTAssertEqual(groups.map { $0.count }, [1, 1])
         XCTAssertEqual(groups.first?.rows.first?.projectName, "alpha")
+        let integration = try XCTUnwrap(harness.alpha?.waiting["integration:7"])
+        XCTAssertEqual(integration.integrationState, "merged")
+        XCTAssertEqual(integration.branch?.raw, "integration/plan-3")
+        XCTAssertEqual(integration.integrationDetails?.recorded, true)
+        XCTAssertEqual(integration.integrationDetails?.plans.first?.planId, "plan-3")
+        XCTAssertEqual(integration.integrationDetails?.review?.verdict, "passed")
+        XCTAssertNil(harness.alpha?.waiting["message:3"]?.integrationDetails)
         let project = try XCTUnwrap(harness.alpha)
         let agent = try XCTUnwrap(project.agents["dev-1"])
         // The doc's agent example carries activity "working" and no task.

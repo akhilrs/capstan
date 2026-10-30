@@ -681,6 +681,11 @@ impl Core {
         integrations::integration_commit_info(&self.kernel, integration_id)
     }
 
+    /// The details recorded when the integration was merged (`details-feed`); `None` when none were.
+    pub fn integration_details(&self, integration_id: &str) -> KernelResult<Option<Value>> {
+        integrations::integration_details(&self.kernel, integration_id)
+    }
+
     /// `ControllerCore.plannedCommitInfo`.
     pub fn planned_commit_info(&self, report_ids: &Value) -> KernelResult<Value> {
         integrations::planned_commit_info(&self.kernel, report_ids)

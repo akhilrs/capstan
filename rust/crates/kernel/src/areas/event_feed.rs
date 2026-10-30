@@ -43,6 +43,11 @@
 //! `invalidate`, which asks the client to re-read the item (`snapshot_item`), so an effect never claims a mutable value.
 //! An `invalidate` whose key is a bare kind name (`design`) asks for every item of that kind (`kind_key`).
 //!
+//! `review.verdict`, `verify.result` and `plan.signed_off` also invalidate the waiting item of the integration they name
+//! (the review's `subject_integration_id`, the run's `subject_integration_id`, the sign-off's `integrationId`) while that
+//! integration is `merged` or `conflicted`: the item's `integrationDetails` show these results and are not covered by its
+//! `contentHash`. Each integration is read once by primary key (sequence and state); a report's review or run names none.
+//!
 //! The keys are built by [`item_key`] from [`KEY_KINDS`]; the snapshot code uses the same function.
 
 use super::feed_cursor;
@@ -834,9 +839,9 @@ fn load_integration(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
     let project = ctx.project_id.clone();
     ctx.lookup(
         format!("integration:{id}"),
-        "SELECT sequence FROM integrations WHERE project_id = ? AND integration_id = ?",
+        "SELECT sequence, state FROM integrations WHERE project_id = ? AND integration_id = ?",
         sql_params![project, id],
-        &["sequence"],
+        &["sequence", "state"],
     )
 }
 
@@ -844,10 +849,44 @@ fn load_review(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
     let project = ctx.project_id.clone();
     ctx.lookup(
         format!("review:{id}"),
-        "SELECT subject_plan_id FROM reviews WHERE project_id = ? AND review_id = ?",
+        "SELECT subject_plan_id, subject_integration_id FROM reviews WHERE project_id = ? AND review_id = ?",
         sql_params![project, id],
-        &["planId"],
+        &["planId", "integrationId"],
     )
+}
+
+fn load_verify_run(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
+    let project = ctx.project_id.clone();
+    ctx.lookup(
+        format!("verify_run:{id}"),
+        "SELECT subject_integration_id FROM verify_runs WHERE project_id = ? AND run_id = ?",
+        sql_params![project, id],
+        &["integrationId"],
+    )
+}
+
+/// The invalidate of the waiting item of an integration, when it still waits (`merged` or `conflicted`): its details
+/// (the review, verify results and sign-offs) changed and a client re-reads the item whatever its content hash says.
+fn integration_item_effect(ctx: &mut Ctx<'_>, integration_id: &str) -> Step<Option<Value>> {
+    let Some(integration) = load_integration(ctx, integration_id)? else {
+        return Ok(None);
+    };
+    if !matches!(
+        text_of(&integration, "state"),
+        Some("merged" | "conflicted")
+    ) {
+        return Ok(None);
+    }
+    Ok(Some(effect(
+        "waiting",
+        "invalidate",
+        item_key(
+            "waiting",
+            "integration",
+            &num_text(&integration, "sequence"),
+        ),
+        json!({}),
+    )))
 }
 
 /// The `payload_json` of the first row of the entity that has no from-state (the row that created it), parsed; the hashes
@@ -1331,6 +1370,17 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     json!({}),
                 ));
             }
+            if draft.ty == "plan.signed_off" {
+                // The sign-off is one of the details of the integration's item.
+                if let Some(integration_id) = row
+                    .details
+                    .get("integrationId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                {
+                    list.extend(integration_item_effect(ctx, &integration_id)?);
+                }
+            }
             if draft.ty == "plan.signed_off" || row.action == "plan.cancel" {
                 // A sign-off or a cancelled plan supersedes the integrations of that plan that wait.
                 list.push(effect(
@@ -1365,8 +1415,13 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                     "findings"
                 }),
             );
-            let plan_id = load_review(ctx, &row.entity_id)?
-                .and_then(|review| text_of(&review, "planId").map(str::to_string));
+            let review = load_review(ctx, &row.entity_id)?;
+            let plan_id = review
+                .as_ref()
+                .and_then(|review| text_of(review, "planId").map(str::to_string));
+            let integration_id = review
+                .as_ref()
+                .and_then(|review| text_of(review, "integrationId").map(str::to_string));
             let mut list = match plan_id {
                 Some(plan_id) => match load_plan(ctx, &plan_id)? {
                     Some(plan) => vec![effect(
@@ -1379,6 +1434,9 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 },
                 None => Vec::new(),
             };
+            if let Some(integration_id) = integration_id {
+                list.extend(integration_item_effect(ctx, &integration_id)?);
+            }
             if row.to.as_deref() == Some("passed") {
                 // A passed plan review approves the plan, which retires the plan it supersedes (no row of its own).
                 list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
@@ -1395,7 +1453,16 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
         "verify.result" => {
             body.insert("runId".into(), json!(row.entity_id));
             body.insert("result".into(), json!(row.to));
-            effects = vec![notices_effect()];
+            let integration_id = load_verify_run(ctx, &row.entity_id)?
+                .and_then(|run| text_of(&run, "integrationId").map(str::to_string));
+            let mut list = match integration_id {
+                Some(integration_id) => integration_item_effect(ctx, &integration_id)?
+                    .into_iter()
+                    .collect(),
+                None => Vec::new(),
+            };
+            list.push(notices_effect());
+            effects = list;
         }
         "finding.raised" | "finding.resolved" => {
             body.insert("findingId".into(), json!(row.entity_id));

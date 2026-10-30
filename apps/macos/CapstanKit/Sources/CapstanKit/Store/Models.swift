@@ -115,12 +115,15 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
     public var integrationState: String?
     public var branch: UntrustedText?
     public var headSha: String?
+    /// Saved files from before the host sent the details decode them as nil.
+    public var integrationDetails: IntegrationDetails?
 
     public init(
         key: String, requestId: String, kind: WaitingKind, since: String, summary: UntrustedText,
         contentHash: String, needsTerminal: Bool, integrationState: String? = nil, branch: UntrustedText? = nil,
-        headSha: String? = nil
+        headSha: String? = nil, integrationDetails: IntegrationDetails? = nil
     ) {
+        self.integrationDetails = integrationDetails
         self.integrationState = integrationState
         self.branch = branch
         self.headSha = headSha
@@ -137,7 +140,7 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
         self.init(
             key: item.key, requestId: item.requestId, kind: item.kind, since: item.since, summary: item.summary,
             contentHash: item.contentHash, needsTerminal: item.needsTerminal, integrationState: item.integrationState,
-            branch: item.branch, headSha: item.headSha)
+            branch: item.branch, headSha: item.headSha, integrationDetails: item.integrationDetails)
     }
 
     var json: JSONValue {
@@ -149,6 +152,79 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
         if let integrationState { members["integrationState"] = .string(integrationState) }
         if let branch { members["branch"] = .string(branch.raw) }
         if let headSha { members["headSha"] = .string(headSha) }
+        if let integrationDetails { members["integrationDetails"] = integrationDetails.json }
+        return .object(members)
+    }
+}
+
+/// A text member with its flags beside it, as the host writes it.
+private func flagged(_ key: String, _ text: UntrustedText, _ extra: [String: JSONValue] = [:]) -> JSONValue {
+    var members = extra
+    members[key] = .string(text.raw)
+    members["textVerified"] = .bool(text.verified)
+    members["truncated"] = .bool(text.truncated)
+    return .object(members)
+}
+
+extension IntegrationDetails {
+    /// The wire form, so a stored item read back through `WaitingItem(json:)` keeps its details and their flags.
+    var json: JSONValue {
+        if !recorded { return .object(["recorded": .bool(false)]) }
+        let planList: [JSONValue] = plans.map { flagged("title", $0.title, ["planId": .string($0.planId)]) }
+        let reportList: [JSONValue] = reports.map { (report: IntegrationReport) -> JSONValue in
+            var extra: [String: JSONValue] = ["reportId": .string(report.reportId)]
+            if let packageId = report.packageId { extra["packageId"] = .string(packageId) }
+            return flagged("summary", report.summary, extra)
+        }
+        let signoffList: [JSONValue] = signoffs.map { (signoff: IntegrationSignoff) -> JSONValue in
+            let extra: [String: JSONValue] = ["planId": .string(signoff.planId), "createdAt": .string(signoff.createdAt)]
+            return flagged("summary", signoff.summary, extra)
+        }
+        var members: [String: JSONValue] = [
+            "recorded": .bool(true), "plans": .array(planList), "plansOmitted": .int(plansOmitted),
+            "reports": .array(reportList), "reportsOmitted": .int(reportsOmitted),
+            "signoffs": .array(signoffList), "signoffsOmitted": .int(signoffsOmitted),
+        ]
+        if let impactError { members["impactError"] = .string(impactError) }
+        if let impact { members["impact"] = impact.json }
+        if let review {
+            members["review"] = .object([
+                "verdict": .string(review.verdict), "reviewerAgentId": .string(review.reviewerAgentId),
+                "round": .int(review.round),
+            ])
+        }
+        if let verify { members["verify"] = verify.json }
+        return .object(members)
+    }
+}
+
+extension IntegrationImpact {
+    var json: JSONValue {
+        let areaList: [JSONValue] = areas.map { flagged("path", $0.path, ["files": .int($0.files)]) }
+        let migrationList: [JSONValue] = migrations.map { flagged("path", $0.path) }
+        let stepList: [JSONValue] = nextSteps.map { flagged("text", $0.text) }
+        return .object([
+            "filesChanged": .int(filesChanged), "insertions": .int(insertions), "deletions": .int(deletions),
+            "truncated": .bool(truncated), "areas": .array(areaList), "areasOmitted": .int(areasOmitted),
+            "migrations": .array(migrationList), "migrationsOmitted": .int(migrationsOmitted),
+            "nextSteps": .array(stepList),
+        ])
+    }
+}
+
+extension IntegrationVerify {
+    var json: JSONValue {
+        var members: [String: JSONValue] = [
+            "latest": .object([
+                "state": .string(latest.state), "commitSha": .string(latest.commitSha),
+                "finishedAt": .string(latest.finishedAt),
+            ])
+        ]
+        if let lastPassed {
+            members["lastPassed"] = .object([
+                "commitSha": .string(lastPassed.commitSha), "finishedAt": .string(lastPassed.finishedAt),
+            ])
+        }
         return .object(members)
     }
 }

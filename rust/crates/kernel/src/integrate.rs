@@ -5,6 +5,7 @@
 use crate::areas::integrations;
 use crate::errors::KernelError;
 use crate::helpers::{fold_whitespace, is_js_space, js_trim};
+use crate::integration_impact;
 use crate::kernel::Kernel;
 use crate::plan_body::{cut_at_word, cut_hard, format_subject, COMMIT_TYPES};
 use crate::records::{MAX_CONFLICT_FILES, MAX_CONFLICT_PATH_CHARS};
@@ -1891,6 +1892,62 @@ impl GitRepo {
         })
     }
 
+    /// What changed between `base` and `head`, per path: status, insertions and deletions (a binary file counts 0 and
+    /// 0). Renames are not followed. At most `DIFF_STAT_MAX_PATHS` paths are listed; beyond that only the counts are
+    /// kept and `truncated` is set. The whole call has `DIFF_STAT_TIMEOUT`.
+    pub fn diff_stat(&self, base: &str, head: &str) -> Result<DiffStat, DiffStatError> {
+        if !is_full_sha(base) || !is_full_sha(head) {
+            return Err(DiffStatError::Failed);
+        }
+        let started = Instant::now();
+        let run = |format: &str| -> Result<Vec<u8>, DiffStatError> {
+            let left = DIFF_STAT_TIMEOUT.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return Err(DiffStatError::Timeout);
+            }
+            let options = RunOptions {
+                timeout: left,
+                ..BIG
+            };
+            let args = ["diff", "--no-renames", "-z", format, base, head, "--"];
+            match self.run(&args, options) {
+                Ok(outcome) if outcome.code == 0 => Ok(outcome.stdout),
+                Ok(_) => Err(DiffStatError::Failed),
+                Err(error) if error.display().contains("timed out") => Err(DiffStatError::Timeout),
+                Err(_) => Err(DiffStatError::Failed),
+            }
+        };
+        let raw = run("--raw")?;
+        let numstat = run("--numstat")?;
+        let mut statuses = raw.split(|b| *b == 0).filter(|part| !part.is_empty());
+        let mut stat = DiffStat::default();
+        let mut counts = numstat.split(|b| *b == 0).filter(|part| !part.is_empty());
+        while let (Some(meta), Some(path), Some(line)) =
+            (statuses.next(), statuses.next(), counts.next())
+        {
+            let status = meta.last().map_or('M', |b| char::from(*b));
+            let text = utf8(line);
+            let mut fields = text.splitn(3, '\t');
+            let added = fields.next().and_then(|n| n.parse::<u64>().ok());
+            let removed = fields.next().and_then(|n| n.parse::<u64>().ok());
+            let (added, removed) = (added.unwrap_or(0), removed.unwrap_or(0));
+            stat.files_changed += 1;
+            stat.insertions += added;
+            stat.deletions += removed;
+            if stat.entries.len() < DIFF_STAT_MAX_PATHS {
+                stat.entries.push(DiffEntry {
+                    path: utf8(path),
+                    status,
+                    insertions: added,
+                    deletions: removed,
+                });
+            } else {
+                stat.truncated = true;
+            }
+        }
+        Ok(stat)
+    }
+
     /// The commit HEAD points at, as a full sha1.
     pub fn head_commit(&self) -> IntegrateResult<String> {
         let (code, format) = self.text(&["rev-parse", "--show-object-format"], PLAIN)?;
@@ -2520,6 +2577,40 @@ impl IntegrationState {
     }
 }
 
+/// The most paths `GitRepo::diff_stat` lists.
+pub const DIFF_STAT_MAX_PATHS: usize = 5000;
+/// The time the whole of `GitRepo::diff_stat` may take.
+pub const DIFF_STAT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// One changed path of a `DiffStat`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiffEntry {
+    pub path: String,
+    /// git's one-letter status: `A`, `M`, `D`, `T` ...
+    pub status: char,
+    pub insertions: u64,
+    pub deletions: u64,
+}
+
+/// What changed between two commits.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiffStat {
+    /// Every changed path, also those beyond the listed ones.
+    pub files_changed: usize,
+    pub insertions: u64,
+    pub deletions: u64,
+    /// More than `DIFF_STAT_MAX_PATHS` paths changed; `entries` holds the first ones only.
+    pub truncated: bool,
+    pub entries: Vec<DiffEntry>,
+}
+
+/// Why `GitRepo::diff_stat` gave nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiffStatError {
+    Timeout,
+    Failed,
+}
+
 /// `IntegrationDeps`.
 pub struct IntegrationDeps<'a> {
     pub kernel: &'a Kernel,
@@ -2528,6 +2619,8 @@ pub struct IntegrationDeps<'a> {
     pub credential: &'a str,
     pub context: &'a dyn Fn(&str) -> MutationContext,
     pub log: &'a dyn Fn(&str, Value),
+    /// The project's resolved `[impact]`, applied to the details recorded when a merge finishes.
+    pub impact: &'a capstan_config::ImpactConfig,
 }
 
 impl IntegrationDeps<'_> {
@@ -2607,13 +2700,15 @@ fn finish_merge(
     branch: &str,
     begun: &Value,
 ) -> IntegrateResult<Value> {
-    let finish = |outcome: Value| -> Result<Value, KernelError> {
-        integrations::finish_integration(
+    let finish = |outcome: Value, details: Option<&Value>| -> Result<Value, KernelError> {
+        integrations::finish_integration_with_details(
             deps.kernel,
             &deps.ctx(),
             &json!({"integrationId": integration_id, "outcome": outcome}),
+            details,
         )
     };
+    let info: RefCell<Option<Value>> = RefCell::new(None);
     let members: Vec<(String, String)> = begun
         .get("reports")
         .and_then(Value::as_array)
@@ -2648,8 +2743,9 @@ fn finish_merge(
                 subjects.insert(report_id.clone(), subject);
             }
         }
-        let info = integrations::integration_commit_info(deps.kernel, integration_id)?;
-        let (subject, body) = squash_message(&info, &subjects);
+        let read = integrations::integration_commit_info(deps.kernel, integration_id)?;
+        let (subject, body) = squash_message(&read, &subjects);
+        *info.borrow_mut() = Some(read);
         deps.git
             .merge_into_branch(base_sha, branch, &subject, &body, &members)
     };
@@ -2665,15 +2761,47 @@ fn finish_merge(
             }
         }
     };
-    match finish(result.outcome()) {
+    let details = match (&result, info.borrow().as_ref()) {
+        (MergeResult::Merged { head_sha }, Some(info)) => {
+            let diff = deps.git.diff_stat(base_sha, head_sha);
+            if let Err(error) = &diff {
+                (deps.log)(
+                    "integration_impact_failed",
+                    json!({"integrationId": integration_id, "reason": match error {
+                        DiffStatError::Timeout => "timeout",
+                        DiffStatError::Failed => "diff_failed",
+                    }}),
+                );
+            }
+            let listed: Vec<&str> = info
+                .get("reports")
+                .and_then(Value::as_array)
+                .map(|reports| reports.iter().map(|r| text_of(r, "reportId")).collect())
+                .unwrap_or_default();
+            let listed = &listed[..listed.len().min(integration_impact::MAX_REPORTS)];
+            let plan = info.get("planId").and_then(Value::as_str);
+            let packages =
+                integrations::report_package_ids(deps.kernel, plan, listed).unwrap_or_default();
+            Some(integration_impact::details(
+                info,
+                &packages,
+                diff.as_ref(),
+                deps.impact,
+            ))
+        }
+        _ => None,
+    };
+    match finish(result.outcome(), details.as_ref()) {
         Ok(record) => Ok(record),
         Err(error) => {
             // The branch must not outlive a record that does not say it exists, and the row must not stay running.
             if let MergeResult::Merged { head_sha } = &result {
                 let _ = deps.git.delete_branch_at(branch, head_sha);
             }
-            let _ =
-                finish(json!({"kind": "failed", "reason": "the outcome could not be recorded"}));
+            let _ = finish(
+                json!({"kind": "failed", "reason": "the outcome could not be recorded"}),
+                None,
+            );
             Err(error.into())
         }
     }

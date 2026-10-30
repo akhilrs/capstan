@@ -264,11 +264,26 @@ pub fn begin_integration(
     )
 }
 
+/// The most bytes a stored `details_json` may hold.
+pub const INTEGRATION_DETAILS_MAX_BYTES: usize = 16 * 1024;
+
 /// `finishIntegration`.
 pub fn finish_integration(
     kernel: &Kernel,
     context: &MutationContext,
     input: &Value,
+) -> KernelResult<Value> {
+    finish_integration_with_details(kernel, context, input, None)
+}
+
+/// `finishIntegration`, and for a merged outcome the details of the merge (see `integration_impact`), inserted in the
+/// same mutation. The details are not part of the input, so the recorded request, its hash and the event are the same
+/// with and without them; a repeat of the mutation is answered from the stored request and inserts nothing.
+pub fn finish_integration_with_details(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+    details: Option<&Value>,
 ) -> KernelResult<Value> {
     let integration_id = safe_id(field(input, "integrationId"), "integration id")?;
     let outcome = field(input, "outcome");
@@ -355,6 +370,17 @@ pub fn finish_integration(
                     integration_id
                 ],
             )?;
+            if let Some(details) = details.filter(|_| kind == "merged") {
+                let stored = stringify(details);
+                // The builder keeps the text within the table's cap; a longer one is dropped rather than failing the merge.
+                if stored.len() <= INTEGRATION_DETAILS_MAX_BYTES {
+                    execute(
+                        &kernel.database,
+                        "INSERT OR IGNORE INTO integration_details(project_id, integration_id, details_json, computed_at) VALUES (?, ?, ?, ?)",
+                        rusqlite::params![kernel.project_id, integration_id, stored, now],
+                    )?;
+                }
+            }
             if kind == "conflicted" && row.requested_by == "operator" {
                 notice_conflict(
                     kernel,
@@ -997,4 +1023,45 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         }
         _ => None,
     }
+}
+
+/// `integrationDetails`: the details recorded when the integration was merged, or `None` (an integration that did not
+/// merge, a recovered finish, or one merged before details were recorded). One primary-key read.
+pub fn integration_details(kernel: &Kernel, integration_id: &str) -> KernelResult<Option<Value>> {
+    kernel.assert_open()?;
+    safe_id_str(integration_id, "integration id")?;
+    let stored = query_opt(
+        &kernel.database,
+        "SELECT details_json FROM integration_details WHERE project_id = ? AND integration_id = ?",
+        [&kernel.project_id, integration_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    Ok(stored.and_then(|text| serde_json::from_str(&text).ok()))
+}
+
+/// The package each of the first `limit` reports was written for: the one package of the report's agent generation
+/// (within `plan_id` when given). A report with none or several packages has no entry. `commit_info` links reports to
+/// packages the same way.
+pub(crate) fn report_package_ids(
+    kernel: &Kernel,
+    plan_id: Option<&str>,
+    report_ids: &[&str],
+) -> KernelResult<HashMap<String, String>> {
+    let mut found = HashMap::new();
+    for report_id in report_ids {
+        let packages = query_all(
+            &kernel.database,
+            "SELECT pp.package_id FROM agent_reports r
+             JOIN plan_packages pp ON pp.project_id = r.project_id AND pp.assignee_agent_id = r.agent_id
+             JOIN agents a ON a.project_id = pp.project_id AND a.agent_id = pp.assignee_agent_id AND a.generation = r.generation
+             WHERE r.project_id = ?1 AND r.report_id = ?2 AND (?3 IS NULL OR pp.plan_id = ?3)
+             ORDER BY pp.package_id LIMIT 2",
+            rusqlite::params![kernel.project_id, report_id, plan_id],
+            |row| row.get::<_, String>(0),
+        )?;
+        if let [only] = packages.as_slice() {
+            found.insert((*report_id).to_string(), only.clone());
+        }
+    }
+    Ok(found)
 }

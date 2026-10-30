@@ -30,8 +30,9 @@ pub const TOP_LEVEL_KEYS: &[&str] = &[
     "roles",
 ];
 /// Accepted at the top level but left out of the refusal text, which the frozen corpus pins.
-pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] =
-    &["cleanup", "cache", "verify", "review", "design", "remote"];
+pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] = &[
+    "cleanup", "cache", "verify", "review", "design", "remote", "impact",
+];
 
 pub const PROJECT_KEYS: &[&str] = &["name"];
 pub const NOTIFICATION_KEYS: &[&str] = &["herdr", "fallback", "pm_stale_minutes"];
@@ -74,6 +75,7 @@ pub const REMOTE_KEYS: &[&str] = &[
     "push_url",
     "messages_per_hour",
 ];
+pub const IMPACT_KEYS: &[&str] = &["areas", "migrations", "next_steps"];
 pub const ENV_KEYS: &[&str] = &["pass"];
 pub const HOST_KEYS: &[&str] = &[
     "kind",
@@ -255,6 +257,7 @@ pub fn accepted_keys() -> Vec<KeyPath> {
     add("daemon", DAEMON_KEYS);
     add("cleanup", CLEANUP_KEYS);
     add("remote", REMOTE_KEYS);
+    add("impact", IMPACT_KEYS);
     add("env", ENV_KEYS);
     add("hosts.<name>", HOST_KEYS);
     add("roles.<name>", ROLE_KEYS);

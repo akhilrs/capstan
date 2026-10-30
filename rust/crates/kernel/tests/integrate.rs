@@ -310,6 +310,7 @@ fn replay_scenario(scenario: &Value, baseline: &Value) -> Status {
                     credential: &credential,
                     context: &context,
                     log: &log,
+                    impact: &Default::default(),
                 };
                 let arg = &args[0];
                 let result = match op {

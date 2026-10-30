@@ -1310,6 +1310,169 @@ fn feed_verify_result() {
     assert_eq!(event["from"], "running");
 }
 
+/// The first event of `ty`, checked field by field, against the golden `name` (`None`: no golden).
+fn named<'a>(rig: &Rig, events: &'a [Value], ty: &str, name: Option<&str>) -> &'a Value {
+    let project = project_of(rig);
+    for event in events {
+        check_event(event, &project);
+    }
+    let found = events_of(events, ty);
+    assert!(!found.is_empty(), "no {ty} in {events:#?}");
+    if let Some(name) = name {
+        golden(name, found[0]);
+    }
+    found[0]
+}
+
+/// Whether the event invalidates the waiting item `key`.
+fn invalidates_item(event: &Value, key: &str) -> bool {
+    has_kind_invalidate(event, key)
+}
+
+/// The rows read by the page that holds the events after ledger row `head`.
+fn rows_after(rig: &Rig, head: u64) -> usize {
+    feed_page(
+        &rig.core,
+        Position {
+            seq: head,
+            k: u32::MAX - 1,
+        },
+        500,
+        None,
+    )
+    .unwrap()
+    .rows_read
+}
+
+/// Queues, claims and finishes a verify run of `subject`; returns the run id.
+pub fn verified(rig: &Rig, subject: &str, commands_sha: &str, state: &str) -> String {
+    let queued = rig
+        .core
+        .queue_verify_run(
+            &rig.ctx("dev-1"),
+            &json!({"subjectId": subject, "commands": ["make test"], "commandsSha": commands_sha, "trigger": "manual"}),
+        )
+        .unwrap();
+    let run_id = queued["runId"].as_str().unwrap().to_string();
+    rig.core
+        .claim_verify_run(
+            &rig.ctx("owner"),
+            &json!({"runId": run_id, "scratchPath": "/tmp/s", "logPath": "/tmp/l", "maxParallel": 2}),
+        )
+        .unwrap();
+    let mut input =
+        json!({"runId": run_id, "state": state, "durationMs": 1000, "outputTail": "ok"});
+    if state == "passed" {
+        input["exitCode"] = json!(0);
+    } else {
+        input["exitCode"] = json!(1);
+        input["failedStep"] = json!(1);
+    }
+    rig.core
+        .finish_verify_run(&rig.ctx("owner"), &input)
+        .unwrap();
+    run_id
+}
+
+#[test]
+fn a_review_verdict_a_verify_result_and_a_sign_off_of_an_integration_invalidate_its_waiting_item() {
+    let rig = Rig::new();
+    let (plan, report_id, _, _) = merged_integration(&rig);
+
+    let head = rig.head();
+    let (_, events) = rig.review("int-1", "pass", "integration fine");
+    let verdict = named(
+        &rig,
+        &events,
+        "review.verdict",
+        Some("review.verdict.integration"),
+    );
+    assert!(invalidates_item(verdict, "integration:1"));
+    assert!(rows_after(&rig, head) > 0);
+
+    let head = rig.head();
+    verified(&rig, "int-1", "cmd-int", "passed");
+    let events = rig.since(head);
+    let result = named(
+        &rig,
+        &events,
+        "verify.result",
+        Some("verify.result.integration"),
+    );
+    assert!(invalidates_item(result, "integration:1"));
+    let with_integration = rows_after(&rig, head);
+
+    // A verify run of a report names no integration: its event costs the run lookup alone, the integration's one more.
+    let head = rig.head();
+    verified(&rig, &report_id, "cmd-report", "passed");
+    let events = rig.since(head);
+    let result = named(&rig, &events, "verify.result", None);
+    assert!(!invalidates_item(result, "integration:1"));
+    assert_eq!(with_integration, rows_after(&rig, head) + 1);
+
+    let head = rig.head();
+    let (_, signed) = rig.run(|r| {
+        r.core
+            .record_signoff(
+                &r.ctx("arch-1"),
+                &json!({"planId": plan, "integrationId": "int-1", "summary": "all merged"}),
+            )
+            .unwrap()
+    });
+    let event = named(&rig, &signed, "plan.signed_off", None);
+    assert!(invalidates_item(event, "integration:1"));
+    assert!(has_kind_invalidate(event, "integration"));
+    assert!(rows_after(&rig, head) > 0);
+}
+
+#[test]
+fn a_report_review_gives_no_integration_invalidate_and_a_review_costs_one_lookup_more_for_an_integration(
+) {
+    let rig = Rig::new();
+    rig.pane("dev-1", "feat/x");
+    let report = rig.report_as("dev-1", "feat/x", COMMIT, "done");
+    let report_id = report["record"]["reportId"].as_str().unwrap().to_string();
+    let head = rig.head();
+    let (_, events) = rig.review(&report_id, "pass", "fine");
+    let verdict = named(&rig, &events, "review.verdict", None);
+    assert!(verdict["body"]["effects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|effect| effect["key"] != "integration:1" && effect["key"] != "integration"));
+    let report_reads = rows_after(&rig, head);
+
+    let rig = Rig::new();
+    merged_integration(&rig);
+    let head = rig.head();
+    rig.review("int-1", "pass", "fine");
+    assert_eq!(rows_after(&rig, head), report_reads + 1);
+}
+
+#[test]
+fn a_sign_off_of_an_integration_that_is_no_longer_merged_gives_no_item_invalidate() {
+    let rig = Rig::new();
+    let (plan, _, _, _) = merged_integration(&rig);
+    rig.review("int-1", "pass", "integration fine");
+    rig.core
+        .settle_integration(
+            &rig.ctx("owner"),
+            &json!({"integrationId": "int-1", "outcome": "confirmed"}),
+        )
+        .unwrap();
+    let (_, signed) = rig.run(|r| {
+        r.core
+            .record_signoff(
+                &r.ctx("arch-1"),
+                &json!({"planId": plan, "integrationId": "int-1", "summary": "all merged"}),
+            )
+            .unwrap()
+    });
+    let event = events_of(&signed, "plan.signed_off")[0];
+    assert!(!invalidates_item(event, "integration:1"));
+    golden("plan.signed_off.confirmed", event);
+}
+
 fn supervised() -> (Rig, Value, Vec<Value>) {
     let mut rig = Rig::new();
     rig.owner(
