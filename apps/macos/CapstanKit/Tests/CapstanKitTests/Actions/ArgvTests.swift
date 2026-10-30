@@ -48,8 +48,9 @@ final class ArgvTests: XCTestCase {
             ["cstan", "decide", "--project", "proj-1", "--json", "run", "--expect", testHash, "--nonce", testNonce,
              "--client", "Mac", "pause"])
         XCTAssertEqual(
-            try makeRequest(verb: .runResume(reason: nil), requestId: "run").remoteArguments().suffix(2),
-            ["resume"])
+            try makeRequest(verb: .runResume(reason: nil), requestId: "run").remoteArguments(),
+            ["decide", "--project", "proj-1", "--json", "run", "--expect", testHash, "--nonce", testNonce,
+             "--client", "Mac", "resume"])
     }
 
     func testEveryWordRoundTripsTheShellParser() throws {
