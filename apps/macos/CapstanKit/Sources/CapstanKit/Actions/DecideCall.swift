@@ -135,34 +135,35 @@ public struct DecideRequest: Sendable, Equatable, Codable {
         RemoteCommand.ssh(config, try remoteArguments())
     }
 
+    /// The bare verb and its arguments: the kind is already named by the request id (`op:…`, `run`), so it is not repeated.
     private func verbWords() throws -> [String] {
         switch verb {
         case .opDeny(let note):
-            return ["op", "deny"] + (try DecideRequest.optionalText(note, "note"))
+            return ["deny"] + (try DecideRequest.optionalText(note, "note"))
         case .opApprove:
-            return ["op", "approve"]
+            return ["approve"]
         case .promptOption(let number):
-            guard number >= 0 else { throw DecideRequestError.optionNumber }
-            return ["prompt", "option", String(number)]
+            guard number >= 1 else { throw DecideRequestError.optionNumber }
+            return ["option", String(number)]
         case .promptEsc:
-            return ["prompt", "esc"]
+            return ["esc"]
         case .designApprove(let link, let askedUser):
-            return ["design", "approve", "--link", try DecideRequest.text(link, "link"),
+            return ["approve", "--link", try DecideRequest.text(link, "link"),
                     "--asked-user", try DecideRequest.text(askedUser, "answer")]
         case .designChanges(let askedUser, let link):
-            var words = ["design", "changes", "--asked-user", try DecideRequest.text(askedUser, "answer")]
+            var words = ["changes", "--asked-user", try DecideRequest.text(askedUser, "answer")]
             if let link { words += ["--link", try DecideRequest.text(link, "link")] }
             return words
         case .messageReply(let reply):
-            return ["message", "reply", try DecideRequest.text(reply, "reply")]
+            return ["reply", try DecideRequest.text(reply, "reply")]
         case .agentPause(let reason):
-            return ["agent", "pause"] + (try DecideRequest.reasonWords(reason))
+            return ["pause"] + (try DecideRequest.reasonWords(reason))
         case .agentResume(let reason):
-            return ["agent", "resume"] + (try DecideRequest.reasonWords(reason))
+            return ["resume"] + (try DecideRequest.reasonWords(reason))
         case .runPause(let reason):
-            return ["run", "pause"] + (try DecideRequest.reasonWords(reason))
+            return ["pause"] + (try DecideRequest.reasonWords(reason))
         case .runResume(let reason):
-            return ["run", "resume"] + (try DecideRequest.reasonWords(reason))
+            return ["resume"] + (try DecideRequest.reasonWords(reason))
         }
     }
 

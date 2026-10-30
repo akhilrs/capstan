@@ -33,7 +33,8 @@ final class LocalRefusalTests: XCTestCase {
         expectError(makeRequest(verb: .messageReply("")), .text("reply"))
         expectError(makeRequest(verb: .messageReply("   ")), .text("reply"))
         expectError(makeRequest(verb: .opDeny(note: String(repeating: "a", count: 1025))), .text("note"))
-                expectError(makeRequest(verb: .promptOption(-1)), .optionNumber)
+        expectError(makeRequest(verb: .promptOption(-1)), .optionNumber)
+        expectError(makeRequest(verb: .promptOption(0)), .optionNumber)
     }
 
     func testTextAtTheCapIsNotCut() throws {
