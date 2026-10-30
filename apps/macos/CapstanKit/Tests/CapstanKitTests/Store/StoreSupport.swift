@@ -173,7 +173,8 @@ func makeEngine(
     hostId: UUID, persistence: any PersistenceStore, clock: any SessionClock = SystemClock(),
     recorder: EngineRecorder = EngineRecorder(), urgentCallback: Bool = false
 ) -> HostStoreEngine {
-    let urgent: (@Sendable (Set<String>) -> Void)? = urgentCallback ? { recorder.urgentRefresh($0) } : nil
+    var urgent: (@Sendable (Set<String>) -> Void)?
+    if urgentCallback { urgent = { recorder.urgentRefresh($0) } }
     return HostStoreEngine(
         hostId: hostId, persistence: persistence, clock: clock,
         onChange: { recorder.change($0) }, onNotify: { recorder.notify($0) }, onRefresh: { recorder.refresh($0) },
