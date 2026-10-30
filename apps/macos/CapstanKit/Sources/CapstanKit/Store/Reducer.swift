@@ -215,7 +215,7 @@ public enum StoreReducer {
     /// stored run follows the event now. Its content hash also covers the open pause id, which the event does not
     /// state, so the old hash is dropped (empty) and the re-read that the invalidate asks for brings the new one.
     private static func applyRunChange(_ event: FeedEvent, to model: inout ProjectModel) {
-        guard let body = event.runBody, let run = model.run else { return }
+        guard let body = event.body.runBody, let run = model.run else { return }
         model.run = StoredRun(
             requestId: run.requestId, state: body.state, paused: body.paused, contentHash: "")
     }
