@@ -614,6 +614,43 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// The one file outside the tests directories that may call the seam setters: the decide-merge route's repository builder.
+const SEAM_CALLER: &str = "daemon/src/handlers/decide_merge_seams.rs";
+
+/// The 1-based lines of `text` in `file` that call a seam setter; the definitions do not count, and neither does the
+/// one allowed file.
+fn setter_call_lines(file: &Path, text: &str) -> Vec<usize> {
+    if file.ends_with(SEAM_CALLER) {
+        return Vec::new();
+    }
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let defines = line.contains("fn with_seams") || line.contains("fn with_merge_seams");
+            !defines && (line.contains("with_seams(") || line.contains("with_merge_seams("))
+        })
+        .map(|(index, _)| index + 1)
+        .collect()
+}
+
+#[test]
+fn the_setter_matcher_allows_one_file_and_no_other() {
+    let call = "let r = repo.with_seams(seams);\n";
+    let allowed = Path::new("/x/rust/crates/daemon/src/handlers/decide_merge_seams.rs");
+    let other = Path::new("/x/rust/crates/daemon/src/handlers/decide_merge.rs");
+    assert!(setter_call_lines(allowed, call).is_empty());
+    assert_eq!(setter_call_lines(other, call), vec![1]);
+    assert_eq!(
+        setter_call_lines(other, "x\n.with_merge_seams(s)\n"),
+        vec![2]
+    );
+    assert!(setter_call_lines(other, "pub fn with_seams(mut self) -> Self {").is_empty());
+    assert_eq!(
+        setter_call_lines(Path::new("kernel/src/decide_merge_seams.rs"), call),
+        vec![1]
+    );
+}
+
 #[test]
 fn seam_setters_are_called_only_from_tests() {
     let crates = crate_dir().join("..");
@@ -623,11 +660,8 @@ fn seam_setters_are_called_only_from_tests() {
     let mut hits = Vec::new();
     for file in files {
         let text = fs::read_to_string(&file).unwrap();
-        for (number, line) in text.lines().enumerate() {
-            let defines = line.contains("fn with_seams") || line.contains("fn with_merge_seams");
-            if !defines && (line.contains("with_seams(") || line.contains("with_merge_seams(")) {
-                hits.push(format!("{}:{}", file.display(), number + 1));
-            }
+        for line in setter_call_lines(&file, &text) {
+            hits.push(format!("{}:{line}", file.display()));
         }
     }
     assert!(

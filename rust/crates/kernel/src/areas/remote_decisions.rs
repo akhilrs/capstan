@@ -21,7 +21,7 @@ use super::event_feed::{item_key, REASON_CAP};
 use super::messaging::MessageClass;
 use super::operator_proposals::{self, OperatorDecision};
 use super::snapshot_feed::{canonical, content_hash};
-use super::{message_notices, messages, pauses, plans, prompt_relay};
+use super::{integrations, message_notices, messages, pauses, plans, prompt_relay, verify_runs};
 
 /// The codes of the refusals the kernel gives (the route adds forbidden and unauthorized, the CLI project_not_found,
 /// no_operator_key and not_answering).
@@ -34,6 +34,34 @@ pub const ERROR_CODES: &[&str] = &[
     "limit_reached",
     "invalid_request",
 ];
+
+/// The codes of the refusals of the integration merge verb, in the order its gates answer. The verb can also answer
+/// `not_waiting`, `hash_mismatch`, `nonce_reused` and `invalid_request` of `ERROR_CODES`. Later packages append.
+pub const PENDING_ERROR_CODES: &[&str] = MERGE_ERROR_CODES;
+
+/// The refusals the merge gates and the merge itself give.
+pub const MERGE_ERROR_CODES: &[&str] = &[
+    "merge_unrecorded",
+    "merge_disabled",
+    "invalid_commit",
+    "invalid_branch",
+    "no_identity",
+    "run_paused",
+    "busy",
+    "not_reviewed",
+    "not_verified",
+    "branch_moved",
+    "unsafe_config",
+    "wrong_branch",
+    "dirty_tree",
+    "merge_conflict",
+    "git_too_old",
+    "merge_failed",
+    "git_unavailable",
+];
+
+/// The result fields of the verbs not yet in `RESULT_FIELDS`: the object the merge made. Later packages append.
+pub const PENDING_RESULT_FIELDS: &[&str] = &["merge"];
 
 /// The fields of a result, in the order the protocol lists them.
 pub const RESULT_FIELDS: &[&str] = &[
@@ -53,6 +81,9 @@ pub const RESULT_FIELDS: &[&str] = &[
 
 /// The most forwards plus replies (the rows that sent the PM a message) one request id takes.
 pub const MESSAGE_LIMIT: i64 = 10;
+
+/// The default of `DecideOptions::messages_per_hour`.
+pub const MESSAGES_PER_HOUR: u32 = 30;
 
 /// The most characters of a pause reason.
 const PAUSE_REASON_CHARS: usize = 500;
@@ -106,6 +137,7 @@ pub enum Kind {
     Message,
     Agent,
     Run,
+    Integration,
 }
 
 impl Kind {
@@ -117,6 +149,7 @@ impl Kind {
             Kind::Message => "message",
             Kind::Agent => "agent",
             Kind::Run => "run",
+            Kind::Integration => "integration",
         }
     }
 }
@@ -285,6 +318,16 @@ pub const VERBS: &[VerbRow] = &[
     ),
 ];
 
+/// The verbs `parse` accepts besides `VERBS`: those whose protocol text is not yet written (plan-74 folds them into
+/// `VERBS`). Later packages append.
+pub const PENDING_VERBS: &[VerbRow] = &[row(
+    Kind::Integration,
+    "merge",
+    Outcome::Applied,
+    Positional::None,
+    &[],
+)];
+
 /// A parsed decision.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecideInput {
@@ -331,6 +374,7 @@ fn split_request(request_id: &str) -> Result<(Kind, String), Refusal> {
         "design" => Kind::Design,
         "message" => Kind::Message,
         "agent" => Kind::Agent,
+        "integration" => Kind::Integration,
         _ => {
             return Err(Refusal::invalid(format!(
                 "a request of kind {kind} is not decided remotely"
@@ -438,7 +482,11 @@ pub fn parse(argv: &[String]) -> Result<DecideInput, Refusal> {
         .get(at)
         .ok_or_else(|| Refusal::invalid("a verb is required"))?;
     let rest = &argv[at + 1..];
-    let Some(row) = VERBS.iter().find(|r| r.kind == kind && r.verb == verb) else {
+    let Some(row) = VERBS
+        .iter()
+        .chain(PENDING_VERBS)
+        .find(|r| r.kind == kind && r.verb == verb)
+    else {
         if kind == Kind::Prompt && verb == "text" {
             return Err(Refusal::new(
                 "needs_terminal",
@@ -626,6 +674,19 @@ fn message_count(kernel: &Kernel, request_id: &str) -> KernelResult<i64> {
     .unwrap_or(0))
 }
 
+/// The messages to the PM that remote decisions sent in the trailing 60 minutes, project-wide.
+fn messages_in_last_hour(kernel: &Kernel) -> KernelResult<i64> {
+    Ok(query_opt(
+        &kernel.database,
+        "SELECT count(*) FROM remote_decisions
+          WHERE project_id = ? AND (outcome = 'forwarded' OR verb = 'reply')
+            AND julianday(decided_at) > julianday(?) - 1.0 / 24.0",
+        [kernel.project_id.as_str(), kernel.now().as_str()],
+        |row| row.get::<_, i64>(0),
+    )?
+    .unwrap_or(0))
+}
+
 fn next_decision_id(kernel: &Kernel) -> KernelResult<String> {
     let count = query_opt(
         &kernel.database,
@@ -668,14 +729,50 @@ fn payload_of(input: &DecideInput) -> Value {
     })
 }
 
-/// `Core::decide`: one remote decision, as one mutation.
-pub fn decide(core: &Core, context: &MutationContext, input: &DecideInput) -> KernelResult<Value> {
-    let kernel = core.kernel();
+/// What `decide_with` can be told apart from the defaults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecideOptions {
+    /// The most messages to the PM (forwards and replies) one project takes over the trailing 60 minutes.
+    pub messages_per_hour: u32,
+}
+
+impl Default for DecideOptions {
+    fn default() -> Self {
+        Self {
+            messages_per_hour: MESSAGES_PER_HOUR,
+        }
+    }
+}
+
+fn authorize_operator(kernel: &Kernel, context: &MutationContext) -> KernelResult<()> {
     let actor = kernel.authorize(&context.credential, "operator:decide")?;
     if actor.role != "operator" {
         return Err(KernelError::Authorization(
             "forbidden: only the operator decides remotely".into(),
         ));
+    }
+    Ok(())
+}
+
+/// `Core::decide`: one remote decision, as one mutation.
+pub fn decide(core: &Core, context: &MutationContext, input: &DecideInput) -> KernelResult<Value> {
+    decide_with(core, context, input, DecideOptions::default())
+}
+
+/// `decide` with the limits given.
+pub fn decide_with(
+    core: &Core,
+    context: &MutationContext,
+    input: &DecideInput,
+    options: DecideOptions,
+) -> KernelResult<Value> {
+    let kernel = core.kernel();
+    authorize_operator(kernel, context)?;
+    if input.kind == Kind::Integration {
+        return Err(Refusal::invalid(
+            "an integration is merged by the merge verb, not decided here",
+        )
+        .into());
     }
     for _ in 0..2 {
         if let Some(row) = stored(kernel, &input.nonce)? {
@@ -686,7 +783,7 @@ pub fn decide(core: &Core, context: &MutationContext, input: &DecideInput) -> Ke
             "remote.decide",
             "operator:decide",
             &payload_of(input),
-            |actor| apply(core, context, actor, input),
+            |actor| apply(core, context, actor, input, options),
         );
         match outcome {
             Err(KernelError::Controller(message)) if message == NONCE_TAKEN => continue,
@@ -713,6 +810,7 @@ fn apply(
     context: &MutationContext,
     actor: &AuthenticatedActor,
     input: &DecideInput,
+    options: DecideOptions,
 ) -> KernelResult<MutationOutput> {
     let kernel = core.kernel();
     if stored(kernel, &input.nonce)?.is_some() {
@@ -744,6 +842,16 @@ fn apply(
         )
         .into());
     }
+    if sends_message && messages_in_last_hour(kernel)? >= i64::from(options.messages_per_hour) {
+        return Err(Refusal::new(
+            "limit_reached",
+            format!(
+                "{} messages to the PM were sent from remote clients in the last hour",
+                options.messages_per_hour
+            ),
+        )
+        .into());
+    }
     let decision_id = next_decision_id(kernel)?;
     let done = match (input.kind, input.verb) {
         (Kind::Op, "deny") => deny_proposal(kernel, actor, input)?,
@@ -753,6 +861,9 @@ fn apply(
         (Kind::Message, _) => reply_to_message(kernel, actor, input)?,
         (Kind::Agent, _) => pause_agent(kernel, actor, input)?,
         (Kind::Run, _) => pause_run(kernel, context, actor, input)?,
+        (Kind::Integration, _) => {
+            return Err(Refusal::invalid("an integration is not decided here").into())
+        }
     };
     if input.outcome == Outcome::Applied {
         let open = open_forwards(kernel, &input.request_id, None)?;
@@ -1243,4 +1354,310 @@ fn check_pause_state(what: &str, pausing: bool, open: bool) -> KernelResult<()> 
         return Err(Refusal::invalid(format!("{what} is not paused")).into());
     }
     Ok(())
+}
+
+// ------------------------------------------------------------------------------------------------------- the merge verb
+
+/// What the daemon found out about git and the configuration, for the gates that need them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MergeFacts {
+    /// Whether `[remote]` allows the merge verb.
+    pub merge_enabled: bool,
+    /// The branch the merge goes into; without one the merge is disabled.
+    pub target_branch: Option<String>,
+    /// The tip of the integration branch now.
+    pub branch_tip: Option<String>,
+    /// The hash of the `[verify]` commands; `None` when there is no `[verify]` section.
+    pub verify_commands_sha: Option<String>,
+    /// Whether the integration head is already in the target branch (a merge that was made but not recorded).
+    pub already_in_head: bool,
+    /// Whether the daemon is running an integration.
+    pub integration_running: bool,
+}
+
+/// What the verify gate found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VerifyState {
+    Passed { run_id: String },
+    NotConfigured,
+}
+
+/// What the gates decided.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MergeGate {
+    /// The call is a repeat: the stored result.
+    Repeat(Value),
+    Go {
+        integration_id: String,
+        branch: String,
+        head_sha: String,
+        verify: VerifyState,
+    },
+}
+
+fn merge_refusal(code: &'static str, message: impl Into<String>) -> KernelError {
+    Refusal::new(code, message).into()
+}
+
+fn merge_input(input: &DecideInput) -> KernelResult<()> {
+    if input.kind == Kind::Integration && input.verb == "merge" {
+        return Ok(());
+    }
+    Err(Refusal::invalid(format!(
+        "{} {} is not a merge",
+        input.kind.as_str(),
+        input.verb
+    ))
+    .into())
+}
+
+/// `Core::merge_gates`: whether the merge of the integration may go ahead. The first gate that fails answers.
+pub fn merge_gates(
+    core: &Core,
+    context: &MutationContext,
+    input: &DecideInput,
+    facts: &MergeFacts,
+) -> KernelResult<MergeGate> {
+    let kernel = core.kernel();
+    authorize_operator(kernel, context)?;
+    merge_input(input)?;
+    if let Some(row) = stored(kernel, &input.nonce)? {
+        return Ok(MergeGate::Repeat(answer_stored(&row, input)?));
+    }
+    let not_waiting = || {
+        merge_refusal(
+            "not_waiting",
+            format!("{} is not waiting for a merge", input.request_id),
+        )
+    };
+    let hash = content_hash(core, &input.request_id).map_err(invalid_from)?;
+    let integration = integrations::integration_row(kernel, &input.target)?;
+    let (Some(hash), Some(integration)) = (hash, integration) else {
+        return Err(not_waiting());
+    };
+    let Some(head_sha) = integration
+        .head_sha
+        .clone()
+        .filter(|_| integration.state == "merged")
+    else {
+        return Err(not_waiting());
+    };
+    let merged_before = query_opt(
+        &kernel.database,
+        "SELECT 1 FROM remote_decisions
+          WHERE project_id = ? AND request_id = ? AND verb = 'merge' AND outcome = 'applied'",
+        [kernel.project_id.as_str(), input.request_id.as_str()],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if merged_before.is_some() {
+        return Err(not_waiting());
+    }
+    if !hash.starts_with(&input.expect) {
+        return Err(merge_refusal(
+            "hash_mismatch",
+            format!("{} has changed since it was shown", input.request_id),
+        ));
+    }
+    if !facts.merge_enabled || facts.target_branch.is_none() {
+        return Err(merge_refusal(
+            "merge_disabled",
+            "merging from a remote client is not enabled for this project",
+        ));
+    }
+    if let Err(error) = core.assert_run_not_paused("a merge") {
+        return Err(match error {
+            KernelError::RunPaused(message) => merge_refusal(
+                "run_paused",
+                message.trim_start_matches("run_paused: ").to_string(),
+            ),
+            other => other,
+        });
+    }
+    if !facts.already_in_head {
+        let running = query_opt(
+            &kernel.database,
+            "SELECT 1 FROM integrations WHERE project_id = ? AND state = 'running'",
+            [&kernel.project_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if facts.integration_running || running.is_some() {
+            return Err(merge_refusal("busy", "an integration is running"));
+        }
+    }
+    if !integration_reviewed(kernel, &input.target)? {
+        return Err(merge_refusal(
+            "not_reviewed",
+            "the integration is not reviewed: its latest review has not passed",
+        ));
+    }
+    let verify = match &facts.verify_commands_sha {
+        None => VerifyState::NotConfigured,
+        Some(commands_sha) => {
+            let gate =
+                core.verify_gate_for_subjects(std::slice::from_ref(&input.target), commands_sha)?;
+            if gate["ok"] != Value::Bool(true) {
+                return Err(merge_refusal(
+                    "not_verified",
+                    "the integration head has no passed verify run under the current commands",
+                ));
+            }
+            let summary = verify_runs::summary_at(kernel, &head_sha, commands_sha)?;
+            VerifyState::Passed {
+                run_id: summary.run_id,
+            }
+        }
+    };
+    if !facts.already_in_head && facts.branch_tip.as_deref() != Some(head_sha.as_str()) {
+        return Err(merge_refusal(
+            "branch_moved",
+            "the integration branch has moved since the integration was made",
+        ));
+    }
+    Ok(MergeGate::Go {
+        integration_id: integration.integration_id,
+        branch: integration.branch,
+        head_sha,
+        verify,
+    })
+}
+
+/// Whether the latest review of an integration passed and none is open (what `settle_integration` demands).
+fn integration_reviewed(kernel: &Kernel, integration_id: &str) -> KernelResult<bool> {
+    let open = query_opt(
+        &kernel.database,
+        "SELECT 1 FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
+        [&kernel.project_id, integration_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if open.is_some() {
+        return Ok(false);
+    }
+    let latest = query_opt(
+        &kernel.database,
+        "SELECT state FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state IN ('passed', 'findings')
+         ORDER BY sequence DESC LIMIT 1",
+        [&kernel.project_id, integration_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    Ok(latest.as_deref() == Some("passed"))
+}
+
+/// `Core::record_merge`: writes the applied decision of a merge that was made and confirms the integration. The git facts
+/// are not checked again: the daemon calls this under its merge lock right after its own check.
+pub fn record_merge(
+    core: &Core,
+    context: &MutationContext,
+    input: &DecideInput,
+    merge: Value,
+) -> KernelResult<Value> {
+    let kernel = core.kernel();
+    authorize_operator(kernel, context)?;
+    merge_input(input)?;
+    let result = kernel.mutate(
+        context,
+        "remote.decide",
+        "operator:decide",
+        &payload_of(input),
+        |_| apply_merge(core, input, &merge),
+    )?;
+    let confirmed = || -> KernelResult<bool> {
+        Ok(
+            matches!(integrations::integration_row(kernel, &input.target)?,
+            Some(row) if row.state == "confirmed"),
+        )
+    };
+    if !confirmed()? {
+        let tag = sha256(&context.request_id);
+        let settle = MutationContext {
+            credential: context.credential.clone(),
+            request_id: format!("merge-settle-{}", &tag[..32]),
+            idempotency_key: format!("merge-settle-{}", &tag[..32]),
+            expected_version: core.state_version()?,
+            input_revision: core.input_revision()?,
+        };
+        if let Err(error) = core.settle_integration(
+            &settle,
+            &json!({"integrationId": input.target, "outcome": "confirmed"}),
+        ) {
+            if !confirmed()? {
+                return Err(error);
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn apply_merge(core: &Core, input: &DecideInput, merge: &Value) -> KernelResult<MutationOutput> {
+    let kernel = core.kernel();
+    if stored(kernel, &input.nonce)?.is_some() {
+        return Err(KernelError::controller(NONCE_TAKEN));
+    }
+    let integration = integrations::integration_row(kernel, &input.target)?
+        .ok_or_else(|| Refusal::new("not_waiting", "the integration is gone"))?;
+    // The hash the item had while it waited (a confirmed integration no longer waits, and still counts as done).
+    let hash = match content_hash(core, &input.request_id).map_err(invalid_from)? {
+        Some(hash) => hash,
+        None => sha256(&canonical(&json!({
+            "id": integration.integration_id,
+            "state": "merged",
+            "branch": integration.branch,
+            "headSha": integration.head_sha,
+        }))),
+    };
+    let decision_id = next_decision_id(kernel)?;
+    let event_seq = next_event_sequence(kernel)?;
+    let result = json!({
+        "v": 1,
+        "decisionId": decision_id,
+        "requestId": input.request_id,
+        "nonce": input.nonce,
+        "outcome": input.outcome.as_str(),
+        "repeat": false,
+        "kind": input.kind.as_str(),
+        "verb": input.verb,
+        "contentHash": hash,
+        "eventSeq": event_seq,
+        "merge": merge,
+    });
+    execute(
+        &kernel.database,
+        "INSERT INTO remote_decisions(project_id, nonce, decision_id, request_id, content_hash, verb, args_json, client,
+           outcome, result_json, message_id, decided_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+        rusqlite::params![
+            kernel.project_id,
+            input.nonce,
+            decision_id,
+            input.request_id,
+            hash,
+            input.verb,
+            input.args_json(),
+            input.client,
+            input.outcome.as_str(),
+            canonical(&result),
+            kernel.now()
+        ],
+    )?;
+    let details = json!({
+        "decisionId": decision_id,
+        "requestId": input.request_id,
+        "itemKey": item_key("waiting", "integration", &integration.sequence.to_string()),
+        "outcome": input.outcome.as_str(),
+        "verb": input.verb,
+        "client": input.client,
+        "contentHash": hash,
+    });
+    let event = MutationEvent::new("remote_decision", &decision_id, 0).with_details(details);
+    Ok(MutationOutput::new(result, event))
+}
+
+/// The id of the decision that took a nonce, when one did (a merge has no id before `record_merge`).
+pub fn decision_for_nonce(core: &Core, nonce: &str) -> KernelResult<Option<String>> {
+    let kernel = core.kernel();
+    query_opt(
+        &kernel.database,
+        "SELECT decision_id FROM remote_decisions WHERE project_id = ? AND nonce = ?",
+        [kernel.project_id.as_str(), nonce],
+        |row| row.get::<_, String>(0),
+    )
 }
