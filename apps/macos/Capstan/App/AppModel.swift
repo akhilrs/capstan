@@ -43,6 +43,8 @@ final class AppModel {
     private(set) var settings: AppSettings
     @ObservationIgnored var notifications: NotificationCoordinator!
     var presented: AppSheet?
+    /// The project the person asked to remove from the list; the window asks to confirm.
+    var projectToRemove: ProjectKey?
     @ObservationIgnored var openMainWindow: (@MainActor () -> Void)?
 
     @ObservationIgnored private let defaults: UserDefaults?
@@ -625,6 +627,20 @@ final class AppModel {
             guard let focus = hostsFocus else { return }
             refresh(hostId: focus.hostId, projectIds: readyProjects(hostId: focus.hostId))
         }
+    }
+
+    /// Drops a project the host cannot reach from the list and the cursor; a live project is refused.
+    @discardableResult
+    func removeProject(hostId: UUID, projectId: String) async -> ProjectRemoval {
+        guard let engine = engines[hostId] else { return .notFound }
+        let result = await engine.removeProject(projectId)
+        guard result == .removed else { return result }
+        await sessions[hostId]?.forget(projectIds: [projectId])
+        if selectedRow?.hostId == hostId, selectedRow?.projectId == projectId { selectedRow = nil }
+        if hostsFocus == HostsFocus(hostId: hostId, projectId: projectId) { hostsFocus = HostsFocus(hostId: hostId) }
+        forwards = forwards.filter { !($0.key.hostId == hostId && $0.key.projectId == projectId) }
+        selection = selection.resolved(against: Array(hostModels.values))
+        return .removed
     }
 
     func addHost(_ config: HostConfig) {

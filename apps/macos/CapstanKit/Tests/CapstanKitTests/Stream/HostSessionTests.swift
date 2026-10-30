@@ -548,6 +548,20 @@ final class HostSessionTests: XCTestCase {
         await eventually("urgent restart") { self.runner.startCount == 3 }
     }
 
+    func testAForgottenProjectIsLeftOutOfTheNextConnectionsCursor() async throws {
+        let cursor = makeCursor(["p1", "p2"])
+        let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
+        await startAndWait(session)
+        await prime(cursor)
+        await session.forget(projectIds: ["p2"])
+        // The live stream still names it in its next cursor line.
+        await prime(cursor)
+        await session.restart()
+        await eventually("reconnect") { self.runner.startCount == 2 }
+        let sent = try XCTUnwrap(flagValue("--cursor", in: try runner.remoteWords(at: 1)))
+        XCTAssertEqual(Set(try XCTUnwrap(Cursor(text: sent)).decoded().p.keys), ["p1"])
+    }
+
     func testAnUrgentRefreshBeforeTheFirstCursorLineRunsOnceItArrives() async throws {
         let cursor = makeCursor(["p1", "p2"])
         let session = makeSession(consumer: RecordingConsumer(cursor: cursor))

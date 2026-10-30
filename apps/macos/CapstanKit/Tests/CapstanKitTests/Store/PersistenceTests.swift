@@ -380,4 +380,79 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(recorder.refreshes, [["proj-a"]])
         XCTAssertTrue(recorder.urgentRefreshes.isEmpty)
     }
+
+    // MARK: Removing a project from the list
+
+    private func twoProjects(second: String = "silent") throws -> [StreamLine] {
+        var lines: [StreamLine] = [try StoreWire.hello()]
+        lines.append(contentsOf: try runProject("proj-a"))
+        lines.append(contentsOf: try runProject("proj-b"))
+        lines.append(try StoreWire.project("proj-b", state: second))
+        lines.append(try StoreWire.cursor(makeCursor(["proj-a", "proj-b"])))
+        return lines
+    }
+
+    func testASilentProjectIsRemovedFromTheListTheFileAndTheCursor() async throws {
+        let hostId = UUID()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store)
+        await engine.apply(host: hostId, lines: try twoProjects())
+        let result = await engine.removeProject("proj-b")
+        XCTAssertEqual(result, .removed)
+        let model = await engine.current()
+        XCTAssertNil(model.projects["proj-b"])
+        XCTAssertNotNil(model.projects["proj-a"])
+        XCTAssertEqual(Set(try XCTUnwrap(model.cursor).decoded().p.keys), ["proj-a"], "the cursor no longer carries it")
+        let saved = try XCTUnwrap(store.stored)
+        XCTAssertNil(saved.projects["proj-b"])
+        XCTAssertEqual(Set(try XCTUnwrap(saved.cursor).decoded().p.keys), ["proj-a"])
+        let resume = await engine.resumeCursor(host: hostId)
+        XCTAssertEqual(Set(try XCTUnwrap(resume).decoded().p.keys), ["proj-a"])
+    }
+
+    func testAGoneProjectCanBeRemoved() async throws {
+        let hostId = UUID()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence())
+        await engine.apply(host: hostId, lines: try twoProjects(second: "gone"))
+        let result = await engine.removeProject("proj-b")
+        XCTAssertEqual(result, .removed)
+    }
+
+    func testALiveProjectIsRefusedAndKept() async throws {
+        let hostId = UUID()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store)
+        await engine.apply(host: hostId, lines: try twoProjects())
+        let result = await engine.removeProject("proj-a")
+        XCTAssertEqual(result, .refusedLive)
+        let model = await engine.current()
+        XCTAssertNotNil(model.projects["proj-a"])
+        XCTAssertEqual(Set(try XCTUnwrap(model.cursor).decoded().p.keys), ["proj-a", "proj-b"])
+        let missing = await engine.removeProject("proj-z")
+        XCTAssertEqual(missing, .notFound)
+    }
+
+    func testTheStreamCursorLineDoesNotBringTheRemovedProjectBack() async throws {
+        let hostId = UUID()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence())
+        await engine.apply(host: hostId, lines: try twoProjects())
+        await engine.removeProject("proj-b")
+        await engine.apply(host: hostId, lines: [try StoreWire.cursor(makeCursor(["proj-a", "proj-b"]))])
+        let kept = await engine.current().cursor
+        XCTAssertEqual(Set(try XCTUnwrap(kept).decoded().p.keys), ["proj-a"])
+    }
+
+    func testRediscoveringTheControllerBringsTheProjectBack() async throws {
+        let hostId = UUID()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence())
+        await engine.apply(host: hostId, lines: try twoProjects())
+        await engine.removeProject("proj-b")
+        var again: [StreamLine] = try runProject("proj-b", hash: "run-hash-9")
+        again.append(try StoreWire.cursor(makeCursor(["proj-a", "proj-b"])))
+        await engine.apply(host: hostId, lines: again)
+        let model = await engine.current()
+        XCTAssertEqual(model.projects["proj-b"]?.availability, .ready)
+        XCTAssertEqual(model.projects["proj-b"]?.run?.contentHash, "run-hash-9")
+        XCTAssertEqual(Set(try XCTUnwrap(model.cursor).decoded().p.keys), ["proj-a", "proj-b"])
+    }
 }

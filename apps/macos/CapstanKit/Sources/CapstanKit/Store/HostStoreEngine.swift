@@ -1,6 +1,13 @@
 import Foundation
 
 /// Holds the model of one host: reads what a `HostSession` delivers, keeps the model and saves it for the next run.
+public enum ProjectRemoval: Sendable, Equatable {
+    case removed
+    /// The project is live (ready) or in a state that is not "gone" or "silent".
+    case refusedLive
+    case notFound
+}
+
 public actor HostStoreEngine: StreamConsumer {
     /// The shortest time between two saves caused by cursor lines.
     static let saveIntervalSeconds: TimeInterval = 2
@@ -15,6 +22,8 @@ public actor HostStoreEngine: StreamConsumer {
     private let onUrgentRefresh: (@Sendable (Set<String>) -> Void)?
     private let onConnection: (@Sendable (ConnectionState) -> Void)?
 
+    /// Projects the person removed: their entries stay out of the cursor until the host names them again.
+    private var removedProjects: Set<String> = []
     private var model: HostModel
     private var staging = Staging()
     private var connectionState: ConnectionState = .connecting
@@ -91,11 +100,15 @@ public actor HostStoreEngine: StreamConsumer {
         var notify: [NotifyCandidate] = []
         var cursorSeen = false
         for line in lines {
+            if case .project(let project) = line { removedProjects.remove(project.projectId) }
             let output = StoreReducer.apply(line, to: &model, staging: &staging, now: now)
             refresh.formUnion(output.refresh)
             urgent.formUnion(output.urgent)
             notify.append(contentsOf: output.notify)
             if case .cursor = line { cursorSeen = true }
+        }
+        if !removedProjects.isEmpty, let cursor = model.cursor {
+            model.cursor = (try? cursor.removing(removedProjects)) ?? nil
         }
         onChange(model)
         if !notify.isEmpty { onNotify(notify) }
@@ -153,6 +166,23 @@ public actor HostStoreEngine: StreamConsumer {
         model.forwards[projectId] = records
         onChange(model)
         scheduleSave()
+    }
+
+    /// Drops a project the host cannot reach from the list, the saved file and the cursor. A live project is refused.
+    /// The project comes back when the host names it again (a `project` line).
+    @discardableResult
+    public func removeProject(_ projectId: String) -> ProjectRemoval {
+        guard let project = model.projects[projectId] else { return .notFound }
+        guard project.availability.isRemovable else { return .refusedLive }
+        model.projects[projectId] = nil
+        model.forwards[projectId] = nil
+        staging.pending[projectId] = nil
+        staging.knownKeys[projectId] = nil
+        removedProjects.insert(projectId)
+        if let cursor = model.cursor { model.cursor = (try? cursor.removing([projectId])) ?? nil }
+        onChange(model)
+        flush()
+        return .removed
     }
 
     /// Saves now what is held.

@@ -28,6 +28,11 @@ struct MainWindow: View {
         self.model = model
     }
 
+    private var removalName: String {
+        guard let key = model.projectToRemove, let project = model.project(key.hostId, key.projectId) else { return "this project" }
+        return HostLabel.projectName(project)
+    }
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
@@ -47,6 +52,18 @@ struct MainWindow: View {
         .sheet(isPresented: $inspectorSheet) {
             inspector
                 .frame(minWidth: 360, minHeight: 320)
+        }
+        .alert(
+            ProjectRemovalPrompt.title(name: removalName),
+            isPresented: Binding(get: { model.projectToRemove != nil }, set: { if !$0 { model.projectToRemove = nil } }),
+            presenting: model.projectToRemove
+        ) { key in
+            Button(ProjectRemovalPrompt.confirmTitle, role: .destructive) { // static-text
+                Task { await model.removeProject(hostId: key.hostId, projectId: key.projectId) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(ProjectRemovalPrompt.message) // static-text
         }
         .sheet(item: $model.presented) { sheet in
             switch sheet {

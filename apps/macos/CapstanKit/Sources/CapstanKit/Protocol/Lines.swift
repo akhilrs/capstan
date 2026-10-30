@@ -13,6 +13,14 @@ public enum ProjectAvailability: Sendable, Equatable {
     /// The wire names of the known states.
     public static let wireNames = ["ready", "no_key", "silent", "refused", "unsupported", "gone"]
 
+    /// A project the person may remove from the list: one the host cannot reach any more. A live one cannot be.
+    public var isRemovable: Bool {
+        switch self {
+        case .silent, .gone: return true
+        case .ready, .noKey, .refused, .unsupported, .other: return false
+        }
+    }
+
     public init(wire: String) {
         switch wire {
         case "ready": self = .ready
