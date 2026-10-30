@@ -63,6 +63,10 @@ final class AppModel {
     /// Counts the changes of `hostModels`; what is derived from the models is kept for one count.
     @ObservationIgnored private var modelVersion = 0
     @ObservationIgnored private var derived = DerivedReads()
+    /// The models as the engines report them; `hostModels` shows them with a brief silent state held back.
+    @ObservationIgnored private var reportedModels: [UUID: HostModel] = [:]
+    @ObservationIgnored private var silentDebounce = SilentDebounce()
+    @ObservationIgnored private var silentTimer: Task<Void, Never>?
     @ObservationIgnored private var pendingModels: [UUID: (model: HostModel, generation: Int)] = [:]
     @ObservationIgnored private var modelFlushScheduled = false
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
@@ -165,7 +169,7 @@ final class AppModel {
             model.projects = saved.projects
             model.cursor = saved.cursor
             model.forwards = saved.forwards
-            hostModels[config.id] = model
+            show(model)
             for (projectId, records) in saved.forwards {
                 for record in records {
                     forwards[BusyKey(hostId: config.id, projectId: projectId, requestId: record.requestId)] = record
@@ -279,11 +283,34 @@ final class AppModel {
         let pending = pendingModels
         pendingModels = [:]
         for (id, entry) in pending where generations[id] == entry.generation && hosts.contains(where: { $0.id == id }) {
-            hostModels[id] = entry.model
+            show(entry.model)
             unloaded.remove(id)
         }
         resolveRestoredSelection()
         resolvePendingRow(final: false)
+    }
+
+    /// Publishes a host's model with each project's state passed through the silent debounce, and arms one wake-up for
+    /// the earliest held-back silent state.
+    private func show(_ model: HostModel, now: Date = Date()) {
+        reportedModels[model.hostId] = model
+        var shown = model
+        for (id, project) in model.projects {
+            shown.projects[id]?.availability = silentDebounce.shown(
+                SilentDebounce.Key(hostId: model.hostId, projectId: id), raw: project.availability, now: now)
+        }
+        silentDebounce.retain(Set(reportedModels.flatMap { host, m in
+            m.projects.keys.map { SilentDebounce.Key(hostId: host, projectId: $0) }
+        }))
+        hostModels[model.hostId] = shown
+        silentTimer?.cancel()
+        silentTimer = nil
+        guard let due = silentDebounce.nextDue else { return }
+        silentTimer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, due.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self else { return }
+            for model in self.reportedModels.values where self.hostModels[model.hostId] != nil { self.show(model) }
+        }
     }
 
     private func applyConnection(_ state: ConnectionState, number: Int, hostId: UUID, generation: Int) {
@@ -631,6 +658,7 @@ final class AppModel {
             // The engine has flushed and stopped when this returns, so nothing writes its file again.
             await teardownHost(id)
             hostModels[id] = nil
+            reportedModels[id] = nil
             connection[id] = nil
             capabilities[id] = nil
             forwards = forwards.filter { $0.key.hostId != id }
