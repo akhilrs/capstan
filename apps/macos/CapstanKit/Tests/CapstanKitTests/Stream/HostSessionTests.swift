@@ -604,7 +604,9 @@ final class HostSessionTests: XCTestCase {
         clock.advance(by: 1)
         await settle()
         XCTAssertEqual(runner.startCount, 2, "a second urgent refresh within the limit waits for its end")
-        await advanceKeepingAlive(by: HostSession.urgentRefreshGapSeconds - 2.1)
+        // The gap runs from the first restart, taken 1 s (the coalesce delay) after the first request; 1 s of it is
+        // spent in the second request's own coalesce delay, and the clock has moved 1 s since that restart.
+        await advanceKeepingAlive(by: HostSession.urgentRefreshGapSeconds - 1.1)
         XCTAssertEqual(runner.startCount, 2)
         clock.advance(by: 0.1)
         await eventually("second urgent restart at the end of the short gap, not the 60 s one") {
