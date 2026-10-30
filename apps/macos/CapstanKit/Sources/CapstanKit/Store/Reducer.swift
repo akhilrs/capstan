@@ -75,11 +75,16 @@ public enum StoreReducer {
         case .project(let project):
             applyProject(project, to: &host, now: now)
         case .snapshot(let snapshot):
+            // The first line of a snapshot starts the refresh; the last-known values stay until its end.
+            if staging.pending[snapshot.projectId] == nil {
+                host.projects[snapshot.projectId]?.markFreshness { $0.refreshing = true }
+            }
             stage(snapshot, into: &staging)
         case .snapshotEnd(let projectId, let head):
-            applySnapshotEnd(projectId: projectId, head: head, host: &host, staging: &staging, output: &output)
+            applySnapshotEnd(
+                projectId: projectId, head: head, host: &host, staging: &staging, output: &output, now: now)
         case .event(let projectId, let event):
-            applyEvent(event, projectId: projectId, host: &host, staging: &staging, output: &output)
+            applyEvent(event, projectId: projectId, host: &host, staging: &staging, output: &output, now: now)
         case .cursor(let cursor):
             host.cursor = cursor
         case .resync(let projectId, _):
@@ -109,6 +114,8 @@ public enum StoreReducer {
             model.epoch = line.epoch
             model.head = line.head
             model.staleSince = nil
+            // A ready project without a complete snapshot is about to receive one, an empty one included.
+            if !model.snapshotComplete { model.markFreshness { $0.refreshing = true } }
         } else if model.staleSince == nil {
             model.staleSince = now
         }
@@ -128,7 +135,8 @@ public enum StoreReducer {
     }
 
     private static func applySnapshotEnd(
-        projectId: String, head: Int64, host: inout HostModel, staging: inout Staging, output: inout ReduceOutput
+        projectId: String, head: Int64, host: inout HostModel, staging: inout Staging, output: inout ReduceOutput,
+        now: Date
     ) {
         let pending = staging.pending.removeValue(forKey: projectId) ?? Staging.Pending()
         guard var model = host.projects[projectId] else { return }
@@ -150,6 +158,7 @@ public enum StoreReducer {
         model.attention = [:]
         model.head = head
         model.snapshotComplete = true
+        model.markFreshness { $0.complete(at: now) }
         host.projects[projectId] = model
     }
 
@@ -164,14 +173,23 @@ public enum StoreReducer {
         model.details = [:]
         model.attention = [:]
         model.snapshotComplete = false
+        model.markFreshness { $0.refreshing = true }
         host.projects[projectId] = model
+    }
+
+    /// The stream ended or failed: a project that waited for a read keeps what it knew and notes the failure.
+    public static func noteRefreshFailure(in host: inout HostModel, now: Date) {
+        for id in Array(host.projects.keys) {
+            guard let marks = host.projects[id]?.freshness, marks.isOutstanding else { continue }
+            host.projects[id]?.markFreshness { $0.failRefresh(at: now) }
+        }
     }
 
     // MARK: Events
 
     private static func applyEvent(
         _ event: FeedEvent, projectId: String, host: inout HostModel, staging: inout Staging,
-        output: inout ReduceOutput
+        output: inout ReduceOutput, now: Date
     ) {
         guard var model = host.projects[projectId] else { return }
         if let head = model.head {
@@ -191,19 +209,26 @@ public enum StoreReducer {
             case .other:
                 unknown = true
             case .invalidate:
+                let pendingKey = FreshnessMarks.pendingKey(section: effect.section, key: effect.key)
+                model.markFreshness { $0.pending.insert(pendingKey) }
                 output.refresh.insert(projectId)
                 if effect.section == "run" || event.type == "decision.remote" { output.urgent.insert(projectId) }
             case .remove:
                 remove(effect, from: &model)
             case .upsert:
                 if !upsert(effect, in: &model, hostId: host.hostId, staging: &staging, output: &output) {
+                    let pendingKey = FreshnessMarks.pendingKey(section: effect.section, key: effect.key)
+                    model.markFreshness { $0.pending.insert(pendingKey) }
                     output.refresh.insert(projectId)
                 }
             }
             if unknown { break }
             noteDetail(effect, of: event, in: &model)
         }
-        if !unknown { applyRunChange(event, to: &model) }
+        if !unknown {
+            applyRunChange(event, to: &model)
+            model.markFreshness { $0.noteEvent(at: now) }
+        }
         host.projects[projectId] = model
         if unknown {
             drop(projectId, from: &host, staging: &staging)

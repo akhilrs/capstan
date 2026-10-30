@@ -29,6 +29,7 @@ final class AppModel {
                 restoredSelection = nil
             }
             saveSelection()
+            overviewSelected()
         }
     }
     var selectedRow: InboxRowID?
@@ -43,6 +44,8 @@ final class AppModel {
     private(set) var settings: AppSettings
     @ObservationIgnored var notifications: NotificationCoordinator!
     var presented: AppSheet?
+    /// The project the person asked to remove from the list; the window asks to confirm.
+    var projectToRemove: ProjectKey?
     @ObservationIgnored var openMainWindow: (@MainActor () -> Void)?
 
     @ObservationIgnored private let defaults: UserDefaults?
@@ -71,6 +74,8 @@ final class AppModel {
     @ObservationIgnored private var modelFlushScheduled = false
     @ObservationIgnored private var lifecycle: Task<Void, Never>?
     @ObservationIgnored private var pendingTask: Task<Void, Never>?
+    /// The project overview's controllers, one per host, and what its views share.
+    let overview = OverviewStore()
 
     // MARK: Creating
 
@@ -209,6 +214,12 @@ final class AppModel {
         generations[id] = generation
         let numbering = StateNumbering()
         connectionNumber[id] = 0
+        let live: @Sendable (String, [FeedEvent]) -> Void = { [weak self] projectId, events in
+            Task { @MainActor [weak self] in
+                guard let self, self.generations[id] == generation else { return }
+                self.overviewLive(hostId: id, projectId: projectId, events: events)
+            }
+        }
         let engine = HostStoreEngine(
             hostId: id, persistence: FilePersistence(directory: directory), clock: SystemClock(),
             onChange: { [weak self] model in
@@ -238,7 +249,8 @@ final class AppModel {
                 Task { @MainActor [weak self] in
                     self?.applyConnection(state, number: number, hostId: id, generation: generation)
                 }
-            })
+            },
+            onLiveEvents: live)
         let session = HostSession(
             config: config, runner: LiveProcessRunner(), consumer: engine, clock: SystemClock(),
             diagnostic: { what, detail in
@@ -325,6 +337,7 @@ final class AppModel {
         var reconnected = false
         if case .live = state, case .reconnecting? = connection[hostId] { reconnected = true }
         connection[hostId] = state
+        overviewConnection(state, hostId: hostId, engine: engines[hostId])
         if reconnected, let config = hosts.first(where: { $0.id == hostId }) {
             probe(config, generation: generation)
         }
@@ -621,10 +634,25 @@ final class AppModel {
             for host in hosts { refresh(hostId: host.id, projectIds: readyProjects(hostId: host.id)) }
         case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
             refresh(hostId: hostId, projectIds: readyProjects(hostId: hostId).intersection([projectId]))
+            overviewRefreshed()
         case .hosts:
             guard let focus = hostsFocus else { return }
             refresh(hostId: focus.hostId, projectIds: readyProjects(hostId: focus.hostId))
         }
+    }
+
+    /// Drops a project the host cannot reach from the list and the cursor; a live project is refused.
+    @discardableResult
+    func removeProject(hostId: UUID, projectId: String) async -> ProjectRemoval {
+        guard let engine = engines[hostId] else { return .notFound }
+        let result = await engine.removeProject(projectId)
+        guard result == .removed else { return result }
+        await sessions[hostId]?.forget(projectIds: [projectId])
+        if selectedRow?.hostId == hostId, selectedRow?.projectId == projectId { selectedRow = nil }
+        if hostsFocus == HostsFocus(hostId: hostId, projectId: projectId) { hostsFocus = HostsFocus(hostId: hostId) }
+        forwards = forwards.filter { !($0.key.hostId == hostId && $0.key.projectId == projectId) }
+        selection = selection.resolved(against: Array(hostModels.values))
+        return .removed
     }
 
     func addHost(_ config: HostConfig) {

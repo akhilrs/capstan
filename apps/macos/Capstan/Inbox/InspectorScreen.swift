@@ -20,10 +20,7 @@ struct InspectorScreen: View {
             if let row, let item = model.item(row) {
                 content(row, item)
             } else {
-                Text("Select an item to see what it asks")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Tokens.color(.label2))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                noSelection
             }
         }
         .onChange(of: row) { _, _ in
@@ -31,6 +28,28 @@ struct InspectorScreen: View {
             sending = false
             showOutcome = false
             lastVerb = nil
+        }
+    }
+
+    /// No row is selected: the outcome line the person chose, else the summary of the selected project, else a hint.
+    @ViewBuilder
+    private var noSelection: some View {
+        if case .project(let hostId, let projectId) = model.selection,
+            let content = model.overviewContent(hostId: hostId, projectId: projectId),
+            let project = model.project(hostId, projectId)
+        {
+            let name = HostLabel.projectName(project)
+            let host = hostName(hostId)
+            if let id = model.overview.selectedOutcomeId, let outcome = content.outcomes.first(where: { $0.id == id }) {
+                OutcomeInspectorView(outcome: outcome, projectName: name, hostName: host)
+            } else {
+                ProjectSummaryView(content: content, projectName: name, hostName: host)
+            }
+        } else {
+            Text("Select an item to see what it asks")
+                .font(.system(size: 13))
+                .foregroundStyle(Tokens.color(.label2))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -380,6 +399,86 @@ private struct DesignDecision: View {
     }
 }
 
+/// The outcome line the person selected under Recent outcomes: what happened, when the host says and when this Mac
+/// received it. It is made of ids and states; the free text of the event is not shown.
+struct OutcomeInspectorView: View {
+    let outcome: OverviewOutcome
+    let projectName: String
+    let hostName: String
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.space[2]) {
+                HStack(spacing: Tokens.space[0] + 2) {
+                    Image(systemName: outcome.symbol).foregroundStyle(Tokens.color(.accent))
+                    Text(verbatim: "Outcome · " + projectName)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Tokens.color(.label2))
+                }
+                Text(verbatim: outcome.text)
+                    .font(.system(size: 20, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Grid(alignment: .topLeading, horizontalSpacing: Tokens.space[2], verticalSpacing: Tokens.space[1]) {
+                    row("Host", hostName)
+                    row("Type", outcome.type)
+                    row("Happened (host)", outcome.hostTime)
+                    row("Received (this Mac)", outcome.receivedTime)
+                    row("Source", outcome.isLive ? "Live stream" : "History read")
+                }
+                if outcome.isSkewed {
+                    Banner(tone: .grey, text: "The host's clock is ahead of this Mac, so no age is shown")
+                }
+            }
+            .padding(Tokens.space[3])
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(verbatim: label).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+            Text(verbatim: value).font(.system(size: 13)).textSelection(.enabled)
+        }
+    }
+}
+
+/// The inspector of a selected project when no row is selected: its status and what the overview counts.
+struct ProjectSummaryView: View {
+    let content: OverviewModel
+    let projectName: String
+    let hostName: String
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.space[2]) {
+                Text(verbatim: "Project · " + hostName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.color(.label2))
+                Text(verbatim: projectName).font(.system(size: 20, weight: .semibold))
+                Text(verbatim: content.statusLine)
+                    .font(.system(size: 13))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityValue(content.accessibilityValue)
+                Grid(alignment: .topLeading, horizontalSpacing: Tokens.space[2], verticalSpacing: Tokens.space[1]) {
+                    row("Agents", content.totalAgents == 0 ? content.agentsEmptyText : content.countsText)
+                    row("Plans", content.plans.isEmpty ? content.plansEmptyText : "\(content.plans.count) in progress")
+                    row("Outcomes", content.historyText ?? content.outcomesEmptyText ?? "None yet")
+                }
+                if let fact = content.quietFact {
+                    Text(verbatim: fact).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                }
+            }
+            .padding(Tokens.space[3])
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(verbatim: label).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+            Text(verbatim: value).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 #if DEBUG
 private struct InspectorPreview: View {
     @State private var model: AppModel
@@ -411,5 +510,10 @@ private struct InspectorPreview: View {
 #Preview("host cannot decide") { InspectorPreview(key: "op", decide: false) }
 #Preview("nothing selected") {
     InspectorScreen(model: InboxPreviewFixtures.model(), row: nil).frame(width: 360, height: 200)
+}
+#Preview("OutcomeInspector20") {
+    if let outcome = OverviewSamples.outcome {
+        OutcomeInspectorView(outcome: outcome, projectName: "capstan", hostName: "Studio").frame(width: 360, height: 360)
+    }
 }
 #endif

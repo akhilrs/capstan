@@ -111,6 +111,13 @@ struct SidebarView: View {
             }
             .padding(.leading, Tokens.space[3])
         }
+        .contextMenu {
+            if ProjectRemovalPrompt.isOffered(project.availability) {
+                Button(ProjectRemovalPrompt.menuTitle) { // static-text
+                    model.projectToRemove = ProjectKey(hostId: host.id, projectId: project.projectId)
+                }
+            }
+        }
     }
 
     /// Projects that are gone are one quiet row at the end of the host; it opens the host's table.

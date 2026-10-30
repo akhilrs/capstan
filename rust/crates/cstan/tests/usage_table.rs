@@ -372,3 +372,19 @@ fn decide_is_in_help_its_own_help_and_the_man_page() {
     let (page, _, _) = run(&["help", "--man"]);
     assert!(man_commands(&page).iter().any(|l| l == DECIDE_SYNOPSIS));
 }
+
+const RECENT_SYNOPSIS: &str =
+    "recent --project <root|projectId> --epoch <hex> --head <n> [--limit <n>] [--json]";
+
+#[test]
+fn recent_is_in_help_its_own_help_and_the_man_page() {
+    assert!(ENTRIES.iter().any(|e| e.syntax == RECENT_SYNOPSIS));
+    let (help, _, exit) = run(&["help"]);
+    assert_eq!(exit, 0);
+    assert!(collapse(&help).contains(&collapse(RECENT_SYNOPSIS)));
+    let (one, err, exit) = run(&["help", "recent"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert!(collapse(&one).contains(&collapse(RECENT_SYNOPSIS)));
+    let (page, _, _) = run(&["help", "--man"]);
+    assert!(man_commands(&page).iter().any(|l| l == RECENT_SYNOPSIS));
+}

@@ -116,6 +116,63 @@ pub struct FeedPage {
     pub rows_read: usize,
 }
 
+/// The most outcome events one `recent_page` call returns.
+pub const RECENT_MAX_LIMIT: u32 = 20;
+/// The most row reads (rows and entity lookups together) one `recent_page` call makes.
+pub const RECENT_MAX_READS: usize = 500;
+/// The most bytes of events one `recent_page` call returns.
+pub const RECENT_MAX_BYTES: usize = 48 * 1024;
+
+/// The event types that are outcomes: what `recent_page` keeps.
+pub const OUTCOME_TYPES: &[&str] = &[
+    "report.recorded",
+    "review.verdict",
+    "verify.result",
+    "integration.finished",
+    "plan.approved",
+    "plan.signed_off",
+    "design.decided",
+    "agent.lost",
+    "agent.blocked",
+    "finding.raised",
+];
+
+/// The answer of `recent_page`: the newest outcomes at or below a head, or the ledger's own position when the caller's
+/// epoch or head does not fit it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum RecentPage {
+    Resync(RecentResync),
+    Page(RecentEvents),
+}
+
+/// The ledger's own position, answered when the caller's epoch or head does not fit it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentResync {
+    pub project_id: String,
+    pub epoch: String,
+    pub head: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentEvents {
+    pub project_id: String,
+    pub epoch: String,
+    pub head: u64,
+    /// Newest first, by `(seq, k)` descending.
+    pub events: Vec<Value>,
+    /// The lowest sequence whose row was fully taken (`head + 1` when none was).
+    pub oldest_scanned: u64,
+    /// False only when the read reached the first row of the ledger.
+    pub truncated: bool,
+    /// The charges of the call (rows and entity lookups); at most `RECENT_MAX_READS`.
+    pub rows_read: usize,
+    /// The ledger rows taken.
+    pub rows_scanned: usize,
+}
+
 // ------------------------------------------------------------------------------------------------------------- keys
 
 /// One kind of item key of the snapshot: the section it lives in, its name in the key and where its number comes from.
@@ -1705,7 +1762,8 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
             }
             if row.action == "integration.settle" {
-                // A discarded integration stops counting its packages as integrated.
+                // A discarded integration stops counting its packages as integrated, and a confirm or discard ends the
+                // listing of a signed-off plan that waited for it.
                 list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
                 // A confirmed integration supersedes the earlier ones of its plans.
                 list.push(effect(
@@ -2060,6 +2118,117 @@ fn fill(ctx: &mut Ctx<'_>, page: &mut FeedPage, after: Position, limit: u32) -> 
     page.has_more = false;
     let _ = done_in_row_more;
     Ok(())
+}
+
+/// The newest outcome events at or below `head`, newest first, read backwards by primary key. A row is taken whole (its
+/// charge, its lookups and all its outcome drafts) or not at all: a stop on the read budget, the event limit or the byte
+/// budget inside a row leaves the row out. `truncated` is false only when the first row of the ledger was taken. Event
+/// ids and bodies are those `feed_page` builds; nothing is written.
+pub fn recent_page(core: &Core, epoch: &str, head: u64, limit: u32) -> KernelResult<RecentPage> {
+    if limit == 0 || limit > RECENT_MAX_LIMIT {
+        return Err(KernelError::type_error(format!(
+            "limit must be between 1 and {RECENT_MAX_LIMIT}"
+        )));
+    }
+    let ledger = RecentResync {
+        project_id: core.project_id().to_string(),
+        epoch: feed_cursor::epoch(core)?,
+        head: head_of(core)?,
+    };
+    if epoch != ledger.epoch || head > ledger.head {
+        return Ok(RecentPage::Resync(ledger));
+    }
+    let mut ctx = Ctx {
+        core,
+        project_id: ledger.project_id.clone(),
+        epoch: ledger.epoch.clone(),
+        head,
+        reads: 0,
+        max_rows: RECENT_MAX_READS,
+        max_bytes: RECENT_MAX_BYTES,
+        cache: HashMap::new(),
+    };
+    let mut events: Vec<Value> = Vec::new();
+    let mut bytes = PAGE_ENVELOPE_BYTES;
+    let mut oldest = head + 1;
+    let mut taken = 0usize;
+    let mut seq = head as i64;
+    let mut truncated = true;
+    while seq >= 1 {
+        let Some(row_events) = take_recent_row(&mut ctx, seq, &mut bytes, events.len(), limit)?
+        else {
+            break;
+        };
+        // Within a row the sub-events go by `k` descending too.
+        events.extend(row_events.into_iter().rev());
+        oldest = seq as u64;
+        taken += 1;
+        if seq == 1 {
+            truncated = false;
+        }
+        seq -= 1;
+    }
+    if head == 0 {
+        truncated = false;
+    }
+    Ok(RecentPage::Page(RecentEvents {
+        project_id: ctx.project_id.clone(),
+        epoch: ctx.epoch.clone(),
+        head,
+        events,
+        oldest_scanned: oldest,
+        truncated,
+        rows_read: ctx.reads,
+        rows_scanned: taken,
+    }))
+}
+
+/// The outcome events of one row (by `k` ascending), or `None` when the row cannot be taken whole.
+fn take_recent_row(
+    ctx: &mut Ctx<'_>,
+    seq: i64,
+    bytes: &mut usize,
+    have: usize,
+    limit: u32,
+) -> KernelResult<Option<Vec<Value>>> {
+    let mut run = || -> Step<Option<(Vec<Value>, usize)>> {
+        ctx.charge()?;
+        let Some(row) = read_row(ctx.core, seq)? else {
+            return Ok(Some((Vec::new(), 0)));
+        };
+        let drafts = classify(ctx, &row)?;
+        let mut kept = Vec::new();
+        let mut size = 0usize;
+        for (k, draft) in drafts.iter().enumerate() {
+            if !OUTCOME_TYPES.contains(&draft.ty) {
+                continue;
+            }
+            let Some(built) = build(ctx, &row, draft)? else {
+                continue;
+            };
+            let event = event_of(ctx, &row, k, draft, built);
+            size += serde_json::to_string(&event)
+                .map_err(|e| Flow::Error(KernelError::from(e)))?
+                .len()
+                + 1;
+            kept.push(event);
+        }
+        if have + kept.len() > limit as usize {
+            return Ok(None);
+        }
+        Ok(Some((kept, size)))
+    };
+    match run() {
+        Ok(Some((kept, size))) => {
+            if !kept.is_empty() && *bytes + size > RECENT_MAX_BYTES {
+                return Ok(None);
+            }
+            *bytes += size;
+            Ok(Some(kept))
+        }
+        Ok(None) | Err(Flow::Stop) => Ok(None),
+        Err(Flow::Error(error)) => Err(error),
+    }
 }
 
 // ------------------------------------------------------------------------------------------------- helpers for tests

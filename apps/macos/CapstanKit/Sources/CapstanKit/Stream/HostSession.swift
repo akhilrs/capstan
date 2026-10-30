@@ -96,6 +96,8 @@ public actor HostSession {
 
     private var cursor: Cursor?
     private var cursorLoaded = false
+    /// Projects removed from the list: the cursor of this session leaves them out until the host names them again.
+    private var forgotten: Set<String> = []
     private var attempt = 0
     private var failures = 0
 
@@ -179,6 +181,14 @@ public actor HostSession {
         guard refreshTask == nil else { return }
         let gen = generation
         refreshTask = Task { await self.runRefresh(generation: gen) }
+    }
+
+    /// Leaves the projects out of the cursor the next connection starts with. The stream is not restarted.
+    public func forget(projectIds: Set<String>) {
+        guard !projectIds.isEmpty else { return }
+        forgotten.formUnion(projectIds)
+        pendingRefresh.subtract(projectIds)
+        if cursorLoaded, let current = cursor { cursor = (try? current.removing(forgotten)) ?? nil }
     }
 
     private func launch() {
@@ -340,10 +350,11 @@ public actor HostSession {
                         refresh(projectIds: ids, urgent: true)
                     }
                     if !refreshRestartRequested {
-                        cursor = next
+                        cursor = forgotten.isEmpty ? next : ((try? next.removing(forgotten)) ?? nil)
                         cursorLoaded = true
                     }
                 default:
+                    if case .project(let project) = line { forgotten.remove(project.projectId) }
                     batch.append(line)
                     await noteLive()
                 }
@@ -481,7 +492,8 @@ public actor HostSession {
         } catch {
             return
         }
-        guard gen == generation else { return }
+        // A sleep that was cancelled may still return: a replaced refresh must not restart the stream.
+        guard !Task.isCancelled, gen == generation else { return }
         refreshWaiting = false
         let ids = pendingRefresh
         pendingRefresh = []

@@ -106,6 +106,13 @@ struct HostsScreen: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            if ProjectRemovalPrompt.isOffered(project.availability) {
+                Button(ProjectRemovalPrompt.menuTitle) { // static-text
+                    model.projectToRemove = ProjectKey(hostId: host.id, projectId: project.projectId)
+                }
+            }
+        }
     }
 
     private func waitMeaning(_ project: ProjectModel, _ text: AvailabilityText) -> String {
