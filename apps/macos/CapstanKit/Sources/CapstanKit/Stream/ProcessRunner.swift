@@ -25,15 +25,17 @@ extension RunningProcess {
     }
 }
 
-/// Cuts a byte stream into lines.
-struct LineSplitter {
+/// Cuts a byte stream into lines. A final line without a newline is never returned.
+public struct LineSplitter {
     /// The longest line without its newline.
-    static let maxLineBytes = LineDecoder.maxLineBytes - 1
+    public static let maxLineBytes = LineDecoder.maxLineBytes - 1
 
     private var buffer = Data()
 
+    public init() {}
+
     /// The complete lines in the chunk, in order. Throws `LineDecodeError.tooLong` when a line passes the cap.
-    mutating func feed(_ chunk: Data) throws -> [Data] {
+    public mutating func feed(_ chunk: Data) throws -> [Data] {
         buffer.append(chunk)
         var lines: [Data] = []
         var start = buffer.startIndex
@@ -84,6 +86,8 @@ final class Latch<Value: Sendable>: @unchecked Sendable {
     }
 }
 
+#if os(macOS)
+// Foundation.Process exists only on macOS; on iOS the runner is the SSH client's.
 public struct LiveProcessRunner: ProcessRunner {
     public init() {}
 
@@ -307,3 +311,4 @@ final class LiveProcess: RunningProcess, @unchecked Sendable {
         await exit.wait()
     }
 }
+#endif
