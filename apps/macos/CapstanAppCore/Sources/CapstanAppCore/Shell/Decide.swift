@@ -21,7 +21,7 @@ public enum RequestTarget {
     }
 
     public static func forRun(_ p: ProjectModel) -> (requestId: String, expect: String)? {
-        guard let item = p.run else { return nil }
+        guard let item = p.run, item.hashKnown else { return nil }
         return (item.requestId, item.contentHash)
     }
 }

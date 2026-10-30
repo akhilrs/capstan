@@ -292,6 +292,9 @@ public struct StoredRun: Codable, Sendable, Equatable {
         self.contentHash = contentHash
     }
 
+    /// False between a `run.changed` event and the read that follows it: a decision would carry a stale hash.
+    public var hashKnown: Bool { !contentHash.isEmpty }
+
     init(_ item: RunItem) {
         self.init(requestId: item.requestId, state: item.state, paused: item.paused, contentHash: item.contentHash)
     }
@@ -388,6 +391,10 @@ public struct ProjectModel: Codable, Sendable, Equatable {
         self.snapshotComplete = snapshotComplete
         self.staleSince = staleSince
     }
+
+    /// The project can be resumed from a saved cursor: its snapshot is complete and its run, if any, has a hash. A run
+    /// whose hash is unknown (a `run.changed` not yet read) is read again in full instead, which brings the hash.
+    var isResumable: Bool { snapshotComplete && (run?.hashKnown ?? true) }
 
     /// The last path component of the root; the project id when the root has none.
     public var displayName: String {

@@ -223,4 +223,96 @@ final class WorkspacesTests: XCTestCase {
         XCTAssertEqual(plan(state: "in_review").pill(waiting: 0), PlanPill(word: "In review", tone: .grey))
         XCTAssertNil(plan(state: "approved").pill(waiting: 2))
     }
+
+    private func feedModel(_ lines: [String]) throws -> ProjectModel {
+        var host = HostModel(hostId: ShellFixtures.hostA)
+        var staging = Staging()
+        for text in lines {
+            let line = try LineDecoder().decode(Data(text.utf8))
+            _ = StoreReducer.apply(line, to: &host, staging: &staging)
+        }
+        return try XCTUnwrap(host.projects["p1"])
+    }
+
+    private static let feedStart = [
+        "{\"v\":1,\"kind\":\"hello\",\"version\":\"0.1.0\",\"host\":\"h\",\"projects\":1}",
+        "{\"v\":1,\"kind\":\"project\",\"projectId\":\"p1\",\"root\":\"/srv/p1\",\"state\":\"ready\","
+            + "\"epoch\":\"daeca3b2245f3519\",\"head\":26}",
+        "{\"v\":1,\"kind\":\"snapshot\",\"projectId\":\"p1\",\"section\":\"run\",\"key\":\"run\","
+            + "\"item\":{\"requestId\":\"run\",\"state\":\"active\",\"paused\":false,\"contentHash\":\"h1\"}}",
+        "{\"v\":1,\"kind\":\"snapshotEnd\",\"projectId\":\"p1\",\"head\":26}",
+    ]
+
+    private static func runChanged(_ state: String, _ paused: Bool, seq: Int) -> String {
+        "{\"v\":1,\"kind\":\"event\",\"projectId\":\"p1\",\"event\":{\"id\":\"p1:e:\(seq)\",\"seq\":\(seq),\"k\":0,"
+            + "\"ts\":\"2026-10-30T01:07:06.000Z\",\"type\":\"run.changed\",\"actorId\":null,"
+            + "\"entity\":{\"type\":\"run_control\",\"id\":\"p1\"},\"from\":null,\"to\":null,"
+            + "\"body\":{\"effects\":[{\"section\":\"run\",\"op\":\"invalidate\",\"key\":\"run\",\"fields\":{}}],"
+            + "\"state\":\"\(state)\",\"paused\":\(paused),\"reason\":\"Test\",\"textVerified\":true,"
+            + "\"truncated\":false,\"untrusted\":[\"body.reason\"]}}}"
+    }
+
+    func testPauseArrivingThroughTheFeedTurnsTheControlToResume() throws {
+        let before = try feedModel(Self.feedStart)
+        XCTAssertEqual(ProjectPauseControl(decide: true, busy: false, runPaused: before.run?.paused ?? false).action, .pause)
+        let after = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)])
+        let paused = after.run?.paused ?? false
+        XCTAssertTrue(paused)
+        let control = ProjectPauseControl(decide: true, busy: false, runPaused: paused)
+        XCTAssertEqual(control.action, .resume)
+        XCTAssertEqual(control.status, ProjectPauseControl.pausedWord)
+        XCTAssertEqual(RequestTarget.forRun(after)?.requestId, "run")
+    }
+
+    func testResumeArrivingThroughTheFeedTurnsTheControlBackToPause() throws {
+        let model = try feedModel(
+            Self.feedStart + [Self.runChanged("paused", true, seq: 27), Self.runChanged("active", false, seq: 28)])
+        let paused = model.run?.paused ?? true
+        XCTAssertFalse(paused)
+        XCTAssertEqual(ProjectPauseControl(decide: true, busy: false, runPaused: paused).action, .pause)
+    }
+
+    private static func runSnapshot(state: String, paused: Bool, hash: String) -> [String] {
+        [
+            "{\"v\":1,\"kind\":\"project\",\"projectId\":\"p1\",\"root\":\"/srv/p1\",\"state\":\"ready\","
+                + "\"epoch\":\"daeca3b2245f3519\",\"head\":27}",
+            "{\"v\":1,\"kind\":\"snapshot\",\"projectId\":\"p1\",\"section\":\"run\",\"key\":\"run\","
+                + "\"item\":{\"requestId\":\"run\",\"state\":\"\(state)\",\"paused\":\(paused),\"contentHash\":\"\(hash)\"}}",
+            "{\"v\":1,\"kind\":\"snapshotEnd\",\"projectId\":\"p1\",\"head\":27}",
+        ]
+    }
+
+    func testResumeAfterPauseThroughTheFeedCarriesTheNewHashAndNeverTheOldOne() throws {
+        let afterEvent = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)])
+        // Until the read, the old hash "h1" is not offered: no request is built and the control waits.
+        XCTAssertNil(RequestTarget.forRun(afterEvent))
+        let waiting = ProjectPauseControl(
+            decide: true, busy: false, runPaused: true, hashKnown: afterEvent.run?.hashKnown ?? true)
+        XCTAssertEqual(waiting.state, .disabled(PauseReason.updating))
+
+        let read = try feedModel(
+            Self.feedStart + [Self.runChanged("paused", true, seq: 27)] + Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        XCTAssertEqual(RequestTarget.forRun(read)?.expect, "h2")
+        let route = DecideRouter.route(
+            .runResume(reason: nil), target: .run, project: read, busy: [], hostId: ShellFixtures.hostA,
+            projectId: "p1", client: "mac", nonce: "n-1")
+        guard case .send(let request, _) = route else { return XCTFail("a resume with a known hash is sent") }
+        XCTAssertEqual(request.expect, "h2")
+        XCTAssertTrue(ProjectPauseControl(decide: true, busy: false, runPaused: true, hashKnown: true).state.isEnabled)
+    }
+
+    func testRunChangedShowsUpdatingThenResumeAfterTheReread() throws {
+        func control(_ model: ProjectModel) -> ProjectPauseControl {
+            ProjectPauseControl(
+                decide: true, busy: false, runPaused: model.run?.paused ?? false,
+                hashKnown: model.run?.hashKnown ?? true)
+        }
+        let changed = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)])
+        XCTAssertEqual(control(changed).action, .resume)
+        XCTAssertEqual(control(changed).state, .disabled(PauseReason.updating))
+        let read = try feedModel(
+            Self.feedStart + [Self.runChanged("paused", true, seq: 27)] + Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        XCTAssertEqual(control(read).action, .resume)
+        XCTAssertEqual(control(read).state, .enabled)
+    }
 }

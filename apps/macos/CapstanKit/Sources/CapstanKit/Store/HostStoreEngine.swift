@@ -12,6 +12,7 @@ public actor HostStoreEngine: StreamConsumer {
     private let onChange: @Sendable (HostModel) -> Void
     private let onNotify: @Sendable ([NotifyCandidate]) -> Void
     private let onRefresh: @Sendable (Set<String>) -> Void
+    private let onUrgentRefresh: (@Sendable (Set<String>) -> Void)?
     private let onConnection: (@Sendable (ConnectionState) -> Void)?
 
     private var model: HostModel
@@ -32,6 +33,7 @@ public actor HostStoreEngine: StreamConsumer {
         onChange: @escaping @Sendable (HostModel) -> Void,
         onNotify: @escaping @Sendable ([NotifyCandidate]) -> Void,
         onRefresh: @escaping @Sendable (Set<String>) -> Void,
+        onUrgentRefresh: (@Sendable (Set<String>) -> Void)? = nil,
         onConnection: (@Sendable (ConnectionState) -> Void)? = nil
     ) {
         self.hostId = hostId
@@ -40,6 +42,7 @@ public actor HostStoreEngine: StreamConsumer {
         self.onChange = onChange
         self.onNotify = onNotify
         self.onRefresh = onRefresh
+        self.onUrgentRefresh = onUrgentRefresh
         self.onConnection = onConnection
         var model = HostModel(hostId: hostId)
         var staging = Staging()
@@ -84,11 +87,13 @@ public actor HostStoreEngine: StreamConsumer {
         guard host == hostId, !lines.isEmpty else { return }
         let now = clock.now()
         var refresh = Set<String>()
+        var urgent = Set<String>()
         var notify: [NotifyCandidate] = []
         var cursorSeen = false
         for line in lines {
             let output = StoreReducer.apply(line, to: &model, staging: &staging, now: now)
             refresh.formUnion(output.refresh)
+            urgent.formUnion(output.urgent)
             notify.append(contentsOf: output.notify)
             if case .cursor = line { cursorSeen = true }
         }
@@ -99,6 +104,11 @@ public actor HostStoreEngine: StreamConsumer {
         refresh = refresh.filter {
             model.projects[$0]?.availability == .ready && model.projects[$0]?.snapshotComplete == true
                 && staging.pending[$0] == nil
+        }
+        urgent.formIntersection(refresh)
+        if let onUrgentRefresh, !urgent.isEmpty {
+            onUrgentRefresh(urgent)
+            refresh.subtract(urgent)
         }
         if !refresh.isEmpty { onRefresh(refresh) }
         if cursorSeen { scheduleSave() }
@@ -154,7 +164,7 @@ public actor HostStoreEngine: StreamConsumer {
     // MARK: Saving
 
     private func completeProjectIds() -> Set<String> {
-        Set(model.projects.filter { $0.value.snapshotComplete && staging.pending[$0.key] == nil }.keys)
+        Set(model.projects.filter { $0.value.isResumable && staging.pending[$0.key] == nil }.keys)
     }
 
     private func persistedNow() -> PersistedHost {

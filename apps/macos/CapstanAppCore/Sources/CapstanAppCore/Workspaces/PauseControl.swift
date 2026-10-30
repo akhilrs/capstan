@@ -13,6 +13,7 @@ public enum PauseReason {
     public static let sending = "Sending"
     public static let notPaused = "Not paused"
     public static let alreadyPaused = "Already paused"
+    public static let updating = "Updating"
 
     /// The reason a decision cannot be sent now; nil when it can.
     static func blocked(decide: Bool, busy: Bool) -> String? {
@@ -56,13 +57,19 @@ public struct ProjectPauseControl: Sendable, Equatable {
     /// Shown beside the button while the run is paused.
     public let status: String?
 
-    public init(decide: Bool, busy: Bool, runPaused: Bool) {
+    /// `hashKnown` is false while the run changed and its new content hash has not been read yet.
+    public init(decide: Bool, busy: Bool, runPaused: Bool, hashKnown: Bool = true) {
         action = runPaused ? .resume : .pause
-        state = PauseReason.blocked(decide: decide, busy: busy).map { .disabled($0) } ?? .enabled
+        state = PauseReason.blocked(decide: decide, busy: busy).map { .disabled($0) }
+            ?? (hashKnown ? .enabled : .disabled(PauseReason.updating))
         status = runPaused ? ProjectPauseControl.pausedWord : nil
     }
 
-    public init(capabilities: HostCapabilities?, busy: Set<BusyKey>, key: BusyKey, runPaused: Bool) {
-        self.init(decide: capabilities?.decide ?? false, busy: busy.contains(key), runPaused: runPaused)
+    public init(
+        capabilities: HostCapabilities?, busy: Set<BusyKey>, key: BusyKey, runPaused: Bool, hashKnown: Bool = true
+    ) {
+        self.init(
+            decide: capabilities?.decide ?? false, busy: busy.contains(key), runPaused: runPaused,
+            hashKnown: hashKnown)
     }
 }

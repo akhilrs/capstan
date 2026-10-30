@@ -67,6 +67,70 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(harness.alpha?.agents["dev-1"]?.branch?.raw, "feat/x")
     }
 
+    private func seededWithRun() throws -> ReducerHarness {
+        var harness = ReducerHarness()
+        harness.apply(
+            try StoreWire.hello(), try StoreWire.project("proj-a"),
+            try StoreWire.snapshot("proj-a", "run", key: "run", item: StoreWire.runItem()),
+            try StoreWire.end("proj-a"))
+        return harness
+    }
+
+    func testRunChangedPausedUpdatesTheStoredRunAndAsksForTheRead() throws {
+        var harness = try seededWithRun()
+        XCTAssertEqual(harness.alpha?.run?.paused, false)
+        let output = harness.apply(try StoreWire.runChanged(state: "paused", paused: true))
+        XCTAssertEqual(harness.alpha?.run?.paused, true)
+        XCTAssertEqual(harness.alpha?.run?.state, "paused")
+        XCTAssertEqual(harness.alpha?.run?.requestId, "run")
+        XCTAssertEqual(harness.alpha?.run?.hashKnown, false, "the old hash is dropped, not kept stale")
+        XCTAssertEqual(output.refresh, ["proj-a"])
+        XCTAssertEqual(output.urgent, ["proj-a"], "the person waits for the run to follow")
+    }
+
+    func testAnInvalidateOfAnAgentIsNotUrgent() throws {
+        var harness = try seeded()
+        let output = harness.apply(
+            .event(projectId: "proj-a", try StoreWire.event(
+                "snapshot.invalidated", effects: [("agents", "invalidate", "dev-1", "{}")])))
+        XCTAssertEqual(output.refresh, ["proj-a"])
+        XCTAssertTrue(output.urgent.isEmpty)
+    }
+
+    func testARemoteDecisionInvalidateIsUrgent() throws {
+        var harness = try seeded()
+        let output = harness.apply(
+            .event(projectId: "proj-a", try StoreWire.event(
+                "decision.remote", effects: [("agents", "invalidate", "dev-1", "{}")])))
+        XCTAssertEqual(output.urgent, ["proj-a"])
+    }
+
+    func testRunChangedResumeFlipsTheStoredRunBack() throws {
+        var harness = try seededWithRun()
+        harness.apply(try StoreWire.runChanged(state: "paused", paused: true))
+        harness.apply(try StoreWire.runChanged(state: "active", paused: false, seq: 32))
+        XCTAssertEqual(harness.alpha?.run?.paused, false)
+        XCTAssertEqual(harness.alpha?.run?.state, "active")
+    }
+
+    func testTheReadAfterARunChangeBringsTheNewHash() throws {
+        var harness = try seededWithRun()
+        harness.apply(try StoreWire.runChanged(state: "paused", paused: true))
+        harness.apply(
+            try StoreWire.project("proj-a"),
+            try StoreWire.snapshot("proj-a", "run", key: "run", item: StoreWire.runItem(state: "paused", paused: true, hash: "run-hash-2")),
+            try StoreWire.end("proj-a", head: 31))
+        XCTAssertEqual(harness.alpha?.run?.contentHash, "run-hash-2")
+        XCTAssertEqual(harness.alpha?.run?.hashKnown, true)
+        XCTAssertEqual(harness.alpha?.run?.paused, true)
+    }
+
+    func testRunChangedWithoutAStoredRunLeavesNoRun() throws {
+        var harness = try seeded()
+        harness.apply(try StoreWire.runChanged(state: "paused", paused: true))
+        XCTAssertNil(harness.alpha?.run)
+    }
+
     private func activityEvent(_ activity: String, seq: Int, key: String = "dev-1") throws -> StreamLine {
         .event(projectId: "proj-a", try StoreWire.event(
             "agent.activity", entity: ("agent", key),

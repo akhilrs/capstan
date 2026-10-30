@@ -226,6 +226,12 @@ final class AppModel {
                     await session.refresh(projectIds: projectIds)
                 }
             },
+            onUrgentRefresh: { [weak self] projectIds in
+                Task { @MainActor [weak self] in
+                    guard let self, self.generations[id] == generation, let session = self.sessions[id] else { return }
+                    await session.refresh(projectIds: projectIds, urgent: true)
+                }
+            },
             onConnection: { [weak self] state in
                 // Numbered here, in the engine's order, because separate tasks may reach the main actor out of order.
                 let number = numbering.next()
