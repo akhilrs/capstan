@@ -593,6 +593,7 @@ pub struct GitRepo {
     root: PathBuf,
     extra_env: Vec<(String, String)>,
     seams: GitSeams,
+    merge_seams: MergeSeams,
     /// The absolute path of git, resolved by the first `run_root` call of this repository (and its clones).
     git_path: Arc<OnceLock<PathBuf>>,
     /// The probed git version (major, minor), filled by the first successful probe.
@@ -1635,6 +1636,7 @@ impl GitRepo {
             root: root.into(),
             extra_env: Vec::new(),
             seams: GitSeams::default(),
+            merge_seams: MergeSeams::default(),
             git_path: Arc::new(OnceLock::new()),
             version: Arc::new(OnceLock::new()),
         }
@@ -4087,6 +4089,745 @@ fn ignored_check_pathspecs(
         }
     }
     chunks
+}
+
+// ----------------------------------------------------------------------------------------------- merge commit
+
+/// The time the rollback and the re-reads after a failed write have in all.
+const MERGE_RECOVER_TIME: Duration = Duration::from_secs(20);
+
+/// The reasons `classify_failure` returns; equal to `DOC_FAILURE_REASONS` (a unit test compares them).
+pub(crate) const MERGE_FAILURE_REASONS: &[&str] = &["merge_failed", "timeout", "index_lock_left"];
+
+/// Switches for tests of `merge_into_root`, all off by default; nothing but a test sets them. They travel with a
+/// clone, apart from `GitSeams`.
+#[doc(hidden)]
+#[derive(Debug, Clone, Default)]
+pub struct MergeSeams {
+    pub lock_after_refresh_killed: bool,
+    pub expire_rollback_deadline: bool,
+    pub move_branch_before_update_ref: bool,
+    pub hold_lock_before_read_tree: bool,
+    pub hold_lock_before_refresh: bool,
+    pub hold_ref_lock_before_update_ref: bool,
+    pub force_update_ref_timeout: bool,
+    /// A commit to move the branch to (and check out) before read-tree.
+    pub move_branch_before_read_tree: Option<String>,
+    /// Read-tree runs, then its result is treated as an unknown failure.
+    pub fail_read_tree_after_write: bool,
+    /// After read-tree returns, index.lock is created and the child is treated as killed at the deadline.
+    pub lock_after_read_tree_killed: bool,
+    /// The main deadline is treated as passed: update-ref is not run and the ref is read.
+    pub expire_deadline_before_update_ref: bool,
+    /// Applied after the preflight re-run, before the refresh.
+    pub edit_before_read_tree: Option<(PathBuf, Vec<u8>)>,
+    pub create_file_after_read_tree: Option<(PathBuf, Vec<u8>)>,
+    pub edit_before_rollback: Option<(PathBuf, Vec<u8>)>,
+}
+
+/// The step of the merge that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailStep {
+    Refresh,
+    ReadTree,
+    UpdateRef,
+}
+
+/// Where the checkout branch points after a failed step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefAfter {
+    New,
+    OldHead,
+    Other,
+    Unknown,
+}
+
+/// What is known of the tree after a failure; `Rollback` is resolved by running the rollback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum After {
+    Restored,
+    NotRestored,
+    Rollback,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailDecision {
+    Merged,
+    RefuseDirty,
+    Fail { reason: &'static str, after: After },
+}
+
+/// What a failed step of the merge means, first matching row wins (rows F1 to U3 of the plan).
+fn classify_failure(
+    step: FailStep,
+    lock_before: bool,
+    lock_after: bool,
+    killed_at_deadline: bool,
+    stderr: &str,
+    ref_after: RefAfter,
+) -> FailDecision {
+    let fail = |reason, after| FailDecision::Fail { reason, after };
+    let reason = if killed_at_deadline {
+        "timeout"
+    } else {
+        "merge_failed"
+    };
+    let rollback = if ref_after == RefAfter::OldHead {
+        After::Rollback
+    } else {
+        After::NotRestored
+    };
+    match step {
+        FailStep::Refresh => {
+            if killed_at_deadline && lock_after && !lock_before {
+                // F1
+                fail("index_lock_left", After::NotRestored)
+            } else {
+                // F2
+                fail(reason, After::Restored)
+            }
+        }
+        FailStep::ReadTree => {
+            if lock_before {
+                // R1
+                fail("merge_failed", After::Restored)
+            } else if lock_after {
+                // R2 and R2b
+                fail("index_lock_left", After::NotRestored)
+            } else if killed_at_deadline {
+                // R3
+                fail("timeout", rollback)
+            } else if stderr.contains("index.lock") {
+                // R4
+                fail("merge_failed", After::Restored)
+            } else if stderr.contains("would be overwritten") || stderr.contains("not uptodate") {
+                // R5
+                FailDecision::RefuseDirty
+            } else {
+                // R6
+                fail("merge_failed", rollback)
+            }
+        }
+        FailStep::UpdateRef => match ref_after {
+            // U1
+            RefAfter::New => FailDecision::Merged,
+            // U2
+            RefAfter::OldHead => fail(reason, After::Rollback),
+            // U3
+            RefAfter::Other | RefAfter::Unknown => fail(reason, After::NotRestored),
+        },
+    }
+}
+
+/// The failure of a decision whose rollback has run (a `Rollback` counts as not restored).
+fn failed_from(decision: FailDecision) -> RootMerge {
+    match decision {
+        FailDecision::Fail { reason, after } => {
+            debug_assert!(MERGE_FAILURE_REASONS.contains(&reason));
+            RootMerge::failed(reason, after == After::Restored)
+        }
+        FailDecision::Merged | FailDecision::RefuseDirty => {
+            RootMerge::failed("merge_failed", false)
+        }
+    }
+}
+
+/// The paths read-tree names in its `Entry '<path>' ...` lines.
+fn read_tree_entries(stderr: &str) -> Vec<Vec<u8>> {
+    let mut names = Vec::new();
+    for line in stderr.lines() {
+        let Some(at) = line.find("Entry '") else {
+            continue;
+        };
+        let rest = &line[at + "Entry '".len()..];
+        let end = ["' would be", "' not uptodate", "' "]
+            .iter()
+            .filter_map(|marker| rest.find(marker))
+            .min();
+        if let Some(end) = end {
+            names.push(rest.as_bytes()[..end].to_vec());
+        }
+    }
+    names
+}
+
+fn refused_merge(code: &'static str, names: &[&str]) -> RootMerge {
+    RootMerge::Refused(Refusal::new(
+        code,
+        names.iter().map(|name| name.as_bytes().to_vec()).collect(),
+    ))
+}
+
+/// One git child of the merge, with a timeout and any other failure to run it folded into the code (-1).
+struct Step {
+    code: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    killed: bool,
+}
+
+fn lock_present(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+impl GitRepo {
+    /// Test-only switches of `merge_into_root`; plan-121 must not use them.
+    #[doc(hidden)]
+    pub fn with_merge_seams(mut self, seams: MergeSeams) -> Self {
+        self.merge_seams = seams;
+        self
+    }
+
+    /// Writes the merge of `head_sha` into the checked-out `checkout_branch` of the root as a commit with parents
+    /// `old_head` and `head_sha`, updating index and working tree. The preflight runs again first, so a refusal it
+    /// gives is returned as is.
+    pub fn merge_into_root(
+        &self,
+        checkout_branch: &str,
+        merged_branch: &str,
+        head_sha: &str,
+        old_head: &str,
+        timeout: Duration,
+    ) -> IntegrateResult<RootMerge> {
+        let deadline = Deadline::new(timeout);
+        let commit = format!("{old_head}^{{commit}}");
+        if !is_commit_id(old_head)
+            || self
+                .check_code(
+                    &["rev-parse", "--verify", "--quiet", &commit],
+                    &deadline,
+                    &[0, 1],
+                )?
+                .code
+                == 1
+        {
+            return Ok(refused_merge("invalid_commit", &[old_head]));
+        }
+        if capstan_config::remote::validate_branch_name(merged_branch).is_err() {
+            return Ok(refused_merge("invalid_branch", &[merged_branch]));
+        }
+        let (preflight, plan) = self.preflight_inner(checkout_branch, head_sha, &deadline)?;
+        match preflight {
+            Preflight::AlreadyInHead => return Ok(RootMerge::AlreadyInHead),
+            Preflight::Refused(refusal) => return Ok(RootMerge::Refused(refusal)),
+            Preflight::Ready { old_head: current } => {
+                if current != old_head {
+                    return Ok(RootMerge::failed("merge_failed", true));
+                }
+            }
+        }
+        let Some(plan) = plan else {
+            return Err(unavailable("the preflight printed no merge plan"));
+        };
+        self.write_merge(
+            checkout_branch,
+            merged_branch,
+            head_sha,
+            old_head,
+            &plan,
+            &deadline,
+        )
+    }
+
+    /// Runs one git child and folds a timeout (`killed`) or any other failure to run it into the step.
+    fn step(
+        &self,
+        args: &[&str],
+        deadline: &Deadline,
+        read_only: bool,
+        extra_env: &[(&str, &str)],
+    ) -> Step {
+        match self.run_merge(args, deadline, read_only, extra_env) {
+            Ok(out) => Step {
+                code: out.code,
+                stdout: out.stdout,
+                stderr: out.stderr,
+                killed: false,
+            },
+            Err(error) => Step {
+                code: -1,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                killed: matches!(
+                    &error,
+                    IntegrateError::Integration { code, .. } if code == "timeout" || code == "killed"
+                ),
+            },
+        }
+    }
+
+    /// `git rev-parse --git-path <name>` as a path in the file system.
+    fn git_path_of(&self, name: &str, deadline: &Deadline) -> IntegrateResult<PathBuf> {
+        let out = self.check_code(&["rev-parse", "--git-path", name], deadline, &[0])?;
+        let text = out.stdout.strip_suffix(b"\n").unwrap_or(&out.stdout);
+        if text.is_empty() {
+            return Err(unavailable("git printed no path"));
+        }
+        Ok(self.root.join(OsStr::from_bytes(text)))
+    }
+
+    fn touch_file(&self, path: &Path) {
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path);
+    }
+
+    fn put_file(&self, edit: &Option<(PathBuf, Vec<u8>)>) {
+        if let Some((path, bytes)) = edit {
+            let _ = std::fs::write(self.root.join(path), bytes);
+        }
+    }
+
+    /// Where `refs/heads/<branch>` points now.
+    fn ref_after(&self, branch: &str, new: &str, old_head: &str, deadline: &Deadline) -> RefAfter {
+        let name = format!("refs/heads/{branch}");
+        let step = self.step(
+            &["rev-parse", "--verify", "--quiet", &name],
+            deadline,
+            true,
+            &[],
+        );
+        match step.code {
+            0 => {
+                let text = String::from_utf8_lossy(&step.stdout).trim().to_string();
+                if text == new {
+                    RefAfter::New
+                } else if text == old_head {
+                    RefAfter::OldHead
+                } else {
+                    RefAfter::Other
+                }
+            }
+            1 => RefAfter::Other,
+            _ => RefAfter::Unknown,
+        }
+    }
+
+    /// Steps 1 to 4 of the merge commit.
+    fn write_merge(
+        &self,
+        checkout_branch: &str,
+        merged_branch: &str,
+        head_sha: &str,
+        old_head: &str,
+        plan: &MergePlan,
+        deadline: &Deadline,
+    ) -> IntegrateResult<RootMerge> {
+        let seams = &self.merge_seams;
+        let (name, email) = (plan.identity.0.as_str(), plan.identity.1.as_str());
+        let lock = self.git_path_of("index.lock", deadline)?;
+        let branch_ref = format!("refs/heads/{checkout_branch}");
+        let committer = [("GIT_COMMITTER_NAME", name), ("GIT_COMMITTER_EMAIL", email)];
+
+        // 1
+        self.put_file(&seams.edit_before_read_tree);
+        if seams.hold_lock_before_refresh {
+            self.touch_file(&lock);
+        }
+        let lock_before = lock_present(&lock);
+        let mut refresh = self.step(&["update-index", "-q", "--refresh"], deadline, false, &[]);
+        if seams.lock_after_refresh_killed {
+            self.touch_file(&lock);
+            refresh.code = -1;
+            refresh.killed = true;
+        }
+        if !matches!(refresh.code, 0 | 1) {
+            let stderr = String::from_utf8_lossy(&refresh.stderr);
+            let decision = classify_failure(
+                FailStep::Refresh,
+                lock_before,
+                lock_present(&lock),
+                refresh.killed,
+                &stderr,
+                RefAfter::Unknown,
+            );
+            return Ok(failed_from(decision));
+        }
+
+        // 2
+        let message = format!("Merge branch '{merged_branch}'");
+        let created = self.step(
+            &[
+                "commit-tree",
+                &plan.tree,
+                "-p",
+                old_head,
+                "-p",
+                head_sha,
+                "-m",
+                &message,
+            ],
+            deadline,
+            false,
+            &[
+                ("GIT_AUTHOR_NAME", name),
+                ("GIT_AUTHOR_EMAIL", email),
+                committer[0],
+                committer[1],
+                ("TZ", "UTC"),
+            ],
+        );
+        let new = String::from_utf8_lossy(&created.stdout).trim().to_string();
+        if created.code != 0 || !is_commit_id(&new) {
+            return Ok(if created.killed {
+                RootMerge::failed("timeout", true)
+            } else {
+                RootMerge::failed("merge_failed", true)
+            });
+        }
+
+        // 3
+        if let Some(commit) = &seams.move_branch_before_read_tree {
+            self.step(
+                &["update-ref", &branch_ref, commit],
+                deadline,
+                false,
+                &committer,
+            );
+            self.step(
+                &["read-tree", "--reset", "-u", commit],
+                deadline,
+                false,
+                &[],
+            );
+        }
+        if seams.hold_lock_before_read_tree {
+            self.touch_file(&lock);
+        }
+        let lock_before = lock_present(&lock);
+        let mut read = self.step(
+            &["read-tree", "-m", "-u", old_head, &new],
+            deadline,
+            false,
+            &[],
+        );
+        if seams.fail_read_tree_after_write {
+            read.code = -1;
+            read.killed = false;
+            read.stderr.clear();
+        }
+        if let Some((path, bytes)) = &seams.create_file_after_read_tree {
+            let _ = std::fs::write(self.root.join(path), bytes);
+        }
+        if seams.lock_after_read_tree_killed {
+            self.touch_file(&lock);
+            read.code = -1;
+            read.killed = true;
+        }
+        if read.code != 0 {
+            let recover = Deadline::new(MERGE_RECOVER_TIME);
+            let ref_after = self.ref_after(checkout_branch, &new, old_head, &recover);
+            let stderr = String::from_utf8_lossy(&read.stderr).into_owned();
+            let decision = classify_failure(
+                FailStep::ReadTree,
+                lock_before,
+                lock_present(&lock),
+                read.killed,
+                &stderr,
+                ref_after,
+            );
+            if decision == FailDecision::RefuseDirty {
+                let mut names = vec![ENTRY_WOULD_OVERWRITE.as_bytes().to_vec()];
+                names.extend(read_tree_entries(&stderr));
+                return Ok(RootMerge::Refused(Refusal::new("dirty_tree", names)));
+            }
+            return Ok(self.settle(decision, old_head, &new));
+        }
+
+        // 4
+        if seams.move_branch_before_update_ref {
+            self.step(
+                &["update-ref", &branch_ref, head_sha],
+                deadline,
+                false,
+                &committer,
+            );
+        }
+        if seams.hold_ref_lock_before_update_ref {
+            if let Ok(path) = self.git_path_of(&format!("{branch_ref}.lock"), deadline) {
+                self.touch_file(&path);
+            }
+        }
+        let log = format!("merge {merged_branch} (remote)");
+        let update = if seams.force_update_ref_timeout || seams.expire_deadline_before_update_ref {
+            Step {
+                code: -1,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                killed: true,
+            }
+        } else {
+            self.step(
+                &["update-ref", "-m", &log, &branch_ref, &new, old_head],
+                deadline,
+                false,
+                &committer,
+            )
+        };
+        if update.code == 0 {
+            return Ok(RootMerge::Merged { commit: new });
+        }
+        let recover = Deadline::new(MERGE_RECOVER_TIME);
+        let ref_after = self.ref_after(checkout_branch, &new, old_head, &recover);
+        let stderr = String::from_utf8_lossy(&update.stderr).into_owned();
+        let decision = classify_failure(
+            FailStep::UpdateRef,
+            false,
+            false,
+            update.killed,
+            &stderr,
+            ref_after,
+        );
+        if decision == FailDecision::Merged {
+            return Ok(RootMerge::Merged { commit: new });
+        }
+        Ok(self.settle(decision, old_head, &new))
+    }
+
+    /// The failure of `decision`, after the rollback when it asks for one.
+    fn settle(&self, decision: FailDecision, old_head: &str, new: &str) -> RootMerge {
+        match decision {
+            FailDecision::Fail {
+                reason,
+                after: After::Rollback,
+            } => {
+                let restored = self.rollback(old_head, new);
+                failed_from(FailDecision::Fail {
+                    reason,
+                    after: if restored {
+                        After::Restored
+                    } else {
+                        After::NotRestored
+                    },
+                })
+            }
+            other => failed_from(other),
+        }
+    }
+
+    /// Puts index and working tree back from `new` to `old_head`; whether they equal `old_head` over the merge's paths
+    /// afterwards. Any failure, an untracked or ignored file at a merged path included, is `false`.
+    fn rollback(&self, old_head: &str, new: &str) -> bool {
+        let seams = &self.merge_seams;
+        let deadline = Deadline::new(if seams.expire_rollback_deadline {
+            Duration::ZERO
+        } else {
+            MERGE_RECOVER_TIME
+        });
+        self.put_file(&seams.edit_before_rollback);
+        self.rollback_inner(old_head, new, &deadline)
+            .unwrap_or(false)
+    }
+
+    fn rollback_inner(
+        &self,
+        old_head: &str,
+        new: &str,
+        deadline: &Deadline,
+    ) -> IntegrateResult<bool> {
+        let diff = self.check_code(
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--name-only",
+                "--no-renames",
+                old_head,
+                new,
+            ],
+            deadline,
+            &[0],
+        )?;
+        let mut changed: Vec<Vec<u8>> = diff
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(<[u8]>::to_vec)
+            .collect();
+        changed.sort();
+        changed.dedup();
+        let chunks = ignored_check_pathspecs(&changed, &[], false);
+        for chunk in &chunks {
+            let mut args = vec!["ls-files", "-z", "--others", "--"];
+            args.extend(chunk.specs.iter().map(String::as_str));
+            let listing = self.check_code(&args, deadline, &[0])?;
+            if listing.stdout.iter().any(|byte| *byte != 0) {
+                return Ok(false);
+            }
+        }
+        let back = self.run_merge(
+            &["read-tree", "-m", "-u", new, old_head],
+            deadline,
+            false,
+            &[],
+        )?;
+        if back.code != 0 {
+            return Ok(false);
+        }
+        // The refresh makes the stat data of a touched file match, so `diff-files` judges content.
+        self.run_merge(&["update-index", "-q", "--refresh"], deadline, false, &[])?;
+        for chunk in &chunks {
+            let specs: Vec<&str> = chunk.specs.iter().map(String::as_str).collect();
+            let mut cached = vec!["diff-index", "--cached", "--quiet", old_head, "--"];
+            cached.extend(&specs);
+            let mut files = vec!["diff-files", "--quiet", "--"];
+            files.extend(&specs);
+            for args in [cached, files] {
+                if self.run_merge(&args, deadline, true, &[])?.code != 0 {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod merge_commit_tests {
+    use super::*;
+    use FailStep::{ReadTree, Refresh, UpdateRef};
+
+    fn fail(reason: &'static str, after: After) -> FailDecision {
+        FailDecision::Fail { reason, after }
+    }
+
+    #[test]
+    fn f1_a_killed_refresh_that_left_the_lock_is_index_lock_left() {
+        let got = classify_failure(Refresh, false, true, true, "", RefAfter::Unknown);
+        assert_eq!(got, fail("index_lock_left", After::NotRestored));
+    }
+
+    #[test]
+    fn f2_any_other_refresh_failure_is_restored() {
+        let killed = classify_failure(Refresh, true, true, true, "", RefAfter::Unknown);
+        assert_eq!(killed, fail("timeout", After::Restored));
+        let lock = classify_failure(Refresh, true, true, false, "index.lock", RefAfter::Unknown);
+        assert_eq!(lock, fail("merge_failed", After::Restored));
+        let plain = classify_failure(Refresh, false, false, true, "", RefAfter::Unknown);
+        assert_eq!(plain, fail("timeout", After::Restored));
+    }
+
+    #[test]
+    fn r1_a_lock_before_wins_over_the_killed_rows() {
+        let got = classify_failure(ReadTree, true, true, true, "", RefAfter::OldHead);
+        assert_eq!(got, fail("merge_failed", After::Restored));
+    }
+
+    #[test]
+    fn r2_killed_with_a_lock_after_is_index_lock_left() {
+        let got = classify_failure(ReadTree, false, true, true, "", RefAfter::OldHead);
+        assert_eq!(got, fail("index_lock_left", After::NotRestored));
+    }
+
+    #[test]
+    fn r2b_not_killed_with_a_lock_after_is_index_lock_left() {
+        let got = classify_failure(ReadTree, false, true, false, "", RefAfter::OldHead);
+        assert_eq!(got, fail("index_lock_left", After::NotRestored));
+    }
+
+    #[test]
+    fn r3_killed_rolls_back_only_when_the_ref_is_old_head() {
+        let old = classify_failure(ReadTree, false, false, true, "", RefAfter::OldHead);
+        assert_eq!(old, fail("timeout", After::Rollback));
+        for other in [RefAfter::New, RefAfter::Other, RefAfter::Unknown] {
+            let got = classify_failure(ReadTree, false, false, true, "", other);
+            assert_eq!(got, fail("timeout", After::NotRestored));
+        }
+    }
+
+    #[test]
+    fn r4_a_stderr_naming_the_lock_is_restored() {
+        let text = "fatal: Unable to create '/x/.git/index.lock': File exists.";
+        let got = classify_failure(ReadTree, false, false, false, text, RefAfter::OldHead);
+        assert_eq!(got, fail("merge_failed", After::Restored));
+    }
+
+    #[test]
+    fn r5_a_dirty_path_is_refused() {
+        for text in [
+            "error: Entry 'a' would be overwritten by merge. Cannot merge.",
+            "error: Entry 'a' not uptodate. Cannot merge.",
+        ] {
+            let got = classify_failure(ReadTree, false, false, false, text, RefAfter::OldHead);
+            assert_eq!(got, FailDecision::RefuseDirty);
+        }
+    }
+
+    #[test]
+    fn r6_anything_else_rolls_back_only_when_the_ref_is_old_head() {
+        let old = classify_failure(ReadTree, false, false, false, "boom", RefAfter::OldHead);
+        assert_eq!(old, fail("merge_failed", After::Rollback));
+        for other in [RefAfter::New, RefAfter::Other, RefAfter::Unknown] {
+            let got = classify_failure(ReadTree, false, false, false, "boom", other);
+            assert_eq!(got, fail("merge_failed", After::NotRestored));
+        }
+    }
+
+    #[test]
+    fn u1_a_moved_ref_is_merged_killed_or_not() {
+        for killed in [false, true] {
+            let got = classify_failure(UpdateRef, false, false, killed, "", RefAfter::New);
+            assert_eq!(got, FailDecision::Merged);
+        }
+    }
+
+    #[test]
+    fn u2_an_unmoved_ref_rolls_back() {
+        let plain = classify_failure(UpdateRef, false, false, false, "", RefAfter::OldHead);
+        assert_eq!(plain, fail("merge_failed", After::Rollback));
+        let killed = classify_failure(UpdateRef, false, false, true, "", RefAfter::OldHead);
+        assert_eq!(killed, fail("timeout", After::Rollback));
+    }
+
+    #[test]
+    fn u3_another_or_unknown_ref_is_not_restored() {
+        for other in [RefAfter::Other, RefAfter::Unknown] {
+            let plain = classify_failure(UpdateRef, false, false, false, "", other);
+            assert_eq!(plain, fail("merge_failed", After::NotRestored));
+            let killed = classify_failure(UpdateRef, false, false, true, "", other);
+            assert_eq!(killed, fail("timeout", After::NotRestored));
+        }
+    }
+
+    #[test]
+    fn the_failure_reasons_equal_the_documented_ones() {
+        let mut ours: Vec<&str> = MERGE_FAILURE_REASONS.to_vec();
+        let mut documented: Vec<&str> = capstan_config::remote::DOC_FAILURE_REASONS.to_vec();
+        ours.sort_unstable();
+        documented.sort_unstable();
+        assert_eq!(ours, documented);
+    }
+
+    #[test]
+    fn read_tree_entries_are_taken_from_its_lines() {
+        let text = "error: Entry 'a b.txt' would be overwritten by merge. Cannot merge.
+                    error: Entry 'dir/c' not uptodate. Cannot merge.
+error: other
+";
+        assert_eq!(
+            read_tree_entries(text),
+            vec![b"a b.txt".to_vec(), b"dir/c".to_vec()]
+        );
+    }
+
+    #[test]
+    fn failed_from_keeps_the_reason_and_the_restored_flag() {
+        assert_eq!(
+            failed_from(fail("timeout", After::Restored)),
+            RootMerge::Failed {
+                reason: "timeout",
+                restored: true
+            }
+        );
+        assert_eq!(
+            failed_from(fail("index_lock_left", After::NotRestored)),
+            RootMerge::Failed {
+                reason: "index_lock_left",
+                restored: false
+            }
+        );
+    }
 }
 
 #[cfg(test)]
