@@ -1,0 +1,33 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "activity": "working",
+    "activitySeq": 1,
+    "activitySince": "2026-01-01T00:00:00.033Z",
+    "agentId": "dev-1",
+    "effects": [
+      {
+        "fields": {
+          "activity": "working",
+          "activitySeq": 1,
+          "activitySince": "2026-01-01T00:00:00.033Z",
+          "agentId": "dev-1"
+        },
+        "key": "dev-1",
+        "op": "upsert",
+        "section": "agents"
+      }
+    ]
+  },
+  "entity": {
+    "id": "dev-1",
+    "type": "agent"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:18",
+  "k": 0,
+  "seq": 18,
+  "to": "working",
+  "ts": "<ts>",
+  "type": "agent.activity"
+}

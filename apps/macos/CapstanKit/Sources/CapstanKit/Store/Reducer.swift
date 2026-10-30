@@ -208,7 +208,8 @@ public enum StoreReducer {
     private static func applyAttention(_ event: FeedEvent, to model: inout ProjectModel) {
         if event.type == "plan.needs_attention", event.entity.type == "agent" {
             if let kind = try? event.body.raw.string("state") { model.attention[event.entity.id] = kind }
-        } else if event.type.hasPrefix("agent.") {
+        } else if event.type.hasPrefix("agent."), event.type != "agent.activity" {
+            // An activity change is the host's observation, not news from the agent, so it leaves a stall flag alone.
             let agentId = event.entity.type == "agent" ? event.entity.id : (try? event.body.raw.string("agentId"))
             if let agentId { model.attention[agentId] = nil }
         }
@@ -252,10 +253,22 @@ public enum StoreReducer {
                 staging.knownKeys[model.projectId] = known
             }
         case "agents":
+            let incomingSeq = effect.fields.activitySeq()
+            // Activity only adds to an agent the client holds; for any other key there is nothing to do, not a refresh.
+            if incomingSeq != nil, model.agents[key] == nil { return true }
             guard let item = try? AgentItem(json: merged(model.agents[key]?.json, effect)) else { return false }
             var stored = StoredAgent(item)
             if let base = model.agents[key], effect.fields.optional("task") == nil { stored.task = base.task }
             if let base = model.agents[key], effect.fields.optional("branch") == nil { stored.branch = base.branch }
+            // The three activity fields move together, and only to a greater sequence than the one held.
+            if let base = model.agents[key] {
+                let newer = incomingSeq.map { $0 > (base.activitySeq ?? 0) } ?? false
+                if !newer {
+                    stored.activity = base.activity
+                    stored.activitySince = base.activitySince
+                    stored.activitySeq = base.activitySeq
+                }
+            }
             model.agents[key] = stored
         case "plans":
             guard let item = try? PlanItem(json: merged(model.plans[key]?.json, effect)) else { return false }

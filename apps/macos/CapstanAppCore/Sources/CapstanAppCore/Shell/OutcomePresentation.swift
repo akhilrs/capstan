@@ -2,7 +2,7 @@ import CapstanKit
 import Foundation
 
 public enum Tone: Sendable, Equatable {
-    case neutral, green, blue, yellow, red, grey
+    case neutral, green, blue, yellow, red, grey, accent
 }
 
 public enum PresentAction: Sendable, Equatable {

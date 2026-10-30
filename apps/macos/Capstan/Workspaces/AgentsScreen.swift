@@ -169,8 +169,9 @@ enum AgentTone {
     static func tone(_ health: AgentHealth) -> Tone {
         switch health {
         case .working: return .green
-        case .needsYou: return .yellow
-        case .stalled, .paused: return .yellow
+        case .needsYou: return .accent
+        case .stalled: return .yellow
+        case .paused: return .grey
         case .lost, .blocked: return .red
         case .idle: return .grey
         }
@@ -227,6 +228,9 @@ struct AgentInspector: View {
                         MetaRow(label: "Request", value: plain(stored.requestId)),
                     ])
                     Text(verbatim: Self.explanation(row.health)).font(.system(size: 13))
+                    if let basis = AgentHealth.basis(of: stored, in: project).line(now: Date()) {
+                        Text(verbatim: basis).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                    }
                     if let task = row.task {
                         UntrustedTextBlock(text: plain(task), label: "Task · untrusted text")
                     }
@@ -283,14 +287,19 @@ struct AgentInspector: View {
 
     static func explanation(_ health: AgentHealth) -> String {
         switch health {
-        case .working: return "Working means the agent reported progress lately."
-        case .needsYou: return "Needs you means the agent is waiting for your answer to a prompt."
+        case .working:
+            return "Working means the host sees the agent busy in its terminal (activity working). When the host gives no activity, or one this app does not know, Working is an estimate from state active and a task; it does not say the agent made progress."
+        case .needsYou:
+            return "Needs you means a prompt from this agent waits for your answer in Waiting for you, or the host sees the agent stopped at a question in its terminal (activity blocked). If Waiting for you has no prompt from it, answer in the agent's terminal."
         case .stalled:
-            return "Stalled means the controller saw no progress for longer than its limit. The connection is fine. You can pause the agent while you look, or leave it to the supervisor."
-        case .lost: return "Lost means the agent's pane is gone. The controller will not hear from it again."
-        case .blocked: return "Blocked means the agent said it cannot go on without something from outside."
-        case .paused: return "Paused means the agent was paused. Resume it when you are ready."
-        case .idle: return "Idle means the agent has no task."
+            return "Stalled means the controller flagged the agent for attention: it saw no progress for longer than its limit. The connection is fine. You can pause the agent while you look, or leave it to the supervisor."
+        case .lost:
+            return "Lost means the controller marked the agent lost (state lost): its pane is gone and the controller will not hear from it again."
+        case .blocked:
+            return "Blocked means the agent told the controller it cannot go on without something from outside (state blocked)."
+        case .paused: return "Paused means the agent was paused (paused, or state paused). Resume it when you are ready."
+        case .idle:
+            return "Idle means the host sees the agent waiting at its prompt or finished with its turn (activity idle or done). When the host gives no activity, or one this app does not know, Idle is an estimate: the agent is not active or has no task."
         }
     }
 }

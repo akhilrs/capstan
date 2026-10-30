@@ -12,7 +12,7 @@ final class ReducerTests: XCTestCase {
         return harness
     }
 
-    func testDocExamplesGiveOneMessagesGroupAnIdleAgentAndAPlanAtZeroOfThree() throws {
+    func testDocExamplesGiveOneMessagesGroupAWorkingAgentAndAPlanAtZeroOfThree() throws {
         var harness = ReducerHarness()
         harness.apply(try docStreamStart())
         harness.apply(
@@ -29,7 +29,8 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(groups.first?.rows.first?.projectName, "alpha")
         let project = try XCTUnwrap(harness.alpha)
         let agent = try XCTUnwrap(project.agents["dev-1"])
-        XCTAssertEqual(project.health(of: agent), .idle)
+        // The doc's agent example carries activity "working" and no task.
+        XCTAssertEqual(project.health(of: agent), .working)
         let plan = try XCTUnwrap(project.plans["1"])
         XCTAssertEqual(PlanProgress.label(plan), "0/3")
         XCTAssertEqual(PlanProgress(plan).integrated, 0)
@@ -64,6 +65,53 @@ final class ReducerTests: XCTestCase {
                 item: StoreWire.agentItem("dev-1").replacingOccurrences(of: "\"requestId\"", with: "\"branch\":\"feat/x\",\"requestId\"")),
             try StoreWire.end("proj-a"))
         XCTAssertEqual(harness.alpha?.agents["dev-1"]?.branch?.raw, "feat/x")
+    }
+
+    private func activityEvent(_ activity: String, seq: Int, key: String = "dev-1") throws -> StreamLine {
+        .event(projectId: "proj-a", try StoreWire.event(
+            "agent.activity", entity: ("agent", key),
+            effects: [("agents", "upsert", key, "{\"agentId\":\"\(key)\",\"activity\":\"\(activity)\",\"activitySeq\":\(seq),\"activitySince\":\"2026-01-01T00:00:00.033Z\"}")]))
+    }
+
+    func testTheActivityFixtureSetsTheThreeFields() throws {
+        var harness = try seeded()
+        harness.apply(.event(projectId: "proj-a", try KernelFixtures.event("agent.activity")))
+        let agent = try XCTUnwrap(harness.alpha?.agents["dev-1"])
+        XCTAssertEqual(agent.activity, "working")
+        XCTAssertEqual(agent.activitySeq, 1)
+        XCTAssertEqual(agent.activitySince, "2026-01-01T00:00:00.033Z")
+    }
+
+    func testALowerActivitySeqChangesNothing() throws {
+        var harness = try seeded()
+        harness.apply(try activityEvent("working", seq: 5))
+        let before = harness.alpha?.agents["dev-1"]
+        harness.apply(try activityEvent("idle", seq: 4), try activityEvent("blocked", seq: 5))
+        XCTAssertEqual(harness.alpha?.agents["dev-1"], before)
+        harness.apply(try activityEvent("idle", seq: 6))
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.activity, "idle")
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.activitySeq, 6)
+    }
+
+    func testALaterUpsertWithoutTheFieldsKeepsThem() throws {
+        var harness = try seeded()
+        harness.apply(try activityEvent("working", seq: 2))
+        harness.apply(.event(projectId: "proj-a", try StoreWire.event(
+            "agent.paused", effects: [("agents", "upsert", "dev-1", "{\"state\":\"blocked\"}")])))
+        let agent = try XCTUnwrap(harness.alpha?.agents["dev-1"])
+        XCTAssertEqual(agent.state, "blocked")
+        XCTAssertEqual(agent.activity, "working")
+        XCTAssertEqual(agent.activitySeq, 2)
+        XCTAssertEqual(agent.activitySince, "2026-01-01T00:00:00.033Z")
+    }
+
+    func testAnActivityUpsertForAnUnheldAgentChangesNothingAndAsksNoRefresh() throws {
+        var harness = try seeded()
+        let before = harness.alpha
+        let output = harness.apply(try activityEvent("working", seq: 1, key: "dev-9"))
+        XCTAssertNil(harness.alpha?.agents["dev-9"])
+        XCTAssertEqual(harness.alpha?.agents, before?.agents)
+        XCTAssertFalse(output.refresh.contains("proj-a"))
     }
 
     func testResyncDropsOneProjectAndNullDropsAll() throws {

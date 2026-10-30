@@ -34,6 +34,36 @@ final class PersistenceTests: XCTestCase {
         return PersistedHost(host: harness.host, staging: harness.staging, savedAt: Date(timeIntervalSince1970: 1_234.5))
     }
 
+    func testTheActivityFieldsRoundTripAndAnOlderFileLoadsWithNil() throws {
+        var harness = ReducerHarness()
+        harness.apply(try [StoreWire.hello()] + completeProject())
+        harness.apply(.event(projectId: "proj-a", try KernelFixtures.event("agent.activity")))
+        let saved = PersistedHost(host: harness.host, staging: harness.staging, savedAt: Date(timeIntervalSince1970: 1))
+        let data = try JSONEncoder().encode(saved)
+        let loaded = try JSONDecoder().decode(PersistedHost.self, from: data)
+        let agent = try XCTUnwrap(loaded.projects["proj-a"]?.agents["dev-1"])
+        XCTAssertEqual(agent.activity, "working")
+        XCTAssertEqual(agent.activitySince, "2026-01-01T00:00:00.033Z")
+        XCTAssertEqual(agent.activitySeq, 1)
+
+        var tree = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var projects = try XCTUnwrap(tree["projects"] as? [String: Any])
+        var project = try XCTUnwrap(projects["proj-a"] as? [String: Any])
+        var agents = try XCTUnwrap(project["agents"] as? [String: Any])
+        var old = try XCTUnwrap(agents["dev-1"] as? [String: Any])
+        for name in ["activity", "activitySince", "activitySeq"] { old[name] = nil }
+        agents["dev-1"] = old
+        project["agents"] = agents
+        projects["proj-a"] = project
+        tree["projects"] = projects
+        let older = try JSONDecoder().decode(
+            PersistedHost.self, from: try JSONSerialization.data(withJSONObject: tree))
+        let kept = try XCTUnwrap(older.projects["proj-a"]?.agents["dev-1"])
+        XCTAssertNil(kept.activity)
+        XCTAssertNil(kept.activitySince)
+        XCTAssertNil(kept.activitySeq)
+    }
+
     func testForwardsOfAProjectStillInStagingAreSavedWithinTheCap() throws {
         var harness = ReducerHarness()
         harness.apply(try [StoreWire.hello()] + completeProject())

@@ -61,6 +61,7 @@ extension Tone {
         case .blue: return Tokens.color(.blue)
         case .yellow: return Tokens.color(.yellow)
         case .red: return Tokens.color(.red)
+        case .accent: return Tokens.color(.accent)
         }
     }
 }

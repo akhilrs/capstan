@@ -113,7 +113,7 @@ final class PackageRowTests: XCTestCase {
             key: waiting.key, eventType: "prompt.waiting", seq: 1,
             body: .object([
                 "relayId": .string("r1"), "agentId": .string("dev-1"), "state": .string("waiting"),
-                "text": .string("Allow?"), "options": .array([]),
+                "text": .string("Allow?"), "options": .array([]), "effects": .array([]),
             ]))
         let waits = PackageRow.rows(plan([detail("fix-PM-412", state: .assigned, assignee: "dev-1")]), in: project)
         XCTAssertEqual(waits[0].pillWord, "Waits for you")
@@ -140,7 +140,7 @@ final class PackageRowTests: XCTestCase {
             key: waiting.key, eventType: "prompt.waiting", seq: 1,
             body: .object([
                 "relayId": .string("r1"), "agentId": .string("dev-2"), "state": .string("waiting"),
-                "text": .string("Allow?"), "options": .array([]),
+                "text": .string("Allow?"), "options": .array([]), "effects": .array([]),
             ]))
         let rows = PackageRow.rows(
             plan([detail("one", state: .assigned, assignee: "dev-1"), detail("two", state: .assigned, assignee: "dev-2")]),

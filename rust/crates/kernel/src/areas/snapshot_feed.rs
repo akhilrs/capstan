@@ -133,6 +133,9 @@ pub struct AgentItem {
     pub branch: Option<String>,
     pub request_id: String,
     pub content_hash: String,
+    pub activity: Option<String>,
+    pub activity_since: Option<String>,
+    pub activity_seq: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -474,11 +477,18 @@ pub fn agent_content_hash(
     agent_hash(agent_id, generation, state, paused, open_pause_id)
 }
 
-fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<AgentItem>> {
+fn agent_query(
+    core: &Core,
+    sel: AgentSel<'_>,
+    limit: usize,
+) -> (String, Vec<rusqlite::types::Value>) {
     let base = "SELECT a.agent_id, a.kind, a.role_name, a.generation, a.state,
                        COALESCE(pn.task_title, pn.task_ref), pn.branch,
                        (SELECT pause_id FROM pauses WHERE project_id = a.project_id AND scope = 'agent'
-                          AND COALESCE(agent_id, '') = a.agent_id AND resumed_at IS NULL)
+                          AND COALESCE(agent_id, '') = a.agent_id AND resumed_at IS NULL),
+                       (SELECT h.herdr_state FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1),
+                       (SELECT h.observed_at FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1),
+                       (SELECT h.sequence FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1)
                   FROM agents a
                   LEFT JOIN agent_panes pn ON pn.project_id = a.project_id AND pn.agent_id = a.agent_id
                  WHERE a.project_id = ? AND a.state = 'active'";
@@ -496,6 +506,20 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
             vec![project(core), sql_text(id)],
         ),
     };
+    (sql, params)
+}
+
+/// The two statements `agent_rows` runs, for the page and for one item (tests: their query plans).
+#[doc(hidden)]
+pub fn agent_sql_texts(core: &Core) -> [String; 2] {
+    [
+        agent_query(core, AgentSel::After(None), 1).0,
+        agent_query(core, AgentSel::One("x"), 1).0,
+    ]
+}
+
+fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<AgentItem>> {
+    let (sql, params) = agent_query(core, sel, limit);
     let found = rows(
         core,
         &sql,
@@ -509,6 +533,9 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
             "task",
             "branch",
             "pauseId",
+            "activity",
+            "activitySince",
+            "activitySeq",
         ],
     )?;
     Ok(found
@@ -530,6 +557,15 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
                 role: text(&row, "role"),
                 task: row.get("task").and_then(Value::as_str).map(shown),
                 branch: row.get("branch").and_then(Value::as_str).map(shown),
+                activity: row
+                    .get("activity")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                activity_since: row
+                    .get("activitySince")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                activity_seq: row.get("activitySeq").and_then(Value::as_i64),
                 agent_id,
                 generation,
                 state,

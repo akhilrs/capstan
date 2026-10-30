@@ -100,6 +100,10 @@ fn required(ty: &str) -> Vec<&'static str> {
         "agent.lost" => (&[AGENT, TEXT], &["reason"]),
         "agent.paused" | "agent.resumed" => (&[AGENT, TEXT], &["scope", "reason"]),
         "agent.blocked" => (&[AGENT], &["blocker"]),
+        "agent.activity" => (
+            &[],
+            &["agentId", "activity", "activitySince", "activitySeq"],
+        ),
         "run.changed" => (&[TEXT], &["state", "paused", "reason"]),
         "integration.finished" => (&[], &["integrationId", "state"]),
         "decision.remote" => (
@@ -349,6 +353,9 @@ fn example_pages_have_the_shape_of_each_section() {
         "task",
         "requestId",
         "contentHash",
+        "activity",
+        "activitySince",
+        "activitySeq",
     ];
     let plans = ["key", "planId", "sequence", "title", "state", "packages"];
     let run = ["requestId", "state", "paused", "contentHash"];
