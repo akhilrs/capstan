@@ -638,3 +638,52 @@ fn the_standard_world_is_undiscoverable() {
     let w = World::standard("undiscoverable");
     assert!(w.project.join(".capstan/undiscoverable").is_file());
 }
+
+#[test]
+fn restart_replaces_the_running_daemon_and_the_new_one_answers() {
+    let w = World::builder("restart-running").bare().build();
+    w.op(&["init"]).ok();
+    let pid = pid_of(&w.op(&["start", "--json"]).ok());
+    let restarted = w.op(&["restart", "--json"]).ok().json();
+    assert_eq!(restarted["restarted"], true, "{restarted}");
+    assert_eq!(restarted["oldPid"].as_u64(), Some(pid));
+    let new_pid = restarted["pid"].as_u64().expect("a new pid");
+    assert_ne!(new_pid, pid);
+    assert!(restarted["version"].is_string(), "{restarted}");
+    assert!(restarted.get("launch").is_none(), "no PM is launched");
+    gone("the old daemon to exit", pid);
+    assert_eq!(pid_of(&w.op(&["ping", "--json"]).ok()), new_pid);
+    w.op(&["stop"]).ok();
+}
+
+#[test]
+fn restart_without_a_daemon_only_starts_one() {
+    let w = World::builder("restart-none").bare().build();
+    w.op(&["init"]).ok();
+    let started = w.op(&["restart", "--json"]).ok().json();
+    assert_eq!(started["restarted"], false, "{started}");
+    assert!(started["oldPid"].is_null(), "{started}");
+    let pid = started["pid"].as_u64().expect("a pid");
+    assert_eq!(pid_of(&w.op(&["ping", "--json"]).ok()), pid);
+    assert!(
+        !w.daemon_log().contains("\"launch\""),
+        "no launch was asked for"
+    );
+    w.op(&["stop"]).ok();
+}
+
+#[test]
+fn restart_reports_a_daemon_that_does_not_start_again() {
+    let w = World::builder("restart-fails").bare().build();
+    w.op(&["init"]).ok();
+    w.op(&["start"]).ok();
+    std::fs::write(w.project.join("capstan.toml"), "this is [not toml\n").unwrap();
+    let failed = w.op(&["restart"]);
+    assert_eq!(failed.code, 5, "{}", failed.text());
+    assert!(
+        failed.has("the daemon was stopped but did not start again"),
+        "{}",
+        failed.text()
+    );
+    assert!(!w.socket().exists(), "no daemon is left behind");
+}

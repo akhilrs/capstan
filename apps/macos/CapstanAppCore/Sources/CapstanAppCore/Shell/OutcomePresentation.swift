@@ -28,6 +28,11 @@ public struct Presentation: Sendable, Equatable {
             if case .other("local-busy") = refusal.code {
                 return Presentation(title: "Already sending", tone: .grey)
             }
+            if case .other(let code) = refusal.code, unsupportedCodes.contains(code) {
+                return Presentation(
+                    title: "This project's Capstan is older than the app. Restart it on the host: cstan restart",
+                    tone: .red)
+            }
             return refused(refusal, hint)
         case .applied(let result):
             if result.isRepeat { return Presentation(title: "Already sent", tone: .grey) }
@@ -41,6 +46,9 @@ public struct Presentation: Sendable, Equatable {
             return Presentation(title: "Unexpected answer from the host", tone: .red, actions: [.retry])
         }
     }
+
+    /// What an older controller answers to a verb it does not know.
+    private static let unsupportedCodes: Set<String> = ["unknown_command", "unsupported"]
 
     private static func refused(_ refusal: DecideRefusal, _ hint: RefusalHint) -> Presentation {
         switch hint {

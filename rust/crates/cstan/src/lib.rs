@@ -380,6 +380,7 @@ impl Cli<'_> {
             "decide" => return self.decide(&rest),
             "start" => return self.start(&rest),
             "stop" => return self.stop(&rest),
+            "restart" => return self.restart(&rest),
             "inbox" if rest.len() == 1 && rest[0] == "--hook" => return self.inbox_hook(),
             _ => {}
         }
