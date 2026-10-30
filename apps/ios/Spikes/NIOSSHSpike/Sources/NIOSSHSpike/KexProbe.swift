@@ -23,7 +23,7 @@ public let ephemeralKeyBytes: [String: Int] = [
     "ecdh-sha2-nistp521": 133,
 ]
 
-/// A fake SSH server on 127.0.0.1 that sends one KEXINIT and records the client's KEXINIT and next packet.
+/// A fake SSH server on every interface that sends one KEXINIT and records the client's KEXINIT and next packet.
 public final class KexProbeServer {
     private let channel: Channel
     private let result: EventLoopPromise<KexProbeResult>
@@ -51,7 +51,7 @@ public final class KexProbeServer {
                         ProbeHandler(keyExchange: keyExchange, result: result))
                 }
             }
-        channel = try bootstrap.bind(host: loopbackHost, port: 0).wait()
+        channel = try bootstrap.bind(host: listenHost, port: 0).wait()
     }
 
     /// The record, once the client sent its answer or closed the connection.

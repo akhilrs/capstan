@@ -3,7 +3,9 @@ import NIOCore
 import NIOPosix
 import NIOSSH
 
-/// The only address the spike listens on or connects to.
+/// The address the spike's servers listen on: every interface.
+public let listenHost = "0.0.0.0"
+/// The address the spike's client connects to.
 public let loopbackHost = "127.0.0.1"
 
 public enum SpikeError: Error, Equatable {
@@ -73,7 +75,7 @@ public enum SpikeCommand {
     public static let dieBySignal = "die-by-signal"
 }
 
-/// An SSH server on 127.0.0.1 that accepts one public key and runs the `SpikeCommand`s.
+/// An SSH server on every interface that accepts one public key and runs the `SpikeCommand`s.
 public final class SpikeServer {
     public let recorder: Recorder
     private let channel: Channel
@@ -108,7 +110,7 @@ public final class SpikeServer {
                     try channel.pipeline.syncOperations.addHandler(handler)
                 }
             }
-        channel = try bootstrap.bind(host: loopbackHost, port: 0).wait()
+        channel = try bootstrap.bind(host: listenHost, port: 0).wait()
     }
 
     public func close() {

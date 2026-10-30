@@ -6,7 +6,7 @@ What swift-nio-ssh 0.15.1 can do for Capstan for iPhone (package `ssh-spike` of 
 swift test --package-path apps/ios/Spikes/NIOSSHSpike 2>&1 | tail -60
 ```
 
-Every test prints `SPIKE item <n>: ...` lines. Servers and clients use only `127.0.0.1`.
+Every test prints `SPIKE item <n>: ...` lines. Servers listen on `0.0.0.0` (every interface, a decision made for this spike); the client connects to `127.0.0.1`. With the macOS firewall on, the first run may ask whether to accept incoming connections: the tests pass either way, as loopback is always allowed.
 
 | Item | Test | What it shows |
 |---|---|---|

@@ -5,8 +5,8 @@ import NIOSSH
 import NIOSSHSpike
 import XCTest
 
-/// One test per item of the ssh-spike list in docs/plans/iphone-app-plan.md (section 5.3). Every server and client
-/// uses 127.0.0.1. Each test prints a `SPIKE item <n>:` line for the results table.
+/// One test per item of the ssh-spike list in docs/plans/iphone-app-plan.md (section 5.3). Servers listen on 0.0.0.0;
+/// the client connects to 127.0.0.1. Each test prints a `SPIKE item <n>:` line for the results table.
 final class SpikeTests: XCTestCase {
     private var group: MultiThreadedEventLoopGroup!
     private let userKey = NIOSSHPrivateKey(ed25519Key: Curve25519.Signing.PrivateKey())
