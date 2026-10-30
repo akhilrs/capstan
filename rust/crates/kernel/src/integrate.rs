@@ -1732,7 +1732,12 @@ impl GitRepo {
         command
             .arg("--no-replace-objects")
             .arg("-C")
-            .arg(&self.root)
+            .arg(&self.root);
+        // The repository's own config must not start a program (`core.fsmonitor`, hooks) during any helper.
+        for (key, value) in ROOT_CONFIG_OVERRIDES {
+            command.arg("-c").arg(format!("{key}={value}"));
+        }
+        command
             .args(args)
             .env_clear()
             .env(
@@ -5480,6 +5485,7 @@ mod root_runner_tests {
 mod ignored_check_tests {
     use super::*;
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
     use std::process::Command as Cmd;
 
     fn paths(items: &[&str]) -> Vec<Vec<u8>> {
@@ -5663,6 +5669,60 @@ mod ignored_check_tests {
             String::from_utf8_lossy(&out.stderr)
         );
         String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn git_repo_run_never_starts_a_program_named_by_the_repository_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["config", "--local", "user.name", "T"]);
+        git(&root, &["config", "--local", "user.email", "t@t"]);
+        std::fs::write(root.join("a.txt"), "base\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-q", "-m", "base"]);
+        let head = git(&root, &["rev-parse", "HEAD"]);
+        let ran = tmp.path().join("ran");
+        let script = tmp.path().join("sentinel.sh");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\necho ran >> '{}'\nexit 0\n", ran.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let hooks = tmp.path().join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        for hook in ["reference-transaction", "post-checkout"] {
+            std::fs::copy(&script, hooks.join(hook)).unwrap();
+        }
+        git(
+            &root,
+            &[
+                "config",
+                "--local",
+                "core.fsmonitor",
+                &script.to_string_lossy(),
+            ],
+        );
+        git(
+            &root,
+            &[
+                "config",
+                "--local",
+                "core.hooksPath",
+                &hooks.to_string_lossy(),
+            ],
+        );
+        let repo = GitRepo::new(&root);
+        repo.run(&["status", "--porcelain"], PLAIN).unwrap();
+        repo.run(&["diff", "--quiet"], PLAIN).unwrap();
+        repo.run(&["diff-tree", "-r", &head, &head], BIG).unwrap();
+        repo.run(&["update-ref", "refs/heads/sentinel", &head], WRITE)
+            .unwrap();
+        repo.content_in_head(&head).unwrap();
+        repo.delete_branch_at("sentinel", &head).unwrap();
+        assert!(!ran.exists(), "a repository-configured program ran");
     }
 
     #[test]
