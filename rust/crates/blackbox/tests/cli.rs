@@ -640,6 +640,21 @@ fn the_standard_world_is_undiscoverable() {
 }
 
 #[test]
+fn a_bare_world_is_marked_undiscoverable_before_its_first_daemon_start() {
+    let w = World::builder("bare-marker").bare().build();
+    assert!(!w.project.join(".capstan").exists());
+    w.op(&["init"]).ok();
+    // `init` refuses an existing `.capstan` and starts no daemon, so the marker follows it: any spawn takes its environment
+    // from the world, which writes the marker first.
+    assert!(!w.project.join(".capstan/undiscoverable").exists());
+    let _ = w.environment();
+    assert!(w.project.join(".capstan/undiscoverable").is_file());
+    assert!(!w.socket().exists(), "no daemon has started yet");
+    w.op(&["status", "--json"]).ok();
+    assert!(w.project.join(".capstan/undiscoverable").is_file());
+}
+
+#[test]
 fn restart_replaces_the_running_daemon_and_the_new_one_answers() {
     let w = World::builder("restart-running").bare().build();
     w.op(&["init"]).ok();
