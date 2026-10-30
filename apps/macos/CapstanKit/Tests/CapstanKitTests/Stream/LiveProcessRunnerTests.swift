@@ -1,3 +1,4 @@
+#if os(macOS)
 import XCTest
 @testable import CapstanKit
 
@@ -167,3 +168,4 @@ final class LiveProcessRunnerTests: XCTestCase {
         }
     }
 }
+#endif

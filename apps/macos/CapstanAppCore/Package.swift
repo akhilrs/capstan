@@ -1,9 +1,9 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "CapstanAppCore",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v26)],
     products: [
         .library(name: "CapstanAppCore", targets: ["CapstanAppCore"]),
     ],
