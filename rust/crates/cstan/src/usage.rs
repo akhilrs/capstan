@@ -46,6 +46,7 @@ pub const ENTRIES: &[Entry] = &[
     e(SETUP, "init", "init --gitignore [--track-config]", "Only add or update the capstan block of .gitignore (also in an initialized project)."),
     e(SETUP, "start", "start", "Start the controller daemon and launch the PM."),
     e(SETUP, "stop", "stop", "Stop the controller daemon."),
+    e(SETUP, "restart", "restart", "Restart the controller daemon only: stop it, start it again from the installed binary and print the old and new pid and version. Does not launch the PM or touch agent panes; starts the daemon when none runs."),
     e(SETUP, "ping", "ping", "Check that the controller answers."),
     e(SETUP, "config", "config check", "Validate capstan.toml."),
     e(SETUP, "config", "config sync", "Write the role definitions of capstan.toml into the ledger."),

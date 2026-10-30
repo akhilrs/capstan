@@ -1,5 +1,5 @@
 //! The operator side: the project's credential and socket (`loadOperator`, `loadConfig`), starting the daemon on demand
-//! (`ensureRunning`), and `cstan start` / `cstan stop`.
+//! (`ensureRunning`), and `cstan start` / `cstan stop` / `cstan restart`.
 use std::path::{Path, PathBuf};
 
 use capstan_client::{ClientError, EnsureOptions, Reason};
@@ -231,6 +231,54 @@ impl Cli<'_> {
         );
         Ok(Flow::Code(0))
     }
+
+    /// `cstan restart`: stops this project's daemon (when one runs) and starts it again from the installed binary, without
+    /// launching the PM or touching an agent pane. The new daemon is started in its own session, as `cstan start` does.
+    pub fn restart(&mut self, rest: &[String]) -> Result<Flow, Fail> {
+        let (positional, json) = parse_options(rest);
+        if !positional.is_empty() {
+            return Err(Fail::Usage);
+        }
+        self.check_daemon_variable()?;
+        let operator = self.load_operator()?;
+        let before = daemon_identity(&operator);
+        let stopped =
+            capstan_client::stop_daemon(&operator.socket_path, &operator.credential, None)
+                .map_err(controller_unavailable)?;
+        let started =
+            capstan_client::ensure_daemon(&self.ensure_options(&operator)).map_err(|error| {
+                let failure = controller_unavailable(error);
+                match failure {
+                    Fail::Error(error) => runtime(crate::jsops::concat(&[
+                        &"the daemon was stopped but did not start again: ".into(),
+                        &error.message,
+                    ])),
+                    other => other,
+                }
+            })?;
+        let after = daemon_identity(&operator);
+        let identity = |pid: Option<i64>, version: &Option<String>| {
+            (
+                pid.map_or(Value::Null, |pid| number(pid as f64)),
+                version.as_deref().map_or(Value::Null, string),
+            )
+        };
+        let (old_pid, old_version) = identity(stopped.then_some(before.0).flatten(), &before.1);
+        let (new_pid, new_version) = identity(Some(started.pid), &after.1);
+        output(
+            &mut self.io.out,
+            Some(&object(vec![
+                ("running", Value::Bool(true)),
+                ("restarted", Value::Bool(stopped)),
+                ("oldPid", old_pid),
+                ("oldVersion", old_version),
+                ("pid", new_pid),
+                ("version", new_version),
+            ])),
+            json,
+        );
+        Ok(Flow::Code(0))
+    }
 }
 
 /// `controllerUnavailable`: a refusal is blocked, every other failure a plain error; a request too large for the frame is
@@ -247,5 +295,44 @@ pub fn controller_unavailable(error: ClientError) -> Fail {
         ClientError::Io(message) => runtime(message),
         ClientError::Call(call) if call.code == "ERR_INVALID_ARG_VALUE" => invalid(call.message),
         ClientError::Call(call) => Fail::Error(JsError::runtime(call.message)),
+    }
+}
+
+/// The pid and version a daemon names for itself (`about`, or `ping` for a build from before it); `(None, None)` when it
+/// does not answer.
+fn daemon_identity(operator: &Operator) -> (Option<i64>, Option<String>) {
+    use capstan_wire::Response;
+    let ask = |command: &str| {
+        capstan_client::call_daemon(
+            &operator.socket_path,
+            &operator.credential,
+            command,
+            &[],
+            5000,
+        )
+    };
+    let pid = |result: &Value| match result.get("pid") {
+        Some(Value::Number(n)) => Some(*n as i64),
+        _ => None,
+    };
+    match ask("about") {
+        Ok(Response::Ok {
+            result: Some(result),
+        }) => {
+            let version = match result.get("version") {
+                Some(Value::String(text)) => Some(text.to_utf8_lossy()),
+                _ => None,
+            };
+            (pid(&result), version)
+        }
+        Ok(Response::Refused { code, .. }) if code.to_utf8_lossy() != "unauthorized" => {
+            match ask("ping") {
+                Ok(Response::Ok {
+                    result: Some(result),
+                }) => (pid(&result), None),
+                _ => (None, None),
+            }
+        }
+        _ => (None, None),
     }
 }

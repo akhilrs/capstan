@@ -94,6 +94,18 @@ final class OutcomePresentationTests: XCTestCase {
             Presentation(title: "Refused: weird_code", tone: .red, actions: []))
     }
 
+    func test_Presentation_unknownVerbMeansOlderController() {
+        let older = Presentation(
+            title: "This project's Capstan is older than the app. Restart it on the host: cstan restart",
+            tone: .red, actions: [])
+        XCTAssertEqual(present(refused(.other("unknown_command"), .generic)), older)
+        XCTAssertEqual(present(refused(.other("unsupported"), .generic)), older)
+        // Any other code keeps its own wording.
+        XCTAssertEqual(
+            present(refused(.other("weird_code"), .generic)),
+            Presentation(title: "Refused: weird_code", tone: .red, actions: []))
+    }
+
     func test_Presentation_notSent() {
         XCTAssertEqual(
             present(.notSent(reason: .timeout, pendingId: UUID()), host: "devbox"),
