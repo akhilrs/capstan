@@ -117,7 +117,7 @@ pub fn ping_daemon(socket: &Path, credential: &str, timeout_ms: u64) -> PingOutc
         Ok(Response::Malformed) => PingOutcome::Unreachable {
             reason: "EBADMSG".to_string(),
         },
-        Err(error) if error.code == "ENOENT" || error.code == "ECONNREFUSED" => PingOutcome::Down,
+        Err(error) if capstan_wire::nothing_listens(&error.code) => PingOutcome::Down,
         Err(error) => PingOutcome::Unreachable {
             reason: if error.code.is_empty() {
                 "unknown".to_string()

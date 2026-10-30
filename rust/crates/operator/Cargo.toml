@@ -14,6 +14,7 @@ path = "src/lib.rs"
 # Every external crate the daemon phase may need is pinned here and in the sibling crates (the versions the kernel
 # already pins), so no later package touches Cargo.lock.
 [dependencies]
+capstan-process = { path = "../process" }
 capstan-kernel = { path = "../kernel" }
 capstan-config = { path = "../config" }
 capstan-ledger = { path = "../ledger" }
@@ -28,5 +29,6 @@ unicode-segmentation = "=1.13.3"
 unicode-normalization = { version = "=0.1.25", default-features = false }
 
 [dev-dependencies]
+capstan-testkit = { path = "../testkit" }
 tempfile = "=3.27.0"
 rusqlite = "=0.40.2"

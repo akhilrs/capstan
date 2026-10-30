@@ -233,6 +233,25 @@ fn parse_config(value: &Value) -> Result<ProjectConfig, RunError> {
     })
 }
 
+/// Whether `state_directory` is `<project>/.capstan/state`. The parents are compared after resolving symlinks, so one
+/// directory written in two forms (`/var/...` and `/private/var/...`) matches; the `state` entry itself is compared by
+/// name only and is not resolved.
+fn is_project_state_directory(state_directory: &Path, capstan_directory: &Path) -> bool {
+    if state_directory.file_name() != Some(std::ffi::OsStr::new("state")) {
+        return false;
+    }
+    let Some(parent) = state_directory.parent() else {
+        return false;
+    };
+    match (
+        std::fs::canonicalize(parent),
+        std::fs::canonicalize(capstan_directory),
+    ) {
+        (Ok(parent), Ok(capstan)) => parent == capstan,
+        _ => false,
+    }
+}
+
 /// `loadConfig` of src/cli.ts, with its checks: a private `.capstan`, regular files of mode 0600 owned by the user, a
 /// project-local state directory and an operator key of at least 32 characters. Failures are exit code 3 and say that
 /// operator commands need the credential, as the Node CLI does.
@@ -275,7 +294,7 @@ pub fn load_project(cwd: &Path) -> Result<(ProjectConfig, String), RunError> {
         }
         let value = read_json(&config_path).map_err(|e| e.message)?;
         let config = parse_config(&value).map_err(|e| e.message)?;
-        if config.state_directory != directory.join("state") {
+        if !is_project_state_directory(&config.state_directory, &directory) {
             return Err("Capstan stateDirectory must remain project-local".into());
         }
         let key = std::fs::read(&key_path).map_err(|e| e.to_string())?;
@@ -834,6 +853,57 @@ mod tests {
         assert!(parse_without_duplicates(r#"{"a":{"b":1,"b":1}}"#).is_err());
         assert!(parse_without_duplicates(r#"{"a":[{"b":1},{"b":2}]}"#).is_ok());
         assert!(parse_config(&json!({"schemaVersion": 1})).is_err());
+    }
+
+    fn project_with_state(state_directory: &Path, dir: &tempfile::TempDir) -> Result<(), RunError> {
+        let text = format!(
+            r#"{{"schemaVersion":1,"projectId":"p1","name":"n","stateDirectory":"{}","maxSlices":4,"maxRunMs":3600000,"maxDispatches":16}}"#,
+            state_directory.display()
+        );
+        std::fs::write(dir.path().join(CONFIG_NAME), text).unwrap();
+        std::fs::write(dir.path().join(KEY_NAME), "k".repeat(40)).unwrap();
+        load_project(dir.path()).map(|_| ())
+    }
+
+    #[test]
+    fn a_state_directory_written_through_a_symlinked_parent_is_project_local() {
+        let dir = project_dir("", "");
+        let links = tempfile::tempdir().unwrap();
+        let link = links.path().join("project");
+        std::os::unix::fs::symlink(dir.path(), &link).unwrap();
+        project_with_state(&link.join(".capstan/state"), &dir).unwrap();
+    }
+
+    #[test]
+    fn a_state_directory_elsewhere_or_not_named_state_is_refused() {
+        let dir = project_dir("", "");
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = elsewhere.path().join(".capstan");
+        std::fs::create_dir(&other).unwrap();
+        for state in [
+            other.join("state"),
+            dir.path().join(".capstan/cache"),
+            dir.path().join(".capstan/state/state"),
+            dir.path().join("missing/.capstan/state"),
+        ] {
+            let error = project_with_state(&state, &dir).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .ends_with("Capstan stateDirectory must remain project-local"),
+                "{}: {}",
+                state.display(),
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn a_state_entry_that_is_a_symlink_is_not_inspected() {
+        let dir = project_dir("", "");
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join(".capstan/state")).unwrap();
+        project_with_state(&dir.path().join(".capstan/state"), &dir).unwrap();
     }
 
     #[test]

@@ -12,3 +12,4 @@ name = "capstan_wire"
 path = "src/lib.rs"
 
 [dependencies]
+libc = "=0.2.190"

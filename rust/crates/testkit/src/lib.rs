@@ -7,27 +7,40 @@
 //! `Drop`; `scripts/daemon-survivors.sh` reports what such a run leaves.
 use std::path::{Path, PathBuf};
 
+/// The longest temp directory a suite may build scratch projects under: a project's control socket
+/// (`<root>/<scratch name>/proj/.capstan/state/control.sock`) must stay within the 103-byte socket path limit of macOS.
+const SHORT_ROOT_BYTES: usize = 20;
+
+/// A canonical base directory for scratch projects: the system temp directory when its path is short, else `/tmp`
+/// (macOS gives each user a long one under `/var/folders`, too long for a socket path inside it).
+pub fn short_temp_root() -> PathBuf {
+    let temp = std::env::temp_dir();
+    let temp = std::fs::canonicalize(&temp).unwrap_or(temp);
+    if temp.as_os_str().len() <= SHORT_ROOT_BYTES {
+        return temp;
+    }
+    std::fs::canonicalize("/tmp").unwrap_or_else(|_| PathBuf::from("/tmp"))
+}
+
+/// Whether `pid` exists and has not ended (a zombie waiting for its parent has ended).
+pub fn is_running(pid: i32) -> bool {
+    // SAFETY: signal 0 only checks that the pid exists.
+    let exists = unsafe { libc::kill(pid, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    exists && !capstan_process::is_zombie(i64::from(pid))
+}
+
 /// Kills (SIGKILL) every process other than this one whose working directory is `dir` or inside it, and returns how many.
-/// Linux only (/proc); elsewhere it does nothing. Nothing outside `dir` is ever signalled.
+/// Nothing outside `dir` is ever signalled.
 pub fn kill_processes_in(dir: &Path) -> usize {
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return 0;
-    };
     let me = std::process::id() as i32;
     let mut killed = 0;
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|n| n.parse::<i32>().ok())
-        else {
-            continue;
-        };
+    for pid in capstan_process::pids() {
         if pid == me {
             continue;
         }
-        if std::fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|cwd| cwd.starts_with(&dir)) {
+        if capstan_process::cwd(pid).is_some_and(|cwd| cwd.starts_with(&dir)) {
             // SAFETY: the process runs inside a scratch directory this test created, so this test started it.
             unsafe { libc::kill(pid, libc::SIGKILL) };
             killed += 1;

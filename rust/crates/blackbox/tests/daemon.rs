@@ -273,7 +273,7 @@ fn shutdown_needs_the_operator_and_ends_the_daemon_leaving_no_socket_or_pid_file
     until("the daemon to exit", 20, || {
         (!w.daemon_alive()).then_some(())
     });
-    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+    assert!(!capstan_testkit::is_running(pid as i32));
     assert!(!w.socket().exists() && !w.project.join(".capstan/state/daemon.pid").exists());
 }
 

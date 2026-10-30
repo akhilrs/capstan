@@ -42,7 +42,8 @@ pub fn seeded_env(seed: &str) -> Box<SeededEnv> {
 /// A scratch directory private to the user (mode 0700), as the controller's state directory must be.
 pub fn private_tempdir() -> PrivateDir {
     use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().expect("a scratch directory");
+    let dir =
+        tempfile::tempdir_in(capstan_testkit::short_temp_root()).expect("a scratch directory");
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     PrivateDir {
         _reaper: capstan_testkit::Reaper::new(dir.path()),

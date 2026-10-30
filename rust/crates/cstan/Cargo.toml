@@ -31,5 +31,6 @@ unicode-normalization = { version = "=0.1.25", default-features = false }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 
 [dev-dependencies]
+capstan-process = { path = "../process" }
 capstan-testkit = { path = "../testkit" }
 capstan-parity-overlay = { path = "../parity-overlay" }

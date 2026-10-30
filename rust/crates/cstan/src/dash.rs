@@ -22,6 +22,10 @@ pub const NOT_A_TERMINAL: &str =
 pub const MISSING: &str =
     "cstan-dash was not found; install it beside cstan, put it on PATH or set CSTAN_DASH_BIN to its absolute path (docs/reference/install.md)";
 
+/// How long a candidate's `--version` may take. macOS scans a new executable on its first run, one file at a time, so a
+/// freshly installed binary (or several probed at once) can take seconds to start.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
 fn is_executable_file(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         && access_x(path)
@@ -52,7 +56,7 @@ fn probe(bin: &Path) -> bool {
         let _ = stdout.read_to_string(&mut text);
         text
     });
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + PROBE_TIMEOUT;
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),

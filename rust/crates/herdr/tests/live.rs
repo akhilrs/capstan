@@ -52,9 +52,7 @@ fn random_suffix() -> String {
 }
 
 fn start() -> (Live, Arc<ProcessRunner>) {
-    let root = std::fs::canonicalize(std::env::temp_dir())
-        .unwrap()
-        .join(format!("cph-rs-{}", random_suffix()));
+    let root = capstan_testkit::short_temp_root().join(format!("cph-rs-{}", random_suffix()));
     assert!(
         root.to_string_lossy().len() <= 70,
         "the temporary path is short enough for a socket"

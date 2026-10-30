@@ -641,9 +641,7 @@ impl OldController {
     }
 
     fn alive(&self) -> bool {
-        std::fs::read_to_string(format!("/proc/{}/stat", self.pid))
-            .map(|stat| !stat.contains(") Z "))
-            .unwrap_or(false)
+        capstan_testkit::is_running(self.pid as i32)
     }
 
     fn stop(&mut self) {
@@ -705,8 +703,7 @@ fn a_stuck_old_controller_gets_sigterm_then_sigkill_and_only_its_own_stale_pid_f
     });
     // The pid file is written before the exec; wait for the exec so the ignore is in force.
     wait_for("the old controller to exec", || {
-        std::fs::read_to_string(format!("/proc/{}/comm", old.pid))
-            .is_ok_and(|c| c.trim() == "sleep")
+        capstan_process::command_name(old.pid).is_some_and(|c| c == "sleep")
     });
     edit_plan(&run, |plan| {
         plan["pid"] = json!(old.pid);

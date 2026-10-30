@@ -12,4 +12,5 @@ name = "capstan_testkit"
 path = "src/lib.rs"
 
 [dependencies]
+capstan-process = { path = "../process" }
 libc = "=0.2.190"

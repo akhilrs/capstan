@@ -403,13 +403,32 @@ impl Drop for World {
 
 /// Whether the process exists and is not a zombie.
 fn alive(pid: i64) -> bool {
-    std::fs::read_to_string(format!("/proc/{pid}/stat"))
-        .map(|stat| {
-            stat.rsplit(") ")
-                .next()
-                .is_some_and(|rest| !rest.starts_with('Z'))
-        })
-        .unwrap_or(false)
+    capstan_testkit::is_running(pid as i32)
+}
+
+/// Not a test: the process a gate command leaves running in another session. It is this test binary rather than
+/// `sleep`, because macOS hides the environment (and so the run's marker) of Apple's own binaries.
+#[test]
+#[ignore = "a helper process, started by the gate commands of the session tests"]
+fn helper_sleeps_in_another_session() {
+    std::thread::sleep(Duration::from_secs(60));
+}
+
+/// A gate command that starts a process in a new session, as a tool daemon (an sccache server) does, writes its pid to
+/// `pid_path` and leaves it running. `setsid` is not installed on macOS; perl's POSIX::setsid does the same there.
+fn new_session_command(pid_path: &Path) -> String {
+    let quote = |text: &str| format!("'{}'", text.replace('\'', r"'\''"));
+    let exe = std::env::current_exe().unwrap();
+    let inner = format!(
+        "echo $$ > {}; exec {} --ignored --exact helper_sleeps_in_another_session",
+        quote(&pid_path.to_string_lossy()),
+        quote(&exe.to_string_lossy())
+    );
+    format!(
+        "(if command -v setsid >/dev/null; then setsid sh -c {inner_q}; else perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' sh -c {inner_q}; fi &) ; sleep 1; test -s {pid}",
+        inner_q = quote(&inner),
+        pid = quote(&pid_path.to_string_lossy()),
+    )
 }
 
 fn read_pid(path: &Path) -> Option<i64> {
@@ -1262,12 +1281,7 @@ fn a_failing_setup_is_an_error_run_not_a_gate_result() {
 fn a_process_a_gate_leaves_in_another_session_is_stopped_with_the_run() {
     let pidfile = tempfile::tempdir().unwrap();
     let pid_path = pidfile.path().join("daemon-pid");
-    // `setsid` leaves the process group of the step, as a tool daemon (an sccache server) does.
-    let command = format!(
-        "(setsid sh -c 'echo $$ > {}; sleep 60' &) ; sleep 1; test -s {}",
-        pid_path.display(),
-        pid_path.display()
-    );
+    let command = new_session_command(&pid_path);
     let world = World::new(spec(&[&command]));
     let (report, _) = world.report("dev-1");
     let id = world.ok("operator", "verify", &[&report])["runId"]
@@ -1288,11 +1302,7 @@ fn a_process_a_gate_leaves_in_another_session_is_stopped_with_the_run() {
 fn with_reap_off_a_process_in_another_session_is_left_alone() {
     let pidfile = tempfile::tempdir().unwrap();
     let pid_path = pidfile.path().join("daemon-pid");
-    let command = format!(
-        "(setsid sh -c 'echo $$ > {}; sleep 60' &) ; sleep 1; test -s {}",
-        pid_path.display(),
-        pid_path.display()
-    );
+    let command = new_session_command(&pid_path);
     let world = World::new(spec(&[&command]).tweak(|v| v.reap = false));
     let (report, _) = world.report("dev-1");
     let id = world.ok("operator", "verify", &[&report])["runId"]
@@ -1438,11 +1448,7 @@ fn a_worker_that_panics_finishes_its_run_as_error_and_frees_its_slot() {
 fn a_worker_that_panics_after_starting_a_process_leaves_none_even_with_reap_off() {
     let pidfile = tempfile::tempdir().unwrap();
     let pid_path = pidfile.path().join("daemon-pid");
-    let command = format!(
-        "(setsid sh -c 'echo $$ > {}; sleep 60' &) ; sleep 1; test -s {}",
-        pid_path.display(),
-        pid_path.display()
-    );
+    let command = new_session_command(&pid_path);
     let world = World::new(spec(&[&command]).tweak(|v| v.reap = false));
     world
         .service

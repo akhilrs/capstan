@@ -204,7 +204,7 @@ impl Cli<'_> {
             ));
         }
         if let Err(WireError::NotSent { code, .. }) = &reply {
-            if code == "ENOENT" || code == "ECONNREFUSED" {
+            if capstan_wire::nothing_listens(code) {
                 return Err(blocked(if agent.is_some() {
                     "the controller is not running; ask the operator to run cstan start"
                 } else {
@@ -370,9 +370,7 @@ impl Cli<'_> {
                 continue;
             }
             match &reply {
-                Err(WireError::NotSent { code, .. })
-                    if code == "ENOENT" || code == "ECONNREFUSED" =>
-                {
+                Err(WireError::NotSent { code, .. }) if capstan_wire::nothing_listens(code) => {
                     return Err(blocked(
                         "the controller is not running; ask the operator to run cstan start",
                     ));

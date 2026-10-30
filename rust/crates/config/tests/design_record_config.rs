@@ -466,6 +466,26 @@ fn reference_collection_is_checked_lexically() {
 
 #[cfg(unix)]
 #[test]
+fn a_project_named_through_a_symlink_is_matched_as_written_and_resolved() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(dir.path()).unwrap().join("proj");
+    std::fs::create_dir_all(real.join("sub")).unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let text = |value: &Path| format!("[design]\nreference_collection = \"{}\"\n", value.display());
+    for (root, value) in [(&link, link.join("sub")), (&link, real.join("sub"))] {
+        assert_eq!(
+            load_in(root, None, &text(&value)).unwrap_err(),
+            "design.reference_collection must be outside the project",
+            "project {} value {}",
+            root.display(),
+            value.display()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn symlinks_may_not_leave_the_project() {
     use std::os::unix::fs::symlink;
     for key in ["design_record", "guidance_extra"] {

@@ -374,14 +374,10 @@ pub fn run_command(mut options: RunOptions) -> RunResult {
     }
 }
 
-/// The start time field of /proc/<pid>/stat (clock ticks since boot), or `None` when the process does not exist or the
-/// file cannot be read. It tells a live leader from a pid that was reused.
+/// When the process started (see `capstan_process::start_time`), or `None` when it does not exist or cannot be read.
+/// It tells a live leader from a pid that was reused.
 pub fn process_start_time(pid: i64) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    // The command name is in parentheses and may contain spaces or parentheses itself.
-    let after = &stat[stat.rfind(')')? + 2..];
-    let start = after.split(' ').nth(19)?;
-    (!start.is_empty() && start.bytes().all(|b| b.is_ascii_digit())).then(|| start.to_string())
+    capstan_process::start_time(pid)
 }
 
 /// Whether a process group still has a member.

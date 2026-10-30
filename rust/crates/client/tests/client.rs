@@ -95,6 +95,25 @@ fn a_fresh_start_then_already_running_then_stop() {
 }
 
 #[test]
+fn a_socket_path_over_the_system_limit_starts_no_daemon_and_names_the_limit() {
+    let project = Project::new();
+    let mut options = project.options("serve");
+    let mut name = String::from("c");
+    while project.dir.path().join(&name).as_os_str().len() <= capstan_wire::socket_path_limit() {
+        name.push('x');
+    }
+    options.socket_path = project.dir.path().join(&name);
+    let (reason, message) = unavailable(ensure_daemon(&options).unwrap_err());
+    assert_eq!(reason, Reason::StartFailed);
+    assert!(
+        message.starts_with("control socket path is ")
+            && message.contains("-byte limit of this system"),
+        "{message}"
+    );
+    assert!(!project.log().exists(), "no daemon was started");
+}
+
+#[test]
 fn a_stale_socket_and_pid_file_do_not_stop_a_start() {
     let project = Project::new();
     // A socket file nobody listens on, and the pid file of a daemon that died.
@@ -137,8 +156,9 @@ fn stale_socket(path: &Path) {
         *slot = *byte as libc::c_char;
     }
     unsafe {
-        let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
         assert!(fd >= 0, "{}", std::io::Error::last_os_error());
+        assert_eq!(libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC), 0);
         let size = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
         let bound = libc::bind(fd, (&raw const address).cast(), size);
         assert_eq!(bound, 0, "{}", std::io::Error::last_os_error());

@@ -30,5 +30,7 @@ unicode-segmentation = "=1.13.3"
 unicode-normalization = { version = "=0.1.25", default-features = false }
 
 [dev-dependencies]
+capstan-process = { path = "../process" }
+capstan-testkit = { path = "../testkit" }
 tempfile = "=3.27.0"
 capstan-parity-overlay = { path = "../parity-overlay" }
