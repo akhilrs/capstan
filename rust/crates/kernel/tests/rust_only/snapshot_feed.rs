@@ -5,10 +5,10 @@
 use crate::event_feed::{prompt_sha, Rig, BASE, COMMIT};
 use capstan_kernel::areas::event_feed::{item_key, parse_item_key, KEY_KINDS};
 use capstan_kernel::areas::snapshot_feed::{
-    agent_content_hash, agents_page, agents_page_counted, content_hash, content_hash_counted,
-    design_hash_input, message_hash_input, plans_page, plans_page_counted, plans_page_sized,
-    snapshot_head, snapshot_item, waiting_page, waiting_page_counted, AgentItem, Page, PlanItem,
-    WaitingItem, MAX_PAGE_BYTES,
+    agent_content_hash, agents_page, agents_page_counted, canonical, content_hash,
+    content_hash_counted, design_hash_input, message_hash_input, plans_page, plans_page_counted,
+    plans_page_sized, snapshot_head, snapshot_item, waiting_page, waiting_page_counted, AgentItem,
+    Page, PlanItem, WaitingItem, DETAILS_WIRE_MAX, MAX_PAGE_BYTES,
 };
 use capstan_kernel::canonical::sha256;
 use capstan_kernel::errors::KernelError;
@@ -1000,7 +1000,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     assert_eq!(fields(&waiting), "head,items,next");
     assert_eq!(
         fields(&waiting["items"][0]),
-        "branch,contentHash,headSha,integrationState,key,kind,needsTerminal,requestId,since,summary"
+        "branch,contentHash,headSha,integrationDetails,integrationState,key,kind,needsTerminal,requestId,since,summary"
     );
     let agents = value_of(&agents_page(&rig.core, None, 10).unwrap());
     assert_eq!(
@@ -2698,8 +2698,8 @@ fn each_integration_item_costs_one_row_and_two_reads_for_the_supersession_lookup
     let with_three = reads_of("integration");
     assert_eq!(
         with_three - with_one,
-        2 * (1 + 2),
-        "a row and a statement with its row for each item"
+        2 * (1 + 2 + 1),
+        "a row, a statement with its row and the details statement (no stored row) for each item"
     );
     // A tight budget pages the items and never passes it, each item once.
     let core = &rig.core;
@@ -2708,4 +2708,400 @@ fn each_integration_item_costs_one_row_and_two_reads_for_the_supersession_lookup
     });
     assert!(calls >= 2, "{calls}");
     assert_eq!(items.len(), 3);
+}
+
+// ------------------------------------------------------------------------------------------------ integration details
+
+fn store_details(rig: &Rig, integration: &str, details: &Value) {
+    let text = details.to_string();
+    assert!(text.len() <= 16384, "{} bytes", text.len());
+    rig.db()
+        .execute(
+            "INSERT INTO integration_details(project_id, integration_id, details_json, computed_at) VALUES (?, ?, ?, '2026-01-01T00:00:00.000Z')",
+            rusqlite::params![rig.core.project_id(), integration, text],
+        )
+        .unwrap();
+}
+
+/// A verify run row of `subject` (an integration id, or a report id when `report`) in `state`.
+fn insert_run(rig: &Rig, subject: &str, report: bool, state: &str, commit: &str) -> i64 {
+    let db = rig.db();
+    let sequence: i64 = db
+        .query_row(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM verify_runs",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let (queued, started, finished) = match state {
+        "queued" => ("2026-01-01T00:00:00.000Z", None, None),
+        "running" => (
+            "2026-01-01T00:00:00.000Z",
+            Some("2026-01-01T00:00:01.000Z"),
+            None,
+        ),
+        "cancelled" => (
+            "2026-01-01T00:00:00.000Z",
+            None,
+            Some("2026-01-01T00:00:02.000Z"),
+        ),
+        _ => (
+            "2026-01-01T00:00:00.000Z",
+            Some("2026-01-01T00:00:01.000Z"),
+            Some("2026-01-01T00:00:02.000Z"),
+        ),
+    };
+    db.execute(
+        "INSERT INTO verify_runs(project_id, run_id, sequence, subject_report_id, subject_integration_id, commit_sha, commands_json,
+             commands_sha, trigger, requested_by_actor_id, state, queued_at, started_at, finished_at, exit_code)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[\"make test\"]', ?7, 'manual', 'a', ?8, ?9, ?10, ?11, ?12)",
+        rusqlite::params![
+            rig.core.project_id(),
+            format!("run-{sequence}"),
+            sequence,
+            report.then_some(subject),
+            (!report).then_some(subject),
+            commit,
+            format!("sha-{sequence}"),
+            state,
+            queued,
+            started,
+            finished,
+            (state == "passed").then_some(0).or((state == "failed").then_some(1)),
+        ],
+    )
+    .unwrap();
+    sequence
+}
+
+fn stored() -> Value {
+    json!({
+        "v": 1, "impactError": null,
+        "plans": [{"planId": "plan-1", "title": "Plan one"}], "plansOmitted": 0,
+        "reports": [{"reportId": "r-1", "packageId": "a", "summary": "work written"}], "reportsOmitted": 0,
+        "impact": {"filesChanged": 3, "insertions": 10, "deletions": 2, "truncated": false,
+            "areas": [{"path": "src", "files": 3}], "areasOmitted": 0,
+            "migrations": ["migrations/0001.sql"], "migrationsOmitted": 0,
+            "nextSteps": ["Run the migrations"]}
+    })
+}
+
+fn details_of(core: &Core) -> Value {
+    value_of(&one(core, "integration")[0])["integrationDetails"].clone()
+}
+
+const DETAILS_KEYS: &[&str] = &[
+    "impact",
+    "impactError",
+    "plans",
+    "plansOmitted",
+    "recorded",
+    "reports",
+    "reportsOmitted",
+    "review",
+    "signoffs",
+    "signoffsOmitted",
+    "verify",
+];
+
+fn keys(value: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+#[test]
+fn an_integration_shows_its_stored_details_review_verify_and_signoffs() {
+    let rig = Rig::new();
+    rig.propose("ls", "look");
+    let plan = plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&report]);
+    let item = &one(&rig.core, "integration")[0];
+    assert_eq!(item.integration_details, Some(json!({"recorded": false})));
+    // The hash is still the one of the old formula.
+    assert_eq!(
+        item.content_hash,
+        sha256(&canonical(&json!({
+            "id": "int-1", "state": "merged", "branch": "capstan/integration/int-1", "headSha": "3".repeat(40)
+        })))
+    );
+    for other in all_waiting(&rig.core, Some("op")) {
+        assert_eq!(value_of(&other)["integrationDetails"], Value::Null);
+    }
+
+    store_details(&rig, "int-1", &stored());
+    // Round 1 found something, round 2 passed.
+    rig.review("int-1", "findings", "fix it");
+    rig.review("int-1", "pass", "fine now");
+    insert_run(&rig, "int-1", false, "passed", COMMIT);
+    // A verify run of a report on the same commit is not the integration's.
+    insert_run(&rig, &report, true, "failed", COMMIT);
+    rig.core
+        .record_signoff(
+            &rig.ctx("arch-1"),
+            &json!({"planId": plan, "integrationId": "int-1", "summary": "all merged"}),
+        )
+        .unwrap();
+    let second = rig.approved_plan_of(PACKAGE_A);
+    rig.db()
+        .execute(
+            "INSERT INTO plan_signoffs(project_id, plan_id, integration_id, architect_agent_id, summary, created_at)
+             VALUES (?, ?, 'int-1', 'arch-1', 'also fine', '2999-01-01T00:00:00.000Z')",
+            rusqlite::params![rig.core.project_id(), second],
+        )
+        .unwrap();
+
+    let details = details_of(&rig.core);
+    assert_eq!(keys(&details), DETAILS_KEYS);
+    assert_eq!(details["recorded"], true);
+    assert_eq!(details["plans"][0]["title"], "Plan one");
+    assert_eq!(details["plans"][0]["textVerified"], true);
+    assert_eq!(details["plans"][0]["truncated"], false);
+    assert_eq!(
+        details["impact"]["migrations"][0]["path"],
+        "migrations/0001.sql"
+    );
+    assert_eq!(
+        details["impact"]["nextSteps"][0]["text"],
+        "Run the migrations"
+    );
+    assert_eq!(
+        keys(&details["impact"]),
+        [
+            "areas",
+            "areasOmitted",
+            "deletions",
+            "filesChanged",
+            "insertions",
+            "migrations",
+            "migrationsOmitted",
+            "nextSteps",
+            "truncated"
+        ]
+    );
+    assert_eq!(details["review"]["verdict"], "passed");
+    assert_eq!(details["review"]["round"], 2);
+    assert_eq!(details["review"]["reviewerAgentId"], "rev-1");
+    assert_eq!(details["verify"]["latest"]["state"], "passed");
+    assert_eq!(details["verify"]["lastPassed"]["commitSha"], COMMIT);
+    let signoffs = details["signoffs"].as_array().unwrap();
+    assert_eq!(signoffs.len(), 2);
+    assert_eq!(signoffs[0]["planId"], json!(plan));
+    assert_eq!(signoffs[1]["planId"], json!(second));
+    assert_eq!(signoffs[1]["summary"], "also fine");
+    assert_eq!(details["signoffsOmitted"], 0);
+    assert_eq!(
+        keys(&signoffs[0]),
+        [
+            "createdAt",
+            "planId",
+            "summary",
+            "textVerified",
+            "truncated"
+        ]
+    );
+}
+
+#[test]
+fn verify_shows_the_latest_result_and_the_last_pass_and_a_started_review_hides_nothing() {
+    let rig = Rig::new();
+    plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&report]);
+    store_details(&rig, "int-1", &stored());
+    let verify = |rig: &Rig| details_of(&rig.core)["verify"].clone();
+    assert_eq!(verify(&rig), Value::Null, "no run yet");
+    insert_run(&rig, "int-1", false, "queued", COMMIT);
+    assert_eq!(verify(&rig), Value::Null, "a queued run is not shown");
+    let pass = "4".repeat(40);
+    insert_run(&rig, "int-1", false, "passed", &pass);
+    insert_run(&rig, "int-1", false, "cancelled", COMMIT);
+    insert_run(&rig, "int-1", false, "interrupted", COMMIT);
+    insert_run(&rig, "int-1", false, "running", COMMIT);
+    let shown = verify(&rig);
+    assert_eq!(shown["latest"]["state"], "passed");
+    assert_eq!(shown["latest"]["commitSha"], json!(pass));
+    assert_eq!(shown["lastPassed"]["commitSha"], json!(pass));
+    insert_run(&rig, "int-1", false, "failed", COMMIT);
+    let shown = verify(&rig);
+    assert_eq!(shown["latest"]["state"], "failed");
+    assert_eq!(shown["lastPassed"]["commitSha"], json!(pass));
+    insert_run(&rig, "int-1", false, "timeout", COMMIT);
+    assert_eq!(verify(&rig)["latest"]["state"], "timeout");
+
+    // A review that has started hides the passed one before it nothing.
+    assert_eq!(details_of(&rig.core)["review"], Value::Null);
+    rig.review("int-1", "pass", "fine");
+    rig.core
+        .begin_review(
+            &rig.ctx("pm-1"),
+            &json!({"subjectId": "int-1", "reviewerRole": "reviewer", "reviewerAgentId": "rev-1"}),
+        )
+        .unwrap();
+    let review = details_of(&rig.core)["review"].clone();
+    assert_eq!(review["verdict"], "passed");
+    assert_eq!(review["round"], 1);
+}
+
+#[test]
+fn an_item_re_read_after_a_review_verdict_carries_it_although_the_hash_is_the_same() {
+    let rig = Rig::new();
+    plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&report]);
+    store_details(&rig, "int-1", &stored());
+    let before = snapshot_item(&rig.core, "waiting", "integration:1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(before["integrationDetails"]["review"], Value::Null);
+    let (_, events) = {
+        let head = rig.head();
+        let done = rig.review("int-1", "pass", "fine");
+        (done, rig.since(head))
+    };
+    assert!(invalidates(&events, "waiting", Some("integration:1")));
+    let after = snapshot_item(&rig.core, "waiting", "integration:1")
+        .unwrap()
+        .unwrap();
+    assert_eq!(after["contentHash"], before["contentHash"]);
+    assert_eq!(after["integrationDetails"]["review"]["verdict"], "passed");
+}
+
+#[test]
+fn the_cost_of_a_waiting_page_with_integrations_follows_the_formula() {
+    let rig = Rig::new();
+    rig.propose("ls", "look");
+    let op_reads = |rig: &Rig| {
+        waiting_page_counted(&rig.core, None, 100, Some("op"), 2000)
+            .unwrap()
+            .1
+    };
+    let all_reads = |rig: &Rig| {
+        waiting_page_counted(&rig.core, None, 100, None, 2000)
+            .unwrap()
+            .1
+    };
+    let ops_before = op_reads(&rig);
+    let plan = plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&report]);
+    assert_eq!(op_reads(&rig), ops_before, "other kinds cost what they did");
+    // Without a stored row the item reads that one statement.
+    let unrecorded = all_reads(&rig);
+    store_details(&rig, "int-1", &stored());
+    // The stored row, then four statements that find nothing: 5 statements and 1 row.
+    let bare = all_reads(&rig);
+    assert_eq!(bare, unrecorded + 5);
+    let mut expected_rows = 0;
+    rig.review("int-1", "pass", "fine");
+    expected_rows += 1;
+    insert_run(&rig, "int-1", false, "passed", COMMIT);
+    expected_rows += 2; // the latest and the last passed run
+    rig.core
+        .record_signoff(
+            &rig.ctx("arch-1"),
+            &json!({"planId": plan, "integrationId": "int-1", "summary": "all merged"}),
+        )
+        .unwrap();
+    expected_rows += 1;
+    assert_eq!(all_reads(&rig), bare + expected_rows);
+}
+
+/// A text of `n` bytes made of characters JSON must escape (quotes and backslashes) and others that are not ASCII.
+fn nasty(n: usize) -> String {
+    let unit = "\"\\é";
+    let mut text = unit.repeat(n / unit.len() + 1);
+    while text.len() > n {
+        text.pop();
+    }
+    text
+}
+
+/// The stored details with every list filled and every text at its cap, within the 16 KiB of the table.
+fn worst_stored() -> Value {
+    let text = nasty(300);
+    let mut stored = json!({
+        "v": 1, "impactError": null,
+        "plans": [{"planId": text, "title": text, "truncated": true}], "plansOmitted": 0,
+        "reports": (0..20).map(|_| json!({"reportId": text, "packageId": text, "summary": text, "truncated": true})).collect::<Vec<_>>(),
+        "reportsOmitted": 3,
+        "impact": {"filesChanged": 9999, "insertions": 99999, "deletions": 99999, "truncated": true,
+            "areas": (0..12).map(|_| json!({"path": text, "files": 99, "truncated": true})).collect::<Vec<_>>(), "areasOmitted": 4,
+            "migrations": (0..10).map(|_| json!(text)).collect::<Vec<_>>(), "migrationsOmitted": 5, "migrationsTruncated": true,
+            "nextSteps": [text]}
+    });
+    while stored.to_string().len() > 16384 {
+        stored["reports"].as_array_mut().unwrap().pop();
+        stored["reportsOmitted"] = json!(stored["reportsOmitted"].as_u64().unwrap() + 1);
+    }
+    stored
+}
+
+#[test]
+fn forty_worst_case_details_items_page_within_the_byte_budget_and_each_line_fits() {
+    let rig = Rig::new();
+    let project = rig.core.project_id().to_string();
+    let details = worst_stored();
+    let signoff_text = nasty(300);
+    {
+        let db = rig.db();
+        db.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        for n in 1..=40 {
+            let id = format!("int-{n}");
+            db.execute(
+                "INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, head_sha, created_at, completed_at)
+                 VALUES (?, ?, ?, ?, ?, 'pm-1', 'merged', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
+                rusqlite::params![project, id, n, "4".repeat(40), format!("capstan/integration/{id}"), "3".repeat(40)],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO integration_details(project_id, integration_id, details_json, computed_at) VALUES (?, ?, ?, '2026-01-01T00:00:00.000Z')",
+                rusqlite::params![project, id, details.to_string()],
+            )
+            .unwrap();
+            for plan in 0..10 {
+                db.execute(
+                    "INSERT INTO plan_signoffs(project_id, plan_id, integration_id, architect_agent_id, summary, created_at)
+                     VALUES (?, ?, ?, 'arch-1', ?, ?)",
+                    rusqlite::params![project, format!("plan-{plan}"), id, signoff_text, format!("2026-01-01T00:00:{plan:02}.000Z")],
+                )
+                .unwrap();
+            }
+        }
+    }
+    let mut seen = Vec::new();
+    let mut after: Option<String> = None;
+    let mut pages = 0;
+    loop {
+        let page = waiting_page(&rig.core, after.as_deref(), 100, Some("integration")).unwrap();
+        pages += 1;
+        let bytes: usize = page
+            .items
+            .iter()
+            .map(|item| serde_json::to_string(item).unwrap().len() + 1)
+            .sum();
+        assert!(bytes <= MAX_PAGE_BYTES + 20 * 1024 || page.items.len() == 1);
+        for item in &page.items {
+            let text = serde_json::to_string(item).unwrap();
+            let details = serde_json::to_string(&item.integration_details).unwrap();
+            assert!(details.len() <= DETAILS_WIRE_MAX, "{} bytes", details.len());
+            assert!(text.len() <= 18 * 1024, "{} bytes", text.len());
+            // A snapshot line adds the project, section and key around the item.
+            assert!(text.len() + 512 < 65_536);
+            seen.push(item.key.clone());
+        }
+        match page.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    assert!(pages >= 2, "{pages} pages");
+    let expected: Vec<String> = (1..=40).map(|n| format!("integration:{n}")).collect();
+    assert_eq!(seen, expected);
 }

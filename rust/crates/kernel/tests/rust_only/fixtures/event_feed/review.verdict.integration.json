@@ -1,0 +1,44 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "effects": [
+      {
+        "fields": {},
+        "key": "integration:1",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "plan",
+        "op": "invalidate",
+        "section": "plans"
+      },
+      {
+        "fields": {},
+        "key": "design",
+        "op": "invalidate",
+        "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "message",
+        "op": "invalidate",
+        "section": "waiting"
+      }
+    ],
+    "reviewId": "<id:2>",
+    "verdict": "pass"
+  },
+  "entity": {
+    "id": "<id:2>",
+    "type": "review"
+  },
+  "from": "started",
+  "id": "prustonly:daeca3b2245f3519:28",
+  "k": 0,
+  "seq": 28,
+  "to": "passed",
+  "ts": "<ts>",
+  "type": "review.verdict"
+}

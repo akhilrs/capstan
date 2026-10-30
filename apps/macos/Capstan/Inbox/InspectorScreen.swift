@@ -140,24 +140,17 @@ struct InspectorScreen: View {
         case .prompt: promptBody(row, item, detail, mode)
         case .design: designBody(row, item, detail, mode)
         case .message: messageBody(row, item, detail, mode)
-        case .integration, .other: summaryOnly(item)
+        case .integration: integrationBody(row, item)
+        case .other: summaryOnly(item)
         }
     }
 
+    private func integrationBody(_ row: InboxRowID, _ item: StoredWaiting) -> some View {
+        IntegrationDetailsView(rows: IntegrationDetailRows.make(item, hostName: hostName(row.hostId), now: Date()))
+    }
+
     private func summaryOnly(_ item: StoredWaiting) -> some View {
-        let words = item.summary.displayPlain.split(separator: " ", maxSplits: 1).map(String.init)
-        let state = words.first ?? ""
-        let branch = words.count > 1 ? words[1] : ""
-        return VStack(alignment: .leading, spacing: Tokens.space[2]) {
-            if item.kind == .integration {
-                MetaList(rows: [
-                    MetaRow(label: "Branch", value: UntrustedText(raw: branch, verified: item.summary.verified, truncated: false)),
-                    MetaRow(label: "State", value: UntrustedText(raw: state, verified: item.summary.verified, truncated: false)),
-                ])
-            } else {
-                UntrustedTextBlock(text: item.summary, label: "From the host · untrusted text")
-            }
-        }
+        UntrustedTextBlock(text: item.summary, label: "From the host · untrusted text")
     }
 
     private func notReceived(_ text: String) -> some View {

@@ -341,6 +341,10 @@ fn example_pages_have_the_shape_of_each_section() {
         "summary",
         "contentHash",
         "needsTerminal",
+        "integrationState",
+        "branch",
+        "headSha",
+        "integrationDetails",
     ];
     let agents = [
         "key",
@@ -378,6 +382,87 @@ fn example_pages_have_the_shape_of_each_section() {
         have.sort_unstable();
         want.sort_unstable();
         assert_eq!(have, want);
+    }
+}
+
+/// The members of `integrationDetails` when recorded: the frozen list of the merge inspector's design.
+const DETAILS: &[&str] = &[
+    "recorded",
+    "impactError",
+    "plans",
+    "plansOmitted",
+    "reports",
+    "reportsOmitted",
+    "signoffs",
+    "signoffsOmitted",
+    "impact",
+    "review",
+    "verify",
+];
+
+fn names(value: &Value) -> Vec<String> {
+    let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    keys
+}
+
+fn sorted(list: &[&str]) -> Vec<String> {
+    let mut keys: Vec<String> = list.iter().map(|k| k.to_string()).collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn the_integration_example_shows_every_member_of_the_details() {
+    let page = json_values()
+        .into_iter()
+        .find(|v| v["items"][1]["kind"] == "integration")
+        .expect("an integration example item");
+    let details = &page["items"][1]["integrationDetails"];
+    assert_eq!(names(details), sorted(DETAILS));
+    let flags = ["textVerified", "truncated"];
+    let with = |own: &[&str]| sorted(&[own, &flags].concat());
+    assert_eq!(names(&details["plans"][0]), with(&["planId", "title"]));
+    assert_eq!(
+        names(&details["reports"][0]),
+        with(&["reportId", "packageId", "summary"])
+    );
+    assert_eq!(
+        names(&details["signoffs"][0]),
+        with(&["planId", "summary", "createdAt"])
+    );
+    let impact = &details["impact"];
+    assert_eq!(
+        names(impact),
+        sorted(&[
+            "filesChanged",
+            "insertions",
+            "deletions",
+            "truncated",
+            "areas",
+            "areasOmitted",
+            "migrations",
+            "migrationsOmitted",
+            "nextSteps"
+        ])
+    );
+    assert_eq!(names(&impact["areas"][0]), with(&["path", "files"]));
+    assert_eq!(names(&impact["migrations"][0]), with(&["path"]));
+    assert_eq!(names(&impact["nextSteps"][0]), with(&["text"]));
+    assert_eq!(
+        names(&details["review"]),
+        sorted(&["verdict", "reviewerAgentId", "round"])
+    );
+    assert_eq!(names(&details["verify"]), sorted(&["latest", "lastPassed"]));
+    assert_eq!(
+        names(&details["verify"]["latest"]),
+        sorted(&["state", "commitSha", "finishedAt"])
+    );
+    for member in DETAILS.iter().chain(&["integrationDetails", "contentHash"]) {
+        assert!(
+            DOC.contains(&format!("`{member}`")),
+            "the doc lacks {member}"
+        );
     }
 }
 

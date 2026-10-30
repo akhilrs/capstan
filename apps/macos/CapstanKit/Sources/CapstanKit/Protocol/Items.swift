@@ -39,6 +39,8 @@ public struct WaitingItem: WireItem {
     public let branch: UntrustedText?
     /// 7 to 64 lowercase hex characters; any other value is dropped.
     public let headSha: String?
+    /// What an integration brought and how its checks went; nil for another kind and from a host that does not send it.
+    public let integrationDetails: IntegrationDetails?
 
     public init(json: JSONValue) throws {
         _ = try json.members("waiting item")
@@ -52,11 +54,315 @@ public struct WaitingItem: WireItem {
         integrationState = try json.optionalString("integrationState")
         branch = try json.optionalString("branch").map(itemText)
         headSha = try json.optionalString("headSha").flatMap(WaitingItem.validSha)
+        integrationDetails = json.optional("integrationDetails").flatMap { IntegrationDetails(wire: $0) }
     }
 
     static func validSha(_ text: String) -> String? {
         let hex = text.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }
         return hex && (7...64).contains(text.utf8.count) ? text : nil
+    }
+}
+
+// MARK: Integration details (document section 5)
+
+/// A plan the integration's commit names.
+public struct IntegrationPlan: Codable, Sendable, Equatable {
+    public var planId: String
+    public var title: UntrustedText
+
+    public init(planId: String, title: UntrustedText) {
+        self.planId = planId
+        self.title = title
+    }
+
+    init?(wire json: JSONValue) {
+        guard let planId = json.wireString("planId"), let title = json.flaggedText("title") else { return nil }
+        self.init(planId: planId, title: title)
+    }
+}
+
+public struct IntegrationReport: Codable, Sendable, Equatable {
+    public var reportId: String
+    public var packageId: String?
+    public var summary: UntrustedText
+
+    public init(reportId: String, packageId: String? = nil, summary: UntrustedText) {
+        self.reportId = reportId
+        self.packageId = packageId
+        self.summary = summary
+    }
+
+    init?(wire json: JSONValue) {
+        guard let reportId = json.wireString("reportId"), let summary = json.flaggedText("summary") else { return nil }
+        self.init(reportId: reportId, packageId: json.wireString("packageId"), summary: summary)
+    }
+}
+
+public struct IntegrationSignoff: Codable, Sendable, Equatable {
+    public var planId: String
+    public var summary: UntrustedText
+    public var createdAt: String
+
+    public init(planId: String, summary: UntrustedText, createdAt: String) {
+        self.planId = planId
+        self.summary = summary
+        self.createdAt = createdAt
+    }
+
+    init?(wire json: JSONValue) {
+        guard let planId = json.wireString("planId"), let summary = json.flaggedText("summary"),
+              let createdAt = json.wireString("createdAt") else { return nil }
+        self.init(planId: planId, summary: summary, createdAt: createdAt)
+    }
+}
+
+public struct IntegrationArea: Codable, Sendable, Equatable {
+    public var path: UntrustedText
+    public var files: Int64
+
+    public init(path: UntrustedText, files: Int64) {
+        self.path = path
+        self.files = files
+    }
+
+    init?(wire json: JSONValue) {
+        guard let path = json.flaggedText("path"), let files = json.wireInt("files") else { return nil }
+        self.init(path: path, files: files)
+    }
+}
+
+public struct IntegrationMigration: Codable, Sendable, Equatable {
+    public var path: UntrustedText
+
+    public init(path: UntrustedText) {
+        self.path = path
+    }
+
+    init?(wire json: JSONValue) {
+        guard let path = json.flaggedText("path") else { return nil }
+        self.init(path: path)
+    }
+}
+
+/// A next step the host names for the person, as host text.
+public struct IntegrationNextStep: Codable, Sendable, Equatable {
+    public var text: UntrustedText
+
+    public init(text: UntrustedText) {
+        self.text = text
+    }
+
+    init?(wire json: JSONValue) {
+        guard let text = json.flaggedText("text") else { return nil }
+        self.init(text: text)
+    }
+}
+
+/// The impact of the diff; counts stay non-negative and a list the host left out counts in its `Omitted` member.
+public struct IntegrationImpact: Codable, Sendable, Equatable {
+    public var filesChanged: Int64
+    public var insertions: Int64
+    public var deletions: Int64
+    /// True when the diff was cut short, so the counts are a lower bound.
+    public var truncated: Bool
+    public var areas: [IntegrationArea]
+    public var areasOmitted: Int64
+    public var migrations: [IntegrationMigration]
+    public var migrationsOmitted: Int64
+    public var nextSteps: [IntegrationNextStep]
+
+    public init(
+        filesChanged: Int64, insertions: Int64, deletions: Int64, truncated: Bool = false,
+        areas: [IntegrationArea] = [], areasOmitted: Int64 = 0, migrations: [IntegrationMigration] = [],
+        migrationsOmitted: Int64 = 0, nextSteps: [IntegrationNextStep] = []
+    ) {
+        self.filesChanged = filesChanged
+        self.insertions = insertions
+        self.deletions = deletions
+        self.truncated = truncated
+        self.areas = areas
+        self.areasOmitted = areasOmitted
+        self.migrations = migrations
+        self.migrationsOmitted = migrationsOmitted
+        self.nextSteps = nextSteps
+    }
+
+    init?(wire json: JSONValue) {
+        guard case .object = json, let files = json.wireInt("filesChanged"), let added = json.wireInt("insertions"),
+              let removed = json.wireInt("deletions") else { return nil }
+        self.init(
+            filesChanged: max(0, files), insertions: max(0, added), deletions: max(0, removed),
+            truncated: json.wireBool("truncated") ?? false,
+            areas: json.wireList("areas", { IntegrationArea(wire: $0) }), areasOmitted: json.wireCount("areasOmitted"),
+            migrations: json.wireList("migrations", { IntegrationMigration(wire: $0) }),
+            migrationsOmitted: json.wireCount("migrationsOmitted"),
+            nextSteps: json.wireList("nextSteps", { IntegrationNextStep(wire: $0) }))
+    }
+}
+
+/// The finished review of the integration with the greatest round.
+public struct IntegrationReview: Codable, Sendable, Equatable {
+    /// `passed`, `findings`, `failed` or `cancelled`; kept as the host wrote it.
+    public var verdict: String
+    public var reviewerAgentId: String
+    public var round: Int64
+
+    public init(verdict: String, reviewerAgentId: String, round: Int64) {
+        self.verdict = verdict
+        self.reviewerAgentId = reviewerAgentId
+        self.round = round
+    }
+
+    init?(wire json: JSONValue) {
+        guard let verdict = json.wireString("verdict"), let reviewer = json.wireString("reviewerAgentId"),
+              let round = json.wireInt("round") else { return nil }
+        self.init(verdict: verdict, reviewerAgentId: reviewer, round: round)
+    }
+}
+
+/// The latest finished verify run of the integration.
+public struct IntegrationVerifyRun: Codable, Sendable, Equatable {
+    /// `passed`, `failed`, `timeout` or `error`; kept as the host wrote it.
+    public var state: String
+    public var commitSha: String
+    public var finishedAt: String
+
+    public init(state: String, commitSha: String, finishedAt: String) {
+        self.state = state
+        self.commitSha = commitSha
+        self.finishedAt = finishedAt
+    }
+
+    init?(wire json: JSONValue) {
+        guard let state = json.wireString("state"), let sha = json.wireString("commitSha").flatMap(WaitingItem.validSha),
+              let finishedAt = json.wireString("finishedAt") else { return nil }
+        self.init(state: state, commitSha: sha, finishedAt: finishedAt)
+    }
+}
+
+/// The latest verify run that passed.
+public struct IntegrationVerifyPassed: Codable, Sendable, Equatable {
+    public var commitSha: String
+    public var finishedAt: String
+
+    public init(commitSha: String, finishedAt: String) {
+        self.commitSha = commitSha
+        self.finishedAt = finishedAt
+    }
+
+    init?(wire json: JSONValue) {
+        guard let sha = json.wireString("commitSha").flatMap(WaitingItem.validSha),
+              let finishedAt = json.wireString("finishedAt") else { return nil }
+        self.init(commitSha: sha, finishedAt: finishedAt)
+    }
+}
+
+public struct IntegrationVerify: Codable, Sendable, Equatable {
+    public var latest: IntegrationVerifyRun
+    public var lastPassed: IntegrationVerifyPassed?
+
+    public init(latest: IntegrationVerifyRun, lastPassed: IntegrationVerifyPassed? = nil) {
+        self.latest = latest
+        self.lastPassed = lastPassed
+    }
+
+    init?(wire json: JSONValue) {
+        guard let latestJSON = json.optional("latest"), let latest = IntegrationVerifyRun(wire: latestJSON) else {
+            return nil
+        }
+        self.init(latest: latest, lastPassed: json.optional("lastPassed").flatMap { IntegrationVerifyPassed(wire: $0) })
+    }
+}
+
+/// What an integration brought and how its checks went. `recorded` false is an integration with no stored details (it
+/// was built before they were kept, or it conflicted); every other member is then empty.
+public struct IntegrationDetails: Codable, Sendable, Equatable {
+    public var recorded: Bool
+    /// `timeout` or `diff_failed` when the impact could not be worked out.
+    public var impactError: String?
+    public var plans: [IntegrationPlan]
+    public var plansOmitted: Int64
+    public var reports: [IntegrationReport]
+    public var reportsOmitted: Int64
+    public var signoffs: [IntegrationSignoff]
+    public var signoffsOmitted: Int64
+    public var impact: IntegrationImpact?
+    public var review: IntegrationReview?
+    public var verify: IntegrationVerify?
+
+    public init(
+        recorded: Bool, impactError: String? = nil, plans: [IntegrationPlan] = [], plansOmitted: Int64 = 0,
+        reports: [IntegrationReport] = [], reportsOmitted: Int64 = 0, signoffs: [IntegrationSignoff] = [],
+        signoffsOmitted: Int64 = 0, impact: IntegrationImpact? = nil, review: IntegrationReview? = nil,
+        verify: IntegrationVerify? = nil
+    ) {
+        self.recorded = recorded
+        self.impactError = impactError
+        self.plans = plans
+        self.plansOmitted = plansOmitted
+        self.reports = reports
+        self.reportsOmitted = reportsOmitted
+        self.signoffs = signoffs
+        self.signoffsOmitted = signoffsOmitted
+        self.impact = impact
+        self.review = review
+        self.verify = verify
+    }
+
+    /// Reads the member leniently: a part of the wrong type is dropped, never the item. Nil when the value is not an
+    /// object with a boolean `recorded`.
+    init?(wire json: JSONValue) {
+        guard case .object = json, let recorded = json.wireBool("recorded") else { return nil }
+        guard recorded else {
+            self.init(recorded: false)
+            return
+        }
+        self.init(
+            recorded: true, impactError: json.wireString("impactError"),
+            plans: json.wireList("plans", { IntegrationPlan(wire: $0) }), plansOmitted: json.wireCount("plansOmitted"),
+            reports: json.wireList("reports", { IntegrationReport(wire: $0) }),
+            reportsOmitted: json.wireCount("reportsOmitted"),
+            signoffs: json.wireList("signoffs", { IntegrationSignoff(wire: $0) }),
+            signoffsOmitted: json.wireCount("signoffsOmitted"),
+            impact: json.optional("impact").flatMap { IntegrationImpact(wire: $0) },
+            review: json.optional("review").flatMap { IntegrationReview(wire: $0) },
+            verify: json.optional("verify").flatMap { IntegrationVerify(wire: $0) })
+    }
+}
+
+extension JSONValue {
+    /// A string member; another type or a missing member reads as absent.
+    fileprivate func wireString(_ key: String) -> String? {
+        guard case .string(let text)? = optional(key) else { return nil }
+        return text
+    }
+
+    fileprivate func wireInt(_ key: String) -> Int64? {
+        guard case .int(let number)? = optional(key) else { return nil }
+        return number
+    }
+
+    /// A count; absent or of another type reads as 0, and it is never negative.
+    fileprivate func wireCount(_ key: String) -> Int64 {
+        max(0, wireInt(key) ?? 0)
+    }
+
+    fileprivate func wireBool(_ key: String) -> Bool? {
+        guard case .bool(let flag)? = optional(key) else { return nil }
+        return flag
+    }
+
+    /// The entries of an array member that read; an entry that does not is dropped.
+    fileprivate func wireList<T>(_ key: String, _ make: (JSONValue) -> T?) -> [T] {
+        guard case .array(let elements)? = optional(key) else { return [] }
+        return elements.compactMap(make)
+    }
+
+    /// A text member with the `textVerified` and `truncated` flags beside it. Nil when the text is missing or not a
+    /// string. A missing `textVerified` reads as false, so text the host did not vouch for is never shown.
+    fileprivate func flaggedText(_ key: String) -> UntrustedText? {
+        guard let text = wireString(key) else { return nil }
+        return UntrustedText(raw: text, verified: wireBool("textVerified") ?? false, truncated: wireBool("truncated") ?? false)
     }
 }
 

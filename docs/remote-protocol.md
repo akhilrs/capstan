@@ -240,18 +240,59 @@ An event from the kernel's golden fixtures (the placeholders `actorId` and `ts` 
 
 Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line carries the item in `item` and adds
 `projectId`, `section` and `key`. `WaitingItem`: `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`,
-`needsTerminal`. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
+`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`. `integrationState` (`merged` or
+`conflicted`), `branch` and `headSha` are set for kind `integration` and `null` for every other kind. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
 `contentHash`, `activity`, `activitySince`, `activitySeq`. The three activity fields are the agent's latest observed
 activity state, the time it was observed and its sequence; they are `null` while the agent has no observation, and
 `contentHash` does not cover them. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
 integrated}`. `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`; the run item has no key of its own and
 its line uses `run`. `Page<T>`: `head`, `items`, `next`.
 
+#### `integrationDetails`
+
+The waiting item of an integration carries `integrationDetails`: what the integration brought and how its checks went.
+It is `null` for every other kind, and `{"recorded": false}` for an integration with no stored details (one merged before
+details were recorded). Otherwise it has exactly these members: `recorded` (true), `impactError`, `plans`, `plansOmitted`,
+`reports`, `reportsOmitted`, `signoffs`, `signoffsOmitted`, `impact`, `review` and `verify`.
+
+- `impactError` is `null`, or `timeout` or `diff_failed` when the impact of the diff could not be worked out (then
+  `impact` is `null`; `impact` is also `null` when none was recorded).
+- `plans` holds `{planId, title}`: the plan the integration's commit names. `reports` holds `{reportId, packageId,
+  summary}` (`packageId` may be `null`), at most 20. `signoffs` holds `{planId, summary, createdAt}`, oldest first, at
+  most 10, and `signoffsOmitted` counts the rest. A sign-off may name a plan that is not in `plans`: `plans` holds only the plan the merge
+  commit's information names (the plan the integration was started for), while a sign-off is recorded per plan.
+- `impact` is `{filesChanged, insertions, deletions, truncated, areas, areasOmitted, migrations, migrationsOmitted,
+  nextSteps}`: `areas` holds `{path, files}` (at most 12), `migrations` holds `{path}` (added migration files, at most
+  10) and `nextSteps` holds `{text}`. `truncated` is true when the diff was cut short.
+- `review` is `null` or `{verdict, reviewerAgentId, round}`: the finished review of the integration with the greatest
+  round; `verdict` is `passed`, `findings`, `failed` or `cancelled`. A review that has started but not finished is not
+  shown.
+- `verify` is `null` or `{latest, lastPassed}`. `latest` is `{state, commitSha, finishedAt}` of the finished run with the
+  greatest sequence among the runs of the integration that ended `passed`, `failed`, `timeout` or `error`; `lastPassed` is
+  `{commitSha, finishedAt}` of the latest run that passed, or `null`. A later cancelled or interrupted run hides nothing,
+  and queued and running runs are not shown. Runs of a report on the same commit are not the integration's runs.
+
+Every text value (`title`, `summary`, `path`, `text`) is an object that holds the text and carries `textVerified` and
+`truncated` as members beside it (the `migrations` and `nextSteps` entries too). Texts are cleaned and cut to 300 bytes. They
+are read from rows that cannot be changed once written, so no writer hash covers them: `textVerified` is true for every
+one of them, and the flag stays so a client treats every text from outside the same way. They are untrusted text
+(section 8). The stored text says only that some migration path was cut, so `truncated` is set on a migration path
+that reaches the cap when one was.
+
+`integrationDetails` is at most 17 KiB serialized (the stored text is at most 16 KiB; entries are left out from the end of
+a list, and counted in its `Omitted` member, when the flags make it longer), so an item stays within the line and page
+limits (section 10).
+
+`contentHash` does not cover `integrationDetails`. The details change while the hash does not (a review verdict, a
+verify result or a sign-off), so a client replaces an item wholesale each time it reads it and never skips a read
+because the `contentHash` is unchanged. A `review.verdict`, `verify.result` or `plan.signed_off` event of an integration
+that is still `merged` or `conflicted` carries an `invalidate` of its waiting item; those events for a report carry none.
+
 One page of each section (the values are examples; the hashes are the SHA-256 of the canonical JSON the item's hash is
 defined over):
 
 ```json
-{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false}],"next":null}
+{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}}}],"next":null}
 ```
 
 ```json

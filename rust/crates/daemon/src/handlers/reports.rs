@@ -537,6 +537,10 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
     let controller = env.deps.credential().to_string();
     let args = call.args.to_vec();
     let integrator = requested_by.clone();
+    let impact = env
+        .config()
+        .map(|config| config.impact.clone())
+        .unwrap_or_default();
     let ran = env.deps.kernel.call(move |core| {
         let repo = GitRepo::new(root);
         let logs: RefCell<Vec<(String, Value)>> = RefCell::new(Vec::new());
@@ -559,6 +563,7 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
                 credential: &controller,
                 context: &context,
                 log: &log,
+                impact: &impact,
             };
             if settling {
                 settle_integration(

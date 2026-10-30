@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 const EVENT_FEED: &str = include_str!("../src/areas/event_feed.rs");
 const FEED_CURSOR: &str = include_str!("../src/areas/feed_cursor.rs");
+const SNAPSHOT_FEED: &str = include_str!("../src/areas/snapshot_feed.rs");
 
 const CREATION_PAYLOAD: &str = "SELECT payload_json FROM controller_events INDEXED BY controller_events_by_entity WHERE project_id = ? AND entity_type = ? AND entity_id = ?
            AND from_state IS NULL AND to_state IS NOT NULL ORDER BY sequence LIMIT 1";
@@ -24,6 +25,25 @@ const EVENT_ID_AT: &str =
 const READ_ROW: &str =
     "SELECT entity_type, entity_id, from_state, to_state, actor_id, payload_json, created_at
            FROM controller_events WHERE project_id = ? AND sequence = ?";
+
+const DETAILS_ROW: &str =
+    "SELECT details_json FROM integration_details WHERE project_id = ?1 AND integration_id = ?2";
+const FINISHED_REVIEW: &str =
+    "SELECT state, reviewer_agent_id, round FROM reviews
+          WHERE project_id = ?1 AND subject_integration_id = ?2 AND state IN ('passed', 'findings', 'failed', 'cancelled')
+          ORDER BY round DESC LIMIT 1";
+const LATEST_RESULT: &str =
+    "SELECT state, commit_sha, finished_at FROM verify_runs
+          WHERE project_id = ?1 AND subject_integration_id = ?2 AND state IN ('passed', 'failed', 'timeout', 'error')
+          ORDER BY sequence DESC LIMIT 1";
+const LAST_PASSED: &str = "SELECT state, commit_sha, finished_at FROM verify_runs
+          WHERE project_id = ?1 AND subject_integration_id = ?2 AND state = 'passed'
+          ORDER BY sequence DESC LIMIT 1";
+const SIGNOFFS: &str =
+    "SELECT plan_id, summary, created_at,
+                    (SELECT COUNT(*) FROM plan_signoffs WHERE project_id = ?1 AND integration_id = ?2)
+               FROM plan_signoffs WHERE project_id = ?1 AND integration_id = ?2
+              ORDER BY created_at LIMIT 10";
 
 /// A hot statement: where it lives, and for each table it reads the equality columns an index must cover.
 struct Guarded {
@@ -60,6 +80,36 @@ const GUARDED: &[Guarded] = &[
         source: EVENT_FEED,
         sql: READ_ROW,
         tables: &[("controller_events", &["project_id", "sequence"])],
+    },
+    Guarded {
+        name: "details row",
+        source: SNAPSHOT_FEED,
+        sql: DETAILS_ROW,
+        tables: &[("integration_details", &["project_id", "integration_id"])],
+    },
+    Guarded {
+        name: "details finished review",
+        source: SNAPSHOT_FEED,
+        sql: FINISHED_REVIEW,
+        tables: &[("reviews", &["project_id", "subject_integration_id"])],
+    },
+    Guarded {
+        name: "details latest result",
+        source: SNAPSHOT_FEED,
+        sql: LATEST_RESULT,
+        tables: &[("verify_runs", &["project_id", "subject_integration_id"])],
+    },
+    Guarded {
+        name: "details last passed",
+        source: SNAPSHOT_FEED,
+        sql: LAST_PASSED,
+        tables: &[("verify_runs", &["project_id", "subject_integration_id"])],
+    },
+    Guarded {
+        name: "details signoffs",
+        source: SNAPSHOT_FEED,
+        sql: SIGNOFFS,
+        tables: &[("plan_signoffs", &["project_id", "integration_id"])],
     },
 ];
 
@@ -155,6 +205,31 @@ fn the_hot_statements_read_through_an_index_covering_every_equality_column() {
         let plan = plan_of(&conn, sql).join("\n");
         assert!(plan.contains("project_id=? AND sequence=?"), "{plan}");
     }
+}
+
+#[test]
+fn the_integration_details_statements_use_an_index_and_no_temporary_b_tree() {
+    let (_dir, conn) = migrated();
+    for sql in [
+        DETAILS_ROW,
+        FINISHED_REVIEW,
+        LATEST_RESULT,
+        LAST_PASSED,
+        SIGNOFFS,
+    ] {
+        let plan = plan_of(&conn, sql).join("\n");
+        assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+        assert!(!plan.contains("SCAN"), "{plan}");
+    }
+    let plan = |sql| plan_of(&conn, sql).join("\n");
+    assert!(
+        plan(FINISHED_REVIEW).contains("USING"),
+        "{}",
+        plan(FINISHED_REVIEW)
+    );
+    assert!(plan(LATEST_RESULT).contains("verify_runs_by_integration"));
+    assert!(plan(LAST_PASSED).contains("verify_runs_by_integration"));
+    assert!(plan(SIGNOFFS).contains("plan_signoffs_by_integration"));
 }
 
 #[test]

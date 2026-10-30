@@ -188,7 +188,7 @@ fn the_starter_is_short() {
         .lines()
         .filter(|line| line.starts_with('#'))
         .count();
-    assert!(comments < 40, "{comments} comment lines");
+    assert!(comments < 48, "{comments} comment lines");
 }
 
 #[test]
@@ -270,6 +270,7 @@ fn the_registry_equals_the_lists_the_parser_prints() {
         ("", "[daemon]", DAEMON_KEYS.join(", ")),
         ("", "[cleanup]", CLEANUP_KEYS.join(", ")),
         ("", "[remote]", REMOTE_KEYS.join(", ")),
+        ("", "[impact]", IMPACT_KEYS.join(", ")),
         ("", "[env]", ENV_KEYS.join(", ")),
         ("", "[hosts.other]", HOST_KEYS.join(", ")),
         ("", "[roles.extra]", ROLE_KEYS.join(", ")),
@@ -387,6 +388,7 @@ fn slices() -> Vec<(&'static str, &'static [&'static str], Vec<String>)> {
         ("DAEMON_KEYS", DAEMON_KEYS, s("daemon")),
         ("CLEANUP_KEYS", CLEANUP_KEYS, s("cleanup")),
         ("REMOTE_KEYS", REMOTE_KEYS, s("remote")),
+        ("IMPACT_KEYS", IMPACT_KEYS, s("impact")),
         ("ENV_KEYS", ENV_KEYS, s("env")),
         ("HOST_KEYS", HOST_KEYS, s("hosts.<name>")),
         ("ROLE_KEYS", ROLE_KEYS, s("roles.<name>")),

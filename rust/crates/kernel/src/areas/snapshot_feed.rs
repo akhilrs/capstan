@@ -117,6 +117,8 @@ pub struct WaitingItem {
     pub integration_state: Option<String>,
     pub branch: Option<String>,
     pub head_sha: Option<String>,
+    /// What an integration brought and how it fared (see [`integration_details`]); null for every other kind.
+    pub integration_details: Option<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1281,6 +1283,8 @@ fn fetch_design(core: &Core, sel: &Sel, limit: usize) -> KernelResult<Vec<Candid
 struct Scan {
     /// Plan bodies by plan id (one read each).
     bodies: HashMap<String, Option<String>>,
+    /// Whether an integration item reads its details (a content hash does not need them).
+    details: bool,
 }
 
 fn key_of(kind: &str, candidate: &Candidate) -> String {
@@ -1329,6 +1333,7 @@ fn build(
         integration_state: None,
         branch: None,
         head_sha: None,
+        integration_details: None,
     };
     Ok(Built::Done(
         match kind {
@@ -1354,6 +1359,13 @@ fn build(
                 let superseded =
                     integration_superseded(core, &candidate.id, int(cols, "sequence"))?;
                 reads.used += 2;
+                let details = if superseded || !scan.details {
+                    None
+                } else if !force && reads.used + DETAILS_RESERVE > reads.max {
+                    return Ok(Built::Defer);
+                } else {
+                    Some(integration_details(core, &candidate.id, reads)?)
+                };
                 (!superseded).then(|| {
                     let mut found = item(
                         text(cols, "created_at"),
@@ -1369,6 +1381,7 @@ fn build(
                     found.integration_state = Some(state.clone());
                     found.branch = Some(branch.clone());
                     found.head_sha = head_sha.map(str::to_string);
+                    found.integration_details = details;
                     found
                 })
             }
@@ -1422,6 +1435,277 @@ fn integration_superseded(core: &Core, integration_id: &str, sequence: i64) -> K
         |row| Ok(row.get::<_, i64>(0)? == 1 || row.get::<_, i64>(1)? == 1),
     )?;
     Ok(found.unwrap_or(false))
+}
+
+/// The most reads one integration's details can cost: five statements and the rows they return (four single rows
+/// and ten sign-offs). An item that is not the first of a call waits for this much room.
+const DETAILS_RESERVE: usize = 5 + 4 + SIGNOFF_ROWS;
+/// The most sign-offs of an item (the `LIMIT` of [`SIGNOFFS`]).
+const SIGNOFF_ROWS: usize = 10;
+/// The statements of the details of an integration, each through an index (`feed_query_plans` pins their plans).
+const DETAILS_ROW: &str =
+    "SELECT details_json FROM integration_details WHERE project_id = ?1 AND integration_id = ?2";
+const FINISHED_REVIEW: &str = "SELECT state, reviewer_agent_id, round FROM reviews
+          WHERE project_id = ?1 AND subject_integration_id = ?2 AND state IN ('passed', 'findings', 'failed', 'cancelled')
+          ORDER BY round DESC LIMIT 1";
+const LATEST_RESULT: &str = "SELECT state, commit_sha, finished_at FROM verify_runs
+          WHERE project_id = ?1 AND subject_integration_id = ?2 AND state IN ('passed', 'failed', 'timeout', 'error')
+          ORDER BY sequence DESC LIMIT 1";
+const LAST_PASSED: &str = "SELECT state, commit_sha, finished_at FROM verify_runs
+          WHERE project_id = ?1 AND subject_integration_id = ?2 AND state = 'passed'
+          ORDER BY sequence DESC LIMIT 1";
+const SIGNOFFS: &str = "SELECT plan_id, summary, created_at,
+                    (SELECT COUNT(*) FROM plan_signoffs WHERE project_id = ?1 AND integration_id = ?2)
+               FROM plan_signoffs WHERE project_id = ?1 AND integration_id = ?2
+              ORDER BY created_at LIMIT 10";
+/// The most serialized bytes of `integrationDetails`: the stored text (16 KiB at most) plus the flags and the three
+/// lookups. Entries are dropped from the end of the longest lists (counted as omitted) until it fits.
+pub const DETAILS_WIRE_MAX: usize = 17 * 1024;
+/// The most bytes of one text of the details.
+const DETAILS_TEXT_CAP: usize = 300;
+
+/// A text of the details with its flags. The stored texts sit in write-once rows, so none is re-hashed: `textVerified`
+/// is true for every one of them.
+fn details_text(mut members: Vec<(&str, String)>, was_cut: bool) -> Map<String, Value> {
+    let mut out = Map::new();
+    let mut cut = was_cut;
+    for (key, value) in members.drain(..) {
+        let cleaned = clean_text(&value);
+        let (text, over) = cap_text(&cleaned, DETAILS_TEXT_CAP);
+        cut |= over;
+        out.insert(key.into(), json!(text));
+    }
+    out.insert("textVerified".into(), json!(true));
+    out.insert("truncated".into(), json!(cut));
+    out
+}
+
+fn field<'a>(value: &'a Value, key: &str) -> &'a str {
+    value.get(key).and_then(Value::as_str).unwrap_or_default()
+}
+
+fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+fn number(value: &Value, key: &str) -> u64 {
+    value.get(key).and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn flagged(value: &Value) -> bool {
+    value.get("truncated").and_then(Value::as_bool) == Some(true)
+}
+
+/// Drops the last entry of `holder[list]` and counts it in `holder[omitted]`; false when the list is empty.
+fn drop_last(holder: &mut Value, list: &str, omitted: &str) -> bool {
+    let Some(items) = holder.get_mut(list).and_then(Value::as_array_mut) else {
+        return false;
+    };
+    if items.pop().is_none() {
+        return false;
+    }
+    holder[omitted] = json!(number(holder, omitted) + 1);
+    true
+}
+
+fn fit_details(value: &mut Value) {
+    while serde_json::to_string(value).map_or(0, |text| text.len()) > DETAILS_WIRE_MAX {
+        let dropped = drop_last(value, "reports", "reportsOmitted")
+            || value.get_mut("impact").is_some_and(|impact| {
+                drop_last(impact, "migrations", "migrationsOmitted")
+                    || drop_last(impact, "areas", "areasOmitted")
+            })
+            || drop_last(value, "signoffs", "signoffsOmitted")
+            || drop_last(value, "plans", "plansOmitted");
+        if !dropped {
+            break;
+        }
+    }
+}
+
+/// The wire form of the stored details of an integration, without the results.
+fn wire_stored(stored: &Value) -> Value {
+    let plans: Vec<Value> = list(stored, "plans")
+        .iter()
+        .map(|plan| {
+            let members = vec![
+                ("planId", field(plan, "planId").to_string()),
+                ("title", field(plan, "title").to_string()),
+            ];
+            Value::Object(details_text(members, flagged(plan)))
+        })
+        .collect();
+    let reports: Vec<Value> = list(stored, "reports")
+        .iter()
+        .map(|report| {
+            let mut entry = details_text(
+                vec![
+                    ("reportId", field(report, "reportId").to_string()),
+                    ("summary", field(report, "summary").to_string()),
+                ],
+                flagged(report),
+            );
+            let package = report.get("packageId").and_then(Value::as_str);
+            entry.insert("packageId".into(), json!(package));
+            Value::Object(entry)
+        })
+        .collect();
+    let impact = match stored.get("impact") {
+        Some(impact) if impact.is_object() => {
+            let areas: Vec<Value> = list(impact, "areas")
+                .iter()
+                .map(|area| {
+                    let mut entry = details_text(
+                        vec![("path", field(area, "path").to_string())],
+                        flagged(area),
+                    );
+                    entry.insert("files".into(), json!(number(area, "files")));
+                    Value::Object(entry)
+                })
+                .collect();
+            // The stored text says only that some migration path was cut: a path at the cap is the one that was.
+            let some_cut = impact.get("migrationsTruncated").and_then(Value::as_bool) == Some(true);
+            let migrations: Vec<Value> = list(impact, "migrations")
+                .iter()
+                .map(|path| {
+                    let path = path.as_str().unwrap_or_default();
+                    let at_cap = path.len() > DETAILS_TEXT_CAP - 4;
+                    Value::Object(details_text(
+                        vec![("path", path.to_string())],
+                        some_cut && at_cap,
+                    ))
+                })
+                .collect();
+            let steps: Vec<Value> = list(impact, "nextSteps")
+                .iter()
+                .map(|step| {
+                    let text = step.as_str().unwrap_or_default().to_string();
+                    Value::Object(details_text(vec![("text", text)], false))
+                })
+                .collect();
+            json!({
+                "filesChanged": number(impact, "filesChanged"),
+                "insertions": number(impact, "insertions"),
+                "deletions": number(impact, "deletions"),
+                "truncated": flagged(impact),
+                "areas": areas,
+                "areasOmitted": number(impact, "areasOmitted"),
+                "migrations": migrations,
+                "migrationsOmitted": number(impact, "migrationsOmitted"),
+                "nextSteps": steps,
+            })
+        }
+        _ => Value::Null,
+    };
+    json!({
+        "recorded": true,
+        "impactError": stored.get("impactError").filter(|e| e.is_string()).cloned().unwrap_or(Value::Null),
+        "plans": plans,
+        "plansOmitted": number(stored, "plansOmitted"),
+        "reports": reports,
+        "reportsOmitted": number(stored, "reportsOmitted"),
+        "impact": impact,
+    })
+}
+
+/// The `integrationDetails` of a waiting integration, and the reads it made charged to `reads`. The members are listed in
+/// `docs/remote-protocol.md`. One statement and its row read the stored details (primary key); the finished review with
+/// the greatest round, the latest finished verify run, the last passed verify run (each one statement and at most one
+/// row, all backwards over an index) and the sign-offs (one statement, at most [`SIGNOFF_ROWS`] rows) complete them, so
+/// an item costs 5 statements plus 0 to 14 rows. An integration with no stored row reads that one statement.
+fn integration_details(
+    core: &Core,
+    integration_id: &str,
+    reads: &mut Reads,
+) -> KernelResult<Value> {
+    let before = actual_reads();
+    let found = read_details(core, integration_id);
+    reads.used += actual_reads().saturating_sub(before);
+    found
+}
+
+fn read_details(core: &Core, integration_id: &str) -> KernelResult<Value> {
+    let kernel = core.kernel();
+    let stored = query_opt(
+        &kernel.database,
+        DETAILS_ROW,
+        rusqlite::params![kernel.project_id, integration_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    let Some(stored) = stored else {
+        return Ok(json!({"recorded": false}));
+    };
+    let stored: Value = serde_json::from_str(&stored).unwrap_or(Value::Null);
+    let mut details = wire_stored(&stored);
+
+    details["review"] = query_opt(
+        &kernel.database,
+        FINISHED_REVIEW,
+        rusqlite::params![kernel.project_id, integration_id],
+        |row| {
+            Ok(json!({
+                "verdict": row.get::<_, String>(0)?,
+                "reviewerAgentId": row.get::<_, String>(1)?,
+                "round": row.get::<_, i64>(2)?,
+            }))
+        },
+    )?
+    .unwrap_or(Value::Null);
+
+    let run = |sql: &str| {
+        query_opt(
+            &kernel.database,
+            sql,
+            rusqlite::params![kernel.project_id, integration_id],
+            |row| {
+                Ok(json!({
+                    "state": row.get::<_, String>(0)?,
+                    "commitSha": row.get::<_, String>(1)?,
+                    "finishedAt": row.get::<_, Option<String>>(2)?,
+                }))
+            },
+        )
+    };
+    let latest = run(LATEST_RESULT)?;
+    let last_passed = run(LAST_PASSED)?.map(|mut passed| {
+        passed.as_object_mut().map(|map| map.remove("state"));
+        passed
+    });
+    details["verify"] = match latest {
+        Some(latest) => json!({"latest": latest, "lastPassed": last_passed}),
+        None => Value::Null,
+    };
+
+    let signoffs = rows(
+        core,
+        SIGNOFFS,
+        vec![project(core), sql_text(integration_id)],
+        &["plan_id", "summary", "created_at", "total"],
+    )?;
+    let total = signoffs.first().map_or(0, |row| int(row, "total"));
+    details["signoffsOmitted"] = json!((total as usize).saturating_sub(signoffs.len()));
+    details["signoffs"] = Value::Array(
+        signoffs
+            .iter()
+            .map(|row| {
+                let mut entry = details_text(
+                    vec![
+                        ("planId", text(row, "plan_id")),
+                        ("summary", text(row, "summary")),
+                    ],
+                    false,
+                );
+                entry.insert("createdAt".into(), json!(text(row, "created_at")));
+                Value::Object(entry)
+            })
+            .collect(),
+    );
+    fit_details(&mut details);
+    Ok(details)
 }
 
 /// What building a candidate gave.
@@ -1600,6 +1884,7 @@ pub fn waiting_page_counted(
     };
     let mut scan = Scan {
         bodies: HashMap::new(),
+        details: true,
     };
     let mut items: Vec<WaitingItem> = Vec::new();
     let mut bytes = 0usize;
@@ -1676,13 +1961,19 @@ fn item_key_of(kinds: &[&str], last: &(usize, Sort)) -> String {
 }
 
 /// The one waiting item selected by `sel` of `kind`, or `None` when the row does not wait.
-fn waiting_one(core: &Core, kind: &str, sel: Sel) -> KernelResult<Option<WaitingItem>> {
+fn waiting_one(
+    core: &Core,
+    kind: &str,
+    sel: Sel,
+    details: bool,
+) -> KernelResult<Option<WaitingItem>> {
     let mut reads = Reads {
         used: 0,
         max: MAX_READS,
     };
     let mut scan = Scan {
         bodies: HashMap::new(),
+        details,
     };
     match fetch(core, kind, &sel, 1)?.into_iter().next() {
         Some(candidate) => match build(core, kind, &candidate, &mut scan, &mut reads, true)? {
@@ -1702,7 +1993,7 @@ pub fn snapshot_item(core: &Core, section: &str, key: &str) -> KernelResult<Opti
         "waiting" => {
             let (index, sort) = parse_waiting_key(key)?;
             let kind = waiting_kinds()[index];
-            Ok(waiting_one(core, kind, Sel::Key(sort))?.map(|item| to_value(&item)))
+            Ok(waiting_one(core, kind, Sel::Key(sort), true)?.map(|item| to_value(&item)))
         }
         "agents" => {
             if parse_item_key("agents", key).is_none() {
@@ -1763,6 +2054,6 @@ pub fn content_hash_counted(
     if !waiting_kinds().contains(&kind) {
         return Err(invalid(format!("{request_id} is not a request id")));
     }
-    let item = waiting_one(core, kind, Sel::Id(id.to_string()))?;
+    let item = waiting_one(core, kind, Sel::Id(id.to_string()), false)?;
     Ok((item.map(|item| item.content_hash), 1))
 }

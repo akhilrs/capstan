@@ -11,6 +11,7 @@ pub mod cache;
 pub mod design;
 pub mod design_guidance;
 mod error;
+pub mod impact;
 mod json;
 pub mod keys;
 mod operator_policy;
@@ -34,6 +35,7 @@ pub use cache::{
 };
 pub use design::{Design, GuidanceMode, GuidanceRules, RecordMode};
 pub use error::{ConfigError, ParseError, Result};
+pub use impact::{ImpactConfig, NextStep};
 pub use json::{digest_json, sha256};
 pub use keys::{accepted_keys, KeyPath};
 pub use operator_policy::{

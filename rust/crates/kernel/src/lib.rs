@@ -14,6 +14,7 @@ pub mod errors;
 pub mod export_file;
 pub mod helpers;
 pub mod integrate;
+pub mod integration_impact;
 pub mod json;
 pub mod kernel;
 pub mod plan_body;

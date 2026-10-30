@@ -164,3 +164,8 @@ prompt = "You research questions on the web and write sourced findings as files 
 # push = false                           # needs merge = true and push_url
 # push_url = "git@example.com:org/repo.git"
 # messages_per_hour = 30                 # 1 to 600
+
+# [impact]                               # opt-in: how a merged integration's details group paths
+# areas = ["src/*"]                      # src/<child> is one area; default: the first path component
+# migrations = ["db/migrations/*.sql"]   # added paths matching these are listed as migrations
+# next_steps = [{ paths = ["db/migrations/*.sql"], step = "apply the migrations" }]
