@@ -54,8 +54,13 @@ enum StoreWire {
     static func runChanged(state: String, paused: Bool, seq: Int = 31) throws -> StreamLine {
         .event(projectId: "proj-a", try event(
             "run.changed", entity: ("run_control", "proj-a"), seq: seq, effects: [("run", "invalidate", "run", "{}")],
-            extraBody: ",\"state\":\"\(state)\",\"paused\":\(paused),\"reason\":\"maintenance\","
-                + "\"textVerified\":true,\"truncated\":false,\"untrusted\":[\"body.reason\"]"))
+            extraBody: runChangedBody(state: state, paused: paused)))
+    }
+
+    private static func runChangedBody(state: String, paused: Bool) -> String {
+        let fact = ",\"state\":\"\(state)\",\"paused\":\(paused),\"reason\":\"maintenance\","
+        let text = "\"textVerified\":true,\"truncated\":false,\"untrusted\":[\"body.reason\"]"
+        return fact + text
     }
 
     static func agentItem(_ id: String, state: String = "active", paused: Bool = false, task: String? = nil) -> String {
@@ -168,10 +173,11 @@ func makeEngine(
     hostId: UUID, persistence: any PersistenceStore, clock: any SessionClock = SystemClock(),
     recorder: EngineRecorder = EngineRecorder(), urgentCallback: Bool = false
 ) -> HostStoreEngine {
-    HostStoreEngine(
+    let urgent: (@Sendable (Set<String>) -> Void)? = urgentCallback ? { recorder.urgentRefresh($0) } : nil
+    return HostStoreEngine(
         hostId: hostId, persistence: persistence, clock: clock,
         onChange: { recorder.change($0) }, onNotify: { recorder.notify($0) }, onRefresh: { recorder.refresh($0) },
-        onUrgentRefresh: urgentCallback ? { recorder.urgentRefresh($0) } : nil)
+        onUrgentRefresh: urgent)
 }
 
 /// The first item of the page example of the protocol document that holds `marker`, as JSON text.

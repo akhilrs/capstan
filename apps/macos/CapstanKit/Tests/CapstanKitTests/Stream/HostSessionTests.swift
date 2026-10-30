@@ -562,7 +562,8 @@ final class HostSessionTests: XCTestCase {
         clock.advance(by: 1)
         await eventually("urgent restart after the catch-up") { self.runner.startCount == 2 }
         let words = try runner.remoteWords(at: 1)
-        XCTAssertEqual(flagValue("--cursor", in: words).map { $0 == cursor.text }, false, "p2 left the cursor")
+        let sent: String? = flagValue("--cursor", in: words)
+        XCTAssertNotEqual(sent, cursor.text, "p2 left the cursor")
     }
 
     func testAnUrgentRefreshReplacesARefreshThatWaitsOutTheGap() async throws {

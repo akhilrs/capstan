@@ -244,18 +244,20 @@ final class WorkspacesTests: XCTestCase {
     ]
 
     private static func runChanged(_ state: String, _ paused: Bool, seq: Int) -> String {
-        "{\"v\":1,\"kind\":\"event\",\"projectId\":\"p1\",\"event\":{\"id\":\"p1:e:\(seq)\",\"seq\":\(seq),\"k\":0,"
-            + "\"ts\":\"2026-10-30T01:07:06.000Z\",\"type\":\"run.changed\",\"actorId\":null,"
-            + "\"entity\":{\"type\":\"run_control\",\"id\":\"p1\"},\"from\":null,\"to\":null,"
-            + "\"body\":{\"effects\":[{\"section\":\"run\",\"op\":\"invalidate\",\"key\":\"run\",\"fields\":{}}],"
-            + "\"state\":\"\(state)\",\"paused\":\(paused),\"reason\":\"Test\",\"textVerified\":true,"
-            + "\"truncated\":false,\"untrusted\":[\"body.reason\"]}}}"
+        let head = "{\"v\":1,\"kind\":\"event\",\"projectId\":\"p1\",\"event\":{"
+        let ident = "\"id\":\"p1:e:\(seq)\",\"seq\":\(seq),\"k\":0,"
+        let meta = "\"ts\":\"2026-10-30T01:07:06.000Z\",\"type\":\"run.changed\",\"actorId\":null,"
+        let entity = "\"entity\":{\"type\":\"run_control\",\"id\":\"p1\"},\"from\":null,\"to\":null,"
+        let effects = "\"body\":{\"effects\":[{\"section\":\"run\",\"op\":\"invalidate\",\"key\":\"run\",\"fields\":{}}],"
+        let fact = "\"state\":\"\(state)\",\"paused\":\(paused),"
+        let tail = "\"reason\":\"Test\",\"textVerified\":true,\"truncated\":false,\"untrusted\":[\"body.reason\"]}}}"
+        return [head, ident, meta, entity, effects, fact, tail].joined()
     }
 
     func testPauseArrivingThroughTheFeedTurnsTheControlToResume() throws {
         let before = try feedModel(Self.feedStart)
         XCTAssertEqual(ProjectPauseControl(decide: true, busy: false, runPaused: before.run?.paused ?? false).action, .pause)
-        let after = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)])
+        let after = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)] as [String])
         let paused = after.run?.paused ?? false
         XCTAssertTrue(paused)
         let control = ProjectPauseControl(decide: true, busy: false, runPaused: paused)
@@ -266,32 +268,33 @@ final class WorkspacesTests: XCTestCase {
 
     func testResumeArrivingThroughTheFeedTurnsTheControlBackToPause() throws {
         let model = try feedModel(
-            Self.feedStart + [Self.runChanged("paused", true, seq: 27), Self.runChanged("active", false, seq: 28)])
+            Self.feedStart + [Self.runChanged("paused", true, seq: 27), Self.runChanged("active", false, seq: 28)] as [String])
         let paused = model.run?.paused ?? true
         XCTAssertFalse(paused)
         XCTAssertEqual(ProjectPauseControl(decide: true, busy: false, runPaused: paused).action, .pause)
     }
 
     private static func runSnapshot(state: String, paused: Bool, hash: String) -> [String] {
-        [
-            "{\"v\":1,\"kind\":\"project\",\"projectId\":\"p1\",\"root\":\"/srv/p1\",\"state\":\"ready\","
-                + "\"epoch\":\"daeca3b2245f3519\",\"head\":27}",
-            "{\"v\":1,\"kind\":\"snapshot\",\"projectId\":\"p1\",\"section\":\"run\",\"key\":\"run\","
-                + "\"item\":{\"requestId\":\"run\",\"state\":\"\(state)\",\"paused\":\(paused),\"contentHash\":\"\(hash)\"}}",
-            "{\"v\":1,\"kind\":\"snapshotEnd\",\"projectId\":\"p1\",\"head\":27}",
-        ]
+        let project = "{\"v\":1,\"kind\":\"project\",\"projectId\":\"p1\",\"root\":\"/srv/p1\","
+            + "\"state\":\"ready\",\"epoch\":\"daeca3b2245f3519\",\"head\":27}"
+        let itemHead = "{\"v\":1,\"kind\":\"snapshot\",\"projectId\":\"p1\",\"section\":\"run\",\"key\":\"run\","
+        let item = "\"item\":{\"requestId\":\"run\",\"state\":\"\(state)\",\"paused\":\(paused),\"contentHash\":\"\(hash)\"}}"
+        let end = "{\"v\":1,\"kind\":\"snapshotEnd\",\"projectId\":\"p1\",\"head\":27}"
+        return [project, [itemHead, item].joined(), end]
     }
 
     func testResumeAfterPauseThroughTheFeedCarriesTheNewHashAndNeverTheOldOne() throws {
-        let afterEvent = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)])
+        let afterEvent = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)] as [String])
         // Until the read, the old hash "h1" is not offered: no request is built and the control waits.
         XCTAssertNil(RequestTarget.forRun(afterEvent))
         let waiting = ProjectPauseControl(
             decide: true, busy: false, runPaused: true, hashKnown: afterEvent.run?.hashKnown ?? true)
         XCTAssertEqual(waiting.state, .disabled(PauseReason.updating))
 
-        let read = try feedModel(
-            Self.feedStart + [Self.runChanged("paused", true, seq: 27)] + Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        var readLines: [String] = Self.feedStart
+        readLines.append(Self.runChanged("paused", true, seq: 27))
+        readLines.append(contentsOf: Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        let read = try feedModel(readLines)
         XCTAssertEqual(RequestTarget.forRun(read)?.expect, "h2")
         let route = DecideRouter.route(
             .runResume(reason: nil), target: .run, project: read, busy: [], hostId: ShellFixtures.hostA,
@@ -307,11 +310,13 @@ final class WorkspacesTests: XCTestCase {
                 decide: true, busy: false, runPaused: model.run?.paused ?? false,
                 hashKnown: model.run?.hashKnown ?? true)
         }
-        let changed = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)])
+        let changed = try feedModel(Self.feedStart + [Self.runChanged("paused", true, seq: 27)] as [String])
         XCTAssertEqual(control(changed).action, .resume)
         XCTAssertEqual(control(changed).state, .disabled(PauseReason.updating))
-        let read = try feedModel(
-            Self.feedStart + [Self.runChanged("paused", true, seq: 27)] + Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        var readLines: [String] = Self.feedStart
+        readLines.append(Self.runChanged("paused", true, seq: 27))
+        readLines.append(contentsOf: Self.runSnapshot(state: "paused", paused: true, hash: "h2"))
+        let read = try feedModel(readLines)
         XCTAssertEqual(control(read).action, .resume)
         XCTAssertEqual(control(read).state, .enabled)
     }
