@@ -810,7 +810,10 @@ impl World {
     }
 
     /// The environment of every child: scratch HOME and PATH, no Node, nothing of the operator's.
+    /// Every spawn of cstan in a world, a raw `Command` included, takes its environment from here, so this is where a world
+    /// is marked undiscoverable before anything can start its daemon.
     pub fn environment(&self) -> Vec<(String, String)> {
+        self.mark_undiscoverable();
         let mut env = vec![
             (
                 "PATH".to_string(),
@@ -825,6 +828,18 @@ impl World {
         }
         env.extend(self.env.iter().cloned());
         env
+    }
+
+    /// Writes the discovery marker once `.capstan` exists. A bare world has no `.capstan` until `cstan init` makes it (which
+    /// refuses an existing one), so the marker follows before the next command, which is the first that can start a daemon.
+    fn mark_undiscoverable(&self) {
+        let directory = self.project.join(".capstan");
+        if directory.is_dir() {
+            let marker = directory.join("undiscoverable");
+            if !marker.exists() {
+                std::fs::write(marker, "").unwrap();
+            }
+        }
     }
 
     /// Starts `cstan daemon` and waits until it answers `ping`.
