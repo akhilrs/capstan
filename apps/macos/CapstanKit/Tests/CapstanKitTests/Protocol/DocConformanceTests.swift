@@ -104,11 +104,12 @@ final class DocConformanceTests: XCTestCase {
 
     func testEveryBlockDecodes() throws {
         let all = try ProtocolDoc.jsonBlocks()
-        XCTAssertEqual(all.count, 12)
+        XCTAssertEqual(all.count, 14)
         for block in all {
             for line in lines(block.text) {
                 let value = try decodeJSON(Data(line.utf8))
-                if value["kind"] != nil {
+                // Section 11 documents the decide command's own answers, whose `kind` is a request kind, not a line kind.
+                if block.section != 11, value["kind"] != nil {
                     let decoded = try LineDecoder().decode(Data(line.utf8))
                     if case .unknownKind = decoded { XCTFail("unknown kind in section \(block.section)") }
                 }

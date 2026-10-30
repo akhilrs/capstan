@@ -37,7 +37,9 @@
 //!
 //! # Effects
 //! `body.effects` is a list of `{section, op, key, fields}` for the snapshot (`waiting`, `agents`, `run`, `plans`).
-//! `upsert` is used only for facts fixed when the row is written (a registered agent); every other change is an
+//! `upsert` is used only for facts fixed when the row is written (a registered agent), plus one ordered group: `activity`,
+//! `activitySince` and `activitySeq` of an `agent.activity` event are fixed for that row, and a client applies them only
+//! when `activitySeq` is greater than the one it holds. Every other change is an
 //! `invalidate`, which asks the client to re-read the item (`snapshot_item`), so an effect never claims a mutable value.
 //! An `invalidate` whose key is a bare kind name (`design`) asks for every item of that kind (`kind_key`).
 //!
@@ -460,6 +462,14 @@ pub const MAPPING: &[Rule] = &[
         ev("agent.resumed"),
     ),
     rule("agent", "agent.end", "active", "ended", ev("agent.ended")),
+    // An observation of an agent's Herdr state writes no message; it moves the agent's activity.
+    rule(
+        "agent_observation",
+        "agent.observe",
+        "*",
+        "*",
+        ev("agent.activity"),
+    ),
     rule(
         "agent",
         "agent.replace|agent.restart|agent.replaced",
@@ -517,7 +527,7 @@ pub const MAPPING: &[Rule] = &[
 ];
 
 /// Actions whose writer queues messages in the same mutation.
-const NOTICE_ACTIONS: &str = "cleanup.branch|cleanup.complete|cleanup.offer|finding.announce|plan.announce|report.announce|review.announce|pm.delivery_notices|pm.floor_hit|pm.wake|supervision.check|agent.observe|verify.cancel|verify.interrupt|verify.orphan|verify.process|operator.process|operator.orphan_clear|pm_restart.consume";
+const NOTICE_ACTIONS: &str = "cleanup.branch|cleanup.complete|cleanup.offer|finding.announce|plan.announce|report.announce|review.announce|pm.delivery_notices|pm.floor_hit|pm.wake|supervision.check|verify.cancel|verify.interrupt|verify.orphan|verify.process|operator.process|operator.orphan_clear|pm_restart.consume";
 
 /// Actions the code writes that mean nothing to a client, by name: nothing in a snapshot or a type of the feed changes with
 /// them.
@@ -579,6 +589,7 @@ pub const V1_TYPES: &[&str] = &[
     "agent.resumed",
     "agent.ended",
     "agent.blocked",
+    "agent.activity",
     "run.changed",
     "integration.finished",
     "decision.remote",
@@ -795,6 +806,17 @@ fn load_agent(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
         "SELECT kind, role_name, generation FROM agents WHERE project_id = ? AND agent_id = ?",
         sql_params![project, id],
         &["kind", "role", "generation"],
+    )
+}
+
+/// The `agent_state_history` row an observation wrote, by its key; `observed_at` may differ from the ledger time.
+fn load_observation(ctx: &mut Ctx<'_>, id: &str, sequence: i64) -> Step<Option<Value>> {
+    let project = ctx.project_id.clone();
+    ctx.lookup(
+        format!("observation:{id}:{sequence}"),
+        "SELECT herdr_state, observed_at FROM agent_state_history WHERE project_id = ? AND agent_id = ? AND sequence = ?",
+        sql_params![project, id, sequence],
+        &["state", "observedAt"],
     )
 }
 
@@ -1528,6 +1550,27 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 json!({}),
             ));
             effects = list;
+        }
+        "agent.activity" => {
+            let Some(history) = load_observation(ctx, &row.entity_id, row.entity_version)? else {
+                return Ok(None);
+            };
+            base.entity_type = "agent".to_string();
+            let fields = json!({
+                "agentId": row.entity_id,
+                "activity": row.to,
+                "activitySince": history["observedAt"],
+                "activitySeq": row.entity_version,
+            });
+            if let Value::Object(map) = &fields {
+                body.extend(map.clone());
+            }
+            effects = vec![effect(
+                "agents",
+                "upsert",
+                item_key("agents", "agent", &row.entity_id),
+                fields,
+            )];
         }
         "snapshot.invalidated" => {
             let kind = if row.entity_type == "message" {

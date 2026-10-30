@@ -39,8 +39,12 @@ fn anchor_of(seq: u64) -> Option<String> {
     (seq > 0).then(|| format!("{:016x}", seq + 0xabc0000))
 }
 
+fn event_of(ty: &str, seq: u64, k: u64) -> Value {
+    json!({"id": format!("p:e:{seq}:{k}"), "seq": seq, "k": k, "type": ty, "body": {"effects": []}})
+}
+
 fn event(seq: u64, k: u64) -> Value {
-    json!({"id": format!("p:e:{seq}:{k}"), "seq": seq, "k": k, "type": "agent.registered", "body": {"effects": []}})
+    event_of("agent.registered", seq, k)
 }
 
 fn led(id: &str, head: u64) -> Led {
@@ -458,6 +462,33 @@ fn fresh_start_gives_hello_projects_snapshots_cursor_events() {
         .lines
         .iter()
         .all(|l| l.starts_with(r#"{"v":1,"kind":""#)));
+}
+
+#[test]
+fn an_agent_activity_event_is_streamed_unchanged() {
+    let dir = tmp("activity");
+    let a = project(&dir, "a");
+    let mut l = led("pa", 2);
+    let mut activity = event_of("agent.activity", 2, 0);
+    activity["entity"] = json!({"type": "agent", "id": "dev-1"});
+    activity["body"] = json!({
+        "agentId": "dev-1", "activity": "working", "activitySince": "2026-10-01T09:30:00.000Z", "activitySeq": 4,
+        "effects": [{"section": "agents", "op": "upsert", "key": "dev-1",
+            "fields": {"agentId": "dev-1", "activity": "working", "activitySince": "2026-10-01T09:30:00.000Z", "activitySeq": 4}}]
+    });
+    l.snap_head = Some(1);
+    l.events[1] = activity.clone();
+    let world = world(vec![(&a, l)]);
+    let mut s = setup();
+    s.plan.roots = vec![a.clone()];
+    let out = run(&world, s);
+    assert_eq!(out.code, 0);
+    let streamed: Vec<Value> = json_lines(&out)
+        .into_iter()
+        .filter(|l| l["kind"] == "event")
+        .map(|l| l["event"].clone())
+        .collect();
+    assert!(streamed.contains(&activity), "{streamed:#?}");
 }
 
 #[test]

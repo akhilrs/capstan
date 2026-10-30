@@ -151,6 +151,7 @@ fn apply_effects(
                             "generation": fields["generation"], "state": fields["state"],
                             "paused": fields["paused"], "task": null, "branch": null,
                             "requestId": format!("agent:{id}"), "contentHash": hash,
+                            "activity": null, "activitySince": null, "activitySeq": null,
                         }),
                     );
                 }
@@ -1004,7 +1005,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     let agents = value_of(&agents_page(&rig.core, None, 10).unwrap());
     assert_eq!(
         fields(&agents["items"][0]),
-        "agentId,branch,contentHash,generation,key,kind,paused,requestId,role,state,task"
+        "activity,activitySeq,activitySince,agentId,branch,contentHash,generation,key,kind,paused,requestId,role,state,task"
     );
     let plans = value_of(&plans_page(&rig.core, None, 10).unwrap());
     assert_eq!(

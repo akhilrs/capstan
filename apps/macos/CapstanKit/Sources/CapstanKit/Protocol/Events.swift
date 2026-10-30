@@ -11,6 +11,7 @@ public enum FeedEventType {
         "review.verdict", "verify.result",
         "finding.raised", "finding.resolved",
         "agent.registered", "agent.lost", "agent.paused", "agent.resumed", "agent.ended", "agent.blocked",
+        "agent.activity",
         "run.changed", "integration.finished", "decision.remote", "snapshot.invalidated",
     ]
 }
@@ -85,6 +86,13 @@ public struct AgentBody: Sendable, Equatable {
     public let scope: String?
     /// Nil when the event type carries no reason.
     public let reason: UntrustedText?
+}
+
+public struct AgentActivityBody: Sendable, Equatable {
+    public let agentId: String
+    public let activity: String?
+    public let activitySince: String?
+    public let activitySeq: Int64?
 }
 
 public struct RunBody: Sendable, Equatable {
@@ -190,6 +198,13 @@ public struct EventBody: Sendable, Equatable {
             generation: try? raw.optionalInt64("generation"), paused: try? raw.optionalBool("paused"),
             state: state, blocker: try? raw.optionalString("blocker"), scope: try? raw.optionalString("scope"),
             reason: raw["reason"] == nil ? nil : text("reason"))
+    }
+
+    public var activityBody: AgentActivityBody? {
+        guard type == "agent.activity", let agentId = try? raw.string("agentId") else { return nil }
+        return AgentActivityBody(
+            agentId: agentId, activity: raw.activityString("activity"),
+            activitySince: raw.activityString("activitySince"), activitySeq: raw.activitySeq())
     }
 
     public var runBody: RunBody? {

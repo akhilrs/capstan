@@ -62,7 +62,7 @@ struct OutcomeView: View {
     private func symbol(_ tone: Tone) -> String {
         switch tone {
         case .green: return "checkmark"
-        case .blue: return "arrow.right"
+        case .blue, .accent: return "arrow.right"
         case .yellow: return "arrow.clockwise"
         case .red: return "exclamationmark.circle"
         case .grey, .neutral: return "checkmark.circle"

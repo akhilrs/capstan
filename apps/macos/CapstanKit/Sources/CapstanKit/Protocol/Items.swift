@@ -73,6 +73,13 @@ public struct AgentItem: WireItem {
     public let branch: UntrustedText?
     public let requestId: String
     public let contentHash: String
+    /// What the host sees the agent doing; kept as the host's text, so a value a newer host adds is not lost. Nil when
+    /// absent or null. Never shown as is: it is host text.
+    public let activity: String?
+    /// The time the activity last changed, as the host wrote it.
+    public let activitySince: String?
+    /// The sequence of the observation; a lower one never replaces a higher one.
+    public let activitySeq: Int64?
 
     public init(json: JSONValue) throws {
         _ = try json.members("agent item")
@@ -87,6 +94,22 @@ public struct AgentItem: WireItem {
         branch = try json.optionalString("branch").map(itemText)
         requestId = try json.string("requestId")
         contentHash = try json.string("contentHash")
+        activity = json.activityString("activity")
+        activitySince = json.activityString("activitySince")
+        activitySeq = json.activitySeq()
+    }
+}
+
+extension JSONValue {
+    /// A string member that may be missing, null or of another type; the last two read as absent.
+    func activityString(_ key: String) -> String? {
+        guard case .string(let text)? = optional(key) else { return nil }
+        return text
+    }
+
+    func activitySeq() -> Int64? {
+        guard case .int(let number)? = optional("activitySeq") else { return nil }
+        return number
     }
 }
 

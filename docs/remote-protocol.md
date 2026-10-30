@@ -162,7 +162,13 @@ Effects: every event has `body.effects`, a list of `{section, op, key, fields}` 
 `agents`, `plans` and `run`. `op` is:
 
 - `upsert`: set the item `key` of `section` to include `fields`. It is used only for facts fixed when the ledger row is
-  written (a registered agent); a client that holds the item merges `fields` into it.
+  written (a registered agent); a client that holds the item merges `fields` into it. One ordered group is also
+  carried: `activity`, `activitySince` and `activitySeq` (an `agent.activity` event) are fixed for that row, and a client
+  applies the three together only when `activitySeq` is greater than the one it holds (none held counts as 0). A client
+  ignores an upsert carrying `activitySeq` for an agent key it does not hold, with no refresh: it only adds activity to
+  an item the client has. In the snapshot-then-events order no read leaves a stale activity: an item page read after an
+  event already holds an `activitySeq` at least as great, and an event read before the item's page applies to an item the
+  client already holds, where the greater value wins. Sequences are not contiguous.
 - `remove`: delete the item `key` from `section`.
 - `invalidate`: the item changed in a way the event does not state. The client reads the item again with
   `feed item <section> <key>` (a `snapshot_item`): an answer with `item` set replaces it, an answer with `item` null
@@ -213,6 +219,7 @@ always present but may be `null`):
 | `agent.resumed` | `agentId`, `kind`, `role`, `generation`, `paused`, `state`, `scope`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `agent.ended` | `agentId`, `kind`, `role`, `generation`, `paused`, `state` |
 | `agent.blocked` | `agentId`, `kind`, `role`, `generation`, `paused`, `state`, `blocker` |
+| `agent.activity` | `agentId`, `activity`, `activitySince`, `activitySeq` |
 | `run.changed` | `state`, `paused`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `integration.finished` | `integrationId`, `state` |
 | `decision.remote` | `requestId`, `outcome`, `verb`, `client`, `contentHash`, `messageId`, `replaces` |
@@ -234,7 +241,9 @@ An event from the kernel's golden fixtures (the placeholders `actorId` and `ts` 
 Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line carries the item in `item` and adds
 `projectId`, `section` and `key`. `WaitingItem`: `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`,
 `needsTerminal`. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
-`contentHash`. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
+`contentHash`, `activity`, `activitySince`, `activitySeq`. The three activity fields are the agent's latest observed
+activity state, the time it was observed and its sequence; they are `null` while the agent has no observation, and
+`contentHash` does not cover them. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
 integrated}`. `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`; the run item has no key of its own and
 its line uses `run`. `Page<T>`: `head`, `items`, `next`.
 
@@ -246,7 +255,7 @@ defined over):
 ```
 
 ```json
-{"head":26,"items":[{"key":"dev-1","agentId":"dev-1","kind":"Developer","role":"developer","generation":1,"state":"active","paused":false,"task":null,"requestId":"agent:dev-1","contentHash":"b4f045b6e6f57de6c9bcf11373ce42ab0959a698e99d40293413fd13403ce3f0"}],"next":null}
+{"head":26,"items":[{"key":"dev-1","agentId":"dev-1","kind":"Developer","role":"developer","generation":1,"state":"active","paused":false,"task":null,"requestId":"agent:dev-1","contentHash":"b4f045b6e6f57de6c9bcf11373ce42ab0959a698e99d40293413fd13403ce3f0","activity":"working","activitySince":"2026-10-01T09:30:00.000Z","activitySeq":1}],"next":null}
 ```
 
 ```json
@@ -369,7 +378,7 @@ the row is gone or no longer listed (the client removes it).
 ```
 
 ```json
-{"section":"agents","key":"dev-1","item":{"key":"dev-1","agentId":"dev-1","kind":"Developer","role":"developer","generation":1,"state":"active","paused":false,"task":null,"requestId":"agent:dev-1","contentHash":"b4f045b6e6f57de6c9bcf11373ce42ab0959a698e99d40293413fd13403ce3f0"}}
+{"section":"agents","key":"dev-1","item":{"key":"dev-1","agentId":"dev-1","kind":"Developer","role":"developer","generation":1,"state":"active","paused":false,"task":null,"requestId":"agent:dev-1","contentHash":"b4f045b6e6f57de6c9bcf11373ce42ab0959a698e99d40293413fd13403ce3f0","activity":"working","activitySince":"2026-10-01T09:30:00.000Z","activitySeq":1}}
 ```
 
 ```json

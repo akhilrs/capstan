@@ -166,11 +166,19 @@ public struct StoredAgent: Codable, Sendable, Equatable {
     public var branch: UntrustedText?
     public var requestId: String
     public var contentHash: String
+    /// The host's activity text, its time and sequence; saved files from before them decode all three as nil.
+    public var activity: String?
+    public var activitySince: String?
+    public var activitySeq: Int64?
 
     public init(
         key: String, agentId: String, kind: String, role: String, generation: Int64, state: String, paused: Bool,
-        task: UntrustedText?, requestId: String, contentHash: String, branch: UntrustedText? = nil
+        task: UntrustedText?, requestId: String, contentHash: String, branch: UntrustedText? = nil,
+        activity: String? = nil, activitySince: String? = nil, activitySeq: Int64? = nil
     ) {
+        self.activity = activity
+        self.activitySince = activitySince
+        self.activitySeq = activitySeq
         self.branch = branch
         self.key = key
         self.agentId = agentId
@@ -188,7 +196,8 @@ public struct StoredAgent: Codable, Sendable, Equatable {
         self.init(
             key: item.key, agentId: item.agentId, kind: item.kind, role: item.role, generation: item.generation,
             state: item.state, paused: item.paused, task: item.task, requestId: item.requestId,
-            contentHash: item.contentHash, branch: item.branch)
+            contentHash: item.contentHash, branch: item.branch, activity: item.activity,
+            activitySince: item.activitySince, activitySeq: item.activitySeq)
     }
 
     var json: JSONValue {
@@ -199,6 +208,9 @@ public struct StoredAgent: Codable, Sendable, Equatable {
         ]
         if let task { members["task"] = .string(task.raw) }
         if let branch { members["branch"] = .string(branch.raw) }
+        if let activity { members["activity"] = .string(activity) }
+        if let activitySince { members["activitySince"] = .string(activitySince) }
+        if let activitySeq { members["activitySeq"] = .int(activitySeq) }
         return .object(members)
     }
 }

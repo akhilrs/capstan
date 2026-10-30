@@ -53,7 +53,7 @@ struct Banner: View {
         case .red: return "exclamationmark.circle"
         case .yellow: return "wifi"
         case .green: return "checkmark.circle"
-        case .blue: return "arrow.clockwise"
+        case .blue, .accent: return "arrow.clockwise"
         case .neutral, .grey: return "info.circle"
         }
     }

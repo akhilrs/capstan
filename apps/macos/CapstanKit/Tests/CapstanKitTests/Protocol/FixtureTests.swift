@@ -72,6 +72,12 @@ final class FixtureTests: XCTestCase {
         XCTAssertNil(blocked.generation)
         XCTAssertNil(blocked.paused)
         XCTAssertNil(blocked.reason)
+        let activity = try XCTUnwrap(try KernelFixtures.event("agent.activity").body.activityBody)
+        XCTAssertEqual(activity.agentId, "dev-1")
+        XCTAssertEqual(activity.activity, "working")
+        XCTAssertEqual(activity.activitySince, "2026-01-01T00:00:00.033Z")
+        XCTAssertEqual(activity.activitySeq, 1)
+        XCTAssertNil(try KernelFixtures.event("agent.activity").body.agentBody)
         let lost = try XCTUnwrap(try KernelFixtures.event("agent.lost").body.agentBody)
         XCTAssertEqual(lost.reason?.raw, "pane_gone")
     }

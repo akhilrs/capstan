@@ -10,6 +10,7 @@ use capstan_kernel::areas::event_feed::{
     OPTION_TEXT_CAP, SKIPPED_ACTIONS, TEXT_CAP, V1_TYPES,
 };
 use capstan_kernel::areas::feed_cursor::anchor;
+use capstan_kernel::areas::snapshot_feed::snapshot_item;
 use capstan_kernel::areas::write_once::write_once_snapshot;
 use capstan_kernel::helpers::{clean_text, CLEAN_CASES, MAX_EVENT_BYTES, UNSAFE_TEXT_PATTERN};
 use capstan_kernel::kernel::KernelOptions;
@@ -287,6 +288,9 @@ pub fn golden(name: &str, event: &Value) {
 
 /// The body fields each family must carry, fixed by the plan.
 fn required_fields(ty: &str) -> &'static [&'static str] {
+    if ty == "agent.activity" {
+        return &["agentId", "activity", "activitySince", "activitySeq"];
+    }
     match ty.split('.').next().unwrap() {
         "message" => &["messageId", "recipientAgentId", "state", "body"],
         "prompt" => &["relayId", "agentId", "state", "text", "options", "reason"],
@@ -1509,6 +1513,242 @@ fn feed_agent_replacement() {
     });
     assert_eq!(replaced[0]["type"], "snapshot.invalidated");
     assert_eq!(replaced[0]["body"]["key"], "dev-2");
+}
+
+impl Rig {
+    fn observe(&self, agent: &str, state: &str) {
+        self.core
+            .record_agent_observation(&self.ctx("owner"), agent, &json!(state))
+            .unwrap();
+    }
+
+    /// `count` consecutive observation rows of `dev-1`, each with its history row, written straight into the tables.
+    fn insert_observations(&self, count: usize) {
+        let mut db = self.db();
+        let (project, actor): (String, String) = db
+            .query_row("SELECT project_id, actor_id FROM agents LIMIT 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        let first: i64 = db
+            .query_row(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM controller_events",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let history: i64 = db
+            .query_row(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_state_history WHERE agent_id = 'dev-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let transaction = db.transaction().unwrap();
+        for i in 0..count as i64 {
+            let state = if i % 2 == 0 { "working" } else { "idle" };
+            let payload = json!({"action": "agent.observe", "payload": {}, "entityVersion": history + i, "details": null})
+                .to_string();
+            transaction
+                .execute(
+                    "INSERT INTO agent_state_history(project_id, agent_id, sequence, herdr_state, observed_at) VALUES (?, 'dev-1', ?, ?, '2026-01-01T00:00:00.000Z')",
+                    rusqlite::params![project, history + i, state],
+                )
+                .unwrap();
+            transaction
+                .execute(
+                    "INSERT INTO controller_events(project_id, sequence, event_id, entity_type, entity_id, from_state, to_state,
+                       state_version, actor_id, request_id, input_revision, payload_json, created_at)
+                     VALUES (?, ?, ?, 'agent_observation', 'dev-1', NULL, ?, 0, ?, ?, 1, ?, '2026-01-01T00:00:00.000Z')",
+                    rusqlite::params![
+                        project,
+                        first + i,
+                        format!("synthetic-{}", first + i),
+                        state,
+                        actor,
+                        format!("synthetic-request-{}", first + i),
+                        payload,
+                    ],
+                )
+                .unwrap();
+        }
+        transaction.commit().unwrap();
+    }
+}
+
+/// The section 4 rule for the ordered activity group: apply an upsert's fields only when its `activitySeq` is greater.
+fn apply_activity(item: &mut Value, fields: &Value) -> bool {
+    let held = item["activitySeq"].as_i64().unwrap_or(0);
+    let seq = fields["activitySeq"].as_i64().unwrap();
+    if seq <= held {
+        return false;
+    }
+    for key in ["activity", "activitySince", "activitySeq"] {
+        item[key] = fields[key].clone();
+    }
+    true
+}
+
+fn agent_item(rig: &Rig, id: &str) -> Value {
+    snapshot_item(&rig.core, "agents", id).unwrap().unwrap()
+}
+
+fn activity_fields(event: &Value) -> Value {
+    let effect = &event["body"]["effects"][0];
+    assert_eq!(effect["section"], "agents");
+    assert_eq!(effect["op"], "upsert");
+    assert_eq!(effect["key"], event["body"]["agentId"]);
+    effect["fields"].clone()
+}
+
+#[test]
+fn feed_agent_activity() {
+    let rig = Rig::new();
+    let (_, events) = rig.run(|r| r.observe("dev-1", "working"));
+    // The observation gives one event: no message refresh and no invalidate.
+    assert_eq!(events.len(), 1, "{events:#?}");
+    let event = expect_type(&rig, &events, "agent.activity");
+    let body = &event["body"];
+    assert_eq!(body["agentId"], "dev-1");
+    assert_eq!(body["activity"], "working");
+    assert_eq!(body["activitySeq"], 1);
+    assert_eq!(event["entity"]["type"], "agent");
+    assert_eq!(event["entity"]["id"], "dev-1");
+    assert_eq!(activity_fields(event)["activity"], "working");
+    assert!(events_of(&events, "snapshot.invalidated").is_empty());
+}
+
+#[test]
+fn activity_events_and_the_snapshot_item_agree() {
+    let rig = Rig::new();
+    let start = rig.head();
+    rig.observe("dev-1", "working");
+    let held = agent_item(&rig, "dev-1");
+    rig.observe("dev-1", "idle");
+    let events = rig.since(start);
+    let activity = events_of(&events, "agent.activity");
+    assert_eq!(activity.len(), 2, "{events:#?}");
+    assert_eq!(activity[0]["body"]["activitySeq"], 1);
+    assert_eq!(activity[1]["body"]["activitySeq"], 2);
+    // The item at the head equals the last event; applying the rule to the earlier state and both events lands on it.
+    let item = agent_item(&rig, "dev-1");
+    let last = activity_fields(activity[1]);
+    for key in ["activity", "activitySince", "activitySeq"] {
+        assert_eq!(item[key], last[key], "{key}");
+    }
+    let mut client = held.clone();
+    assert_eq!(client["activity"], "working");
+    assert!(!apply_activity(&mut client, &activity_fields(activity[0])));
+    assert!(apply_activity(&mut client, &last));
+    assert_eq!(client, item);
+    // An item read after the events already holds their values, so the rule leaves it unchanged.
+    let mut after = item.clone();
+    assert!(!apply_activity(&mut after, &last));
+    assert_eq!(after, item);
+    // A replacement records an unknown observation without an event of its own: the item moves past the last event
+    // and the feed gives the invalidate of the agent.
+    let head = rig.head();
+    rig.core
+        .replace_agent_generation(&rig.ctx("owner"), "dev-1")
+        .unwrap();
+    let replaced = rig.since(head);
+    assert_eq!(replaced.len(), 1, "{replaced:#?}");
+    assert_eq!(replaced[0]["type"], "snapshot.invalidated");
+    assert_eq!(replaced[0]["body"]["key"], "dev-1");
+    let fresh = agent_item(&rig, "dev-1");
+    assert!(fresh["activitySeq"].as_i64().unwrap() > last["activitySeq"].as_i64().unwrap());
+    let mut client = item;
+    assert!(apply_activity(&mut client, &fresh));
+}
+
+#[test]
+fn an_observation_of_an_ended_agent_still_maps_and_a_missing_history_row_gives_no_event() {
+    let rig = Rig::new();
+    let start = rig.head();
+    rig.observe("dev-1", "working");
+    rig.observe("dev-1", "idle");
+    rig.core
+        .end_agent(&rig.ctx("owner"), "dev-1", None)
+        .unwrap();
+    let events = rig.since(start);
+    assert_eq!(events_of(&events, "agent.activity").len(), 2, "{events:#?}");
+    rig.db()
+        .execute(
+            "DELETE FROM agent_state_history WHERE agent_id = 'dev-1' AND sequence = 1",
+            [],
+        )
+        .unwrap();
+    let events = rig.since(start);
+    let activity = events_of(&events, "agent.activity");
+    assert_eq!(activity.len(), 1, "{events:#?}");
+    assert_eq!(activity[0]["body"]["activitySeq"], 2);
+}
+
+#[test]
+fn activity_since_is_the_history_time_also_when_the_insert_clamped_it() {
+    let rig = Rig::new();
+    rig.observe("dev-1", "working");
+    rig.db()
+        .execute(
+            "UPDATE agent_state_history SET observed_at = '2999-01-01T00:00:00.000Z' WHERE agent_id = 'dev-1' AND sequence = 1",
+            [],
+        )
+        .unwrap();
+    let head = rig.head();
+    rig.observe("dev-1", "idle");
+    let events = rig.since(head);
+    let event = events_of(&events, "agent.activity")[0];
+    assert_eq!(event["body"]["activitySince"], "2999-01-01T00:00:00.000Z");
+    assert_ne!(event["ts"], event["body"]["activitySince"]);
+    assert_eq!(
+        agent_item(&rig, "dev-1")["activitySince"],
+        event["body"]["activitySince"]
+    );
+}
+
+#[test]
+fn twelve_hundred_observation_rows_page_within_the_budgets_and_charge_the_history_lookup() {
+    let rig = Rig::new();
+    let start = rig.head();
+    rig.insert_observations(1200);
+    let first = Position { seq: start, k: 0 };
+    let page = feed_page(&rig.core, first, 500, None).unwrap();
+    assert_eq!(page.events.len(), 500);
+    assert!(page.has_more);
+    assert!(page.rows_read <= MAX_SCAN_ROWS, "{} rows", page.rows_read);
+    let bytes: usize = page
+        .events
+        .iter()
+        .map(|e| serde_json::to_string(e).unwrap().len())
+        .sum();
+    assert!(bytes <= MAX_PAGE_BYTES, "{bytes} bytes");
+    let mut after = first;
+    let mut seen = Vec::new();
+    loop {
+        let page = feed_page(&rig.core, after, 500, None).unwrap();
+        seen.extend(
+            page.events
+                .iter()
+                .map(|e| e["body"]["activitySeq"].as_i64().unwrap()),
+        );
+        after = page.scanned;
+        if !page.has_more {
+            break;
+        }
+    }
+    assert_eq!(seen, (1..=1200).collect::<Vec<i64>>());
+    // A cursor already past older rows does not replay them.
+    let later = Position {
+        seq: start + 1000,
+        k: 0,
+    };
+    let page = feed_page(&rig.core, later, 500, None).unwrap();
+    assert_eq!(page.events.len(), 200);
+    assert_eq!(page.events[0]["body"]["activitySeq"], 1001);
+    // Each event costs the ledger row and the history lookup.
+    let page = feed_page_with(&rig.core, first, 500, None, 10, MAX_PAGE_BYTES).unwrap();
+    assert!(page.events.len() <= 5, "{} events", page.events.len());
+    assert!(!page.events.is_empty());
 }
 
 #[test]
