@@ -25,11 +25,11 @@ public struct PersistedHost: Codable, Sendable, Equatable {
         self.savedAt = savedAt
     }
 
-    /// The part of `host` that can be resumed: complete projects that wait for no snapshot end, and a cursor without
+    /// The part of `host` that can be resumed: complete projects with a known run hash that wait for no snapshot end, and a cursor without
     /// the entries of any other project. Forwards are kept for every project, each list within its cap, because a
     /// record stays true while its project is being snapshotted again.
     init(host: HostModel, staging: Staging, savedAt: Date) {
-        let projects = host.projects.filter { $0.value.snapshotComplete && staging.pending[$0.key] == nil }
+        let projects = host.projects.filter { $0.value.isResumable && staging.pending[$0.key] == nil }
         self.init(
             hostId: host.hostId, cursor: PersistedHost.trimmed(host.cursor, keeping: Set(projects.keys)),
             projects: projects,

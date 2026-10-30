@@ -46,6 +46,18 @@ enum StoreWire {
             + "\"summary\":\"\(summary)\",\"contentHash\":\"\(hash)\",\"needsTerminal\":false}"
     }
 
+    static func runItem(state: String = "active", paused: Bool = false, hash: String = "run-hash-1") -> String {
+        "{\"requestId\":\"run\",\"state\":\"\(state)\",\"paused\":\(paused),\"contentHash\":\"\(hash)\"}"
+    }
+
+    /// The `run.changed` event as the host sends it: the new state in the body, and an invalidate as its only effect.
+    static func runChanged(state: String, paused: Bool, seq: Int = 31) throws -> StreamLine {
+        .event(projectId: "proj-a", try event(
+            "run.changed", entity: ("run_control", "proj-a"), seq: seq, effects: [("run", "invalidate", "run", "{}")],
+            extraBody: ",\"state\":\"\(state)\",\"paused\":\(paused),\"reason\":\"maintenance\","
+                + "\"textVerified\":true,\"truncated\":false,\"untrusted\":[\"body.reason\"]"))
+    }
+
     static func agentItem(_ id: String, state: String = "active", paused: Bool = false, task: String? = nil) -> String {
         let taskText = task.map { "\"\($0)\"" } ?? "null"
         return "{\"key\":\"\(id)\",\"agentId\":\"\(id)\",\"kind\":\"Developer\",\"role\":\"developer\",\"generation\":1,"
@@ -90,6 +102,7 @@ struct ReducerHarness {
         for line in lines {
             let output = StoreReducer.apply(line, to: &host, staging: &staging, now: now)
             total.refresh.formUnion(output.refresh)
+            total.urgent.formUnion(output.urgent)
             total.notify.append(contentsOf: output.notify)
         }
         return total
@@ -138,23 +151,27 @@ final class EngineRecorder: @unchecked Sendable {
     private var models: [HostModel] = []
     private var notified: [[NotifyCandidate]] = []
     private var refreshed: [Set<String>] = []
+    private var urgentRefreshed: [Set<String>] = []
 
     func change(_ model: HostModel) { lock.withLock { models.append(model) } }
     func notify(_ list: [NotifyCandidate]) { lock.withLock { notified.append(list) } }
     func refresh(_ ids: Set<String>) { lock.withLock { refreshed.append(ids) } }
+    func urgentRefresh(_ ids: Set<String>) { lock.withLock { urgentRefreshed.append(ids) } }
 
     var notifications: [NotifyCandidate] { lock.withLock { notified.flatMap { $0 } } }
     var refreshes: [Set<String>] { lock.withLock { refreshed } }
+    var urgentRefreshes: [Set<String>] { lock.withLock { urgentRefreshed } }
     var changes: Int { lock.withLock { models.count } }
 }
 
 func makeEngine(
     hostId: UUID, persistence: any PersistenceStore, clock: any SessionClock = SystemClock(),
-    recorder: EngineRecorder = EngineRecorder()
+    recorder: EngineRecorder = EngineRecorder(), urgentCallback: Bool = false
 ) -> HostStoreEngine {
     HostStoreEngine(
         hostId: hostId, persistence: persistence, clock: clock,
-        onChange: { recorder.change($0) }, onNotify: { recorder.notify($0) }, onRefresh: { recorder.refresh($0) })
+        onChange: { recorder.change($0) }, onNotify: { recorder.notify($0) }, onRefresh: { recorder.refresh($0) },
+        onUrgentRefresh: urgentCallback ? { recorder.urgentRefresh($0) } : nil)
 }
 
 /// The first item of the page example of the protocol document that holds `marker`, as JSON text.

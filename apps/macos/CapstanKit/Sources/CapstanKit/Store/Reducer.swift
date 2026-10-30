@@ -19,10 +19,14 @@ public struct NotifyCandidate: Sendable, Equatable {
 public struct ReduceOutput: Sendable, Equatable {
     /// Projects whose snapshot has to be read again.
     public var refresh: Set<String>
+    /// The projects of `refresh` whose read is wanted now: the run changed or a decision was made, and the person
+    /// waits for the item to follow. The session still limits how often it restarts for this.
+    public var urgent: Set<String>
     public var notify: [NotifyCandidate]
 
-    public init(refresh: Set<String> = [], notify: [NotifyCandidate] = []) {
+    public init(refresh: Set<String> = [], urgent: Set<String> = [], notify: [NotifyCandidate] = []) {
         self.refresh = refresh
+        self.urgent = urgent
         self.notify = notify
     }
 }
@@ -188,6 +192,7 @@ public enum StoreReducer {
                 unknown = true
             case .invalidate:
                 output.refresh.insert(projectId)
+                if effect.section == "run" || event.type == "decision.remote" { output.urgent.insert(projectId) }
             case .remove:
                 remove(effect, from: &model)
             case .upsert:
@@ -198,11 +203,21 @@ public enum StoreReducer {
             if unknown { break }
             noteDetail(effect, of: event, in: &model)
         }
+        if !unknown { applyRunChange(event, to: &model) }
         host.projects[projectId] = model
         if unknown {
             drop(projectId, from: &host, staging: &staging)
             output.refresh.insert(projectId)
         }
+    }
+
+    /// `run.changed` states the new run state and pause, but its only effect is an invalidate of the run item. The
+    /// stored run follows the event now. Its content hash also covers the open pause id, which the event does not
+    /// state, so the old hash is dropped (empty) and the re-read that the invalidate asks for brings the new one.
+    private static func applyRunChange(_ event: FeedEvent, to model: inout ProjectModel) {
+        guard let body = event.runBody, let run = model.run else { return }
+        model.run = StoredRun(
+            requestId: run.requestId, state: body.state, paused: body.paused, contentHash: "")
     }
 
     private static func applyAttention(_ event: FeedEvent, to model: inout ProjectModel) {

@@ -56,7 +56,8 @@ struct AgentsScreen: View {
         let runPaused = project.run?.paused ?? false
         let key = BusyKey(hostId: hostId, projectId: projectId, requestId: project.run?.requestId ?? Self.runKey)
         let control = ProjectPauseControl(
-            capabilities: decide, busy: model.busy.keys, key: key, runPaused: runPaused)
+            capabilities: decide, busy: model.busy.keys, key: key, runPaused: runPaused,
+            hashKnown: project.run?.hashKnown ?? true)
         let paused = rows.filter { $0.paused }.count
         return HStack(spacing: Tokens.space[2]) {
             Image(systemName: runPaused ? "pause" : "play").foregroundStyle(Tokens.color(.label2))

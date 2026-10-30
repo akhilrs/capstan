@@ -49,6 +49,9 @@ public actor HostSession {
     /// Interim (plan-73 moves the re-read into the stream): a refresh restarts the stream at most this often, with
     /// every project invalidated meanwhile coalesced into the one restart.
     static let refreshGapSeconds: TimeInterval = 60
+    /// An urgent refresh (the run changed, a decision was made) skips the gap above, but at most once in this long,
+    /// so a host that keeps changing cannot make the stream restart in a loop.
+    static let urgentRefreshGapSeconds: TimeInterval = 10
     static let liveRepublishSeconds: TimeInterval = 5
     /// Error codes that mean this client cannot get a stream from the host by trying again.
     static let rejectingCodes: Set<String> = ["unauthorized", "forbidden", "unknown_command", "invalid_request"]
@@ -99,6 +102,13 @@ public actor HostSession {
     private var pendingRefresh: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var lastRefreshRestart: Date?
+    private var lastUrgentRestart: Date?
+    /// The pending refresh skips the gap.
+    private var refreshUrgent = false
+    /// The refresh task is still waiting, so an urgent request can replace it; after that it is restarting.
+    private var refreshWaiting = false
+    /// Urgent refreshes asked for before the connection's first cursor line: they run once it arrives.
+    private var deferredUrgent: Set<String> = []
 
     /// `jitter` returns the factor applied to a backoff delay (0.8 to 1.2 in use).
     public init(
@@ -131,6 +141,9 @@ public actor HostSession {
         runTask = nil
         refreshTask = nil
         pendingRefresh = []
+        refreshUrgent = false
+        refreshWaiting = false
+        deferredUrgent = []
         await publish(.stopped(.user))
     }
 
@@ -146,9 +159,23 @@ public actor HostSession {
 
     /// Asks for the given projects to be read again. v1 has no remote item read, so the stream restarts without
     /// those projects in its cursor and the host sends their snapshots again.
-    public func refresh(projectIds: Set<String>) {
-        guard runTask != nil, connectionSawCursor, !projectIds.isEmpty else { return }
+    public func refresh(projectIds: Set<String>, urgent: Bool = false) {
+        guard runTask != nil, !projectIds.isEmpty else { return }
+        guard connectionSawCursor else {
+            // A plain invalidate in the catch-up needs no restart; an urgent one (the run changed, a decision was made)
+            // left the stored item without its hash, so it is read once the catch-up is over.
+            if urgent { deferredUrgent.formUnion(projectIds) }
+            return
+        }
         pendingRefresh.formUnion(projectIds)
+        if urgent, !refreshUrgent {
+            refreshUrgent = true
+            if refreshWaiting {
+                refreshTask?.cancel()
+                refreshTask = nil
+                refreshWaiting = false
+            }
+        }
         guard refreshTask == nil else { return }
         let gen = generation
         refreshTask = Task { await self.runRefresh(generation: gen) }
@@ -242,6 +269,7 @@ public actor HostSession {
         watchdogFired = false
         refreshRestartRequested = false
         connectionSawCursor = false
+        deferredUrgent = []
         let quiet = refreshRestartPending
         refreshRestartPending = false
         if let (old, oldId) = previousProcess {
@@ -306,6 +334,11 @@ public actor HostSession {
                     await consumer.apply(host: config.id, lines: batch)
                     batch = []
                     connectionSawCursor = true
+                    if !deferredUrgent.isEmpty {
+                        let ids = deferredUrgent
+                        deferredUrgent = []
+                        refresh(projectIds: ids, urgent: true)
+                    }
                     if !refreshRestartRequested {
                         cursor = next
                         cursorLoaded = true
@@ -434,19 +467,29 @@ public actor HostSession {
     // MARK: Refresh
 
     private func runRefresh(generation gen: Int) async {
+        refreshWaiting = true
         do {
             try await clock.sleep(seconds: HostSession.refreshCoalesceSeconds)
-            if let last = lastRefreshRestart {
-                let wait = HostSession.refreshGapSeconds - clock.now().timeIntervalSince(last)
-                if wait > 0 { try await clock.sleep(seconds: wait) }
+            // An urgent read waits only for the end of the short gap since the last urgent restart.
+            let wait: TimeInterval?
+            if refreshUrgent {
+                wait = lastUrgentRestart.map { HostSession.urgentRefreshGapSeconds - clock.now().timeIntervalSince($0) }
+            } else {
+                wait = lastRefreshRestart.map { HostSession.refreshGapSeconds - clock.now().timeIntervalSince($0) }
             }
+            if let wait, wait > 0 { try await clock.sleep(seconds: wait) }
         } catch {
             return
         }
         guard gen == generation else { return }
+        refreshWaiting = false
         let ids = pendingRefresh
         pendingRefresh = []
         refreshTask = nil
+        if refreshUrgent {
+            refreshUrgent = false
+            lastUrgentRestart = clock.now()
+        }
         let base: Cursor?
         if cursorLoaded {
             base = cursor

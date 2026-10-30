@@ -531,6 +531,86 @@ final class HostSessionTests: XCTestCase {
         await eventually("second restart") { self.runner.startCount == 3 }
     }
 
+    func testAnUrgentRefreshWithinTheGapRestartsAfterTheCoalesceWait() async throws {
+        let cursor = makeCursor(["p1", "p2", "p3"])
+        let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
+        await startAndWait(session)
+        await prime(cursor)
+        await session.refresh(projectIds: ["p1"])
+        await settle()
+        clock.advance(by: 1)
+        await eventually("first restart") { self.runner.startCount == 2 }
+        await settle()
+        await prime(cursor)
+        await session.refresh(projectIds: ["p2"], urgent: true)
+        await settle()
+        clock.advance(by: 1)
+        await eventually("urgent restart") { self.runner.startCount == 3 }
+    }
+
+    func testAnUrgentRefreshBeforeTheFirstCursorLineRunsOnceItArrives() async throws {
+        let cursor = makeCursor(["p1", "p2"])
+        let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
+        await startAndWait(session)
+        await session.refresh(projectIds: ["p1"])
+        await session.refresh(projectIds: ["p2"], urgent: true)
+        await settle()
+        clock.advance(by: 1)
+        await settle()
+        XCTAssertEqual(runner.startCount, 1, "nothing restarts during the catch-up")
+        await prime(cursor)
+        clock.advance(by: 1)
+        await eventually("urgent restart after the catch-up") { self.runner.startCount == 2 }
+        let words = try runner.remoteWords(at: 1)
+        XCTAssertEqual(flagValue("--cursor", in: words).map { $0 == cursor.text }, false, "p2 left the cursor")
+    }
+
+    func testAnUrgentRefreshReplacesARefreshThatWaitsOutTheGap() async throws {
+        let cursor = makeCursor(["p1", "p2", "p3"])
+        let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
+        await startAndWait(session)
+        await prime(cursor)
+        await session.refresh(projectIds: ["p1"])
+        await settle()
+        clock.advance(by: 1)
+        await eventually("first restart") { self.runner.startCount == 2 }
+        await settle()
+        await prime(cursor)
+        await session.refresh(projectIds: ["p2"])
+        await settle()
+        clock.advance(by: 1)
+        await settle()
+        XCTAssertEqual(runner.startCount, 2, "the plain refresh waits out the gap")
+        await session.refresh(projectIds: ["p3"], urgent: true)
+        await settle()
+        clock.advance(by: 1)
+        await eventually("urgent restart") { self.runner.startCount == 3 }
+    }
+
+    func testUrgentRefreshesAreLimitedAgainstRestartLoops() async throws {
+        let cursor = makeCursor(["p1", "p2", "p3"])
+        let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
+        await startAndWait(session)
+        await prime(cursor)
+        await session.refresh(projectIds: ["p1"], urgent: true)
+        await settle()
+        clock.advance(by: 1)
+        await eventually("first urgent restart") { self.runner.startCount == 2 }
+        await settle()
+        await prime(cursor)
+        await session.refresh(projectIds: ["p2"], urgent: true)
+        await settle()
+        clock.advance(by: 1)
+        await settle()
+        XCTAssertEqual(runner.startCount, 2, "a second urgent refresh within the limit waits for its end")
+        await advanceKeepingAlive(by: HostSession.urgentRefreshGapSeconds - 2.1)
+        XCTAssertEqual(runner.startCount, 2)
+        clock.advance(by: 0.1)
+        await eventually("second urgent restart at the end of the short gap, not the 60 s one") {
+            self.runner.startCount == 3
+        }
+    }
+
     func testRefreshRestartWaitsForTheOldChildToExit() async throws {
         runner.enqueue(FakeScript(chunks: [Wire.hello], slowExit: true))
         let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))

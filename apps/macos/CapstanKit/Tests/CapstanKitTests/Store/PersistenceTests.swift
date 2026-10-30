@@ -271,4 +271,113 @@ final class PersistenceTests: XCTestCase {
         let model = await engine.current()
         XCTAssertNil(model.hello)
     }
+
+    // MARK: A run change not yet read
+
+    private func runProject(_ id: String, hash: String = "run-hash-1", state: String = "active", paused: Bool = false)
+        throws -> [StreamLine]
+    {
+        [
+            try StoreWire.project(id),
+            try StoreWire.snapshot(id, "run", key: "run", item: StoreWire.runItem(state: state, paused: paused, hash: hash)),
+            try StoreWire.end(id),
+        ]
+    }
+
+    private func runChanged(_ id: String) throws -> StreamLine {
+        guard case .event(_, let event) = try StoreWire.runChanged(state: "paused", paused: true) else {
+            throw XCTSkip("not an event")
+        }
+        return .event(projectId: id, event)
+    }
+
+    private func agentInvalidate(_ id: String) throws -> StreamLine {
+        .event(projectId: id, try StoreWire.event(
+            "snapshot.invalidated", seq: 40, effects: [("agents", "invalidate", "dev-1", "{}")]))
+    }
+
+    func testARunChangeNotYetReadIsNotSavedAndNotResumed() async throws {
+        let hostId = UUID()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store)
+        await engine.apply(
+            host: hostId,
+            lines: try [StoreWire.hello()] + runProject("proj-a") + [StoreWire.cursor(makeCursor(["proj-a"]))])
+        await engine.apply(host: hostId, lines: [try runChanged("proj-a"), try StoreWire.cursor(makeCursor(["proj-a"]))])
+        await engine.flush()
+        let saved = try XCTUnwrap(store.stored)
+        XCTAssertNil(saved.projects["proj-a"], "a project with an unknown run hash is not saved")
+        XCTAssertNil(saved.cursor, "and has no entry in the saved cursor")
+        let resume = await engine.resumeCursor(host: hostId)
+        XCTAssertNil(resume, "the reconnect of a live engine reads the project in full")
+
+        let relaunched = makeEngine(hostId: hostId, persistence: store)
+        let loaded = await relaunched.current()
+        XCTAssertNil(loaded.projects["proj-a"], "a relaunch holds no run without a hash")
+        let cursorAfterRelaunch = await relaunched.resumeCursor(host: hostId)
+        XCTAssertNil(cursorAfterRelaunch)
+    }
+
+    func testTheFullSnapshotAfterARunChangeBringsTheHash() async throws {
+        let hostId = UUID()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence())
+        await engine.apply(host: hostId, lines: try [StoreWire.hello()] + runProject("proj-a"))
+        await engine.apply(host: hostId, lines: [try runChanged("proj-a")])
+        let blank = await engine.current().projects["proj-a"]?.run
+        XCTAssertEqual(blank?.hashKnown, false)
+        await engine.apply(
+            host: hostId, lines: try runProject("proj-a", hash: "run-hash-2", state: "paused", paused: true))
+        let read = await engine.current().projects["proj-a"]?.run
+        XCTAssertEqual(read?.contentHash, "run-hash-2")
+        XCTAssertEqual(read?.paused, true)
+    }
+
+    func testARunChangeDuringAnArrivingSnapshotIsReplacedByTheSnapshotRun() async throws {
+        let hostId = UUID()
+        let recorder = EngineRecorder()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence(), recorder: recorder, urgentCallback: true)
+        await engine.apply(host: hostId, lines: try [StoreWire.hello()] + runProject("proj-a"))
+        let restart = try runProject("proj-a", hash: "run-hash-2", state: "paused", paused: true)
+        await engine.apply(host: hostId, lines: [restart[0], restart[1], try runChanged("proj-a")])
+        XCTAssertTrue(recorder.urgentRefreshes.isEmpty, "a snapshot is arriving: nothing to restart for")
+        XCTAssertTrue(recorder.refreshes.isEmpty)
+        await engine.apply(host: hostId, lines: [restart[2]])
+        let run = await engine.current().projects["proj-a"]?.run
+        XCTAssertEqual(run?.contentHash, "run-hash-2", "the snapshot that was arriving always re-sends the run")
+    }
+
+    // MARK: Engine refresh paths
+
+    func testARunChangeGoesToTheUrgentCallbackAndOtherInvalidatesToTheRefreshCallback() async throws {
+        let hostId = UUID()
+        let recorder = EngineRecorder()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence(), recorder: recorder, urgentCallback: true)
+        let agent = try StoreWire.snapshot("proj-b", "agents", key: "dev-1", item: StoreWire.agentItem("dev-1"))
+        await engine.apply(
+            host: hostId,
+            lines: try [StoreWire.hello()] + runProject("proj-a") + [StoreWire.project("proj-b"), agent, StoreWire.end("proj-b")])
+        await engine.apply(host: hostId, lines: [try runChanged("proj-a"), try agentInvalidate("proj-b")])
+        XCTAssertEqual(recorder.urgentRefreshes, [["proj-a"]])
+        XCTAssertEqual(recorder.refreshes, [["proj-b"]])
+    }
+
+    func testAProjectWithBothKindsOfInvalidateIsOnlyUrgent() async throws {
+        let hostId = UUID()
+        let recorder = EngineRecorder()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence(), recorder: recorder, urgentCallback: true)
+        await engine.apply(host: hostId, lines: try [StoreWire.hello()] + runProject("proj-a"))
+        await engine.apply(host: hostId, lines: [try runChanged("proj-a"), try agentInvalidate("proj-a")])
+        XCTAssertEqual(recorder.urgentRefreshes, [["proj-a"]])
+        XCTAssertTrue(recorder.refreshes.isEmpty, "the urgent read covers the project")
+    }
+
+    func testWithoutAnUrgentCallbackARunChangeUsesTheRefreshCallback() async throws {
+        let hostId = UUID()
+        let recorder = EngineRecorder()
+        let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence(), recorder: recorder)
+        await engine.apply(host: hostId, lines: try [StoreWire.hello()] + runProject("proj-a"))
+        await engine.apply(host: hostId, lines: [try runChanged("proj-a")])
+        XCTAssertEqual(recorder.refreshes, [["proj-a"]])
+        XCTAssertTrue(recorder.urgentRefreshes.isEmpty)
+    }
 }
