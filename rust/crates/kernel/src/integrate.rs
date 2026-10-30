@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
@@ -642,7 +642,8 @@ const ROOT_STDERR_CAP: usize = 64 * 1024;
 const DEFAULT_READER_DETACH: Duration = Duration::from_secs(2);
 
 /// The names every `run_root` child gets (PATH and the fixed values); nothing else is passed except
-/// `FORWARDED_USER_ENV` with `user_config`, the `GIT_CONFIG_*` of `config_env` and the two pins of a call without it.
+/// `FORWARDED_USER_ENV` with `user_config`, the `GIT_CONFIG_*` of `config_env`, the two pins of a call without it and
+/// the names of `MERGE_CHILD_ENV` a merge call sets.
 pub const FIXED_CHILD_ENV: &[&str] = &[
     "PATH",
     "LC_ALL",
@@ -651,6 +652,16 @@ pub const FIXED_CHILD_ENV: &[&str] = &[
     "GIT_EDITOR",
     "GIT_PAGER",
     "PAGER",
+];
+
+/// The only names a merge call may add to the environment of its child (`run_merge`'s `extra_env` and the lock pin).
+pub const MERGE_CHILD_ENV: &[&str] = &[
+    "GIT_OPTIONAL_LOCKS",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "TZ",
 ];
 
 /// The user's environment a call with `user_config` forwards when it is set. The whole contract.
@@ -707,6 +718,13 @@ const REFUSED_OPTIONS: &[&str] = &[
     "--receive-pack",
     "--exec",
 ];
+
+/// The subcommands `run_merge` runs: the audited list of a merge, one list.
+pub const RUN_MERGE_SUBCOMMANDS: &[&str] = MERGE_AUDITED_COMMANDS;
+
+/// The limit of one merge child that walks the tree or the index.
+#[allow(dead_code)]
+const MERGE_TREE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Short options refused with their attached form too (`-ufoo`): `-u` is the upload-pack program.
 const REFUSED_SHORT_PREFIXES: &[&str] = &["-u"];
@@ -827,6 +845,37 @@ fn git_true(value: &str) -> bool {
     let value = value.trim().to_ascii_lowercase();
     matches!(value.as_str(), "true" | "yes" | "on")
         || value.parse::<i64>().is_ok_and(|number| number != 0)
+}
+
+/// The call `run_merge` makes: the tree-walking subcommands get `MERGE_TREE_TIMEOUT`, the rest `GIT_TIMEOUT`; the
+/// commit encoding is pinned and the user's config is not read.
+#[allow(dead_code)]
+fn merge_call(args: &[&str]) -> RootCall {
+    let walks = args.first().is_some_and(|sub| {
+        matches!(
+            *sub,
+            "merge-tree"
+                | "read-tree"
+                | "status"
+                | "diff-tree"
+                | "ls-files"
+                | "update-index"
+                | "diff-index"
+                | "diff-files"
+                | "merge-base"
+        )
+    });
+    RootCall {
+        args: args.iter().map(|arg| arg.to_string()).collect(),
+        timeout: if walks {
+            MERGE_TREE_TIMEOUT
+        } else {
+            GIT_TIMEOUT
+        },
+        config_env: vec![("i18n.commitEncoding".into(), "UTF-8".into())],
+        network: false,
+        user_config: false,
+    }
 }
 
 fn bad_text(text: &str) -> bool {
@@ -1160,17 +1209,8 @@ impl GitRepo {
         }
     }
 
-    /// The git version, probed once per repository and its clones; at least `MIN_GIT`, else `git_unavailable`.
-    fn check_version(&self, program: &Path, deadline: &Deadline) -> IntegrateResult<()> {
-        if self.seams.force_old_git {
-            return Err(unavailable("git is older than 2.39"));
-        }
-        if self.seams.skip_version_probe {
-            return Ok(());
-        }
-        if self.version.get().is_some() {
-            return Ok(());
-        }
+    /// Spawns `git --version` and reads it; a version at or above `MIN_GIT` is cached, a too-old one never is.
+    fn probe_version(&self, program: &Path, deadline: &Deadline) -> IntegrateResult<(u32, u32)> {
         let per_child = self.seams.probe_timeout.unwrap_or(GIT_TIMEOUT);
         let timeout = deadline
             .child_timeout(per_child)
@@ -1186,18 +1226,49 @@ impl GitRepo {
             .filter(|code| *code == 0)
             .and_then(|_| parse_git_version(&utf8(&output.stdout)))
             .ok_or_else(|| unavailable("the version of git could not be read"))?;
+        if version >= MIN_GIT {
+            let _ = self.version.set(version);
+        }
+        Ok(version)
+    }
+
+    /// The git version, probed once per repository and its clones; at least `MIN_GIT`, else `git_unavailable`.
+    fn check_version(&self, program: &Path, deadline: &Deadline) -> IntegrateResult<()> {
+        if self.seams.force_old_git {
+            return Err(unavailable("git is older than 2.39"));
+        }
+        if self.seams.skip_version_probe {
+            return Ok(());
+        }
+        if self.version.get().is_some() {
+            return Ok(());
+        }
+        let version = self.probe_version(program, deadline)?;
         if version < MIN_GIT {
             return Err(unavailable(format!(
                 "git {}.{} is older than {}.{}",
                 version.0, version.1, MIN_GIT.0, MIN_GIT.1
             )));
         }
-        let _ = self.version.set(version);
         Ok(())
     }
 
+    /// Whether git is older than `MIN_GIT`; `force_old_git` wins over `skip_version_probe`. A spawn failure or an
+    /// unreadable version is `git_unavailable`.
+    #[allow(dead_code)]
+    fn git_too_old(&self, deadline: &Deadline) -> IntegrateResult<bool> {
+        if self.seams.force_old_git {
+            return Ok(true);
+        }
+        if self.seams.skip_version_probe || self.version.get().is_some() {
+            return Ok(false);
+        }
+        let program = self.git_program()?;
+        Ok(self.probe_version(&program, deadline)? < MIN_GIT)
+    }
+
     /// Refuses a call that must not reach git.
-    fn check_call(call: &RootCall) -> IntegrateResult<()> {
+    fn check_call(call: &RootCall, merge: bool) -> IntegrateResult<()> {
         let Some(subcommand) = call.args.first() else {
             return Err(unavailable("a git call needs a subcommand"));
         };
@@ -1208,10 +1279,12 @@ impl GitRepo {
         let query = |arg: &str| {
             subcommand == "rev-parse" && matches!(arg, "--git-dir" | "--git-common-dir")
         };
+        // `read-tree -m -u` and `--reset -u` have no long form: the exact `-u` is allowed there for a merge call.
+        let update = |arg: &str| merge && subcommand == "read-tree" && arg == "-u";
         if let Some(arg) = call
             .args
             .iter()
-            .find(|arg| !query(arg) && refused_option(arg))
+            .find(|arg| !query(arg) && !update(arg) && refused_option(arg))
         {
             return Err(unavailable(format!("the git option {arg} is not allowed")));
         }
@@ -1239,12 +1312,41 @@ impl GitRepo {
     /// Runs git in the project root with the pins of `ROOT_CONFIG_OVERRIDES` and the environment of `call`.
     /// `extra_env` is not applied.
     pub(crate) fn run_root(&self, call: &RootCall) -> IntegrateResult<RootOutput> {
-        Self::check_call(call)?;
-        let deadline = Deadline::new(call.timeout);
+        self.run_root_in(call, &Deadline::new(call.timeout), &[], false)
+    }
+
+    /// `run_root` under a shared `deadline` (each child gets the least of `call.timeout` and the time left), with
+    /// `child_env` added after the fixed environment: each name must be in `MERGE_CHILD_ENV` and each value free of
+    /// NUL and newline, else `git_unavailable` before any spawn. `merge` is passed to `check_call`.
+    fn run_root_in(
+        &self,
+        call: &RootCall,
+        deadline: &Deadline,
+        child_env: &[(&str, &str)],
+        merge: bool,
+    ) -> IntegrateResult<RootOutput> {
+        Self::check_call(call, merge)?;
+        for (name, value) in child_env {
+            if !MERGE_CHILD_ENV.contains(name) {
+                return Err(unavailable(format!(
+                    "the git environment name {name} is not allowed"
+                )));
+            }
+            if bad_text(value) {
+                return Err(unavailable(format!(
+                    "the git environment value of {name} holds a NUL or a newline"
+                )));
+            }
+        }
         let program = self.git_program()?;
-        self.check_version(&program, &deadline)?;
+        self.check_version(&program, deadline)?;
 
         let mut env = self.fixed_env();
+        env.extend(
+            child_env
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string())),
+        );
         if call.user_config {
             env.extend(self.user_env());
         } else {
@@ -1260,7 +1362,7 @@ impl GitRepo {
         }
         let mut args = self.root_base_args();
         if call.network && !self.seams.skip_ssh_probe {
-            let ssh_command = self.ssh_command(&program, &env, &deadline)?;
+            let ssh_command = self.ssh_command(&program, &env, deadline)?;
             args.push("-c".into());
             args.push(format!("core.sshCommand={ssh_command}").into());
         }
@@ -1269,6 +1371,100 @@ impl GitRepo {
             .child_timeout(call.timeout)
             .ok_or_else(|| integration_error("timeout", "git timed out".into()))?;
         self.spawn_capped(&program, &args, &env, timeout, ROOT_STDOUT_CAP)
+    }
+
+    /// Runs one git command of a merge into the root checkout (`RUN_MERGE_SUBCOMMANDS` only) under the shared
+    /// `deadline`; `read_only` adds `GIT_OPTIONAL_LOCKS=0`. A name given twice is `git_unavailable` before any spawn.
+    #[allow(dead_code)]
+    fn run_merge(
+        &self,
+        args: &[&str],
+        deadline: &Deadline,
+        read_only: bool,
+        extra_env: &[(&str, &str)],
+    ) -> IntegrateResult<RootOutput> {
+        if !args
+            .first()
+            .is_some_and(|sub| RUN_MERGE_SUBCOMMANDS.contains(sub))
+        {
+            return Err(unavailable("this git subcommand is not a merge command"));
+        }
+        let mut child_env: Vec<(&str, &str)> = Vec::new();
+        if read_only {
+            child_env.push(("GIT_OPTIONAL_LOCKS", "0"));
+        }
+        child_env.extend_from_slice(extra_env);
+        for (index, (name, _)) in child_env.iter().enumerate() {
+            if child_env[..index]
+                .iter()
+                .any(|(earlier, _)| earlier == name)
+            {
+                return Err(unavailable(format!(
+                    "the git environment name {name} is given twice"
+                )));
+            }
+        }
+        self.run_root_in(&merge_call(args), deadline, &child_env, true)
+    }
+
+    /// One value of `key` as `git commit` reads it (all scopes, the last value wins), trimmed; `None` when it is
+    /// unset, empty, holds `<`, `>` or a newline, or has nothing git keeps in an ident.
+    #[allow(dead_code)]
+    fn identity_value(&self, key: &str, deadline: &Deadline) -> IntegrateResult<Option<String>> {
+        let call = RootCall {
+            args: ["config", "--get-all", "-z", key]
+                .iter()
+                .map(|arg| arg.to_string())
+                .collect(),
+            timeout: GIT_TIMEOUT,
+            config_env: Vec::new(),
+            network: false,
+            user_config: true,
+        };
+        let output = self.run_root_in(&call, deadline, &[], false)?;
+        if output.stdout.len() > PROBE_STDOUT_CAP {
+            return Err(integration_error(
+                "output_too_large",
+                "git printed too much".into(),
+            ));
+        }
+        match output.code {
+            0 => {}
+            1 => return Ok(None),
+            code => {
+                return Err(unavailable(format!(
+                    "{key} could not be read (git exited {code})"
+                )))
+            }
+        }
+        let mut items: Vec<&[u8]> = output.stdout.split(|byte| *byte == 0).collect();
+        if items.last().is_some_and(|last| last.is_empty()) {
+            items.pop();
+        }
+        let Some(last) = items.last() else {
+            return Ok(None);
+        };
+        let Ok(text) = std::str::from_utf8(last) else {
+            return Ok(None);
+        };
+        let value = text.trim();
+        let stripped = |c: char| c.is_whitespace() || ".,:;\"\\'".contains(c);
+        if value.is_empty() || value.contains(['<', '>', '\n']) || value.chars().all(stripped) {
+            return Ok(None);
+        }
+        Ok(Some(value.to_string()))
+    }
+
+    /// The commit identity from git config alone: `Some` only when `user.name` and `user.email` both give a value.
+    #[allow(dead_code)]
+    fn strict_identity(&self, deadline: &Deadline) -> IntegrateResult<Option<(String, String)>> {
+        let Some(name) = self.identity_value("user.name", deadline)? else {
+            return Ok(None);
+        };
+        let Some(email) = self.identity_value("user.email", deadline)? else {
+            return Ok(None);
+        };
+        Ok(Some((name, email)))
     }
 
     /// The arguments every `run_root` child starts with: the repository and the pins.
@@ -3170,12 +3366,15 @@ fn parse_config_entries(stdout: &[u8]) -> ConfigEntries {
 impl GitRepo {
     /// Reads the git dir and the common dir once each (a relative answer is relative to the root); when `rev-parse`
     /// fails the files decide, as `repo_dirs_fallback` does.
-    fn repo_dirs(&self, call: &RootCall) -> IntegrateResult<RepoDirs> {
+    fn repo_dirs(&self, call: &RootCall, deadline: Option<&Deadline>) -> IntegrateResult<RepoDirs> {
         let ask = |flag: &str| -> IntegrateResult<Option<PathBuf>> {
-            let out = self.run_root(&RootCall {
-                args: vec!["rev-parse".into(), flag.into()],
-                ..call.clone()
-            })?;
+            let out = self.run_config_call(
+                &RootCall {
+                    args: vec!["rev-parse".into(), flag.into()],
+                    ..call.clone()
+                },
+                deadline,
+            )?;
             if out.code != 0 {
                 return Ok(None);
             }
@@ -3198,17 +3397,35 @@ impl GitRepo {
         })
     }
 
+    /// `run_root`, or with a `deadline` the shared deadline and `GIT_OPTIONAL_LOCKS=0` so the read refreshes nothing.
+    fn run_config_call(
+        &self,
+        call: &RootCall,
+        deadline: Option<&Deadline>,
+    ) -> IntegrateResult<RootOutput> {
+        match deadline {
+            None => self.run_root(call),
+            Some(deadline) => {
+                self.run_root_in(call, deadline, &[("GIT_OPTIONAL_LOCKS", "0")], false)
+            }
+        }
+    }
+
     /// One `git config -z --list` read of a scope flag; `Ok(None)` when the file cannot be read.
     fn read_config_entries(
         &self,
         call: &RootCall,
         dirs: &RepoDirs,
         flag: &str,
+        deadline: Option<&Deadline>,
     ) -> IntegrateResult<Option<ConfigEntries>> {
-        let out = self.run_root(&RootCall {
-            args: vec!["config".into(), flag.into(), "-z".into(), "--list".into()],
-            ..call.clone()
-        })?;
+        let out = self.run_config_call(
+            &RootCall {
+                args: vec!["config".into(), flag.into(), "-z".into(), "--list".into()],
+                ..call.clone()
+            },
+            deadline,
+        )?;
         if out.code == 0 {
             return Ok(Some(parse_config_entries(&out.stdout)));
         }
@@ -3222,6 +3439,15 @@ impl GitRepo {
     /// `extensions.worktreeConfig` is on) against the keys refused for `scope`. The user's global and system
     /// configuration is not looked at.
     pub fn unsafe_repo_config(&self, scope: UnsafeScope) -> IntegrateResult<UnsafeConfig> {
+        self.unsafe_repo_config_in(scope, None)
+    }
+
+    /// `unsafe_repo_config`; with a `deadline` every child shares it and runs read-only.
+    fn unsafe_repo_config_in(
+        &self,
+        scope: UnsafeScope,
+        deadline: Option<&Deadline>,
+    ) -> IntegrateResult<UnsafeConfig> {
         let call = RootCall {
             args: Vec::new(),
             timeout: GIT_TIMEOUT,
@@ -3229,8 +3455,8 @@ impl GitRepo {
             network: false,
             user_config: scope == UnsafeScope::Push,
         };
-        let dirs = self.repo_dirs(&call)?;
-        let Some(mut entries) = self.read_config_entries(&call, &dirs, "--local")? else {
+        let dirs = self.repo_dirs(&call, deadline)?;
+        let Some(mut entries) = self.read_config_entries(&call, &dirs, "--local", deadline)? else {
             return Ok(UnsafeConfig::Unreadable);
         };
         let worktree_config = entries
@@ -3240,7 +3466,7 @@ impl GitRepo {
             .is_some_and(|(_, value)| !config_value_is_false(value.as_deref()));
         let has_file = std::fs::symlink_metadata(dirs.git_dir.join("config.worktree")).is_ok();
         if worktree_config && has_file {
-            let Some(more) = self.read_config_entries(&call, &dirs, "--worktree")? else {
+            let Some(more) = self.read_config_entries(&call, &dirs, "--worktree", deadline)? else {
                 return Ok(UnsafeConfig::Unreadable);
             };
             entries.extend(more);
@@ -3274,6 +3500,617 @@ impl GitRepo {
         } else {
             UnsafeConfig::Keys(keys)
         })
+    }
+}
+
+/// Entry of `wrong_branch` for a detached HEAD.
+pub const ENTRY_DETACHED_HEAD: &str = "(detached HEAD)";
+/// Entry of `wrong_branch` for a branch without a commit, or a HEAD whose object is broken.
+pub const ENTRY_UNBORN_HEAD: &str = "(unborn HEAD)";
+/// Entry of `merge_conflict` for two histories with no common ancestor.
+pub const ENTRY_UNRELATED_HISTORIES: &str = "(unrelated histories)";
+/// Entry of `dirty_tree` for local files the merge would overwrite.
+pub const ENTRY_WOULD_OVERWRITE: &str = "(would overwrite local files)";
+
+/// The files of the git dir that show an operation in progress, for `git rev-parse --git-path`.
+const OPERATION_MARKERS: [&str; 7] = [
+    "MERGE_HEAD",
+    "CHERRY_PICK_HEAD",
+    "REVERT_HEAD",
+    "rebase-merge",
+    "rebase-apply",
+    "sequencer",
+    "BISECT_LOG",
+];
+
+/// The paths of `git status --porcelain=v1 -z`: records are `XY <path>` NUL, and an R or C record has the original
+/// path as one more field, which is skipped (`--no-renames` makes git print none).
+fn parse_status_z(out: &[u8]) -> Vec<Vec<u8>> {
+    let mut fields = out.split(|byte| *byte == 0);
+    let mut paths = Vec::new();
+    while let Some(record) = fields.next() {
+        if record.len() < 4 || record[2] != b' ' {
+            continue;
+        }
+        if matches!(record[0], b'R' | b'C') || matches!(record[1], b'R' | b'C') {
+            fields.next();
+        }
+        paths.push(record[3..].to_vec());
+    }
+    paths
+}
+
+/// What a ready preflight computed for the merge itself (plan-123 reads it).
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct MergePlan {
+    tree: String,
+    identity: (String, String),
+}
+
+/// The tree id and the conflicted paths of `git merge-tree --write-tree --name-only --no-messages -z` that exited 1;
+/// trailing empty items are ignored, and `None` when the tree id or every path is missing.
+fn parse_merge_tree(out: &[u8]) -> Option<(String, Vec<Vec<u8>>)> {
+    let mut items: Vec<&[u8]> = out.split(|byte| *byte == 0).collect();
+    while items.last().is_some_and(|last| last.is_empty()) {
+        items.pop();
+    }
+    let (tree, paths) = items.split_first()?;
+    let tree = tree_id(tree)?;
+    let paths: Vec<Vec<u8>> = paths
+        .iter()
+        .filter(|path| !path.is_empty())
+        .map(|path| path.to_vec())
+        .collect();
+    if paths.is_empty() {
+        return None;
+    }
+    Some((tree, paths))
+}
+
+/// An object id: hexadecimal digits of one of git's lengths.
+fn tree_id(raw: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(raw).ok()?;
+    let ok = matches!(text.len(), 40 | 64) && text.bytes().all(|b| b.is_ascii_hexdigit());
+    ok.then(|| text.to_string())
+}
+
+fn is_commit_id(text: &str) -> bool {
+    text.len() == 40
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn refused(code: &'static str, names: &[&str]) -> Preflight {
+    Preflight::Refused(Refusal::new(
+        code,
+        names.iter().map(|name| name.as_bytes().to_vec()).collect(),
+    ))
+}
+
+impl GitRepo {
+    /// The branch a merge goes into: `configured` when given (a bad name is `invalid_branch`), else the branch
+    /// `refs/remotes/origin/HEAD` names, else `None`.
+    pub fn merge_target(&self, configured: Option<&str>) -> IntegrateResult<Option<String>> {
+        if let Some(name) = configured {
+            capstan_config::remote::validate_branch_name(name).map_err(|reason| {
+                integration_error("invalid_branch", format!("the branch {name} {reason}"))
+            })?;
+            return Ok(Some(name.to_string()));
+        }
+        let deadline = Deadline::new(GIT_TIMEOUT);
+        let out = self.run_merge(
+            &["symbolic-ref", "-q", "refs/remotes/origin/HEAD"],
+            &deadline,
+            true,
+            &[],
+        )?;
+        match out.code {
+            0 => {}
+            1 => return Ok(None),
+            code => {
+                return Err(unavailable(format!(
+                    "origin/HEAD could not be read (git exited {code})"
+                )))
+            }
+        }
+        let text = out.stdout.strip_suffix(b"\n").unwrap_or(&out.stdout);
+        let name = std::str::from_utf8(text)
+            .ok()
+            .and_then(|text| text.strip_prefix("refs/remotes/origin/"));
+        Ok(name
+            .filter(|name| capstan_config::remote::validate_branch_name(name).is_ok())
+            .map(str::to_string))
+    }
+
+    /// The check before a merge into the root checkout: nothing is written. Steps 1 to 10 of the preflight.
+    pub fn root_merge_preflight(
+        &self,
+        checkout_branch: &str,
+        head_sha: &str,
+        timeout: Duration,
+    ) -> IntegrateResult<Preflight> {
+        Ok(self
+            .preflight_inner(checkout_branch, head_sha, &Deadline::new(timeout))?
+            .0)
+    }
+
+    /// One git exit code of a merge check; any exit but `allowed` is `git_unavailable`.
+    fn check_code(
+        &self,
+        args: &[&str],
+        deadline: &Deadline,
+        allowed: &[i32],
+    ) -> IntegrateResult<RootOutput> {
+        let out = self.run_merge(args, deadline, true, &[])?;
+        if allowed.contains(&out.code) {
+            return Ok(out);
+        }
+        Err(unavailable(format!(
+            "git {} exited {}",
+            args.first().copied().unwrap_or(""),
+            out.code
+        )))
+    }
+
+    fn preflight_inner(
+        &self,
+        checkout_branch: &str,
+        head_sha: &str,
+        deadline: &Deadline,
+    ) -> IntegrateResult<(Preflight, Option<MergePlan>)> {
+        let refuse = |preflight: Preflight| Ok((preflight, None));
+        // 0
+        if self.git_too_old(deadline)? {
+            return refuse(refused("git_too_old", &[]));
+        }
+        // 1
+        if let Some(refusal) = self
+            .unsafe_repo_config_in(UnsafeScope::Merge, Some(deadline))?
+            .into_refusal()
+        {
+            return refuse(Preflight::Refused(refusal));
+        }
+        // 2
+        let commit = format!("{head_sha}^{{commit}}");
+        if !is_commit_id(head_sha)
+            || self
+                .check_code(
+                    &["rev-parse", "--verify", "--quiet", &commit],
+                    deadline,
+                    &[0, 1],
+                )?
+                .code
+                == 1
+        {
+            return refuse(refused("invalid_commit", &[head_sha]));
+        }
+        // 3
+        if capstan_config::remote::validate_branch_name(checkout_branch).is_err()
+            || matches!(
+                self.check_code(
+                    &["check-ref-format", "--branch", checkout_branch],
+                    deadline,
+                    &[0, 1, 128],
+                )?
+                .code,
+                1 | 128
+            )
+        {
+            return refuse(refused("invalid_branch", &[checkout_branch]));
+        }
+        // 4
+        let head = self.check_code(&["symbolic-ref", "-q", "HEAD"], deadline, &[0, 1])?;
+        if head.code == 1 {
+            return refuse(refused("wrong_branch", &[ENTRY_DETACHED_HEAD]));
+        }
+        let full = head.stdout.strip_suffix(b"\n").unwrap_or(&head.stdout);
+        if full != format!("refs/heads/{checkout_branch}").as_bytes() {
+            let text = String::from_utf8_lossy(full);
+            let shown = text.strip_prefix("refs/heads/").unwrap_or(&text);
+            return refuse(refused("wrong_branch", &[shown]));
+        }
+        let old = self.check_code(
+            &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+            deadline,
+            &[0, 1],
+        )?;
+        if old.code == 1 {
+            return refuse(refused("wrong_branch", &[ENTRY_UNBORN_HEAD]));
+        }
+        let old_head = String::from_utf8_lossy(&old.stdout).trim().to_string();
+        if old_head.is_empty() || !old_head.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(unavailable("git printed no commit for HEAD"));
+        }
+        // 5
+        let ancestor = self.check_code(
+            &["merge-base", "--is-ancestor", head_sha, &old_head],
+            deadline,
+            &[0, 1],
+        )?;
+        if ancestor.code == 0 {
+            return Ok((Preflight::AlreadyInHead, None));
+        }
+        // 6
+        let Some(identity) = self.strict_identity(deadline)? else {
+            let mut missing: Vec<&str> = Vec::new();
+            for key in ["user.name", "user.email"] {
+                if self.identity_value(key, deadline)?.is_none() {
+                    missing.push(key);
+                }
+            }
+            return refuse(refused("no_identity", &missing));
+        };
+        // 7
+        if let Some(refusal) = self.dirty_refusal(deadline)? {
+            return refuse(Preflight::Refused(refusal));
+        }
+        // 9
+        let base = self.check_code(&["merge-base", &old_head, head_sha], deadline, &[0, 1])?;
+        if base.code == 1 {
+            return refuse(refused("merge_conflict", &[ENTRY_UNRELATED_HISTORIES]));
+        }
+        let merged = self.check_code(
+            &[
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                "--no-messages",
+                "-z",
+                &old_head,
+                head_sha,
+            ],
+            deadline,
+            &[0, 1],
+        )?;
+        let tree = if merged.code == 0 {
+            let first = merged.stdout.split(|byte| *byte == 0).next().unwrap_or(&[]);
+            tree_id(first).ok_or_else(|| unavailable("git merge-tree printed no tree"))?
+        } else {
+            let Some((_, paths)) = parse_merge_tree(&merged.stdout) else {
+                return Err(unavailable("git merge-tree printed no conflict"));
+            };
+            return refuse(Preflight::Refused(Refusal::new("merge_conflict", paths)));
+        };
+        // 10
+        if let Some(refusal) = self.ignored_refusal(&old_head, &tree, deadline)? {
+            return refuse(Preflight::Refused(refusal));
+        }
+        Ok((
+            Preflight::Ready {
+                old_head: old_head.clone(),
+            },
+            Some(MergePlan { tree, identity }),
+        ))
+    }
+
+    /// Step 7: an operation in progress (a marker in the git dir) or a tracked change (staged, in the worktree, or a
+    /// submodule at another commit than its gitlink) is `dirty_tree`.
+    fn dirty_refusal(&self, deadline: &Deadline) -> IntegrateResult<Option<Refusal>> {
+        let mut args = vec!["rev-parse"];
+        for marker in OPERATION_MARKERS {
+            args.push("--git-path");
+            args.push(marker);
+        }
+        let paths = self.check_code(&args, deadline, &[0])?;
+        let text = String::from_utf8_lossy(&paths.stdout);
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.len() != OPERATION_MARKERS.len() {
+            return Err(unavailable("git printed the wrong number of marker paths"));
+        }
+        let mut found: Vec<Vec<u8>> = Vec::new();
+        for (marker, line) in OPERATION_MARKERS.iter().zip(lines) {
+            let path = self.root.join(Path::new(line));
+            if std::fs::symlink_metadata(&path).is_ok() {
+                found.push(marker.as_bytes().to_vec());
+            }
+        }
+        if !found.is_empty() {
+            return Ok(Some(Refusal::new("dirty_tree", found)));
+        }
+        let status = self.check_code(
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--no-renames",
+                "--untracked-files=no",
+                "--ignore-submodules=dirty",
+            ],
+            deadline,
+            &[0],
+        )?;
+        let changed = parse_status_z(&status.stdout);
+        if changed.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Refusal::new("dirty_tree", changed)))
+    }
+
+    /// Step 10: an ignored file the merge would overwrite (`read-tree -m -u` replaces ignored files without a word,
+    /// where an untracked file that is not ignored stops it). The changed paths of `old_head..tree` are looked up as
+    /// literal pathspecs, with every parent of one that is a file in the working tree; only entries at one of them,
+    /// or under a changed path, count. Writes nothing.
+    fn ignored_refusal(
+        &self,
+        old_head: &str,
+        tree: &str,
+        deadline: &Deadline,
+    ) -> IntegrateResult<Option<Refusal>> {
+        let icase = self.ignore_case(deadline)?;
+        let diff = self.check_code(
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--name-only",
+                "--no-renames",
+                old_head,
+                tree,
+            ],
+            deadline,
+            &[0],
+        )?;
+        let mut changed: Vec<Vec<u8>> = diff
+            .stdout
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(<[u8]>::to_vec)
+            .collect();
+        changed.sort();
+        changed.dedup();
+        let parents = self.non_dir_parents(&changed, icase);
+        let chunks = ignored_check_pathspecs(&changed, &parents, icase);
+        let fold = |bytes: &[u8]| -> Vec<u8> {
+            if icase {
+                bytes.to_ascii_lowercase()
+            } else {
+                bytes.to_vec()
+            }
+        };
+        let changed_set: HashSet<Vec<u8>> = changed.iter().map(|path| fold(path)).collect();
+        let exact_set: HashSet<Vec<u8>> = changed_set
+            .iter()
+            .cloned()
+            .chain(parents.iter().map(|path| fold(path)))
+            .collect();
+        let mut refused: Vec<Vec<u8>> = Vec::new();
+        for chunk in chunks {
+            let mut args = vec![
+                "ls-files",
+                "-z",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--",
+            ];
+            args.extend(chunk.specs.iter().map(String::as_str));
+            let listing = match self.run_merge(&args, deadline, true, &[]) {
+                Ok(out) => out,
+                Err(IntegrateError::Integration { code, .. })
+                    if code == "output_too_large" && !chunk.fallback =>
+                {
+                    refused.push(ENTRY_WOULD_OVERWRITE.as_bytes().to_vec());
+                    return Ok(Some(Refusal::new("dirty_tree", refused)));
+                }
+                Err(error) => return Err(error),
+            };
+            if listing.code != 0 {
+                return Err(unavailable(format!("git ls-files exited {}", listing.code)));
+            }
+            for entry in listing.stdout.split(|byte| *byte == 0) {
+                if entry.is_empty() {
+                    continue;
+                }
+                let folded = fold(entry);
+                let under_changed = folded
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, byte)| **byte == b'/')
+                    .any(|(at, _)| changed_set.contains(&folded[..at]));
+                if exact_set.contains(&folded) || under_changed {
+                    refused.push(entry.to_vec());
+                }
+            }
+            if refused.len() >= MAX_CONFLICT_FILES * 2 {
+                break;
+            }
+        }
+        if refused.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Refusal::new("dirty_tree", refused)))
+    }
+
+    /// `core.ignorecase` as the local and worktree config give it; unset is false.
+    fn ignore_case(&self, deadline: &Deadline) -> IntegrateResult<bool> {
+        let out = self.check_code(
+            &["config", "--get", "--bool", "core.ignorecase"],
+            deadline,
+            &[0, 1],
+        )?;
+        Ok(out.code == 0 && out.stdout.trim_ascii() == b"true")
+    }
+
+    /// The parents of `changed` paths that exist in the working tree as something other than a directory (a
+    /// symlink to a directory counts, it is not one to git). With `icase` a parent is also found under any ASCII case
+    /// variant of its name, by reading the directories; the names returned are the ones on disk.
+    fn non_dir_parents(&self, changed: &[Vec<u8>], icase: bool) -> Vec<Vec<u8>> {
+        use std::os::unix::ffi::OsStringExt;
+        let at = |relative: &[u8]| self.root.join(std::ffi::OsStr::from_bytes(relative));
+        let mut found: BTreeSet<Vec<u8>> = BTreeSet::new();
+        // The on-disk directories each folded parent prefix stands for (`icase` only).
+        let mut resolved: HashMap<Vec<u8>, Vec<Vec<u8>>> = HashMap::new();
+        resolved.insert(Vec::new(), vec![Vec::new()]);
+        let mut seen: HashSet<Vec<u8>> = HashSet::new();
+        for path in changed {
+            let parts: Vec<&[u8]> = path.split(|byte| *byte == b'/').collect();
+            let mut prefix: Vec<u8> = Vec::new();
+            for part in &parts[..parts.len().saturating_sub(1)] {
+                let parent = prefix.clone();
+                if !prefix.is_empty() {
+                    prefix.push(b'/');
+                }
+                prefix.extend_from_slice(part);
+                if !icase {
+                    if !seen.insert(prefix.clone()) {
+                        continue;
+                    }
+                    match std::fs::symlink_metadata(at(&prefix)) {
+                        Ok(meta) if meta.is_dir() => {}
+                        Ok(_) => {
+                            found.insert(prefix.clone());
+                        }
+                        Err(_) => break,
+                    }
+                    continue;
+                }
+                let key = prefix.to_ascii_lowercase();
+                if !resolved.contains_key(&key) {
+                    let parent_key = parent.to_ascii_lowercase();
+                    let mut actual: Vec<Vec<u8>> = Vec::new();
+                    for dir in resolved.get(&parent_key).cloned().unwrap_or_default() {
+                        let Ok(entries) = std::fs::read_dir(at(&dir)) else {
+                            continue;
+                        };
+                        for entry in entries.flatten() {
+                            let name = entry.file_name().into_vec();
+                            if !name.eq_ignore_ascii_case(part) {
+                                continue;
+                            }
+                            let mut full = dir.clone();
+                            if !full.is_empty() {
+                                full.push(b'/');
+                            }
+                            full.extend_from_slice(&name);
+                            match std::fs::symlink_metadata(at(&full)) {
+                                Ok(meta) if meta.is_dir() => actual.push(full),
+                                Ok(_) => {
+                                    found.insert(full);
+                                }
+                                Err(_) => {}
+                            }
+                        }
+                    }
+                    resolved.insert(key.clone(), actual);
+                }
+                if resolved.get(&key).is_none_or(|dirs| dirs.is_empty()) {
+                    break;
+                }
+            }
+        }
+        found.into_iter().collect()
+    }
+}
+
+/// One `ls-files` call of step 10: the pathspecs, and whether any of them is an ancestor standing in for a path
+/// git cannot be given (so the listing may hold ignored files the merge does not touch).
+#[derive(Debug, PartialEq, Eq)]
+struct PathspecChunk {
+    specs: Vec<String>,
+    fallback: bool,
+}
+
+const PATHSPEC_CHUNK_COUNT: usize = 1000;
+const PATHSPEC_CHUNK_BYTES: usize = 64 * 1024;
+
+/// The pathspecs of step 10 in chunks: `:(literal)<path>` per changed path and non-directory parent
+/// (`:(icase,literal)` with `icase`: git applies no `core.ignorecase` to a literal pathspec). A path that is not
+/// UTF-8 or holds a newline cannot be passed as an argument and becomes its nearest ancestor directory that can
+/// (same magic), else the plain `.`; those go in chunks of their own with `fallback` set. A chunk holds at most 1000
+/// pathspecs and 64 KiB of arguments.
+fn ignored_check_pathspecs(
+    changed: &[Vec<u8>],
+    non_dir_parents: &[Vec<u8>],
+    icase: bool,
+) -> Vec<PathspecChunk> {
+    let magic = if icase {
+        ":(icase,literal)"
+    } else {
+        ":(literal)"
+    };
+    let mut exact: BTreeSet<String> = BTreeSet::new();
+    let mut stand_in: BTreeSet<String> = BTreeSet::new();
+    for path in changed.iter().chain(non_dir_parents) {
+        if path.is_empty() {
+            continue;
+        }
+        match std::str::from_utf8(path) {
+            Ok(text) if !text.contains('\n') => {
+                exact.insert(format!("{magic}{text}"));
+            }
+            _ => {
+                let mut good = 0;
+                let mut at = 0;
+                for part in path.split(|byte| *byte == b'/') {
+                    if std::str::from_utf8(part).is_err() || part.contains(&b'\n') {
+                        break;
+                    }
+                    at += part.len();
+                    good = at;
+                    at += 1;
+                }
+                let ancestor = &path[..good.min(path.len())];
+                if ancestor.is_empty() || good == 0 {
+                    stand_in.insert(".".to_string());
+                } else {
+                    let text = String::from_utf8_lossy(ancestor);
+                    stand_in.insert(format!("{magic}{text}"));
+                }
+            }
+        }
+    }
+    let mut chunks = Vec::new();
+    for (specs, fallback) in [(exact, false), (stand_in, true)] {
+        let mut current: Vec<String> = Vec::new();
+        let mut bytes = 0;
+        for spec in specs {
+            if !current.is_empty()
+                && (current.len() >= PATHSPEC_CHUNK_COUNT
+                    || bytes + spec.len() > PATHSPEC_CHUNK_BYTES)
+            {
+                chunks.push(PathspecChunk {
+                    specs: std::mem::take(&mut current),
+                    fallback,
+                });
+                bytes = 0;
+            }
+            bytes += spec.len();
+            current.push(spec);
+        }
+        if !current.is_empty() {
+            chunks.push(PathspecChunk {
+                specs: current,
+                fallback,
+            });
+        }
+    }
+    chunks
+}
+
+#[cfg(test)]
+mod status_parse_tests {
+    use super::parse_status_z;
+
+    #[test]
+    fn a_rename_record_loses_its_original_path_field() {
+        let out = b"R  new name\0old\0 M plain\0C  copy\0src\0";
+        assert_eq!(
+            parse_status_z(out),
+            vec![b"new name".to_vec(), b"plain".to_vec(), b"copy".to_vec()]
+        );
+    }
+
+    #[test]
+    fn paths_with_a_space_or_a_newline_stay_whole() {
+        let out = b"M  a b\0 M x\ny\0";
+        assert_eq!(parse_status_z(out), vec![b"a b".to_vec(), b"x\ny".to_vec()]);
+    }
+
+    #[test]
+    fn empty_output_has_no_records() {
+        assert!(parse_status_z(b"").is_empty());
     }
 }
 
@@ -3348,6 +4185,389 @@ mod root_runner_tests {
         assert_eq!(group_target(0), None);
     }
 
+    // ------------------------------------------------------------------------------ merge helpers
+
+    use std::process::Command as Cmd;
+
+    fn code_of(error: IntegrateError) -> String {
+        match error {
+            IntegrateError::Integration { code, .. } => code,
+            other => panic!("expected an integration error, got {other:?}"),
+        }
+    }
+
+    /// A fake git that logs `CALL <args>` and the environment of each call to the returned log, answers
+    /// `--version` with `version`, sleeps 12 s for merge-tree and otherwise runs `other`.
+    fn fake_git(dir: &Path, version: &str, other: &str) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("fake.log");
+        let script = dir.join("fake-git");
+        let body = format!(
+            "#!/bin/sh\necho \"CALL $*\" >> '{log}'\nenv | sort | sed 's/^/ENV /' >> '{log}'\n\
+             case \" $* \" in\n  *\" --version \"*) echo '{version}'; exit 0;;\n  *\" merge-tree \"*) sleep 12; exit 0;;\nesac\n{other}\n",
+            log = log.display()
+        );
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (script, log)
+    }
+
+    /// A repository with the seams set directly on the field.
+    fn seamed(dir: &Path, seams: GitSeams) -> GitRepo {
+        let mut repo = GitRepo::new(dir);
+        repo.seams = seams;
+        repo
+    }
+
+    fn fake_repo(dir: &Path, program: PathBuf, skip: bool) -> GitRepo {
+        seamed(
+            dir,
+            GitSeams {
+                git_program: Some(program),
+                skip_version_probe: skip,
+                ..GitSeams::default()
+            },
+        )
+    }
+
+    fn deadline() -> Deadline {
+        Deadline::new(Duration::from_secs(20))
+    }
+
+    fn rev_parse() -> [&'static str; 2] {
+        ["rev-parse", "--git-dir"]
+    }
+
+    fn root_call(args: &[&str], network: bool) -> RootCall {
+        RootCall {
+            args: args.iter().map(|arg| arg.to_string()).collect(),
+            timeout: Duration::from_secs(10),
+            config_env: Vec::new(),
+            network,
+            user_config: network,
+        }
+    }
+
+    fn log_of(log: &Path) -> String {
+        std::fs::read_to_string(log).unwrap_or_default()
+    }
+
+    #[test]
+    fn a_merge_child_carries_the_pins_and_only_the_named_environment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, log) = fake_git(tmp.path(), "git version 2.39.5", "echo .git");
+        let repo =
+            fake_repo(tmp.path(), program, true).with_env(vec![("GIT_DIR".into(), "/x".into())]);
+        repo.run_merge(&rev_parse(), &deadline(), true, &[])
+            .unwrap();
+        let text = log_of(&log);
+        for (key, value) in ROOT_CONFIG_OVERRIDES {
+            assert!(text.contains(&format!("-c {key}={value}")), "{key}");
+        }
+        for line in [
+            "ENV GIT_CONFIG_GLOBAL=/dev/null",
+            "ENV GIT_CONFIG_NOSYSTEM=1",
+            "ENV GIT_CONFIG_COUNT=1",
+            "ENV GIT_CONFIG_KEY_0=i18n.commitEncoding",
+            "ENV GIT_CONFIG_VALUE_0=UTF-8",
+            "ENV GIT_OPTIONAL_LOCKS=0",
+            "ENV LC_ALL=C",
+        ] {
+            assert!(text.lines().any(|l| l == line), "{line}");
+        }
+        assert!(text.contains("--no-replace-objects -C "));
+        assert!(!text.contains("GIT_DIR"));
+
+        std::fs::remove_file(&log).unwrap();
+        repo.run_merge(
+            &rev_parse(),
+            &deadline(),
+            false,
+            &[("TZ", "UTC"), ("GIT_AUTHOR_NAME", "x")],
+        )
+        .unwrap();
+        let text = log_of(&log);
+        assert!(!text.contains("GIT_OPTIONAL_LOCKS"));
+        assert!(text.lines().any(|l| l == "ENV TZ=UTC"));
+        assert!(text.lines().any(|l| l == "ENV GIT_AUTHOR_NAME=x"));
+    }
+
+    #[test]
+    fn a_bad_merge_environment_is_refused_before_any_spawn() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, log) = fake_git(tmp.path(), "git version 2.39.5", "echo .git");
+        let repo = fake_repo(tmp.path(), program, true);
+        let d = deadline();
+        let cases: Vec<(bool, Vec<(&str, &str)>)> = vec![
+            (false, vec![("TZ", "UTC"), ("TZ", "UTC")]),
+            (true, vec![("GIT_OPTIONAL_LOCKS", "1")]),
+            (false, vec![("GIT_DIR", "/x")]),
+            (false, vec![("TZ", "U\nTC")]),
+        ];
+        for (read_only, extra) in cases {
+            let error = repo
+                .run_merge(&rev_parse(), &d, read_only, &extra)
+                .unwrap_err();
+            assert_eq!(code_of(error), "git_unavailable");
+        }
+        let error = repo.run_merge(&["push"], &d, false, &[]).unwrap_err();
+        assert_eq!(code_of(error), "git_unavailable");
+        assert!(!log.exists());
+    }
+
+    #[test]
+    fn only_a_merge_call_may_pass_the_exact_u_to_read_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, log) = fake_git(tmp.path(), "git version 2.39.5", "exit 0");
+        let repo = fake_repo(tmp.path(), program, true);
+        repo.run_merge(
+            &["read-tree", "-m", "-u", "a", "b"],
+            &deadline(),
+            false,
+            &[],
+        )
+        .unwrap();
+        assert!(log_of(&log).contains("read-tree -m -u a b"));
+        std::fs::remove_file(&log).unwrap();
+        assert!(repo
+            .run_root(&root_call(&["read-tree", "-m", "-u", "a", "b"], false))
+            .is_err());
+        assert!(repo
+            .run_root(&root_call(&["ls-remote", "-u", "x"], true))
+            .is_err());
+        assert!(repo
+            .run_merge(&["read-tree", "-ux"], &deadline(), false, &[])
+            .is_err());
+        assert!(repo
+            .run_merge(&["update-index", "-u"], &deadline(), false, &[])
+            .is_err());
+        assert!(!log.exists());
+    }
+
+    #[test]
+    fn merge_call_sets_the_limit_by_subcommand() {
+        for sub in ["merge-tree", "read-tree", "status", "ls-files"] {
+            assert_eq!(merge_call(&[sub]).timeout, Duration::from_secs(120));
+        }
+        let call = merge_call(&["rev-parse", "--git-dir"]);
+        assert_eq!(call.timeout, GIT_TIMEOUT);
+        assert_eq!(
+            call.config_env,
+            vec![("i18n.commitEncoding".to_string(), "UTF-8".to_string())]
+        );
+        assert!(!call.user_config && !call.network);
+    }
+
+    #[test]
+    fn run_merge_gives_a_tree_walk_more_than_the_ordinary_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, _) = fake_git(tmp.path(), "git version 2.39.5", "exit 0");
+        let repo = fake_repo(tmp.path(), program, true);
+        let started = Instant::now();
+        let out = repo
+            .run_merge(&["merge-tree", "a", "b"], &deadline(), true, &[])
+            .unwrap();
+        assert_eq!(out.code, 0);
+        assert!(started.elapsed() > GIT_TIMEOUT);
+    }
+
+    #[test]
+    fn git_too_old_follows_the_seams_and_the_probe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, log) = fake_git(tmp.path(), "git version 2.39.5", "echo .git");
+        let d = deadline();
+        let seams = |force, skip| GitSeams {
+            git_program: Some(program.clone()),
+            force_old_git: force,
+            skip_version_probe: skip,
+            ..GitSeams::default()
+        };
+        let repo = seamed(tmp.path(), seams(true, true));
+        assert!(repo.git_too_old(&d).unwrap());
+        let repo = seamed(tmp.path(), seams(false, true));
+        assert!(!repo.git_too_old(&d).unwrap());
+        assert!(!log.exists());
+        // Cached by a run_root call: no further --version.
+        let repo = seamed(tmp.path(), seams(false, false));
+        repo.run_root(&root_call(&rev_parse(), false)).unwrap();
+        let versions = |log: &Path| log_of(log).matches("CALL --version").count();
+        assert_eq!(versions(&log), 1);
+        assert!(!repo.git_too_old(&d).unwrap());
+        assert_eq!(versions(&log), 1);
+        // A fresh repository probes: 2.39.5 is new enough.
+        let repo = seamed(tmp.path(), seams(false, false));
+        assert!(!repo.git_too_old(&d).unwrap());
+        // A zero deadline is the timeout.
+        let repo = seamed(tmp.path(), seams(false, false));
+        let error = repo
+            .git_too_old(&Deadline::new(Duration::ZERO))
+            .unwrap_err();
+        assert_eq!(code_of(error), "timeout");
+    }
+
+    #[test]
+    fn a_too_old_git_is_never_cached_as_good() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, _) = fake_git(tmp.path(), "git version 2.38.1", "echo .git");
+        let repo = fake_repo(tmp.path(), program, false);
+        assert!(repo.git_too_old(&deadline()).unwrap());
+        let error = repo.run_root(&root_call(&rev_parse(), false)).unwrap_err();
+        assert_eq!(code_of(error), "git_unavailable");
+        assert!(repo.git_too_old(&deadline()).unwrap());
+    }
+
+    #[test]
+    fn an_unreadable_version_is_git_unavailable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, _) = fake_git(tmp.path(), "x", "exit 1");
+        let repo = fake_repo(tmp.path(), program, false);
+        // `--version` prints junk with exit 0 here; a failing probe is covered by the exit-1 script below.
+        assert_eq!(
+            code_of(repo.git_too_old(&deadline()).unwrap_err()),
+            "git_unavailable"
+        );
+        let failing = tmp.path().join("failing-git");
+        std::fs::write(&failing, "#!/bin/sh\nexit 1\n").unwrap();
+        Cmd::new("chmod").arg("755").arg(&failing).status().unwrap();
+        let repo = fake_repo(tmp.path(), failing, false);
+        assert_eq!(
+            code_of(repo.git_too_old(&deadline()).unwrap_err()),
+            "git_unavailable"
+        );
+    }
+
+    /// Real git for the identity tests; older than 2.39 fails unless `CAPSTAN_ALLOW_OLD_GIT=1`, which skips them.
+    fn real_git_is_new_enough() -> bool {
+        let out = Cmd::new("git").arg("--version").output().expect("git runs");
+        let version = parse_git_version(&utf8(&out.stdout));
+        if version.is_some_and(|version| version >= MIN_GIT) {
+            return true;
+        }
+        assert!(
+            std::env::var("CAPSTAN_ALLOW_OLD_GIT").is_ok_and(|value| value == "1"),
+            "git is older than 2.39; set CAPSTAN_ALLOW_OLD_GIT=1 to skip these tests"
+        );
+        false
+    }
+
+    struct RealFx {
+        tmp: tempfile::TempDir,
+        root: PathBuf,
+        global: PathBuf,
+    }
+
+    fn real_fx() -> RealFx {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let fx = RealFx {
+            global: home.join("gitconfig"),
+            tmp,
+            root,
+        };
+        fx.git(&["init", "-q"]);
+        fx
+    }
+
+    impl RealFx {
+        fn git(&self, args: &[&str]) {
+            let out = Cmd::new("git")
+                .arg("-C")
+                .arg(&self.root)
+                .args(args)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", utf8(&out.stderr));
+        }
+        fn global(&self, args: &[&str]) {
+            let out = Cmd::new("git")
+                .args(["config", "--file"])
+                .arg(&self.global)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{}", utf8(&out.stderr));
+        }
+        fn repo(&self) -> GitRepo {
+            let home = self.tmp.path().join("home").to_string_lossy().into_owned();
+            seamed(
+                &self.root,
+                GitSeams {
+                    forward_env: Some(vec![
+                        ("HOME".into(), home),
+                        (
+                            "GIT_CONFIG_GLOBAL".into(),
+                            self.global.to_string_lossy().into_owned(),
+                        ),
+                        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+                    ]),
+                    ..GitSeams::default()
+                },
+            )
+        }
+        fn value(&self, key: &str) -> Option<String> {
+            self.repo().identity_value(key, &deadline()).unwrap()
+        }
+    }
+
+    #[test]
+    fn identity_is_read_from_the_scopes_git_commit_reads() {
+        if !real_git_is_new_enough() {
+            return;
+        }
+        let fx = real_fx();
+        assert_eq!(fx.value("user.name"), None);
+        fx.global(&["user.name", "Global Name"]);
+        fx.global(&["user.email", "g@example.com"]);
+        assert_eq!(fx.value("user.name").as_deref(), Some("Global Name"));
+        assert_eq!(
+            fx.repo().strict_identity(&deadline()).unwrap(),
+            Some(("Global Name".into(), "g@example.com".into()))
+        );
+        fx.git(&["config", "extensions.worktreeConfig", "true"]);
+        fx.git(&["config", "--worktree", "user.name", "Tree Name"]);
+        assert_eq!(fx.value("user.name").as_deref(), Some("Tree Name"));
+    }
+
+    #[test]
+    fn a_value_git_cannot_use_as_an_ident_is_no_identity() {
+        if !real_git_is_new_enough() {
+            return;
+        }
+        let fx = real_fx();
+        for bad in ["A <b", "a>b", "A\nB", ".", " ,; ", ""] {
+            fx.global(&["--replace-all", "user.name", bad]);
+            assert_eq!(fx.value("user.name"), None, "{bad:?}");
+        }
+        fx.global(&["--replace-all", "user.name", "A"]);
+        fx.global(&["--add", "user.name", ""]);
+        assert_eq!(fx.value("user.name"), None, "the last value wins");
+        fx.global(&["--add", "user.name", "B"]);
+        assert_eq!(fx.value("user.name").as_deref(), Some("B"));
+        assert_eq!(fx.repo().strict_identity(&deadline()).unwrap(), None);
+    }
+
+    #[test]
+    fn identity_reads_fail_loudly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (program, _) = fake_git(
+            tmp.path(),
+            "git version 2.39.5",
+            "head -c 5000 /dev/zero | tr '\\0' a",
+        );
+        let repo = fake_repo(tmp.path(), program, true);
+        let error = repo.identity_value("user.name", &deadline()).unwrap_err();
+        assert_eq!(code_of(error), "output_too_large");
+        let (program, _) = fake_git(tmp.path(), "git version 2.39.5", "exit 2");
+        let repo = fake_repo(tmp.path(), program, true);
+        let error = repo.identity_value("user.name", &deadline()).unwrap_err();
+        assert_eq!(code_of(error), "git_unavailable");
+    }
+
     #[test]
     fn the_version_is_the_first_x_y_after_git_version() {
         assert_eq!(
@@ -3359,5 +4579,262 @@ mod root_runner_tests {
             Some((2, 43))
         );
         assert_eq!(parse_git_version("something else"), None);
+    }
+
+    #[test]
+    fn parse_merge_tree_reads_the_tree_and_the_paths() {
+        let tree = "0123456789abcdef0123456789abcdef01234567";
+        let mut out = format!("{tree}\0a b\0n\nl\0").into_bytes();
+        let want = (tree.to_string(), vec![b"a b".to_vec(), b"n\nl".to_vec()]);
+        assert_eq!(parse_merge_tree(&out), Some(want.clone()));
+        out.pop();
+        assert_eq!(parse_merge_tree(&out), Some(want.clone()));
+        out.extend_from_slice(b"\0\0");
+        assert_eq!(parse_merge_tree(&out), Some(want));
+        assert_eq!(parse_merge_tree(format!("{tree}\0").as_bytes()), None);
+        assert_eq!(parse_merge_tree(tree.as_bytes()), None);
+        assert_eq!(parse_merge_tree(b"\0a\0"), None);
+        assert_eq!(parse_merge_tree(b"nothex\0a\0"), None);
+        assert_eq!(parse_merge_tree(b""), None);
+    }
+
+    #[test]
+    fn a_commit_id_is_forty_lowercase_hex_digits() {
+        assert!(is_commit_id(&"a1".repeat(20)));
+        assert!(!is_commit_id(&"A1".repeat(20)));
+        assert!(!is_commit_id(&"a".repeat(39)));
+        assert!(!is_commit_id(&"g".repeat(40)));
+    }
+}
+
+#[cfg(test)]
+mod ignored_check_tests {
+    use super::*;
+    use std::os::unix::ffi::OsStrExt;
+    use std::process::Command as Cmd;
+
+    fn paths(items: &[&str]) -> Vec<Vec<u8>> {
+        items.iter().map(|item| item.as_bytes().to_vec()).collect()
+    }
+
+    fn specs_of(chunks: &[PathspecChunk]) -> Vec<&str> {
+        chunks
+            .iter()
+            .flat_map(|chunk| chunk.specs.iter().map(String::as_str))
+            .collect()
+    }
+
+    #[test]
+    fn every_entry_is_a_literal_pathspec_of_a_path_or_parent() {
+        let chunks = ignored_check_pathspecs(&paths(&["a/b.rs", "c"]), &paths(&["d"]), false);
+        assert_eq!(
+            specs_of(&chunks),
+            vec![":(literal)a/b.rs", ":(literal)c", ":(literal)d"]
+        );
+        assert!(chunks.iter().all(|chunk| !chunk.fallback));
+        let chunks = ignored_check_pathspecs(&paths(&["a/b.rs"]), &paths(&["D"]), true);
+        assert_eq!(
+            specs_of(&chunks),
+            vec![":(icase,literal)D", ":(icase,literal)a/b.rs"]
+        );
+    }
+
+    #[test]
+    fn many_paths_make_chunks_of_at_most_1000() {
+        let names: Vec<Vec<u8>> = (0..2500).map(|n| format!("f{n:05}").into_bytes()).collect();
+        let chunks = ignored_check_pathspecs(&names, &[], false);
+        assert_eq!(chunks.len(), 3);
+        assert!(chunks.iter().all(|chunk| chunk.specs.len() <= 1000));
+        assert_eq!(
+            chunks.iter().map(|chunk| chunk.specs.len()).sum::<usize>(),
+            2500
+        );
+    }
+
+    #[test]
+    fn long_paths_make_chunks_of_at_most_64_kib() {
+        let names: Vec<Vec<u8>> = (0..1000)
+            .map(|n| format!("{n:04}{}", "x".repeat(3996)).into_bytes())
+            .collect();
+        let chunks = ignored_check_pathspecs(&names, &[], false);
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            let bytes: usize = chunk.specs.iter().map(String::len).sum();
+            assert!(bytes <= 64 * 1024, "{bytes}");
+        }
+        assert_eq!(
+            chunks.iter().map(|chunk| chunk.specs.len()).sum::<usize>(),
+            1000
+        );
+    }
+
+    #[test]
+    fn empty_inputs_make_no_chunk() {
+        assert!(ignored_check_pathspecs(&[], &[], false).is_empty());
+        assert!(ignored_check_pathspecs(&[], &[], true).is_empty());
+    }
+
+    #[test]
+    fn a_newline_gives_the_parent_and_fallback() {
+        let chunks = ignored_check_pathspecs(&paths(&["dir/sub/a\nb"]), &[], false);
+        assert_eq!(
+            chunks,
+            vec![PathspecChunk {
+                specs: vec![":(literal)dir/sub".to_string()],
+                fallback: true
+            }]
+        );
+        let chunks = ignored_check_pathspecs(&paths(&["Dir/a\nb"]), &[], true);
+        assert_eq!(specs_of(&chunks), vec![":(icase,literal)Dir"]);
+        assert!(chunks[0].fallback);
+    }
+
+    #[test]
+    fn a_top_level_non_utf8_path_gives_the_plain_dot() {
+        let chunks = ignored_check_pathspecs(&[b"caf\xe9".to_vec()], &[], true);
+        assert_eq!(
+            chunks,
+            vec![PathspecChunk {
+                specs: vec![".".to_string()],
+                fallback: true
+            }]
+        );
+        let chunks =
+            ignored_check_pathspecs(&[b"ok/caf\xe9".to_vec(), b"fine".to_vec()], &[], false);
+        assert_eq!(chunks.len(), 2);
+        assert!(!chunks[0].fallback && chunks[1].fallback);
+        assert_eq!(chunks[1].specs, vec![":(literal)ok".to_string()]);
+    }
+
+    // ------------------------------------------------------------------ fake git
+
+    fn fake(dir: &Path, diff: &str, config: &str, listing: &str) -> GitRepo {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("fake-git-ignored");
+        let body = format!(
+            "#!/bin/sh\ncase \" $* \" in\n  *\" --version \"*) echo 'git version 2.39.5';;\n  \
+             *\" config \"*) {config};;\n  *\" diff-tree \"*) {diff};;\n  *\" ls-files \"*) {listing};;\n  *) exit 0;;\nesac\n"
+        );
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut repo = GitRepo::new(dir);
+        repo.seams = GitSeams {
+            git_program: Some(script),
+            skip_version_probe: true,
+            ..GitSeams::default()
+        };
+        repo
+    }
+
+    const OK_CONFIG: &str = "echo false";
+    const HUGE: &str = "head -c 17825792 /dev/zero | tr '\\0' 'a'";
+
+    fn deadline() -> Deadline {
+        Deadline::new(Duration::from_secs(60))
+    }
+
+    fn code_of(error: IntegrateError) -> String {
+        match error {
+            IntegrateError::Integration { code, .. } => code,
+            other => panic!("expected an integration error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_listing_over_the_cap_is_dirty_tree_for_exact_pathspecs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = fake(tmp.path(), "printf 'a.txt\\0'", OK_CONFIG, HUGE);
+        let refusal = repo
+            .ignored_refusal("old", "new", &deadline())
+            .unwrap()
+            .expect("refused");
+        assert_eq!(refusal.code(), "dirty_tree");
+        assert_eq!(refusal.files(), [ENTRY_WOULD_OVERWRITE]);
+    }
+
+    #[test]
+    fn a_listing_over_the_cap_for_a_fallback_pathspec_is_an_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = fake(tmp.path(), "printf 'caf\\351\\0'", OK_CONFIG, HUGE);
+        let error = repo
+            .ignored_refusal("old", "new", &deadline())
+            .expect_err("too large");
+        assert_eq!(code_of(error), "output_too_large");
+    }
+
+    #[test]
+    fn a_failing_config_or_diff_tree_is_git_unavailable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = fake(tmp.path(), "exit 0", "exit 2", "exit 0");
+        let error = repo
+            .ignored_refusal("o", "n", &deadline())
+            .expect_err("config");
+        assert_eq!(code_of(error), "git_unavailable");
+        let repo = fake(tmp.path(), "exit 128", OK_CONFIG, "exit 0");
+        let error = repo
+            .ignored_refusal("o", "n", &deadline())
+            .expect_err("diff");
+        assert_eq!(code_of(error), "git_unavailable");
+    }
+
+    // ------------------------------------------------------------------ real git
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = Cmd::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn a_top_level_non_utf8_changed_path_with_an_ignored_file_is_dirty_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["config", "--local", "user.name", "T"]);
+        git(&root, &["config", "--local", "user.email", "t@t"]);
+        std::fs::write(root.join("a.txt"), "base\n").unwrap();
+        std::fs::write(root.join(".gitignore"), "*.o\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-q", "-m", "base"]);
+        git(&root, &["checkout", "-q", "-b", "topic"]);
+        let name = std::ffi::OsStr::from_bytes(b"caf\xe9.o");
+        std::fs::write(root.join(name), "side\n").unwrap();
+        git(&root, &["add", "-f", "-A"]);
+        git(&root, &["commit", "-q", "-m", "topic"]);
+        let head = git(&root, &["rev-parse", "HEAD"]);
+        git(&root, &["checkout", "-q", "main"]);
+        std::fs::write(root.join(name), "local\n").unwrap();
+        let mut repo = GitRepo::new(&root);
+        repo.seams = GitSeams {
+            forward_env: Some(vec![
+                ("HOME".into(), home.to_string_lossy().into_owned()),
+                ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+            ]),
+            ..GitSeams::default()
+        };
+        match repo
+            .root_merge_preflight("main", &head, Duration::from_secs(60))
+            .unwrap()
+        {
+            Preflight::Refused(refusal) => {
+                assert_eq!(refusal.code(), "dirty_tree");
+                assert_eq!(refusal.files().len(), 1);
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
     }
 }
