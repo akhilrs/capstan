@@ -12,10 +12,13 @@ struct AgentListRow: View {
             HStack(alignment: .firstTextBaseline, spacing: Tokens.space[1]) {
                 Text(verbatim: row.agentId).font(TypeStyle.headline)
                 Text(verbatim: row.role).font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2))
+                    .lineLimit(1)
+                    .layoutPriority(-1)
                 Spacer(minLength: Tokens.space[1])
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     StatePill(word: pillWord(now: context.date), symbol: row.healthSymbol, tone: AgentTone.tone(row.health))
                 }
+                .fixedSize()
             }
             secondLine
         }
