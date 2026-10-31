@@ -1,5 +1,6 @@
 import CapstanAppCore
 import CapstanKit
+import CapstanPhoneCore
 import SwiftUI
 
 /// Settings → Notifications (board 14): the kinds that make a notification, the default sound and a sound per kind,
