@@ -27,10 +27,20 @@ enum PreviewData {
     }
 
     private static func waiting(
-        _ key: String, kind: String, summary: String, hash: String, needsTerminal: Bool = false
+        _ key: String, kind: String, summary: String, hash: String, needsTerminal: Bool = false, extra: String = ""
     ) -> String {
         "\"\(key)\":{\"key\":\"\(key)\",\"requestId\":\"req-\(hash)\",\"kind\":\"\(kind)\",\"since\":\"2026-10-29T08:00:00Z\","
-            + "\"summary\":\(summary),\"contentHash\":\"\(hash)\",\"needsTerminal\":\(needsTerminal)}"
+            + "\"summary\":\(summary),\"contentHash\":\"\(hash)\",\"needsTerminal\":\(needsTerminal)\(extra)}"
+    }
+
+    /// The latest event of a waiting key; `body` holds the event's members without the braces.
+    private static func detail(_ key: String, type: String, seq: Int, body: String) -> String {
+        "\"\(key)\":{\"key\":\"\(key)\",\"eventType\":\"\(type)\",\"seq\":\(seq),\"body\":{\"effects\":[],\(body)}}"
+    }
+
+    private static func json(_ raw: String) -> String {
+        "\"" + raw.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n") + "\""
     }
 
     private static func agent(_ id: String, role: String, state: String, paused: Bool = false, task: String? = "Write the shared views") -> String {
@@ -72,19 +82,45 @@ enum PreviewData {
         decoded = 0
         let long = text(String(repeating: "0123456789abcdef", count: 256), truncated: true)
         let unverified = text("", verified: false)
-        let promptDetail = "\"waiting-prompt\":{\"key\":\"waiting-prompt\",\"eventType\":\"prompt.waiting\",\"seq\":7,\"body\":"
-            + "{\"relayId\":\"r1\",\"agentId\":\"dev-needs\",\"state\":\"waiting\",\"text\":\"Allow edits to Package.swift?\","
-            + "\"options\":[{\"number\":1,\"text\":\"Yes\",\"acceptsText\":false,\"widensPermissions\":false},"
-            + "{\"number\":2,\"text\":\"Yes, and do not ask again\",\"acceptsText\":false,\"widensPermissions\":true}],"
-            + "\"textVerified\":true}}"
+        let longCommand = "cstan plan approve plan-8 && for f in $(git ls-files '*.swift'); do swift-format -i \"$f\"; done "
+            + String(repeating: "&& git commit -am \"format\" ", count: 200)
+        let details = [
+            detail("waiting-op", type: "operator.proposed", seq: 3, body:
+                "\"proposalId\":\"op-14\",\"kind\":\"command\",\"state\":\"proposed\",\"command\":\(json("git push origin feat/plan-92"))"),
+            detail("waiting-prompt", type: "prompt.waiting", seq: 7, body:
+                "\"relayId\":\"r1\",\"agentId\":\"dev-needs\",\"state\":\"waiting\","
+                    + "\"text\":\(json("Bash command\nrm -rf build/ && npm run build\nDo you want to proceed?")),"
+                    + "\"options\":[{\"number\":1,\"text\":\"Yes\",\"acceptsText\":false,\"widensPermissions\":false},"
+                    + "{\"number\":2,\"text\":\"Yes, and don't ask again for rm commands in this project\",\"acceptsText\":false,\"widensPermissions\":true},"
+                    + "{\"number\":3,\"text\":\"No, and tell the agent what to do differently\",\"acceptsText\":true,\"widensPermissions\":false}],"
+                    + "\"textVerified\":true"),
+            detail("waiting-prompt-terminal", type: "prompt.waiting", seq: 8, body:
+                "\"relayId\":\"r2\",\"agentId\":\"dev-working\",\"state\":\"waiting\","
+                    + "\"text\":\(json("Edit file\nsrc/billing/ledger.rs\nDo you want to make this edit?")),"
+                    + "\"options\":[{\"number\":1,\"text\":\"Yes, allow all edits during this session\",\"acceptsText\":false,\"widensPermissions\":true},"
+                    + "{\"number\":2,\"text\":\"No, and tell the agent what to do differently\",\"acceptsText\":true,\"widensPermissions\":false}]"),
+            detail("waiting-design", type: "design.decided", seq: 9, body:
+                "\"planId\":\"plan-8\",\"packageId\":\"onboarding\",\"reportId\":\"r-31\",\"decision\":\"pending\","
+                    + "\"link\":\"https://claude.ai/artifact/7Qe-example-Lm2\""),
+            detail("waiting-message", type: "message.sent", seq: 10, body:
+                "\"messageId\":\"m-4\",\"recipientAgentId\":\"pm-1\",\"state\":\"sent\","
+                    + "\"body\":\(json("Two packages are blocked on the staging database credentials. Which environment should the integration tests use?"))"),
+            detail("waiting-long", type: "operator.proposed", seq: 11, body:
+                "\"proposalId\":\"op-15\",\"kind\":\"command\",\"state\":\"proposed\",\"command\":\(json(longCommand)),\"truncated\":true"),
+            detail("waiting-bad-op", type: "operator.proposed", seq: 12, body:
+                "\"proposalId\":\"op-16\",\"kind\":\"command\",\"state\":\"proposed\",\"command\":\"\",\"textVerified\":false"),
+        ].joined(separator: ",")
         let alphaWaiting = [
-            waiting("waiting-op", kind: "op", summary: text("git push origin feat/plan-92"), hash: "a1"),
-            waiting("waiting-prompt", kind: "prompt", summary: text("Allow edits to Package.swift?"), hash: "a2"),
-            waiting("waiting-design", kind: "design", summary: text("Approve the Mac app design"), hash: "a3"),
-            waiting("waiting-message", kind: "message", summary: text("Which target should the merge use?"), hash: "a4"),
-            waiting("waiting-merge", kind: "integration", summary: text("feat/plan-92 is ready to merge"), hash: "a5"),
-            waiting("waiting-long", kind: "op", summary: long, hash: "a6", needsTerminal: true),
-            waiting("waiting-unverified", kind: "message", summary: unverified, hash: "a7"),
+            waiting("waiting-op", kind: "op", summary: text("git push origin feat/plan-92"), hash: "a1a1a1a1a1a1"),
+            waiting("waiting-prompt", kind: "prompt", summary: text("Allow edits to Package.swift?"), hash: "a2a2a2a2a2a2"),
+            waiting("waiting-design", kind: "design", summary: text("Approve the Mac app design"), hash: "a3a3a3a3a3a3"),
+            waiting("waiting-message", kind: "message", summary: text("Which target should the merge use?"), hash: "a4a4a4a4a4a4"),
+            waiting("waiting-prompt-terminal", kind: "prompt", summary: text("Edit src/billing/ledger.rs?"), hash: "a8a8a8a8a8a8"),
+            waiting("waiting-merge", kind: "integration", summary: text("merged integration/plan-12"), hash: "a5a5a5a5a5a5",
+                extra: ",\"integrationState\":\"merged\",\"branch\":\(text("integration/plan-12")),\"headSha\":\"7c41e9a02d5f\""),
+            waiting("waiting-bad-op", kind: "op", summary: text("swift-format the sources"), hash: "a9a9a9a9a9a9"),
+            waiting("waiting-long", kind: "op", summary: long, hash: "a6a6a6a6a6a6", needsTerminal: true),
+            waiting("waiting-unverified", kind: "message", summary: unverified, hash: "a7a7a7a7a7a7"),
         ].joined(separator: ",")
         let agents = [
             agent("dev-working", role: "developer", state: "active"),
@@ -103,7 +139,7 @@ enum PreviewData {
         ].joined(separator: ",")
         let alphaProjects = [
             project("capstan", root: "/work/capstan", availability: "ready", waiting: alphaWaiting, agents: agents,
-                plans: plans, details: promptDetail, attention: "\"dev-stalled\":\"stalled\""),
+                plans: plans, details: details, attention: "\"dev-stalled\":\"stalled\""),
             project("notes", root: "/work/notes", availability: "no_key"),
             project("site", root: "/work/site", availability: "silent"),
         ].joined(separator: ",")
