@@ -125,8 +125,9 @@ A client that has no state for a project builds it like this:
 
 1. Take the snapshot head: `feed snapshot` answers `{epoch, head, anchor, run}`. `head` is `H`; `anchor` is the history
    anchor of `H` (section 3), `null` when `H` is 0.
-2. Read every page of `waiting`, `agents` and `plans` (`feed waiting|agents|plans`, following `next` until it is
-   `null`). Each page is read at its own head, which may be newer than `H`. The run item comes with the snapshot head.
+2. Read every page of `waiting`, `agents`, `plans` and `messages` (`feed waiting|agents|plans|messages`, following
+   `next` until it is `null`). A host older than `messages` refuses `feed messages` with `invalid_request`; the client
+   goes on without that section. Each page is read at its own head, which may be newer than `H`. The run item comes with the snapshot head.
 3. Read the events after `H`: `feed page --after H:0` and on, until `hasMore` is false.
 4. Apply the events in order. An item that changed after `H` may be in a page and also in an event; the client
    de-duplicates by item key, and the latest read of an item wins.
@@ -141,6 +142,23 @@ A `feed page` answer is `{projectId, epoch, head, anchorOk, ahead, events, scann
 `scanned` is the last position examined (an event returned or a row skipped) and is where the next `--after` stands;
 `anchor` is the history anchor of `scanned.seq`, read in the same call as the page, `null` when that sequence is 0 or
 the ledger lacks it (it is the `--anchor` of the next page); `rowsRead` is diagnostic.
+
+### Messages to the user
+
+An agent sends the user a message with `cstan send [--action|--info] @user <text>` (at most 4096 bytes; the agents of a
+project send at most 60 an hour, the next is refused with `limit_reached`; a caller that is not an active agent is
+refused with `not_an_agent`). `--action` asks a question: it is `open` and waits in `waiting` as kind `message` until
+the user answers it with `message reply` (section 11). Without `--action` it is `info`.
+
+`feed messages [--after <key>] [--limit <n>]` lists the latest 200 messages to the user, oldest first. An item is
+`{key, messageId, sequence, senderAgentId, class, state, body, truncated, createdAt, answeredAt, requestId}`: `class`
+is `action` or `info`, `state` is `open`, `answered` or `info`, `body` is cleaned and cut at 1024 bytes (`truncated`),
+and `requestId` is `message:<messageId>`, the request id of the waiting item while the message is open. The waiting
+item's `summary` is the body and its `contentHash` is the SHA-256 of the canonical JSON of `{id, body}`.
+
+Sending writes a `snapshot.invalidated` event for the item in `messages` and, for a question, its item in `waiting`. A
+`decision.remote` on a `message:` request also invalidates the item in `messages`. The body is the agent's text: a
+client shows it as plain text, never as a link or rich text, and never in a notification.
 
 ### Recent history
 
@@ -175,17 +193,18 @@ Item keys come from `KEY_KINDS`, in sort order:
 | `waiting` | `op` | `op:<n>` | `operator_proposals.sequence` |
 | `waiting` | `prompt` | `prompt:<n>` | `prompt_relays.sequence` |
 | `waiting` | `design` | `design:<plan sequence>/<packageId>` | `plans.sequence/plan_packages.package_id` |
-| `waiting` | `message` | `message:<n>` | `messages.sequence` |
+| `waiting` | `message` | `message:<n>` | `user_messages.sequence` |
 | `waiting` | `integration` | `integration:<n>` | `integrations.sequence` |
 | `agents` | `agent` | the agent id | `agents.agent_id` |
 | `run` | `run` | `run` | none |
 | `plans` | `plan` | the plan sequence | `plans.sequence` |
+| `messages` | `message` | the message sequence | `user_messages.sequence` |
 
 `<n>` is a decimal number without padding. A key that is only a kind name (`message`, `design`, `plan`) is not an item
 key: it asks the client to re-read every item of that kind.
 
 Effects: every event has `body.effects`, a list of `{section, op, key, fields}` for the sections `waiting`,
-`agents`, `plans` and `run`. `op` is:
+`agents`, `plans`, `messages` and `run`. `op` is:
 
 - `upsert`: set the item `key` of `section` to include `fields`. It is used only for facts fixed when the ledger row is
   written (a registered agent); a client that holds the item merges `fields` into it. One ordered group is also
@@ -533,9 +552,11 @@ PM is told not to act on, and an applied decision on the request ends the forwar
 
 Some answers are not made remotely and are refused with `needs_terminal`: a text answer to a prompt, an option that
 widens permissions or accepts typed text, a prompt with no option that can be answered remotely, a `--session` or
-`--window` grant on `op approve` or on a prompt, and a `message reply` to a message whose recipient is not the active PM.
-A reply goes only to the PM, as a message with the text marked as untrusted. It does not acknowledge the message it
-answers: that message stays pending until its recipient acknowledges it.
+`--window` grant on `op approve` or on a prompt.
+
+A `message reply` answers an open question an agent sent the user (section 4, Messages to the user). The answer goes to
+that agent as an action message with the text marked as untrusted, quoting the question (cut at 600 bytes), and the
+question becomes `answered`. A question whose agent is no longer active is refused with `not_waiting`.
 
 ### Merge
 

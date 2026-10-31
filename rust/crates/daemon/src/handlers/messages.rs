@@ -184,6 +184,9 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             "a message body must not contain a line that looks like a Capstan message frame",
         ));
     }
+    if target == "@user" {
+        return Some(send_to_user(env, call, body, action_flag));
+    }
     if target != "@pm" && !is_safe_agent_id(&target) {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -272,6 +275,32 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         )?;
         Ok(ok(json!({"messageId": queued["messageId"]})))
     })
+}
+
+/// `send [--action|--info] @user <text>`: an agent sends the user a message for the remote clients. `--action` asks the
+/// user something (it waits in the waiting list until answered); otherwise it is info.
+fn send_to_user(
+    env: &CommandEnv<'_>,
+    call: &CommandCall<'_>,
+    body: String,
+    action: bool,
+) -> CommandResponse {
+    if call.identity.agent.is_none() {
+        return fail(
+            ErrorCode::InvalidRequest,
+            "only an agent sends the user a message",
+        );
+    }
+    let credential = call.credential.to_string();
+    on_kernel(env, move |core| {
+        let context = new_context(core, &credential)?;
+        let sent = core.send_to_user(
+            &context,
+            &json!({"body": body, "class": if action { "action" } else { "info" }}),
+        )?;
+        Ok(ok(json!({"messageId": sent["messageId"], "sequence": sent["sequence"]})))
+    })
+    .unwrap_or_else(|| fail(ErrorCode::InvalidRequest, "the controller is not answering"))
 }
 
 fn resolve(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {

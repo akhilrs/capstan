@@ -22,6 +22,7 @@ mod restart_summary;
 mod role_limit;
 mod snapshot_feed;
 mod timed_grants;
+mod user_messages;
 mod verify_runs;
 mod warm_reviewers;
 mod write_once;
