@@ -2,7 +2,7 @@
 //! step needs an exit code git does not give on demand.
 
 use capstan_kernel::integrate::{
-    GitRepo, GitSeams, IntegrateError, Preflight, ENTRY_DETACHED_HEAD, ENTRY_UNBORN_HEAD,
+    GitRepo, GitSeams, IntegrateError, Preflight, RootMerge, ENTRY_DETACHED_HEAD, ENTRY_UNBORN_HEAD,
     ENTRY_UNRELATED_HISTORIES,
 };
 use std::os::unix::fs::PermissionsExt;
@@ -675,4 +675,101 @@ fn merge_target_reads_origin_head_through_the_pins() {
         ],
     );
     assert_eq!(fx.repo().merge_target(None).unwrap(), Some("dev".into()));
+}
+
+// ------------------------------------------------------------------------------- a merge into another branch (--into)
+
+const T: Duration = Duration::from_secs(30);
+
+#[test]
+fn merge_into_ref_moves_only_the_branch_and_leaves_the_checkout_and_its_changes() {
+    let fx = Fx::new(true);
+    git(&fx.root, &["branch", "develop"]);
+    let head = fx.side_branch("integration/x", "b.txt", "b\n");
+    // A change in the checkout (on main) does not matter: no working tree is touched.
+    write(&fx.root, "a.txt", "edited\n");
+    let main_before = fx.sha("main");
+    let merged = fx
+        .repo()
+        .merge_into_ref("develop", "integration/x", &head, T)
+        .unwrap();
+    let RootMerge::Merged { commit } = merged else {
+        panic!("{merged:?}")
+    };
+    assert_eq!(fx.sha("develop"), commit);
+    assert_eq!(fx.sha("develop^2"), head);
+    assert_eq!(fx.sha("main"), main_before);
+    assert_eq!(std::fs::read_to_string(fx.root.join("a.txt")).unwrap(), "edited\n");
+    assert_eq!(git_out(&fx.root, &["symbolic-ref", "--short", "HEAD"]), "main");
+    assert!(fx.repo().is_in_branch(&head, "develop", T).unwrap());
+    assert!(!fx.repo().is_in_branch(&head, "main", T).unwrap());
+    // Again: already in the branch.
+    assert_eq!(
+        fx.repo()
+            .merge_into_ref("develop", "integration/x", &head, T)
+            .unwrap(),
+        RootMerge::AlreadyInHead
+    );
+}
+
+#[test]
+fn merge_into_ref_refuses_a_branch_in_a_worktree_a_missing_one_and_conflicts() {
+    let fx = Fx::new(true);
+    let head = fx.side_branch("integration/x", "a.txt", "theirs\n");
+    // A branch checked out in another worktree (a worker's) is not a target.
+    git(&fx.root, &["branch", "worker"]);
+    let other = fx.tmp.path().join("wt");
+    git(
+        &fx.root,
+        &["worktree", "add", "-q", other.to_str().unwrap(), "worker"],
+    );
+    let code = |merged: RootMerge| match merged {
+        RootMerge::Refused(refusal) => serde_json::to_value(&refusal).unwrap()["code"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+        other => panic!("{other:?}"),
+    };
+    let repo = fx.repo();
+    assert_eq!(
+        code(repo.merge_into_ref("worker", "integration/x", &head, T).unwrap()),
+        "wrong_branch"
+    );
+    assert_eq!(
+        code(repo.merge_into_ref("nope", "integration/x", &head, T).unwrap()),
+        "invalid_branch"
+    );
+    assert_eq!(
+        code(repo.merge_into_ref("integration/x", "integration/x", &head, T).unwrap()),
+        "invalid_branch"
+    );
+    // A conflicting change on the target: refused, the branch does not move.
+    git(&fx.root, &["branch", "develop"]);
+    git(&fx.root, &["checkout", "-q", "develop"]);
+    write(&fx.root, "a.txt", "ours\n");
+    commit_all(&fx.root, "ours");
+    git(&fx.root, &["checkout", "-q", "main"]);
+    let before = fx.sha("develop");
+    assert_eq!(
+        code(repo.merge_into_ref("develop", "integration/x", &head, T).unwrap()),
+        "merge_conflict"
+    );
+    assert_eq!(fx.sha("develop"), before);
+}
+
+#[test]
+fn merge_targets_lists_the_checkout_and_free_branches_only() {
+    let fx = Fx::new(true);
+    git(&fx.root, &["branch", "develop"]);
+    git(&fx.root, &["branch", "release/1"]);
+    git(&fx.root, &["branch", "integration/x"]);
+    git(&fx.root, &["branch", "worker"]);
+    let other = fx.tmp.path().join("wt");
+    git(
+        &fx.root,
+        &["worktree", "add", "-q", other.to_str().unwrap(), "worker"],
+    );
+    let targets = fx.repo().merge_targets(T).unwrap();
+    assert_eq!(targets.checked_out.as_deref(), Some("main"));
+    assert_eq!(targets.branches, ["develop", "main", "release/1"]);
 }

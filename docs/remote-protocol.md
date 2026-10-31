@@ -569,6 +569,20 @@ branch, as the daemon of the project and never through a terminal. It is `applie
 configuration allows it (`[remote] merge = true`, with `merge_branch` naming the branch or the remote's default branch);
 it never pushes. The gates answer in this order, each with its refusal:
 
+`integration merge --into <branch>` merges into another local branch instead, chosen by the person. A branch that is
+checked out in the project's root is merged as above. Any other branch is merged without touching a working tree:
+`git merge-tree` writes the merged tree, `git commit-tree` the merge commit, and `git update-ref` moves the branch only if
+it still points where it did, so `dirty_tree` cannot happen there and a change in the checkout does not stop it. A branch
+checked out in another worktree (a worker's) is `wrong_branch`; an integration branch or a branch that does not exist is
+`invalid_branch`. Without `--into` nothing changes: the merge goes into `merge_branch` (else the remote's default
+branch), which must be the checked-out one.
+
+`cstan merge-targets --project <root|projectId> [--json]` (the daemon route `decide-merge targets`) lists what `--into`
+may name and changes nothing: `{enabled, defaultBranch, checkedOut, branches}`. `enabled` is `[remote] merge`;
+`defaultBranch` is where a merge without `--into` goes (`null` when merging is off or no default is known); `checkedOut`
+is the root's branch (`null` on a detached HEAD); `branches` are the local branches, sorted, without integration branches
+and without branches checked out in another worktree.
+
 | code | meaning |
 |---|---|
 | `merge_disabled` | merging from a remote client is not enabled for this project |
@@ -589,13 +603,13 @@ it never pushes. The gates answer in this order, each with its refusal:
 | `git_unavailable` | git could not be run |
 | `merge_unrecorded` | the merge was made but its decision could not be recorded; the same call again records it |
 
-A merge that was made adds `merge` to the result: the integration and branch, the merge commit (`null` when the head was
+A merge that was made adds `merge` to the result: the integration and branch, `into` (the branch merged into), the merge commit (`null` when the head was
 already in the project's branch, `alreadyInHead` true), the verify state (`passed` with its run, or `not_configured`),
 the cleanup of the merged branch (`scheduled`, or `null` when cleanup is off) and `push`, which is always `disabled`.
 The member as it appears in the result (the other fields are those of Result below):
 
 ```
-{"merge":{"integrationId":"int-7","branch":"integration/plan-3","mergeCommit":"9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e","alreadyInHead":false,"verify":{"state":"passed","runId":"verify-12"},"cleanup":{"state":"scheduled"},"push":{"state":"disabled","reason":"push_off"}}}
+{"merge":{"integrationId":"int-7","branch":"integration/plan-3","into":"main","mergeCommit":"9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e","alreadyInHead":false,"verify":{"state":"passed","runId":"verify-12"},"cleanup":{"state":"scheduled"},"push":{"state":"disabled","reason":"push_off"}}}
 ```
 
 The merge also confirms the integration and tells the PM. A merge may take minutes; a client waits up to five.
