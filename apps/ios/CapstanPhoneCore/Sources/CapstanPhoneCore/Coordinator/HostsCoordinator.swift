@@ -27,6 +27,11 @@ public enum HostProblem: Sendable, Equatable {
 public struct HostCandidate: Sendable, Equatable {
     public let config: HostConfig
     public let host: PhoneHost
+
+    public init(config: HostConfig, host: PhoneHost) {
+        self.config = config
+        self.host = host
+    }
 }
 
 /// The iPhone's host lifecycle, as the Mac's `AppModel` does it: the launch sequence, a session per enabled host with

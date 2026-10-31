@@ -14,12 +14,13 @@ struct PreviewSeed {
     var key: PhoneKeyState
     var problems: [UUID: HostProblem]
     var pendingTrust: [UUID: PendingTrust]
+    var pins: [UUID: HostKeyPin]
 
     init(
         hosts: [HostConfig] = [], phoneHosts: [PhoneHost] = [], hostModels: [UUID: HostModel] = [:],
         connection: [UUID: ConnectionState] = [:], capabilities: [UUID: HostCapabilities] = [:],
         settings: PhoneSettings = PhoneSettings(), key: PhoneKeyState = .none, problems: [UUID: HostProblem] = [:],
-        pendingTrust: [UUID: PendingTrust] = [:]
+        pendingTrust: [UUID: PendingTrust] = [:], pins: [UUID: HostKeyPin] = [:]
     ) {
         self.hosts = hosts
         self.phoneHosts = phoneHosts
@@ -30,5 +31,6 @@ struct PreviewSeed {
         self.key = key
         self.problems = problems
         self.pendingTrust = pendingTrust
+        self.pins = pins
     }
 }

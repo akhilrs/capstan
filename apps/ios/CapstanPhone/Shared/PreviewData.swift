@@ -147,6 +147,14 @@ enum PreviewData {
         return seed
     }
 
+    /// A host whose key changed since it was trusted.
+    static var changedKey: PreviewSeed {
+        var seed = standard
+        seed.problems = [betaId: .hostKeyChanged]
+        seed.pins = [betaId: HostKeyPin(algorithm: "ssh-ed25519", blob: Data(repeating: 3, count: 51))]
+        return seed
+    }
+
     /// No host and no key: the first launch.
     static var empty: PreviewSeed {
         PreviewSeed()
