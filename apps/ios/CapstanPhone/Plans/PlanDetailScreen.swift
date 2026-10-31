@@ -114,17 +114,10 @@ struct PackageCell: View {
                     .foregroundStyle(Tokens.color(.label2))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                HStack(spacing: Tokens.space[1]) {
-                    StatePill(word: package.pillWord, symbol: package.stateSymbol, tone: package.pillTone)
-                    if package.reviewWord != "Not reviewed" {
-                        StatePill(
-                            word: "Review " + package.reviewWord.lowercased(),
-                            symbol: package.reviewWord == "Passed" ? "checkmark" : "arrow.clockwise",
-                            tone: package.reviewWord == "Passed" ? .green : .yellow)
-                    }
-                    if let integration = package.integrationWord {
-                        StatePill(word: integration, symbol: nil, tone: integration == "Conflicted" ? .yellow : .blue)
-                    }
+                // The pills wrap to a column when they do not fit one line; a pill is never cut.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: Tokens.space[1]) { pills }
+                    VStack(alignment: .leading, spacing: Tokens.space[1]) { pills }
                 }
                 Text(verbatim: package.detailLine).font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
             }
@@ -132,6 +125,22 @@ struct PackageCell: View {
         }
         .padding(Tokens.space[3])
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var pills: some View {
+        StatePill(word: package.pillWord, symbol: package.stateSymbol, tone: package.pillTone).fixedSize()
+        if package.reviewWord != "Not reviewed" {
+            StatePill(
+                word: package.reviewWord == "Passed" ? "Review passed" : "Changes requested",
+                symbol: package.reviewWord == "Passed" ? "checkmark" : "arrow.clockwise",
+                tone: package.reviewWord == "Passed" ? .green : .yellow)
+                .fixedSize()
+        }
+        // Merged or Conflicted while an integration waits; other words repeat the state and are left out.
+        if let integration = package.integrationWord, integration == "Merged" || integration == "Conflicted" {
+            StatePill(word: integration, symbol: nil, tone: integration == "Conflicted" ? .yellow : .blue).fixedSize()
+        }
     }
 }
 
