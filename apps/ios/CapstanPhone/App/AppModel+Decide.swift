@@ -1,5 +1,6 @@
 import CapstanAppCore
 import CapstanKit
+import CapstanPhoneCore
 import Foundation
 
 /// Decisions, as on the Mac: routed by `DecideRouter`, one at a time per request, sent through the shared runner and
@@ -16,6 +17,53 @@ extension AppModel {
 
     func decideRun(_ verb: DecideVerb, hostId: UUID, projectId: String) async -> DecideOutcome {
         await perform(verb, target: .run, hostId: hostId, projectId: projectId)
+    }
+
+    /// Sends a free message to the project's active PM and keeps it in the thread with its state (board 11).
+    func messagePM(_ text: String, hostId: UUID, projectId: String) async -> DecideOutcome {
+        let sent = SentMessage(hostId: hostId, projectId: projectId, text: text, sentAt: Date())
+        messages.append(sent)
+        let outcome = await perform(.pmMessage(text), target: .pm, hostId: hostId, projectId: projectId)
+        settle(sent.id, outcome)
+        return outcome
+    }
+
+    /// Sends a message that got no answer again, with its own nonce.
+    func retryMessage(_ message: SentMessage) async -> DecideOutcome {
+        guard case .notSent(_, let pending?) = message.state else {
+            messages.update(message.id, state: .sending)
+            let outcome = await perform(
+                .pmMessage(message.text), target: .pm, hostId: message.hostId, projectId: message.projectId)
+            settle(message.id, outcome)
+            return outcome
+        }
+        messages.update(message.id, state: .sending)
+        let outcome = await retry(pending)
+        settle(message.id, outcome)
+        return outcome
+    }
+
+    private func settle(_ id: UUID, _ outcome: DecideOutcome) {
+        switch outcome {
+        case .applied(let result), .forwarded(let result):
+            messages.update(id, state: .sent(messageId: result.messageId ?? result.decisionId))
+        case .refused(let refusal, let hint):
+            let reason: String
+            switch hint {
+            case .noPm: reason = "No active PM"
+            case .limit: reason = "Too many messages this hour"
+            case .refresh: reason = "The PM changed; read the project again"
+            default:
+                if case .other(let code) = refusal.code { reason = "Refused: " + code } else { reason = "Refused" }
+            }
+            messages.update(id, state: .notSent(reason: reason, pendingId: nil))
+        case .notSent(_, let pending):
+            let hostId = messages.log.messages.first(where: { $0.id == id })?.hostId
+            let host = hosts.first(where: { $0.id == hostId })?.displayName ?? "The host"
+            messages.update(id, state: .notSent(reason: host + " unreachable", pendingId: pending))
+        case .malformed(_, let pending):
+            messages.update(id, state: .notSent(reason: "Unexpected answer", pendingId: pending))
+        }
     }
 
     private func perform(_ verb: DecideVerb, target: RouteTarget, hostId: UUID, projectId: String) async -> DecideOutcome {

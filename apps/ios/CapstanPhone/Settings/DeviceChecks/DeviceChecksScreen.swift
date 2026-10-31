@@ -45,7 +45,7 @@ struct DeviceChecksScreen: View {
             case .localNetwork: return "prompt on first LAN connection; denial gives a readable error"
             case .sshLogin: return "all checks pass after Trust"
             case .stream: return "lines arrive; cursor advances"
-            case .deadLink: return "about 60 s (keepalive); no heartbeat after about 3 intervals"
+            case .deadLink: return "no heartbeat after about 45 s (three 15 s server heartbeats), then the channel restarts"
             case .background: return "30 s: no Face ID; 90 s: Face ID"
             }
         }
@@ -249,7 +249,7 @@ struct DeviceChecksScreen: View {
         case .noHeartbeat?:
             let before = results[.deadLink]?.text ?? ""
             results[.deadLink] = Result(passed: nil, text: before + "\nNo heartbeat after " + String(seconds) + " s.")
-        case .reconnecting?, .stopped?:
+        case .connecting?, .reconnecting?, .stopped?:
             let before = results[.deadLink]?.text ?? ""
             results[.deadLink] = Result(passed: seconds <= 90, text: before + "\nChannel ended after " + String(seconds) + " s.")
             linkWatch = nil

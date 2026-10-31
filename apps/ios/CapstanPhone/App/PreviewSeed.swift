@@ -14,6 +14,7 @@ struct PreviewSeed {
     var key: PhoneKeyState
     var problems: [UUID: HostProblem]
     var pendingTrust: [UUID: PendingTrust]
+    var messages = SentMessageLog()
     var pins: [UUID: HostKeyPin]
 
     init(

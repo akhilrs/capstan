@@ -485,7 +485,8 @@ error is for a person; a client does not parse it.
 
 A decision names the item it is about and the state of the item the person saw:
 
-- `<requestId>` is the `requestId` of the item (`op:…`, `prompt:…`, `design:…`, `message:…`, `agent:…` or `run`).
+- `<requestId>` is the `requestId` of the item (`op:…`, `prompt:…`, `design:…`, `message:…`, `integration:…`, `agent:…`
+  or `run`), or `pm` for a message to the project's PM (see Message to the PM).
   Other kinds are refused with `invalid_request`.
 - `--expect <hash>` is the `contentHash` of the item, as the snapshot or `feed hash` gave it: 12 to 64 lowercase hex
   characters, a prefix of the full hash. A hash that is not the current one is refused with `hash_mismatch`.
@@ -512,10 +513,13 @@ the two outcomes.
 | agent | resume | applied |
 | run | pause | applied |
 | run | resume | applied |
+| integration | merge | applied |
+| pm | message | applied |
 
 Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
 `design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
-`message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`. Text is cleaned
+`message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`; `integration merge`
+(no arguments; see Merge); `pm message <text>`. Text is cleaned
 and capped like the text of the feed (section 8).
 
 An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
@@ -532,6 +536,54 @@ widens permissions or accepts typed text, a prompt with no option that can be an
 `--window` grant on `op approve` or on a prompt, and a `message reply` to a message whose recipient is not the active PM.
 A reply goes only to the PM, as a message with the text marked as untrusted. It does not acknowledge the message it
 answers: that message stays pending until its recipient acknowledges it.
+
+### Merge
+
+`integration merge` merges a waiting integration (`integration:<id>`, `integrationState` `merged`) into the project's
+branch, as the daemon of the project and never through a terminal. It is `applied`. It is off unless the project's
+configuration allows it (`[remote] merge = true`, with `merge_branch` naming the branch or the remote's default branch);
+it never pushes. The gates answer in this order, each with its refusal:
+
+| code | meaning |
+|---|---|
+| `merge_disabled` | merging from a remote client is not enabled for this project |
+| `run_paused` | the project's run is paused |
+| `busy` | an integration is running |
+| `not_reviewed` | the integration's latest review has not passed |
+| `not_verified` | the integration head has no passed verify run under the current commands |
+| `branch_moved` | the integration branch moved since the integration was made |
+| `invalid_commit` | the commit to merge is not a valid commit |
+| `invalid_branch` | the branch is not a valid branch name |
+| `unsafe_config` | the repository's git configuration is not safe for a merge |
+| `wrong_branch` | the project's checkout is not on the branch the merge goes into |
+| `no_identity` | git has no committer identity in the repository |
+| `dirty_tree` | the working tree has uncommitted changes to tracked files |
+| `git_too_old` | git is older than the merge needs |
+| `merge_conflict` | the integration does not merge cleanly; the message names the files (at most a few, then `and N more`) |
+| `merge_failed` | the merge started and did not end well; the message gives the reason and whether the tree was restored |
+| `git_unavailable` | git could not be run |
+| `merge_unrecorded` | the merge was made but its decision could not be recorded; the same call again records it |
+
+A merge that was made adds `merge` to the result: the integration and branch, the merge commit (`null` when the head was
+already in the project's branch, `alreadyInHead` true), the verify state (`passed` with its run, or `not_configured`),
+the cleanup of the merged branch (`scheduled`, or `null` when cleanup is off) and `push`, which is always `disabled`.
+The member as it appears in the result (the other fields are those of Result below):
+
+```
+{"merge":{"integrationId":"int-7","branch":"integration/plan-3","mergeCommit":"9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e","alreadyInHead":false,"verify":{"state":"passed","runId":"verify-12"},"cleanup":{"state":"scheduled"},"push":{"state":"disabled","reason":"push_off"}}}
+```
+
+The merge also confirms the integration and tells the PM. A merge may take minutes; a client waits up to five.
+
+### Message to the PM
+
+`pm message <text>` sends the project's active PM a message from the person, at once (`applied`). The PM gets it as an
+action message whose text is marked as untrusted, from the client named by `--client`; the result's `messageId` names
+it, and its delivery shows in the feed like any message to the PM. `--expect` binds the message to the PM the person
+saw: it is the SHA-256, in lowercase hex, of the canonical JSON `{"pm":"<agentId>"}` of the one agent of kind `PM` in
+state `active` (for `pm-1`, the SHA-256 of `{"pm":"pm-1"}`). With no active PM the call is refused with `no_active_pm`;
+once another PM has taken over, with `hash_mismatch`. Messages to the PM are not capped per request but count toward
+the hourly limit of the project (`[remote] messages_per_hour`, 30 by default), with forwards and replies.
 
 ### Result
 
@@ -560,9 +612,10 @@ standard error without it. `message` is for a person.
 | `hash_mismatch` | `--expect` is not a prefix of the current content hash |
 | `nonce_reused` | the nonce was used for another decision |
 | `needs_terminal` | the answer is made at the terminal (see Verbs) |
-| `no_active_pm` | a forward or a reply needs an active PM and there is none |
-| `limit_reached` | the request already has 10 messages to the PM from remote clients |
+| `no_active_pm` | a forward, a reply or a message to the PM needs an active PM and there is none |
+| `limit_reached` | the request already has 10 messages to the PM from remote clients, or the project sent its hourly number of messages to the PM |
 | `invalid_request` | the request id, a flag, the verb or its arguments are not valid |
+| `merge_…`, `busy`, … | the refusals of `integration merge` (see Merge) |
 | `forbidden` | the caller is not the operator |
 | `unauthorized` | the operator key is not accepted |
 | `project_not_found` | `--project` names no project (no folder with a project, no running controller with that id) |

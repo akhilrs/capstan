@@ -39,6 +39,7 @@ extension AppModel {
     /// Removes a host: its session stops, its pins are forgotten, and its models, saved file and pending decisions go.
     func removeHost(_ id: UUID) {
         coordinator?.removeHost(id)
+        messages.removeHost(id)
         generations[id] = (generations[id] ?? 0) + 1
         probes[id]?.cancel()
         probes[id] = nil

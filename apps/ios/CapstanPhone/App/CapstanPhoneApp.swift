@@ -139,6 +139,10 @@ final class AppShell {
     }
 
     private func apply(_ plan: LifecyclePlanner.Plan) {
+        // What the lifecycle decided, for the device checks (no host text: phases, times and actions only).
+        let away = plan.state.backgroundedAt.map { String(Int(Date().timeIntervalSince($0))) + " s" } ?? "-"
+        AppModel.log.notice(
+            "lifecycle: \(String(describing: plan.actions), privacy: .public) locked \(plan.state.locked, privacy: .public) unlockedBefore \(plan.state.lastUnlock != nil, privacy: .public) away \(away, privacy: .public)")
         lifecycle = plan.state
         for action in plan.actions {
             switch action {

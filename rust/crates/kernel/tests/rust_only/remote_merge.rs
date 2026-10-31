@@ -5,8 +5,9 @@
 use crate::event_feed::{Rig, BASE};
 use capstan_kernel::areas::remote_decisions::{
     decide, decide_with, decision_for_nonce, merge_gates, parse, record_merge, DecideInput,
-    DecideOptions, Kind, MergeFacts, MergeGate, VerifyState, ERROR_CODES, MERGE_ERROR_CODES,
-    PENDING_ERROR_CODES, PENDING_RESULT_FIELDS, PENDING_VERBS, RESULT_FIELDS, VERBS,
+    DecideOptions, Kind, MergeFacts, MergeGate, Outcome, VerifyState, ERROR_CODES,
+    MERGE_ERROR_CODES, MERGE_RESULT_FIELDS, PENDING_ERROR_CODES, PENDING_RESULT_FIELDS,
+    PENDING_VERBS, RESULT_FIELDS, VERBS,
 };
 use capstan_kernel::areas::snapshot_feed::content_hash;
 use capstan_kernel::errors::KernelError;
@@ -124,7 +125,7 @@ fn parse_accepts_the_merge_verb_and_nothing_else_of_an_integration() {
 // ----------------------------------------------------------------------------------------------------------- the lists
 
 #[test]
-fn the_pending_lists_are_apart_from_the_protocol_lists_and_hold_each_name_once() {
+fn the_merge_is_in_the_protocol_lists_once_and_nothing_is_pending() {
     let merge_codes = [
         "merge_unrecorded",
         "merge_disabled",
@@ -145,15 +146,23 @@ fn the_pending_lists_are_apart_from_the_protocol_lists_and_hold_each_name_once()
         "git_unavailable",
     ];
     assert_eq!(MERGE_ERROR_CODES, merge_codes);
-    assert_eq!(PENDING_ERROR_CODES, merge_codes);
-    assert_eq!(PENDING_RESULT_FIELDS, ["merge"]);
+    // Section 11 documents the merge, so its verb and codes are in the protocol lists and nothing is pending.
+    assert!(PENDING_ERROR_CODES.is_empty());
+    assert!(PENDING_RESULT_FIELDS.is_empty());
+    assert!(PENDING_VERBS.is_empty());
     assert!(MERGE_ERROR_CODES
         .iter()
-        .all(|code| !ERROR_CODES.contains(code)));
-    assert!(PENDING_RESULT_FIELDS
+        .all(|code| ERROR_CODES.contains(code)));
+    assert_eq!(MERGE_RESULT_FIELDS, ["merge"]);
+    assert!(MERGE_RESULT_FIELDS
         .iter()
         .all(|f| !RESULT_FIELDS.contains(f)));
-    // every verb and code appears exactly once in the union, so this holds after PENDING is folded into the lists
+    let merge_row = VERBS
+        .iter()
+        .find(|row| row.kind == Kind::Integration && row.verb == "merge")
+        .expect("the merge verb is a protocol verb");
+    assert_eq!(merge_row.outcome, Outcome::Applied);
+    // every verb and code appears exactly once
     let verbs: Vec<(Kind, &str)> = VERBS
         .iter()
         .chain(PENDING_VERBS)
