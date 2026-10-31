@@ -88,7 +88,7 @@ struct ItemDetailScreen: View {
             VStack(alignment: .leading, spacing: Tokens.space[3]) {
                 DetailHeader(
                     kind: ctx.item.kind, projectName: ctx.projectName,
-                    title: RowText.inspectorTitle(kind: ctx.item.kind, key: ctx.item.key, summary: ctx.item.summary.displayPlain),
+                    title: title(ctx),
                     pills: RowPills.make(
                         needsTerminal: ctx.item.needsTerminal, forwarded: model.forwardShown(row),
                         stale: ctx.project?.staleSince != nil))
@@ -131,6 +131,15 @@ struct ItemDetailScreen: View {
         .sheet(isPresented: $askingChanges) {
             ChangesSheet { text in run(.designChanges(askedUser: text, link: nil)) }
         }
+    }
+
+    /// A branch ready to merge says it is built and not in main yet (never a bare "merged"); other kinds use the
+    /// inspector title shared with the Mac.
+    private func title(_ ctx: DetailContext) -> String {
+        if ctx.item.kind == .integration {
+            return IntegrationDetailRows.make(ctx.item, hostName: ctx.hostName, now: Date()).title
+        }
+        return RowText.inspectorTitle(kind: ctx.item.kind, key: ctx.item.key, summary: ctx.item.summary.displayPlain)
     }
 
     /// The item was answered or withdrawn: it left the snapshot.

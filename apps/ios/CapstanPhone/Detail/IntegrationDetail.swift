@@ -58,6 +58,7 @@ func stateSymbol(_ tone: Tone) -> String {
     case .yellow: return "exclamationmark.triangle.fill"
     case .green: return "checkmark.circle.fill"
     case .red: return "xmark.octagon.fill"
+    case .grey, .neutral: return "info.circle.fill"
     default: return "clock.fill"
     }
 }
