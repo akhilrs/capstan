@@ -151,7 +151,10 @@ refused with `not_an_agent`). `--action` asks a question: it is `open` and waits
 the user answers it with `message reply` (section 11). Without `--action` it is `info`. A question may list its
 choices after the text, `--option <choice>` once each (at most 6, one line of at most 120 characters each); an info
 message takes none. The choices are shown as buttons, and the answer is still free text: a client puts the chosen text
-in the reply. The agent that asked closes a
+in the reply. An agent that also shows the question in a terminal picker gets that picker closed by the host when the
+user answers from a remote client: after an applied `message reply`, the daemon sends one Esc to the asking agent's
+pane, only when Herdr shows the agent stopped, the screen has no input box, offers "Esc to cancel" and shows the
+question's first 60 letters and digits. The answer then arrives as a message. The agent that asked closes a
 question the user answered at its terminal with `cstan send --answered @user <n>` (`n` is the message's `sequence`): it
 becomes `answered` and stops waiting; another agent's question is refused with `not_yours`, one that is not open with
 `not_open`.

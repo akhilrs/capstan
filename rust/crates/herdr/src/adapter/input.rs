@@ -644,6 +644,27 @@ impl Adapter {
         })
     }
 
+    /// `LauncherAdapter::dismiss_question`: one Esc to a picker that shows `question`, never anything else.
+    pub fn dismiss_question_of(&self, pane_id: &str, question: &str, log: KeyLogger<'_>) -> AdapterResult<bool> {
+        let entry = self.assert_typable(pane_id, Action::Dialog)?;
+        let Some(agent) = entry.agent.clone() else {
+            return Ok(false);
+        };
+        if entry.kind != "claude" || !self.not_working(&agent, pane_id)? {
+            return Ok(false);
+        }
+        let screen = self.screen(pane_id, true, None)?;
+        if crate::screen::extract_input_line(&entry.kind, &screen).is_some() {
+            return Ok(false);
+        }
+        let plain = crate::screen::strip_ansi(&screen);
+        if !plain.contains("Esc to cancel") || !screen_shows_question(&plain, question) {
+            return Ok(false);
+        }
+        self.send_key(pane_id, "esc", "close a question the user answered from a remote client", log)?;
+        Ok(true)
+    }
+
     /// True unless Herdr shows the agent working; a name that points at another pane is not usable here.
     fn not_working(&self, agent: &str, pane_id: &str) -> AdapterResult<bool> {
         match self.state_for(agent, pane_id) {
@@ -895,5 +916,39 @@ impl LauncherAdapter for Adapter {
 
     fn interrupt_working(&self, pane_id: &str, log: KeyLogger<'_>) -> AdapterResult<bool> {
         self.interrupt_working_of(pane_id, log)
+    }
+
+    fn dismiss_question(&self, pane_id: &str, question: &str, log: KeyLogger<'_>) -> AdapterResult<bool> {
+        self.dismiss_question_of(pane_id, question, log)
+    }
+}
+
+/// The letters and digits of a text, lower case: what survives a terminal's wrapping, borders and styling.
+fn letters_of(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Whether `screen` shows the start of `question` (its first 60 letters and digits, at least 12).
+pub fn screen_shows_question(screen: &str, question: &str) -> bool {
+    let needle: String = letters_of(question).chars().take(60).collect();
+    needle.chars().count() >= 12 && letters_of(screen).contains(&needle)
+}
+
+#[cfg(test)]
+mod question_tests {
+    use super::screen_shows_question;
+
+    #[test]
+    fn a_wrapped_bordered_picker_shows_its_question_and_another_screen_does_not() {
+        let question = "All plan-8 work is now on develop. What next?";
+        let picker = "╭────────────────────────╮\n│ All plan-8 work is now  │\n│ on develop. What next?  │\n│ ❯ 1. Close out plan-8  │\n╰────────────────────────╯\nEnter to select · Esc to cancel";
+        assert!(screen_shows_question(picker, question));
+        let permission = "Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel";
+        assert!(!screen_shows_question(permission, question));
+        // Too short a question is never matched.
+        assert!(!screen_shows_question("Ship? Esc to cancel", "Ship?"));
     }
 }
