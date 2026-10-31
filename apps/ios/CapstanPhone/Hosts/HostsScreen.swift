@@ -35,14 +35,16 @@ struct HostsScreen: View {
         .navigationTitle("Hosts")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            // Two trailing buttons in their own glass circles: primaryAction holds one item only.
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     model.navigation.show(.hosts, model.navigation.path(.hosts) + [.settings])
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { model.navigation.sheet = .addHost } label: {
                     Label("Add a host", systemImage: "plus")
                 }
