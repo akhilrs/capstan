@@ -18,6 +18,7 @@ struct WaitingScreen: View {
             Section {
                 VStack(alignment: .leading, spacing: Tokens.space[2]) {
                     WaitingStatusLine()
+                    HostStateBanners()
                     KindChips(selected: $model.inboxKind)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: Tokens.margin, bottom: 0, trailing: Tokens.margin))
@@ -223,6 +224,46 @@ private struct WaitingPreview: View {
 }
 
 /// The live status line under the title: one host by name with its heartbeat, or a count of hosts.
+/// Why a host is not live, in the shared words of `BannerChoice` (the Mac's banners): a stopped stream says why it
+/// stopped and offers Try again or Edit host. Reconnects show their error once there is one.
+struct HostStateBanners: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ForEach(model.hosts, id: \.id) { host in
+            let specs = BannerChoice.make(
+                state: model.connection[host.id], anyLoading: false, decide: nil, hostName: host.displayName,
+                destination: model.phoneHost(host.id)?.hostname ?? host.displayName, now: Date())
+            ForEach(Array(specs.enumerated()), id: \.offset) { _, spec in
+                banner(spec, hostId: host.id)
+            }
+            if case .stopped(.user)? = model.connection[host.id] {
+                // Stopped by the app (the scene went to the background) and not started again.
+                Banner(
+                    tone: .grey, text: "Not following " + host.displayName, actionTitle: "Try again",
+                    action: { model.restart(hostId: host.id) })
+            }
+        }
+    }
+
+    private func banner(_ spec: BannerSpec, hostId: UUID) -> Banner {
+        switch spec.action {
+        case .retry?:
+            return Banner(
+                tone: spec.tone, text: spec.text, detail: spec.detail, actionTitle: "Try again",
+                action: { model.restart(hostId: hostId) })
+        case .editHost?:
+            return Banner(
+                tone: spec.tone, text: spec.text, detail: spec.detail, actionTitle: "Edit host",
+                action: { model.navigation.sheet = .editHost(hostId) })
+        case nil:
+            return Banner(
+                tone: spec.tone, text: spec.text, detail: spec.detail, actionTitle: "Try again",
+                action: { model.restart(hostId: hostId) })
+        }
+    }
+}
+
 struct WaitingStatusLine: View {
     @Environment(AppModel.self) private var model
 

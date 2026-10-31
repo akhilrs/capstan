@@ -279,7 +279,13 @@ final class AppModel {
             })
         var running = config
         running.pollMs = max(config.pollMs, settings.pollMs)
-        let session = HostSession(config: running, runner: runner, consumer: engine, clock: SystemClock())
+        let hostName = config.displayName
+        let session = HostSession(
+            config: running, runner: runner, consumer: engine, clock: SystemClock(),
+            diagnostic: { what, detail in
+                // The detail may be host text (ssh stderr), so it stays private in the log.
+                AppModel.log.notice("\(hostName, privacy: .public): \(what, privacy: .public) \(detail ?? "", privacy: .private)")
+            })
         engines[id] = engine
         sessions[id] = session
         connection[id] = .connecting
