@@ -91,6 +91,7 @@ final class AppModel {
     @ObservationIgnored private(set) var coordinator: HostsCoordinator?
     @ObservationIgnored let runner: (any ProcessRunner)?
     @ObservationIgnored let registry: PhoneHostRegistry?
+    @ObservationIgnored let pins: HostKeyStore?
     @ObservationIgnored let vault: (any KeyVault)?
     @ObservationIgnored let directory: URL?
     @ObservationIgnored let pendingStore: PendingStore?
@@ -125,6 +126,7 @@ final class AppModel {
         self.directory = directory
         self.runner = runner
         self.registry = registry
+        self.pins = pins
         self.vault = vault
         self.pendingStore = pending
         self.decider = Decider(runner: runner, pending: pending, clock: SystemClock())
@@ -151,6 +153,7 @@ final class AppModel {
         directory = nil
         runner = nil
         registry = nil
+        pins = nil
         vault = nil
         pendingStore = nil
         decider = nil
@@ -164,9 +167,11 @@ final class AppModel {
         problems = seed.problems
         pendingTrust = seed.pendingTrust
         previewPhoneHosts = Dictionary(uniqueKeysWithValues: seed.phoneHosts.map { ($0.id, $0) })
+        previewPins = seed.pins
     }
 
     @ObservationIgnored private var previewPhoneHosts: [UUID: PhoneHost] = [:]
+    @ObservationIgnored private var previewPins: [UUID: HostKeyPin] = [:]
 
     /// Starts the coordinator: it loads the hosts and starts their sessions. What the engines saved is shown first.
     func start() {
@@ -207,6 +212,11 @@ final class AppModel {
     /// Where a host is, for display (`hostname:port`); the alias is never shown.
     func phoneHost(_ id: UUID) -> PhoneHost? {
         registry?.host(id) ?? previewPhoneHosts[id]
+    }
+
+    /// The key the person trusted for a host, to compare with what the host shows now.
+    func trustedPin(_ id: UUID) -> HostKeyPin? {
+        pins?.pin(for: id) ?? previewPins[id]
     }
 
     static func readKey(_ vault: (any KeyVault)?) -> PhoneKeyState {

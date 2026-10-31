@@ -21,6 +21,7 @@ struct CapstanPhoneApp: App {
                     LockOverlay { shell.promptFaceID() }
                 }
             }
+            .onboarding(shell.model, enabled: !shell.locked)
             .onChange(of: scenePhase, initial: true) { _, phase in shell.phaseChanged(phase) }
             .onOpenURL { url in shell.model.handle(url: url) }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
