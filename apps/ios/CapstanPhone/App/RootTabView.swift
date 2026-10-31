@@ -30,11 +30,7 @@ struct RootTabView: View {
 
             Tab("Plans", systemImage: "list.bullet.rectangle", value: PhoneTab.plans) {
                 NavigationStack(path: path(.plans)) {
-                    ContentUnavailableView(
-                        "No plans", systemImage: "list.bullet.rectangle",
-                        description: Text("The plans of your projects appear here."))
-                        .navigationTitle("Plans")
-                        .routes()
+                    PlansScreen().routes()
                 }
             }
 
