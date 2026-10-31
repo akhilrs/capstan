@@ -33,7 +33,9 @@ struct RouteView: View {
             } description: {
                 Text(verbatim: model.hosts.first(where: { $0.id == hostId })?.displayName ?? "")
             }
-        case .agent, .plan, .conversation:
+        case .agent(let hostId, let projectId, let agentId):
+            AgentDetailScreen(hostId: hostId, projectId: projectId, agentId: agentId)
+        case .plan, .conversation:
             ContentUnavailableView("Coming soon", systemImage: "hammer")
         }
     }

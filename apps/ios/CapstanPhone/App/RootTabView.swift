@@ -24,11 +24,7 @@ struct RootTabView: View {
 
             Tab("Agents", systemImage: "person.2", value: PhoneTab.agents) {
                 NavigationStack(path: path(.agents)) {
-                    ContentUnavailableView(
-                        "No agents", systemImage: "person.2",
-                        description: Text("The agents of your projects appear here."))
-                        .navigationTitle("Agents")
-                        .routes()
+                    AgentsScreen().routes()
                 }
             }
 
