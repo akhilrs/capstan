@@ -19,16 +19,20 @@ final class LiveActivityController {
         let running = Activity<WaitingActivityAttributes>.activities
         guard allowed, ActivityAuthorizationInfo().areActivitiesEnabled, state.total > 0 else {
             last = nil
-            end(running)
+            if !running.isEmpty { endRunning() }
             return
         }
         let key = String(state.total) + "|" + state.kindsLine + "|" + state.hostsLine
         if let last, last.key == key, now.timeIntervalSince(last.at) < Self.refreshSeconds, !running.isEmpty { return }
         last = (key, now)
         let content = ActivityContent(state: state, staleDate: snapshot.asOf.addingTimeInterval(Self.staleAfter))
-        if let current = running.first {
-            Task { await current.update(content) }
-            end(Array(running.dropFirst()))
+        if !running.isEmpty {
+            // Activity is not Sendable: the detached task reads the activities itself, so none crosses an actor.
+            Task.detached {
+                let all = Activity<WaitingActivityAttributes>.activities
+                await all.first?.update(content)
+                for extra in all.dropFirst() { await extra.end(nil, dismissalPolicy: .immediate) }
+            }
         } else {
             _ = try? Activity.request(attributes: WaitingActivityAttributes(), content: content, pushType: nil)
         }
@@ -37,12 +41,14 @@ final class LiveActivityController {
     /// Ends every activity at once (the app is told nothing waits, or the switch went off).
     func endAll() {
         last = nil
-        end(Activity<WaitingActivityAttributes>.activities)
+        endRunning()
     }
 
-    private func end(_ activities: [Activity<WaitingActivityAttributes>]) {
-        for activity in activities {
-            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+    private func endRunning() {
+        Task.detached {
+            for activity in Activity<WaitingActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
         }
     }
 }
