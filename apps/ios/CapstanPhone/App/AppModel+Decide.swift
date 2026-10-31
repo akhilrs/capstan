@@ -43,6 +43,13 @@ extension AppModel {
         return outcome
     }
 
+    /// The branches a merge of the project may go into (`cstan merge-targets`); `unsupported` without a runner (a
+    /// preview) or from a host whose cstan predates the command.
+    func mergeTargets(hostId: UUID, projectId: String) async -> MergeTargetsResult {
+        guard let runner, let config = hosts.first(where: { $0.id == hostId }) else { return .unsupported }
+        return await MergeTargetsCall(projectId: projectId).run(runner: runner, config: config, clock: SystemClock())
+    }
+
     /// Answers a question an agent sent the person (`message reply`); the answer is kept in the thread, marked as the
     /// answer to that question, so a send again without a pending request still reads as one.
     func answerQuestion(_ text: String, question: StoredMessage, hostId: UUID, projectId: String) async -> DecideOutcome {
