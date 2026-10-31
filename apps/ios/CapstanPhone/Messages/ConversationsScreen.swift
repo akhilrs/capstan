@@ -68,37 +68,53 @@ struct Conversation: Identifiable {
 }
 
 extension AppModel {
-    /// The conversations: every ready project with an active PM, a waiting PM message or a sent message, newest first.
+    /// The conversations: every ready project with an active PM, a message from an agent or a sent message, newest
+    /// first. `waiting` counts the questions not answered yet.
     func conversations() -> [Conversation] {
         var rows: [Conversation] = []
         for host in hosts {
             for project in (hostModels[host.id]?.projects.values).map(Array.init) ?? [] where project.availability == .ready {
                 let pm = PmBinding.activePm(project)
                 let incoming = project.waiting.values.filter { $0.kind == .message }
+                let received = Array((project.messages ?? [:]).values)
                 let sent = messages.thread(hostId: host.id, projectId: project.projectId)
-                guard pm != nil || !incoming.isEmpty || !sent.isEmpty else { continue }
+                guard pm != nil || !incoming.isEmpty || !received.isEmpty || !sent.isEmpty else { continue }
+                // The newest message from an agent: from the `messages` section, else a waiting message item.
+                let newestReceived = received.max { $0.sequence < $1.sequence }
                 let newestIn = incoming.max { $0.since < $1.since }
-                let inAt = newestIn.flatMap { DetailTime.parse($0.since) }
+                let inText: UntrustedText?
+                let inFrom: String
+                let inAt: Date?
+                if let newestReceived {
+                    inText = newestReceived.body
+                    inFrom = newestReceived.senderAgentId
+                    inAt = DetailTime.parse(newestReceived.createdAt)
+                } else {
+                    inText = newestIn?.summary
+                    inFrom = pm ?? "PM"
+                    inAt = newestIn.flatMap { DetailTime.parse($0.since) }
+                }
                 let newestOut = sent.last
                 let last: String
                 let lastAt: Date?
                 if let newestOut, inAt.map({ newestOut.sentAt >= $0 }) ?? true {
                     last = "You: " + newestOut.text + " · " + MessageStateText.short(newestOut.state)
                     lastAt = newestOut.sentAt
-                } else if let newestIn {
-                    let text = newestIn.summary.verified
-                        ? TextBudget.displayPrefix(newestIn.summary.displayPlain, maxBytes: 200).text
+                } else if let inText {
+                    let text = inText.verified
+                        ? TextBudget.displayPrefix(inText.displayPlain, maxBytes: 200).text
                         : "A message that failed its integrity check"
-                    last = (pm ?? "PM") + ": " + text
+                    last = inFrom + ": " + text
                     lastAt = inAt
                 } else {
                     last = "No messages yet"
                     lastAt = nil
                 }
+                let open = received.isEmpty ? incoming.count : received.filter(\.isOpenQuestion).count
                 rows.append(Conversation(
                     hostId: host.id, projectId: project.projectId,
                     projectName: TextBudget.displayPrefix(project.displayName, maxBytes: 64).text, hostName: host.displayName,
-                    pm: pm, waiting: incoming.count, last: last, lastAt: lastAt))
+                    pm: pm, waiting: open, last: last, lastAt: lastAt))
             }
         }
         return rows.sorted { ($0.lastAt ?? .distantPast) > ($1.lastAt ?? .distantPast) }

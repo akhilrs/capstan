@@ -5,7 +5,7 @@
 #
 # Rule 8's deny-list: the CapstanKit types that carry text from a host or an agent (kept in step with UntrustedText).
 # Code that feeds a Live Activity, a widget or a notification may not name them.
-TEXT_TYPES='UntrustedText|WaitingItem|StoredWaiting|StoredAgent|StoredPlan|AgentItem|PlanItem|PromptOption|PromptBody|OperatorBody|DesignBody|MessageBody|EventBody|RunBody|AgentBody|PackageDetail|InboxRow|StreamLine|DecideRefusal|DecideAnswer|SessionError|StopReason|NotSentReason|HostHello|IntegrationArea|IntegrationMigration|IntegrationNextStep|IntegrationPlan|IntegrationReport|IntegrationSignoff|ItemDetail'
+TEXT_TYPES='UntrustedText|WaitingItem|StoredWaiting|StoredAgent|StoredPlan|AgentItem|PlanItem|PromptOption|PromptBody|OperatorBody|DesignBody|MessageBody|EventBody|RunBody|AgentBody|PackageDetail|InboxRow|StreamLine|DecideRefusal|DecideAnswer|SessionError|StopReason|NotSentReason|HostHello|IntegrationArea|IntegrationMigration|IntegrationNextStep|IntegrationPlan|IntegrationReport|IntegrationSignoff|ItemDetail|MessageItem|StoredMessage'
 set -u
 
 # Files (relative to the repository root) that may open a link.
