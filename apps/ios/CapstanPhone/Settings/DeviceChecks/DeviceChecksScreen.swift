@@ -147,7 +147,7 @@ struct DeviceChecksScreen: View {
 
     private func runEnclave() {
         guard SecureEnclave.isAvailable else {
-            results[.enclave] = Result(passed: false, text: "No Secure Enclave on this device (the Simulator has none).")
+            results[.enclave] = Result(passed: false, text: "No Secure Enclave on this device.")
             return
         }
         do {
