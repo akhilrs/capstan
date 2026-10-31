@@ -15,6 +15,12 @@ struct MergeText: Equatable {
     let headline: String
     /// Host text to show under the line, as untrusted (the files of a conflict, git's reason).
     let hostText: UntrustedText?
+    /// What the phone can do about a refusal: nothing, resume the project, or ask the PM to fix it on the host.
+    var fix: Fix = .none
+    /// The refusal in a few words, for the message to the PM.
+    var reason: String = ""
+
+    enum Fix: Equatable { case none, resumeProject, askPM }
 
     static func make(_ outcome: DecideOutcome, branch: String, hostName: String, at: Date) -> MergeText {
         let time = at.formatted(date: .omitted, time: .shortened)
@@ -66,23 +72,23 @@ struct MergeText: Equatable {
         default: code = "other"
         }
         let host = refusal.message.raw.isEmpty ? nil : refusal.message
-        func refused(_ title: String, _ line: String, files: Bool = false) -> MergeText {
+        func refused(_ title: String, _ line: String, files: Bool = false, fix: Fix = .askPM) -> MergeText {
             MergeText(
                 tone: .warning, title: "Refused: " + title, line: line + " Nothing was merged.",
-                headline: "Nothing was merged", hostText: files ? host : nil)
+                headline: "Nothing was merged", hostText: files ? host : nil, fix: fix, reason: title)
         }
         switch code {
         case "merge_conflict":
             return MergeText(
                 tone: .bad, title: "The merge has conflicts",
                 line: "Nothing changed in the checkout on " + hostName + ". The PM can rebase the integration and ask again.",
-                headline: "Conflicts, nothing was merged", hostText: host)
+                headline: "Conflicts, nothing was merged", hostText: host, fix: .askPM, reason: "the merge has conflicts")
         case "merge_disabled":
             return refused(
                 "merging from the phone is off",
                 "Turn it on with [remote] merge = true in the project's Capstan configuration on " + hostName + ".")
-        case "run_paused": return refused("the project is paused", "Resume the project first.")
-        case "busy": return refused("an integration is running", "Try again when it is done.")
+        case "run_paused": return refused("the project is paused", "Resume the project first.", fix: .resumeProject)
+        case "busy": return refused("an integration is running", "Try again when it is done.", fix: .none)
         case "not_reviewed": return refused("not reviewed", "The integration's latest review has not passed.")
         case "not_verified": return refused("not verified", "The integration has no passed verify on this commit.")
         case "branch_moved":
@@ -100,7 +106,7 @@ struct MergeText: Equatable {
         case "merge_failed":
             return MergeText(
                 tone: .bad, title: "The merge failed", line: "git stopped during the merge. The host's reason is below.",
-                headline: "The merge failed", hostText: host)
+                headline: "The merge failed", hostText: host, fix: .askPM, reason: "the merge failed")
         case "merge_unrecorded":
             return MergeText(
                 tone: .warning, title: "In the branch, not confirmed",
@@ -118,7 +124,7 @@ struct MergeText: Equatable {
         default:
             return MergeText(
                 tone: .bad, title: "Refused", line: "The host refused the merge. Nothing was merged.",
-                headline: "Nothing was merged", hostText: host)
+                headline: "Nothing was merged", hostText: host, fix: .askPM, reason: "the host refused it (" + code + ")")
         }
     }
 }

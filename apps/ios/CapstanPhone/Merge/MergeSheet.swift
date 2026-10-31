@@ -1,5 +1,6 @@
 import CapstanAppCore
 import CapstanKit
+import CapstanPhoneCore
 import SwiftUI
 
 /// Merge… for a branch ready to merge (board 10), at the large detent: the branch, the commit, review and verify as
@@ -15,6 +16,12 @@ struct MergeSheet: View {
     @State private var sending = false
     @State private var outcome: DecideOutcome?
     @State private var receivedAt = Date()
+    /// A fix the person started from a refusal (resume the project, ask the PM) is on its way.
+    @State private var fixing = false
+    /// What the fix did, in a line; nil before one ran.
+    @State private var fixLine: String?
+    /// The project was resumed from this sheet: the bar offers the merge again.
+    @State private var resumed = false
     @FocusState private var cancelFocused: Bool
 
     private var hostName: String { model.hosts.first { $0.id == row.hostId }?.displayName ?? "the host" }
@@ -112,6 +119,17 @@ struct MergeSheet: View {
             if let host = text.hostText {
                 DetailTextBlock(text: host, name: "From the host", shownAs: "shown as written")
             }
+            if let fixLine {
+                Text(verbatim: fixLine)
+                    .font(TypeStyle.subheadline)
+                    .foregroundStyle(Tokens.color(.label2))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if text.fix == .askPM {
+                Text("Ask the PM to fix this sends the refusal to the project's PM, who can fix the checkout on the host. The message also appears in Messages.")
+                    .font(TypeStyle.footnote)
+                    .foregroundStyle(Tokens.color(.label2))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -140,6 +158,7 @@ struct MergeSheet: View {
                 let pending = OutcomeLines.pendingId(outcome)
                 let stack = typeSize.isAccessibilitySize
                     ? AnyLayout(VStackLayout(spacing: Tokens.space[2])) : AnyLayout(HStackLayout(spacing: Tokens.space[2]))
+                let text = MergeText.make(outcome, branch: branch, hostName: hostName, at: receivedAt)
                 stack {
                     if let pending {
                         Button { retry(pending) } label: {
@@ -148,7 +167,30 @@ struct MergeSheet: View {
                         .buttonStyle(.capstanQuiet)
                         .disabled(sending)
                     }
-                    Button("Done") { dismiss() }.buttonStyle(.capstanPrimary)
+                    if resumed {
+                        Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
+                        Button { mergeAgain() } label: {
+                            if sending { SendingLabel() } else { Text("Merge again") }
+                        }
+                        .buttonStyle(.capstanPrimary)
+                        .disabled(sending)
+                    } else if text.fix == .resumeProject {
+                        Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
+                        Button { resumeProject() } label: {
+                            if fixing { SendingLabel() } else { Text("Resume project") }
+                        }
+                        .buttonStyle(.capstanPrimary)
+                        .disabled(fixing)
+                    } else if text.fix == .askPM && fixLine == nil {
+                        Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
+                        Button { askPM(text) } label: {
+                            if fixing { SendingLabel() } else { Text("Ask the PM to fix this") }
+                        }
+                        .buttonStyle(.capstanPrimary)
+                        .disabled(fixing)
+                    } else {
+                        Button("Done") { dismiss() }.buttonStyle(.capstanPrimary)
+                    }
                 }
             } else {
                 let stack = typeSize.isAccessibilitySize
@@ -180,6 +222,55 @@ struct MergeSheet: View {
         Task {
             let result = await model.decide(.integrationMerge, on: row)
             finish(result)
+        }
+    }
+
+    private func mergeAgain() {
+        outcome = nil
+        fixLine = nil
+        resumed = false
+        merge()
+    }
+
+    private func resumeProject() {
+        guard !fixing else { return }
+        fixing = true
+        Task {
+            let result = await model.decideRun(.runResume(reason: nil), hostId: row.hostId, projectId: row.projectId)
+            fixing = false
+            switch result {
+            case .applied, .forwarded:
+                Haptics.play(.success)
+                resumed = true
+                fixLine = "The project is resumed. Merge again when you are ready."
+            default:
+                Haptics.play(.warning)
+                fixLine = "The project could not be resumed from here. Resume it from the project screen or with cstan resume on " + hostName + "."
+            }
+        }
+    }
+
+    /// Sends the refusal to the project's PM as a message from the phone. The host's reason goes as text; the PM is
+    /// told it came from the user's remote client.
+    private func askPM(_ text: MergeText) {
+        guard !fixing else { return }
+        fixing = true
+        let hostReason = text.hostText.map { TextBudget.displayPrefix($0.displayPlain, maxBytes: 240).text } ?? ""
+        let message = "Please fix this so the integration can be merged: merging " + branch + " from my phone was refused: "
+            + text.reason + "." + (hostReason.isEmpty ? "" : " The host said: " + hostReason)
+            + " Tell me when it is ready and I will merge it again."
+        Task {
+            let result = await model.messagePM(
+                String(message.prefix(SentMessageLog.textCap)), hostId: row.hostId, projectId: row.projectId)
+            fixing = false
+            switch result {
+            case .applied, .forwarded:
+                Haptics.play(.success)
+                fixLine = "Sent to the PM. Its answer arrives in Messages; merge again when it says the checkout is ready."
+            default:
+                Haptics.play(.warning)
+                fixLine = "The message did not reach the PM. It is kept in Messages, where you can send it again."
+            }
         }
     }
 
