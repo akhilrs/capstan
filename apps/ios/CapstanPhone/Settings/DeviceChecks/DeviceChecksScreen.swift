@@ -80,6 +80,20 @@ struct DeviceChecksScreen: View {
                 }
             }
             Section {
+                Button("Start a sample: 7 waiting") {
+                    let sample = GlanceSnapshot(
+                        asOf: Date(), kindCounts: ["op": 2, "prompt": 2, "design": 1, "message": 1, "integration": 1],
+                        projects: [], hostsReachable: 1, hostsTotal: 1, pollMs: model.settings.pollMs)
+                    model.liveActivity.apply(sample, allowed: true)
+                }
+                Button("Show the real counts") { model.publishGlance() }
+                Button("End the Live Activity", role: .destructive) { model.liveActivity.endAll() }
+            } header: {
+                Text("Live Activity")
+            } footer: {
+                Text("Lock the phone or open the Dynamic Island to see it. The real counts follow Settings → Live Activity.")
+            }
+            Section {
                 Button { copyResults() } label: { Label("Copy results", systemImage: "doc.on.doc") }
             }
         }

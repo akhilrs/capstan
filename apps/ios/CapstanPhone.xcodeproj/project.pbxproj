@@ -11,10 +11,37 @@
 		B10000000000000000000002 /* CapstanAppCore in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000022 /* CapstanAppCore */; };
 		B10000000000000000000031 /* CapstanPhoneCore in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000025 /* CapstanPhoneCore */; };
 		B10000000000000000000032 /* CapstanSSH in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000026 /* CapstanSSH */; };
+		B10000000000000000000041 /* CapstanPhoneCore in Frameworks */ = {isa = PBXBuildFile; productRef = B10000000000000000000042 /* CapstanPhoneCore */; };
+		B10000000000000000000043 /* CapstanWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000044 /* CapstanWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B10000000000000000000045 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B1000000000000000000000C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B10000000000000000000046;
+			remoteInfo = CapstanWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B10000000000000000000047 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B10000000000000000000043 /* CapstanWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		B10000000000000000000003 /* CapstanPhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CapstanPhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000044 /* CapstanWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CapstanWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -25,6 +52,13 @@
 			);
 			target = B10000000000000000000008 /* CapstanPhone */;
 		};
+		B10000000000000000000048 /* Exceptions for "CapstanWidgets" folder in "CapstanWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B10000000000000000000046 /* CapstanWidgets */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +68,14 @@
 				B10000000000000000000033 /* Exceptions for "CapstanPhone" folder in "CapstanPhone" target */,
 			);
 			path = CapstanPhone;
+			sourceTree = "<group>";
+		};
+		B10000000000000000000049 /* CapstanWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B10000000000000000000048 /* Exceptions for "CapstanWidgets" folder in "CapstanWidgets" target */,
+			);
+			path = CapstanWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -50,6 +92,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1000000000000000000004A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000041 /* CapstanPhoneCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -57,6 +107,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000004 /* CapstanPhone */,
+				B10000000000000000000049 /* CapstanWidgets */,
 				B10000000000000000000007 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -65,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000003 /* CapstanPhone.app */,
+				B10000000000000000000044 /* CapstanWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -79,10 +131,12 @@
 				B1000000000000000000000A /* Sources */,
 				B10000000000000000000005 /* Frameworks */,
 				B1000000000000000000000B /* Resources */,
+				B10000000000000000000047 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B1000000000000000000004B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B10000000000000000000004 /* CapstanPhone */,
@@ -98,6 +152,29 @@
 			productReference = B10000000000000000000003 /* CapstanPhone.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B10000000000000000000046 /* CapstanWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1000000000000000000004C /* Build configuration list for PBXNativeTarget "CapstanWidgets" */;
+			buildPhases = (
+				B1000000000000000000004D /* Sources */,
+				B1000000000000000000004A /* Frameworks */,
+				B1000000000000000000004E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B10000000000000000000049 /* CapstanWidgets */,
+			);
+			name = CapstanWidgets;
+			packageProductDependencies = (
+				B10000000000000000000042 /* CapstanPhoneCore */,
+			);
+			productName = CapstanWidgets;
+			productReference = B10000000000000000000044 /* CapstanWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -109,6 +186,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					B10000000000000000000008 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					B10000000000000000000046 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -134,12 +214,20 @@
 			projectRoot = "";
 			targets = (
 				B10000000000000000000008 /* CapstanPhone */,
+				B10000000000000000000046 /* CapstanWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		B1000000000000000000000B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1000000000000000000004E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -156,7 +244,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1000000000000000000004D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B1000000000000000000004B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B10000000000000000000046 /* CapstanWidgets */;
+			targetProxy = B10000000000000000000045 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		B1000000000000000000000E /* Debug */ = {
@@ -226,7 +329,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.capstan.phone;
+				PRODUCT_BUNDLE_IDENTIFIER = in.qusol.capstan.phone;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 6.0;
@@ -256,9 +359,61 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.capstan.phone;
+				PRODUCT_BUNDLE_IDENTIFIER = in.qusol.capstan.phone;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B1000000000000000000004F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CapstanWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Capstan;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = in.qusol.capstan.phone.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B10000000000000000000050 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CapstanWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Capstan;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = in.qusol.capstan.phone.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -281,6 +436,15 @@
 			buildConfigurations = (
 				B10000000000000000000010 /* Debug */,
 				B10000000000000000000011 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B1000000000000000000004C /* Build configuration list for PBXNativeTarget "CapstanWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1000000000000000000004F /* Debug */,
+				B10000000000000000000050 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -322,6 +486,10 @@
 		B10000000000000000000026 /* CapstanSSH */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CapstanSSH;
+		};
+		B10000000000000000000042 /* CapstanPhoneCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CapstanPhoneCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

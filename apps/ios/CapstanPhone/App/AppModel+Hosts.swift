@@ -129,5 +129,6 @@ extension AppModel {
     func updateSettings(_ new: PhoneSettings) {
         settings = new
         if let directory { try? PhoneSettingsStore(directory: directory).save(new) }
+        publishGlance()
     }
 }
