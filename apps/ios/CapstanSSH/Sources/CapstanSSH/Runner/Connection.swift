@@ -103,6 +103,7 @@ final class HostConnection: @unchecked Sendable {
 }
 
 enum SSHRunnerError: Error {
+    case authRefused
     case closed
     case hostKeyRejected
     case noKey
@@ -129,7 +130,8 @@ final class VaultKeyAuth: NIOSSHClientUserAuthenticationDelegate {
     ) {
         guard !offered, availableMethods.contains(.publicKey) else {
             refused()
-            nextChallengePromise.succeed(nil)
+            // A nil offer only marks auth as failed and leaves the connection open; a failed promise ends it.
+            nextChallengePromise.fail(SSHRunnerError.authRefused)
             return
         }
         offered = true

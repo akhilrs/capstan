@@ -76,20 +76,39 @@ func collect(_ process: any RunningProcess) async -> (lines: [String], error: Er
     }
 }
 
-/// The exit code, failing the test after `seconds` instead of hanging the run.
+/// The exit code, failing the test after `seconds` instead of hanging the run. Unstructured tasks race here: a task
+/// group would wait for `exitCode()` even after the timeout, and it cannot be cancelled.
 func exitCode(
     _ process: any RunningProcess, within seconds: TimeInterval = 10, file: StaticString = #filePath, line: UInt = #line
 ) async -> Int32? {
-    await withTaskGroup(of: Int32?.self) { group in
-        group.addTask { await process.exitCode() }
-        group.addTask {
+    let first = FirstResult<Int32?>()
+    let code: Int32? = await withCheckedContinuation { continuation in
+        first.wait(continuation)
+        Task { first.offer(await process.exitCode()) }
+        Task {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            return nil
+            first.offer(nil)
         }
-        let first = await group.next() ?? nil
-        group.cancelAll()
-        if first == nil { XCTFail("no exit code within \(seconds) s", file: file, line: line) }
-        return first
+    }
+    if code == nil { XCTFail("no exit code within \(seconds) s", file: file, line: line) }
+    return code
+}
+
+/// Resumes its continuation with the first value offered.
+final class FirstResult<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    func wait(_ continuation: CheckedContinuation<Value, Never>) {
+        lock.withLock { self.continuation = continuation }
+    }
+
+    func offer(_ value: Value) {
+        let waiting: CheckedContinuation<Value, Never>? = lock.withLock {
+            defer { continuation = nil }
+            return continuation
+        }
+        waiting?.resume(returning: value)
     }
 }
 
