@@ -97,6 +97,8 @@ final class AppModel {
     @ObservationIgnored let liveActivity = LiveActivityController()
     /// Local notifications and the badge (package `background-refresh`).
     @ObservationIgnored let notifier = Notifier()
+    /// The messages sent to the PMs (package `scr-messages`); observable on its own.
+    @ObservationIgnored let messages: MessagesStore
     @ObservationIgnored let runner: (any ProcessRunner)?
     @ObservationIgnored let registry: PhoneHostRegistry?
     @ObservationIgnored let pins: HostKeyStore?
@@ -139,6 +141,7 @@ final class AppModel {
         self.pendingStore = pending
         self.decider = Decider(runner: runner, pending: pending, clock: SystemClock())
         self.overview = OverviewStore(runner: runner)
+        self.messages = MessagesStore(directory: directory)
         self.hosts = []
         self.hostModels = [:]
         self.connection = [:]
@@ -166,6 +169,7 @@ final class AppModel {
         pendingStore = nil
         decider = nil
         overview = OverviewStore(runner: nil)
+        messages = MessagesStore(directory: nil, seed: seed.messages)
         hosts = seed.hosts
         hostModels = seed.hostModels
         connection = seed.connection
