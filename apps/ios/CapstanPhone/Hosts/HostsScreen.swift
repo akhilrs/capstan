@@ -129,15 +129,19 @@ struct HostSectionHeader: View {
 /// what the state means.
 struct ProjectRow: View {
     let project: ProjectModel
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let text = AvailabilityText(project.availability)
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.space[1]))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
         VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            HStack(alignment: .firstTextBaseline) {
+            layout {
                 Text(verbatim: TextBudget.displayPrefix(project.displayName, maxBytes: 64).text)
                     .font(TypeStyle.headline)
-                    .lineLimit(1)
-                Spacer(minLength: Tokens.space[1])
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: Tokens.space[1]) }
                 StatePill(word: text.word, symbol: text.symbol, tone: AvailabilityText.tone(project.availability))
             }
             Text(verbatim: line(text))

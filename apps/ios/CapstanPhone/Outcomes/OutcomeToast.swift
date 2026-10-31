@@ -5,6 +5,7 @@ import SwiftUI
 struct OutcomeToast: ViewModifier {
     @Binding var shown: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .top) {
@@ -17,7 +18,13 @@ struct OutcomeToast: ViewModifier {
                 }
                 .padding(.horizontal, Tokens.space[3])
                 .frame(minHeight: 44)
-                .glassEffect(.regular, in: Capsule())
+                .background {
+                    // Reduce Transparency turns the glass opaque.
+                    if reduceTransparency {
+                        Capsule().fill(Tokens.color(.cell)).overlay(Capsule().strokeBorder(Tokens.color(.sep)))
+                    }
+                }
+                .glassEffect(reduceTransparency ? .identity : .regular, in: Capsule())
                 .padding(.top, Tokens.space[1])
                 .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 .task {

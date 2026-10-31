@@ -104,6 +104,13 @@ struct WaitingScreen: View {
         } preview: {
             WaitingPreview(row: row)
         }
+        // VoiceOver: the swipe actions as custom actions (Deny only where a swipe offers it).
+        .accessibilityActions {
+            if row.kind == .op, answerable {
+                Button("Deny…") { denying = row }
+            }
+            Button("Message PM") { messagePM(row) }
+        }
         .listRowBackground(Tokens.color(.cell))
     }
 
@@ -237,17 +244,38 @@ struct HostStateBanners: View {
 
 struct WaitingStatusLine: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    /// The newest line time of a live host; the dot pulses once (200 ms) when it moves, unless the pulse is off in
+    /// Settings or Reduce Motion is on, where only the "N s ago" text changes.
+    private var lastLine: Date? {
+        model.hosts.compactMap { host -> Date? in
+            if case .live(_, let last)? = model.connection[host.id] { return last }
+            return nil
+        }.max()
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             HStack(spacing: Tokens.space[1]) {
-                Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
+                Circle().fill(color).frame(width: 8, height: 8)
+                    .scaleEffect(pulsing ? 1.7 : 1)
+                    .accessibilityHidden(true)
                 Text(verbatim: line(now: context.date))
                     .font(TypeStyle.subheadline)
                     .foregroundStyle(Tokens.color(.label2))
             }
         }
         .accessibilityElement(children: .combine)
+        .onChange(of: lastLine) { _, _ in
+            guard model.settings.heartbeatPulse, !reduceMotion else { return }
+            withAnimation(.easeOut(duration: Motion.pulse / 2)) { pulsing = true }
+            Task {
+                try? await Task.sleep(for: .milliseconds(Int(Motion.pulse * 1000)))
+                withAnimation(.easeIn(duration: Motion.pulse / 2)) { pulsing = false }
+            }
+        }
     }
 
     private var state: ConnectionState? {
