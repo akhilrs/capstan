@@ -64,7 +64,9 @@ struct WaitingScreen: View {
         .sheet(item: $denying) { row in
             ConfirmSheet(
                 title: "Deny this command?", detail: row.summary, noteLimit: ProtocolLimits.reasonCap,
-                destructiveLabel: "Deny",
+                destructiveLabel: "Deny", detailLabel: "Command · " + row.projectName,
+                noteLabel: "Note to the operator (optional)",
+                footnote: "Deny is applied on the host at once and cannot be taken back from here.",
                 onConfirm: { note in deny(row, note: note) })
         }
     }

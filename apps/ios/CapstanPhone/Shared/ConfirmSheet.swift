@@ -9,9 +9,16 @@ struct ConfirmSheet: View {
     let detail: UntrustedText?
     let noteLimit: Int?
     let destructiveLabel: String
+    /// The header of the host text block.
+    let detailLabel: String
+    /// The label above the note field.
+    let noteLabel: String
+    /// A line under the note that says what the choice does.
+    let footnote: String?
     let onConfirm: (String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var note = ""
     @FocusState private var focus: Field?
 
@@ -19,8 +26,12 @@ struct ConfirmSheet: View {
 
     init(
         title: String, detail: UntrustedText?, noteLimit: Int?, destructiveLabel: String,
+        detailLabel: String = "From the host", noteLabel: String = "Note (optional)", footnote: String? = nil,
         onConfirm: @escaping (String?) -> Void
     ) {
+        self.detailLabel = detailLabel
+        self.noteLabel = noteLabel
+        self.footnote = footnote
         self.title = title
         self.detail = detail
         self.noteLimit = noteLimit
@@ -31,16 +42,33 @@ struct ConfirmSheet: View {
     private var budget: TextBudget? { noteLimit.map { TextBudget(limit: $0) } }
     private var overLimit: Bool { budget.map { !$0.allows(note) } ?? false }
 
+    @ViewBuilder
+    private var buttons: some View {
+        Button("Cancel") { dismiss() }
+            .buttonStyle(.capstanQuiet)
+            .keyboardShortcut(.cancelAction)
+            .focused($focus, equals: .cancel)
+        Button(role: .destructive) {
+            onConfirm(budget == nil ? nil : NoteText.normalized(note))
+            dismiss()
+        } label: {
+            Text(verbatim: destructiveLabel)
+        }
+        .buttonStyle(.capstanDestructive)
+        .disabled(overLimit)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.space[3]) {
                 Text(verbatim: title).font(TypeStyle.title2)
                 if let detail {
-                    UntrustedTextBlock(text: detail, label: "From the host")
+                    UntrustedTextBlock(text: detail, label: detailLabel)
                 }
                 if let budget {
                     VStack(alignment: .leading, spacing: Tokens.space[0]) {
-                        TextField("Note (optional)", text: $note, axis: .vertical)
+                        Text(verbatim: noteLabel).font(TypeStyle.footnote.weight(.semibold))
+                        TextField(text: $note, axis: .vertical) { Text(verbatim: noteLabel) }
                             .lineLimit(3...6)
                             .padding(Tokens.space[2])
                             .background(Tokens.color(.fill), in: RoundedRectangle(cornerRadius: Tokens.radius.block))
@@ -51,19 +79,14 @@ struct ConfirmSheet: View {
                             .foregroundStyle(overLimit ? Tokens.color(.red) : Tokens.color(.label2))
                     }
                 }
-                VStack(spacing: Tokens.space[2]) {
-                    Button("Cancel") { dismiss() }
-                        .buttonStyle(.capstanQuiet)
-                        .keyboardShortcut(.cancelAction)
-                        .focused($focus, equals: .cancel)
-                    Button(role: .destructive) {
-                        onConfirm(budget == nil ? nil : NoteText.normalized(note))
-                        dismiss()
-                    } label: {
-                        Text(verbatim: destructiveLabel)
-                    }
-                    .buttonStyle(.capstanDestructive)
-                    .disabled(overLimit)
+                if let footnote {
+                    Text(verbatim: footnote).font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
+                }
+                // Side by side, Cancel first; stacked at accessibility sizes.
+                if typeSize.isAccessibilitySize {
+                    VStack(spacing: Tokens.space[2]) { buttons }
+                } else {
+                    HStack(spacing: Tokens.space[2]) { buttons }
                 }
             }
             .padding(Tokens.margin)
