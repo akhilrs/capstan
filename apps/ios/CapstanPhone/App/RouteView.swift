@@ -35,7 +35,9 @@ struct RouteView: View {
             }
         case .agent(let hostId, let projectId, let agentId):
             AgentDetailScreen(hostId: hostId, projectId: projectId, agentId: agentId)
-        case .plan, .conversation:
+        case .plan(let ref):
+            PlanDetailScreen(ref: ref)
+        case .conversation:
             ContentUnavailableView("Coming soon", systemImage: "hammer")
         }
     }
