@@ -29,6 +29,9 @@ struct Led {
     waiting: Vec<Vec<Value>>,
     agents: Vec<Value>,
     plans: Vec<Value>,
+    messages: Vec<Value>,
+    /// The daemon predates `feed messages` and refuses it as bad usage.
+    no_messages: bool,
     page_size: usize,
     null_anchor: bool,
     fail: Option<FeedFailure>,
@@ -167,6 +170,13 @@ impl FeedSource for FeedRef {
             }
             "agents" => json!({"head": led.head, "items": led.agents, "next": null}),
             "plans" => json!({"head": led.head, "items": led.plans, "next": null}),
+            "messages" if led.no_messages => {
+                return Err(FeedFailure::Refused {
+                    code: "invalid_request".into(),
+                    message: "usage: feed head|page|snapshot|waiting|agents|plans|item|hash".into(),
+                })
+            }
+            "messages" => json!({"head": led.head, "items": led.messages, "next": null}),
             "page" => {
                 let after = flag("--after").unwrap();
                 let (s, k) = after.split_once(':').unwrap();
@@ -1004,7 +1014,7 @@ fn the_key_never_leaves_and_only_the_feed_reads_are_made() {
     assert!(!out.err.contains(KEY));
     assert!(out.err.contains("cannot be followed"));
     assert!(!out.err.contains('\u{1b}') && !out.err.contains('\u{202e}'));
-    let allowed = ["head", "snapshot", "page", "waiting", "agents", "plans"];
+    let allowed = ["head", "snapshot", "page", "waiting", "agents", "plans", "messages"];
     assert!(world
         .calls
         .lock()
@@ -1263,4 +1273,22 @@ fn misses_inside_a_sync_follow_the_same_rule() {
     let (out, states) = flaky("sync2", "page", &[false, true, true, true, false], |_| {});
     assert_eq!(states, ["ready", "silent", "ready"]);
     assert!(ever_down(&out));
+}
+
+#[test]
+fn messages_are_a_snapshot_section_and_an_older_daemon_without_them_still_streams() {
+    let dir = tmp("messages");
+    let (a, b) = (project(&dir, "a"), project(&dir, "b"));
+    let mut la = led("pa", 1);
+    la.messages = items(&["1", "2"]);
+    let mut lb = led("pb", 1);
+    lb.no_messages = true;
+    let world = world(vec![(&a, la), (&b, lb)]);
+    let mut s = setup();
+    s.plan.roots = vec![a.clone(), b.clone()];
+    let out = run(&world, s);
+    assert_eq!(out.code, 0);
+    let got = kinds(&out);
+    assert_eq!(got.iter().filter(|k| *k == "snapshot:messages").count(), 2, "{got:?}");
+    assert_eq!(got.iter().filter(|k| *k == "snapshotEnd").count(), 2, "{got:?}");
 }

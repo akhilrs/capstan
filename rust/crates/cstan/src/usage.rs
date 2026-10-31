@@ -66,7 +66,7 @@ pub const ENTRIES: &[Entry] = &[
     e(MESSAGING, "ack", "ack <message-id>...|--all-read", "Acknowledge messages you read; --all-read acknowledges every message already shown to you."),
     e(MESSAGING, "wait", "wait", "Block until a new message arrives (agents)."),
     e(MESSAGING, "wait", "wait --until <duration>", "Keep waiting past the host's limit until mail arrives or the duration (1s to 10m, e.g. 5m) passes; prints \"no new messages\" and exits 0 on timeout."),
-    e(MESSAGING, "send", "send [--info|--action] <agent-id>|@pm <text>", "Queue a message. --action needs an action and wakes the PM; --info is for awareness and is acknowledged by the next inbox. Without a flag the [messages] send_default decides."),
+    e(MESSAGING, "send", "send [--info|--action] <agent-id>|@pm|@user <text>", "Queue a message. --action needs an action and wakes the PM; --info is for awareness and is acknowledged by the next inbox. Without a flag the [messages] send_default decides. @user (agents only) messages the user's remote clients: --action asks a question that waits until the user answers, which arrives as a message; otherwise it is info. send --answered @user <n> marks your question n answered in the terminal."),
     e(MESSAGING, "report", "report <commit> <summary>", "Report a finished commit (full 40-character id) and a one-line summary (workers)."),
     e(MESSAGING, "ask", "ask", "Reserved. The controller answers not_implemented."),
     e(MESSAGING, "assign", "assign", "Reserved. The controller answers not_implemented."),

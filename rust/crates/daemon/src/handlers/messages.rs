@@ -154,11 +154,20 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let flags = call
         .args
         .iter()
-        .take_while(|arg| matches!(arg.as_str(), "--action" | "--info"))
+        .take_while(|arg| matches!(arg.as_str(), "--action" | "--info" | "--answered"))
         .count();
     let args: Vec<String> = call.args[flags..].to_vec();
     let has = |flag: &str| call.args[..flags].iter().any(|arg| arg == flag);
     let (action_flag, info_flag) = (has("--action"), has("--info"));
+    if has("--answered") {
+        if flags != 1 || args.len() != 2 || args[0] != "@user" {
+            return Some(fail(
+                ErrorCode::InvalidRequest,
+                "send --answered takes @user and the number of your question, and no other flag",
+            ));
+        }
+        return Some(close_user_question(call, env, &args[1]));
+    }
     if action_flag && info_flag {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -183,6 +192,9 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             ErrorCode::InvalidRequest,
             "a message body must not contain a line that looks like a Capstan message frame",
         ));
+    }
+    if target == "@user" {
+        return Some(send_to_user(env, call, body, action_flag));
     }
     if target != "@pm" && !is_safe_agent_id(&target) {
         return Some(fail(
@@ -272,6 +284,53 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         )?;
         Ok(ok(json!({"messageId": queued["messageId"]})))
     })
+}
+
+/// `send [--action|--info] @user <text>`: an agent sends the user a message for the remote clients. `--action` asks the
+/// user something (it waits in the waiting list until answered); otherwise it is info.
+fn send_to_user(
+    env: &CommandEnv<'_>,
+    call: &CommandCall<'_>,
+    body: String,
+    action: bool,
+) -> CommandResponse {
+    if call.identity.agent.is_none() {
+        return fail(
+            ErrorCode::InvalidRequest,
+            "only an agent sends the user a message",
+        );
+    }
+    let credential = call.credential.to_string();
+    on_kernel(env, move |core| {
+        let context = new_context(core, &credential)?;
+        let sent = core.send_to_user(
+            &context,
+            &json!({"body": body, "class": if action { "action" } else { "info" }}),
+        )?;
+        Ok(ok(json!({"messageId": sent["messageId"], "sequence": sent["sequence"]})))
+    })
+    .unwrap_or_else(|| fail(ErrorCode::InvalidRequest, "the controller is not answering"))
+}
+
+/// `send --answered @user <n>`: the agent's question `n` was answered in its terminal, so the remote clients stop
+/// showing it as waiting.
+fn close_user_question(call: &CommandCall<'_>, env: &CommandEnv<'_>, number: &str) -> CommandResponse {
+    let Ok(sequence) = number.parse::<i64>() else {
+        return fail(
+            ErrorCode::InvalidRequest,
+            "the question number must be a positive integer",
+        );
+    };
+    if call.identity.agent.is_none() {
+        return fail(ErrorCode::InvalidRequest, "only an agent closes its question");
+    }
+    let credential = call.credential.to_string();
+    on_kernel(env, move |core| {
+        let context = new_context(core, &credential)?;
+        let closed = core.close_user_question(&context, &json!({"sequence": sequence}))?;
+        Ok(ok(json!({"messageId": closed["messageId"], "sequence": closed["sequence"]})))
+    })
+    .unwrap_or_else(|| fail(ErrorCode::InvalidRequest, "the controller is not answering"))
 }
 
 fn resolve(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {

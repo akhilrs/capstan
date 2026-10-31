@@ -99,6 +99,8 @@ code role.sync
 code run.transition
 code seat.create
 code supervision.check
+code user_message.close
+code user_message.send
 code verify.cancel
 code verify.claim
 code verify.finish

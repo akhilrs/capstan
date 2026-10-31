@@ -29,6 +29,11 @@ pub enum FeedCall {
         after: Option<String>,
         limit: u32,
     },
+    /// Messages from the agents to the user (`feed messages`).
+    Messages {
+        after: Option<String>,
+        limit: u32,
+    },
     Item {
         section: String,
         key: String,
@@ -71,11 +76,13 @@ impl FeedCall {
                 flag(&mut args, "--after", after);
                 flag(&mut args, "--kind", kind);
             }
-            FeedCall::Agents { after, limit } | FeedCall::Plans { after, limit } => {
-                let name = if matches!(self, FeedCall::Agents { .. }) {
-                    "agents"
-                } else {
-                    "plans"
+            FeedCall::Agents { after, limit }
+            | FeedCall::Plans { after, limit }
+            | FeedCall::Messages { after, limit } => {
+                let name = match self {
+                    FeedCall::Agents { .. } => "agents",
+                    FeedCall::Plans { .. } => "plans",
+                    _ => "messages",
                 };
                 args.extend([name.into(), "--limit".into(), limit.to_string()]);
                 flag(&mut args, "--after", after);
