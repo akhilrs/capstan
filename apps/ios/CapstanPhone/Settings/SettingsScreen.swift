@@ -9,6 +9,7 @@ import UIKit
 /// and the version. Capstan has no server, so there is nothing to switch on for remote alerts.
 struct SettingsScreen: View {
     @Environment(AppModel.self) private var model
+    @State private var showDeviceChecks = false
 
     var body: some View {
         List {
@@ -65,11 +66,18 @@ struct SettingsScreen: View {
                 } label: {
                     Text("Version")
                 }
+                .contentShape(Rectangle())
+                // A long press opens the device checks (plan 6.3), a developer screen.
+                .onLongPressGesture {
+                    Haptics.play(.selection)
+                    showDeviceChecks = true
+                }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.large)
+        .navigationDestination(isPresented: $showDeviceChecks) { DeviceChecksScreen() }
     }
 
     private var keyKind: String {
