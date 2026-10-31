@@ -2,6 +2,12 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.15.0 (2026-10-31)
+
+### Features
+
+- **merge:** merge into a chosen branch from the app, without switching the checkout (#76) (5557b2e)
+- **ios:** PM messages and questions in the conversation, answered in place (#75) (f3a369a)
 ## 0.14.0 (2026-10-31)
 
 ### Features
