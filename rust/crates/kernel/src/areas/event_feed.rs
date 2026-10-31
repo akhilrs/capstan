@@ -205,7 +205,7 @@ pub const KEY_KINDS: &[KeyKind] = &[
     KeyKind {
         section: "waiting",
         kind: "message",
-        source: "messages.sequence",
+        source: "user_messages.sequence",
     },
     KeyKind {
         section: "waiting",
@@ -226,6 +226,11 @@ pub const KEY_KINDS: &[KeyKind] = &[
         section: "plans",
         kind: "plan",
         source: "plans.sequence",
+    },
+    KeyKind {
+        section: "messages",
+        kind: "message",
+        source: "user_messages.sequence",
     },
 ];
 
@@ -559,6 +564,14 @@ pub const MAPPING: &[Rule] = &[
         "*",
         "*",
         each("plan.needs_attention", "episodes"),
+    ),
+    // A message from an agent to the user: its item in `messages`, and its waiting item while it is an open question.
+    rule(
+        "user_message",
+        "user_message.send",
+        "-",
+        "*",
+        Kind::Invalidate("messages"),
     ),
     rule("run_control", "run.transition", "*", "+", ev("run.changed")),
     rule(
@@ -899,6 +912,16 @@ fn load_integration(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
         "SELECT sequence, state FROM integrations WHERE project_id = ? AND integration_id = ?",
         sql_params![project, id],
         &["sequence", "state"],
+    )
+}
+
+fn load_user_message(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
+    let project = ctx.project_id.clone();
+    ctx.lookup(
+        format!("user_message:{id}"),
+        "SELECT sequence, class FROM user_messages WHERE project_id = ? AND message_id = ?",
+        sql_params![project, id],
+        &["sequence", "class"],
     )
 }
 
@@ -1647,7 +1670,17 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             } else {
                 "waiting"
             };
-            effects = vec![effect(section, "invalidate", key.to_string(), json!({}))];
+            let mut list = vec![effect(section, "invalidate", key.to_string(), json!({}))];
+            // An answered message also changes its item in `messages`.
+            if let Some(sequence) = key.strip_prefix("message:") {
+                list.push(effect(
+                    "messages",
+                    "invalidate",
+                    item_key("messages", "message", sequence),
+                    json!({}),
+                ));
+            }
+            effects = list;
         }
         "integration.finished" => {
             body.insert("integrationId".into(), json!(row.entity_id));
@@ -1722,6 +1755,27 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             let Kind::Invalidate(section) = kind else {
                 return Ok(None);
             };
+            if section == "messages" {
+                let Some(message) = load_user_message(ctx, &row.entity_id)? else {
+                    return Ok(None);
+                };
+                let sequence = num_text(&message, "sequence");
+                let key = item_key("messages", "message", &sequence);
+                body.insert("section".into(), json!(section));
+                body.insert("key".into(), json!(key));
+                let mut list = vec![effect("messages", "invalidate", key, json!({}))];
+                if text_of(&message, "class") == Some("action") {
+                    list.push(effect(
+                        "waiting",
+                        "invalidate",
+                        item_key("waiting", MESSAGE_KIND, &sequence),
+                        json!({}),
+                    ));
+                }
+                body.insert("effects".into(), Value::Array(list));
+                base.body = body;
+                return Ok(Some(base));
+            }
             let key = match section {
                 "agents" => Some(item_key("agents", "agent", &row.entity_id)),
                 "waiting" => match row.entity_type.as_str() {

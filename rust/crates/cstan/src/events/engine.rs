@@ -21,7 +21,9 @@ const PAGE_LIMIT: u32 = 500;
 const ITEM_LIMIT: u32 = 100;
 /// The longest sleep between two looks at the stop flag.
 const SLICE_MS: u64 = 100;
-const SECTIONS: [&str; 3] = ["waiting", "agents", "plans"];
+/// The sections of a snapshot. `messages` is optional: a daemon older than it refuses the call, and the snapshot goes on
+/// without it.
+const SECTIONS: [&str; 4] = ["waiting", "agents", "plans", "messages"];
 
 /// Why the loop ends.
 enum Halt {
@@ -230,6 +232,25 @@ impl Engine<'_> {
         self.check_stop()?;
         match answer {
             Ok(value) => Ok(value),
+            Err(FeedFailure::Refused { code, .. }) => Err(Fail::Down(classify(&code))),
+            Err(FeedFailure::NoAnswer) => Err(Fail::Down(EndpointState::Silent)),
+        }
+    }
+
+    /// `call` for a section an older daemon does not know: its `invalid_request` refusal is `None`.
+    fn call_optional(
+        &mut self,
+        root: &Path,
+        key: &Credential,
+        call: &FeedCall,
+    ) -> Result<Option<Value>, Fail> {
+        self.check_stop()?;
+        self.beat()?;
+        let answer = self.deps.feed.call(root, key, call);
+        self.check_stop()?;
+        match answer {
+            Ok(value) => Ok(Some(value)),
+            Err(FeedFailure::Refused { code, .. }) if code == "invalid_request" => Ok(None),
             Err(FeedFailure::Refused { code, .. }) => Err(Fail::Down(classify(&code))),
             Err(FeedFailure::NoAnswer) => Err(Fail::Down(EndpointState::Silent)),
         }
@@ -584,12 +605,23 @@ impl Engine<'_> {
                         after: after.clone(),
                         limit: ITEM_LIMIT,
                     },
-                    _ => FeedCall::Plans {
+                    "plans" => FeedCall::Plans {
+                        after: after.clone(),
+                        limit: ITEM_LIMIT,
+                    },
+                    _ => FeedCall::Messages {
                         after: after.clone(),
                         limit: ITEM_LIMIT,
                     },
                 };
-                let page = self.call(&info.root, key, &call)?;
+                let page = if section == "messages" {
+                    match self.call_optional(&info.root, key, &call)? {
+                        Some(page) => page,
+                        None => break,
+                    }
+                } else {
+                    self.call(&info.root, key, &call)?
+                };
                 for item in page
                     .get("items")
                     .and_then(Value::as_array)

@@ -78,7 +78,7 @@
 //! have a `next`.
 
 use super::event_feed::{item_key, parse_item_key, KEY_KINDS};
-use super::{design_approvals, feed_cursor, plan_packages};
+use super::{design_approvals, feed_cursor, plan_packages, user_messages};
 use crate::canonical::sha256;
 use crate::core::Core;
 use crate::errors::{KernelError, KernelResult};
@@ -1158,10 +1158,6 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
     if kind == "design" {
         return fetch_design(core, sel, limit);
     }
-    if kind == MESSAGE_KIND {
-        // Only a message addressed to the user waits, and none is (a recipient is an agent): no candidate, no read.
-        return Ok(Vec::new());
-    }
     let (columns, id_column, from, state): (&[&str], &str, &str, String) = match kind {
         "op" => (
             &[
@@ -1188,6 +1184,12 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
             "relay_id",
             "prompt_relays",
             "state = 'captured'".to_string(),
+        ),
+        MESSAGE_KIND => (
+            &["sequence", "message_id", "body", "created_at"],
+            "message_id",
+            "user_messages",
+            "class = 'action' AND state = 'open'".to_string(),
         ),
         "integration" => (
             &[
@@ -1402,6 +1404,12 @@ fn build(
                     found
                 })
             }
+            MESSAGE_KIND => Some(item(
+                text(cols, "created_at"),
+                shown(&text(cols, "body")),
+                sha256(&message_hash_input(&candidate.id, &text(cols, "body"))),
+                false,
+            )),
             "design" => match build_design(core, candidate, scan, reads, force)? {
                 Designed::Defer => return Ok(Built::Defer),
                 Designed::Skip => None,
@@ -2001,6 +2009,110 @@ fn waiting_one(
     }
 }
 
+// --------------------------------------------------------------------------------------------------- the messages
+
+/// A message from an agent to the user, as the `messages` section lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageItem {
+    /// The sequence number of the message, in decimal.
+    pub key: String,
+    pub message_id: String,
+    pub sequence: i64,
+    pub sender_agent_id: String,
+    /// `action` (asks the user) or `info`.
+    pub class: String,
+    /// `open` (an action not answered yet), `answered` or `info`.
+    pub state: String,
+    pub body: String,
+    pub truncated: bool,
+    pub created_at: String,
+    pub answered_at: Option<String>,
+    /// `message:<messageId>`: the request id of the waiting item while the message is open.
+    pub request_id: String,
+}
+
+const MESSAGE_COLUMNS: &[&str] = &[
+    "sequence",
+    "message_id",
+    "sender_agent_id",
+    "class",
+    "state",
+    "body",
+    "created_at",
+    "answered_at",
+];
+
+/// Messages to the user among the latest [`user_messages::LISTED_MESSAGES`]: the one of sequence `only`, or those after
+/// `after`, oldest first.
+fn message_rows(
+    core: &Core,
+    only: Option<i64>,
+    after: i64,
+    limit: usize,
+) -> KernelResult<Vec<MessageItem>> {
+    let select = MESSAGE_COLUMNS.join(", ");
+    let floor = "sequence > (SELECT COALESCE(MAX(sequence), 0) FROM user_messages WHERE project_id = ?1) - ?2";
+    let (sql, params) = match only {
+        Some(sequence) => (
+            format!("SELECT {select} FROM user_messages WHERE project_id = ?1 AND {floor} AND sequence = ?3"),
+            vec![project(core), sql_int(user_messages::LISTED_MESSAGES), sql_int(sequence)],
+        ),
+        None => (
+            format!(
+                "SELECT {select} FROM user_messages WHERE project_id = ?1 AND {floor} AND sequence > ?3
+                 ORDER BY sequence LIMIT ?4"
+            ),
+            vec![
+                project(core),
+                sql_int(user_messages::LISTED_MESSAGES),
+                sql_int(after),
+                sql_int(limit as i64),
+            ],
+        ),
+    };
+    Ok(rows(core, &sql, params, MESSAGE_COLUMNS)?
+        .into_iter()
+        .map(|cols| {
+            let cleaned = clean_text(&text(&cols, "body"));
+            let (body, truncated) = cap_text(&cleaned, TEXT_CAP);
+            let sequence = int(&cols, "sequence");
+            MessageItem {
+                key: item_key("messages", "message", &sequence.to_string()),
+                message_id: text(&cols, "message_id"),
+                sequence,
+                sender_agent_id: text(&cols, "sender_agent_id"),
+                class: text(&cols, "class"),
+                state: text(&cols, "state"),
+                body: body.to_string(),
+                truncated,
+                created_at: text(&cols, "created_at"),
+                answered_at: cols.get("answered_at").and_then(Value::as_str).map(str::to_string),
+                request_id: format!("{MESSAGE_KIND}:{}", text(&cols, "message_id")),
+            }
+        })
+        .collect())
+}
+
+/// The messages to the user after the key `after` (a sequence), oldest first, among the latest
+/// [`user_messages::LISTED_MESSAGES`].
+pub fn messages_page(core: &Core, after: Option<&str>, limit: u32) -> KernelResult<Page<MessageItem>> {
+    let limit = check_limit(limit)?;
+    let after = match after {
+        None => 0,
+        Some(key) => parse_item_key("messages", key)
+            .and_then(|(_, id)| key_number(&id))
+            .ok_or_else(|| invalid("after is not a message key"))?,
+    };
+    let head = head_of(core)?;
+    // One more row than asked tells whether there is a next page.
+    let mut items = message_rows(core, None, after, limit + 1)?;
+    let more = items.len() > limit;
+    items.truncate(limit);
+    let next = if more { items.last().map(|item| item.key.clone()) } else { None };
+    Ok(Page { head, items, next })
+}
+
 // ------------------------------------------------------------------------------------------------------ single reads
 
 /// One item of a section by its key, as the page of that section lists it; `None` when the row is gone or no longer
@@ -2035,6 +2147,14 @@ pub fn snapshot_item(core: &Core, section: &str, key: &str) -> KernelResult<Opti
                 Some(row) => Ok(Some(to_value(&plan_item(core, row)?))),
                 None => Ok(None),
             }
+        }
+        "messages" => {
+            let sequence = parse_item_key("messages", key)
+                .and_then(|(_, id)| key_number(&id))
+                .ok_or_else(|| invalid("not a message key"))?;
+            Ok(message_rows(core, Some(sequence), 0, 1)?
+                .pop()
+                .map(|item| to_value(&item)))
         }
         other => Err(invalid(format!("unknown section {other}"))),
     }

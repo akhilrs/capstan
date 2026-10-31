@@ -30,6 +30,7 @@ pub mod retention;
 pub mod reviews;
 pub mod snapshot_feed;
 pub mod status;
+pub mod user_messages;
 pub mod verify_runs;
 pub mod warm_reviewers;
 pub mod write_once;

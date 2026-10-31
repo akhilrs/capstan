@@ -225,6 +225,14 @@ fn run(
             let after = flags.get("--after").map(str::to_string);
             answer(kernel.run(move |core| snapshot_feed::plans_page(core, after.as_deref(), limit)))
         }
+        "messages" => {
+            let flags = Flags::parse(rest, &["--limit", "--after"])?;
+            let limit = flags.limit()?;
+            let after = flags.get("--after").map(str::to_string);
+            answer(
+                kernel.run(move |core| snapshot_feed::messages_page(core, after.as_deref(), limit)),
+            )
+        }
         "item" if rest.len() == 2 => {
             let (section, key) = (rest[0].clone(), rest[1].clone());
             let found = kernel.run({

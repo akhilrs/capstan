@@ -8,8 +8,8 @@
 use crate::areas::{
     actors, agents, approval_windows, design_approvals, findings, integrations, links,
     message_notices, messages, operator_grants, operator_proposals, operator_runs, panes, pauses,
-    plan_packages, plans, prompt_relay, remote_decisions, reports, reviews, status, verify_runs,
-    warm_reviewers,
+    plan_packages, plans, prompt_relay, remote_decisions, reports, reviews, status, user_messages,
+    verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -868,6 +868,11 @@ impl Core {
     /// `ControllerCore.enqueueMessage`.
     pub fn enqueue_message(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
         messages::enqueue_message(&self.kernel, context, input)
+    }
+
+    /// `user_message.send`: the calling agent sends the user a message (`cstan send @user`).
+    pub fn send_to_user(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        user_messages::send_to_user(&self.kernel, context, input)
     }
 
     /// `ControllerCore.message`.
