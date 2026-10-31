@@ -43,6 +43,19 @@ extension AppModel {
         return outcome
     }
 
+    /// Answers a question an agent sent the person (`message reply`); the answer is kept in the thread, marked as the
+    /// answer to that question, so a send again without a pending request still reads as one.
+    func answerQuestion(_ text: String, question: StoredMessage, hostId: UUID, projectId: String) async -> DecideOutcome {
+        let sent = SentMessage(
+            hostId: hostId, projectId: projectId, text: "Answer to question " + String(question.sequence) + ": " + text,
+            sentAt: Date())
+        messages.append(sent)
+        let row = InboxRowID(hostId: hostId, projectId: projectId, key: "message:" + question.key)
+        let outcome = await decide(.messageReply(text), on: row)
+        settle(sent.id, outcome)
+        return outcome
+    }
+
     private func settle(_ id: UUID, _ outcome: DecideOutcome) {
         switch outcome {
         case .applied(let result), .forwarded(let result):

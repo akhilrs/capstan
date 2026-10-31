@@ -31,6 +31,10 @@ struct DetailContext {
             return (item.summary, "Summary", false)
         case .message:
             if let message = detail?.messageBody { return (message.body, "Message", true) }
+            // A question an agent sent the person (`cstan send --action @user`) comes with the `messages` section.
+            if let asked = project?.messages?.values.first(where: { $0.requestId == item.requestId }) {
+                return (asked.body, "Message", true)
+            }
             return (item.summary, "Summary", false)
         case .design:
             return (item.summary, "Screens", true)
@@ -579,7 +583,7 @@ enum DetailBar: Equatable {
         case .design:
             return shown.verified ? .design : .empty
         case .message:
-            return ctx.detail?.messageBody != nil && shown.verified ? .reply : .empty
+            return ctx.mainText.received && shown.verified ? .reply : .empty
         case .integration:
             return mergeable ? .merge : .empty
         case .other:

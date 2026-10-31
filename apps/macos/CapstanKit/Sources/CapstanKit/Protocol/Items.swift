@@ -542,6 +542,38 @@ public struct RunItem: WireItem {
     }
 }
 
+/// A message from an agent to the person (`cstan send @user`), as the `messages` section lists it. The body is the
+/// agent's text: shown as plain text, never as a link or rich text, and never in a notification.
+public struct MessageItem: WireItem {
+    public let key: String
+    public let messageId: String
+    public let sequence: Int64
+    public let senderAgentId: String
+    /// `action` (a question) or `info`.
+    public let messageClass: String
+    /// `open` (a question not answered yet), `answered` or `info`.
+    public let state: String
+    public let body: UntrustedText
+    public let createdAt: String
+    public let answeredAt: String?
+    /// `message:<messageId>`: the request id of the waiting item while the question is open.
+    public let requestId: String
+
+    public init(json: JSONValue) throws {
+        _ = try json.members("message item")
+        key = try json.string("key")
+        messageId = try json.string("messageId")
+        sequence = try json.int64("sequence")
+        senderAgentId = try json.string("senderAgentId")
+        messageClass = try json.string("class")
+        state = try json.string("state")
+        body = UntrustedText(raw: try json.string("body"), verified: true, truncated: try json.bool("truncated"))
+        createdAt = try json.string("createdAt")
+        answeredAt = try json.optionalString("answeredAt")
+        requestId = try json.string("requestId")
+    }
+}
+
 /// One page of a snapshot section.
 public struct Page<T: WireItem>: Sendable, Equatable {
     public let head: Int64
@@ -569,6 +601,7 @@ public enum SnapshotItem: Sendable, Equatable {
     case agent(AgentItem)
     case plan(PlanItem)
     case run(RunItem)
+    case message(MessageItem)
     case unknown(section: String, JSONValue)
 
     public init(section: String, json: JSONValue) throws {
@@ -577,6 +610,7 @@ public enum SnapshotItem: Sendable, Equatable {
         case "agents": self = .agent(try AgentItem(json: json))
         case "plans": self = .plan(try PlanItem(json: json))
         case "run": self = .run(try RunItem(json: json))
+        case "messages": self = .message(try MessageItem(json: json))
         default: self = .unknown(section: section, json)
         }
     }

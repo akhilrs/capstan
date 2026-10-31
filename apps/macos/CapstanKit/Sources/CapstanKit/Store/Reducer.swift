@@ -38,6 +38,7 @@ public struct Staging: Sendable, Equatable {
         var waiting: [String: StoredWaiting] = [:]
         var agents: [String: StoredAgent] = [:]
         var plans: [String: StoredPlan] = [:]
+        var messages: [String: StoredMessage] = [:]
         var run: StoredRun?
     }
 
@@ -59,7 +60,7 @@ public struct Staging: Sendable, Equatable {
 }
 
 public enum StoreReducer {
-    private static let sections: Set<String> = ["waiting", "agents", "plans", "run"]
+    private static let sections: Set<String> = ["waiting", "agents", "plans", "run", "messages"]
 
     /// Applies one line. `now` stamps a project that stops being ready.
     public static func apply(
@@ -129,6 +130,7 @@ public enum StoreReducer {
         case .agent(let item): pending.agents[line.key] = StoredAgent(item)
         case .plan(let item): pending.plans[line.key] = StoredPlan(item)
         case .run(let item): pending.run = StoredRun(item)
+        case .message(let item): pending.messages[line.key] = StoredMessage(item)
         case .unknown: break
         }
         staging.pending[line.projectId] = pending
@@ -152,6 +154,7 @@ public enum StoreReducer {
         model.waiting = pending.waiting
         model.agents = pending.agents
         model.plans = pending.plans
+        model.messages = pending.messages
         model.run = pending.run
         // A detail may come from an event newer than the snapshot, for an item it does not hold yet.
         model.details = model.details.filter { keys.contains($0.key) || $0.value.seq > head }
@@ -169,6 +172,7 @@ public enum StoreReducer {
         model.waiting = [:]
         model.agents = [:]
         model.plans = [:]
+        model.messages = nil
         model.run = nil
         model.details = [:]
         model.attention = [:]
@@ -265,6 +269,8 @@ public enum StoreReducer {
             model.attention[effect.key] = nil
         case "plans":
             model.plans[effect.key] = nil
+        case "messages":
+            model.messages?[effect.key] = nil
         default:
             model.run = nil
         }
@@ -310,6 +316,9 @@ public enum StoreReducer {
                 }
             }
             model.agents[key] = stored
+        case "messages":
+            // The host only invalidates messages; an upsert is read again in full.
+            return false
         case "plans":
             guard let item = try? PlanItem(json: merged(model.plans[key]?.json, effect)) else { return false }
             var stored = StoredPlan(item)

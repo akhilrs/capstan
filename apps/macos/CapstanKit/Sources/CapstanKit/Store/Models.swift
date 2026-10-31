@@ -429,6 +429,46 @@ public struct HostHello: Codable, Sendable, Equatable {
     }
 }
 
+/// A message from an agent to the person, as stored. `body` is the agent's text (see `MessageItem`).
+public struct StoredMessage: Codable, Sendable, Equatable {
+    public var key: String
+    public var messageId: String
+    public var sequence: Int64
+    public var senderAgentId: String
+    public var messageClass: String
+    public var state: String
+    public var body: UntrustedText
+    public var createdAt: String
+    public var answeredAt: String?
+    public var requestId: String
+
+    public init(
+        key: String, messageId: String, sequence: Int64, senderAgentId: String, messageClass: String, state: String,
+        body: UntrustedText, createdAt: String, answeredAt: String? = nil, requestId: String
+    ) {
+        self.key = key
+        self.messageId = messageId
+        self.sequence = sequence
+        self.senderAgentId = senderAgentId
+        self.messageClass = messageClass
+        self.state = state
+        self.body = body
+        self.createdAt = createdAt
+        self.answeredAt = answeredAt
+        self.requestId = requestId
+    }
+
+    init(_ item: MessageItem) {
+        self.init(
+            key: item.key, messageId: item.messageId, sequence: item.sequence, senderAgentId: item.senderAgentId,
+            messageClass: item.messageClass, state: item.state, body: item.body, createdAt: item.createdAt,
+            answeredAt: item.answeredAt, requestId: item.requestId)
+    }
+
+    /// A question the person has not answered yet.
+    public var isOpenQuestion: Bool { messageClass == "action" && state == "open" }
+}
+
 public struct ProjectModel: Codable, Sendable, Equatable {
     public var projectId: String
     public var root: String
@@ -450,6 +490,9 @@ public struct ProjectModel: Codable, Sendable, Equatable {
     public var freshness: FreshnessMarks?
     /// The overview sections the person folded; saved files from before it decode it as nil (nothing folded).
     public var foldedSections: [String]?
+    /// Messages from the agents to the person, by key (the message sequence); nil in saved files from before them and
+    /// from a host that does not send them.
+    public var messages: [String: StoredMessage]?
 
     public init(
         projectId: String, root: String, availability: ProjectAvailability = .ready, epoch: String? = nil,
