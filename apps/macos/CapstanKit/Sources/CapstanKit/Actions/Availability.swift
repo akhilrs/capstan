@@ -41,5 +41,6 @@ private func waitingKind(of verb: DecideVerb) -> WaitingKind? {
     case .messageReply: return .message
     case .agentPause, .agentResume, .runPause, .runResume: return nil
     case .integrationMerge: return .integration
+    case .pmMessage: return nil
     }
 }
