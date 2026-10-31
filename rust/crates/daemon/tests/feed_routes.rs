@@ -531,7 +531,7 @@ fn the_largest_pages_fit_the_response_limit_and_cross_a_socket() {
 #[test]
 fn the_handler_runs_one_kernel_closure_per_subcommand() {
     let source = include_str!("../src/handlers/feed.rs");
-    assert_eq!(source.matches(".run(").count(), 9);
+    assert_eq!(source.matches(".run(").count(), 10);
     assert_eq!(source.matches(".kernel").count(), 1);
     assert_eq!(source.matches("env.deps").count(), 1);
 }
