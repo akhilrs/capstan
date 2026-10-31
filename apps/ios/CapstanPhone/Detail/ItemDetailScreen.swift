@@ -108,6 +108,9 @@ struct ItemDetailScreen: View {
                 }
                 notices(ctx, shown: shown)
                 kindBody(ctx, main: main, shown: shown)
+                if ctx.item.kind == .integration, bar != .merge, let reason = mergeBlocked(ctx) {
+                    footnote("Merge is not offered: " + reason)
+                }
             }
             .padding(.horizontal, Tokens.margin)
             .padding(.vertical, Tokens.space[2])
@@ -463,6 +466,20 @@ struct ItemDetailScreen: View {
 
     private func agentTerminal(_ ctx: DetailContext) -> String {
         ctx.detail?.promptBody.map { $0.agentId + "'s terminal" } ?? "the agent's terminal"
+    }
+
+    /// Why an integration shows no Merge button, in the order the checks run; nil when nothing blocks it.
+    private func mergeBlocked(_ ctx: DetailContext) -> String? {
+        if model.capabilities[row.hostId] == nil { return "the host has not been checked yet." }
+        if case .hidden(let why) = model.availability(.integrationMerge, row: row, option: nil) {
+            return why.hasSuffix(".") ? why : why + "."
+        }
+        if case .terminalOnly(let why) = model.availability(.integrationMerge, row: row, option: nil) {
+            return why.hasSuffix(".") ? why : why + "."
+        }
+        if !ctx.ready { return "the project is not ready on the host." }
+        if !ctx.live { return "the connection to the host is not live." }
+        return nil
     }
 
     private func isAvailable(_ verb: DecideVerb, option: PromptOption? = nil) -> Bool {
