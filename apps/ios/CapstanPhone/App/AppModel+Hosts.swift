@@ -60,6 +60,7 @@ extension AppModel {
         case .item(let row): return row.hostId == hostId
         case .project(let id, _), .agent(let id, _, _), .conversation(let id, _), .host(let id): return id == hostId
         case .plan(let ref): return ref.hostId == hostId
+        case .settings: return false
         }
     }
 

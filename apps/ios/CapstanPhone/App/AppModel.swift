@@ -18,6 +18,8 @@ enum PhoneRoute: Hashable {
     case plan(PlanRef)
     case conversation(hostId: UUID, projectId: String)
     case host(UUID)
+    /// Settings, pushed from the Hosts toolbar (board 14).
+    case settings
 }
 
 /// A sheet over the tabs.

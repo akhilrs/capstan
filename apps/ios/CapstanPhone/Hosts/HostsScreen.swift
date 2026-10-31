@@ -25,6 +25,11 @@ struct HostsScreen: View {
                     ForEach(model.hosts, id: \.id) { host in
                         hostSection(host)
                     }
+                    Section {
+                        NavigationLink(value: PhoneRoute.settings) {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                    }
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
@@ -35,12 +40,19 @@ struct HostsScreen: View {
         .navigationTitle("Hosts")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { openSettings() } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
                 Button { model.navigation.sheet = .addHost } label: {
                     Label("Add a host", systemImage: "plus")
                 }
             }
         }
+    }
+
+    private func openSettings() {
+        model.navigation.show(.hosts, model.navigation.path(.hosts) + [.settings])
     }
 
     private func hostSection(_ host: HostConfig) -> some View {
