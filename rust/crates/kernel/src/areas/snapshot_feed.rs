@@ -2051,6 +2051,22 @@ pub fn content_hash(core: &Core, request_id: &str) -> KernelResult<Option<String
     Ok(content_hash_counted(core, request_id)?.0)
 }
 
+/// The binding of a message to the PM: the SHA-256 of `{"pm":"<agentId>"}`, the one active PM (agent kind `PM`, state
+/// `active`); none without exactly one. A message meant for one PM is refused once another has taken over.
+pub fn pm_hash(core: &Core) -> KernelResult<Option<String>> {
+    let kernel = core.kernel();
+    let pms = query_all(
+        &kernel.database,
+        "SELECT agent_id FROM agents WHERE project_id = ? AND kind = 'PM' AND state = 'active'",
+        [&kernel.project_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    Ok(match pms.as_slice() {
+        [one] => Some(sha256(&canonical(&json!({ "pm": one })))),
+        _ => None,
+    })
+}
+
 /// `content_hash` that also returns the lookups it made (tests).
 #[doc(hidden)]
 pub fn content_hash_counted(
@@ -2059,6 +2075,9 @@ pub fn content_hash_counted(
 ) -> KernelResult<(Option<String>, usize)> {
     if request_id == "run" {
         return Ok((Some(run_item(core)?.content_hash), 2));
+    }
+    if request_id == "pm" {
+        return Ok((pm_hash(core)?, 1));
     }
     let (kind, id) = request_id
         .split_once(':')

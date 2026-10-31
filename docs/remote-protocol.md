@@ -486,7 +486,7 @@ error is for a person; a client does not parse it.
 A decision names the item it is about and the state of the item the person saw:
 
 - `<requestId>` is the `requestId` of the item (`op:…`, `prompt:…`, `design:…`, `message:…`, `integration:…`, `agent:…`
-  or `run`).
+  or `run`), or `pm` for a message to the project's PM (see Message to the PM).
   Other kinds are refused with `invalid_request`.
 - `--expect <hash>` is the `contentHash` of the item, as the snapshot or `feed hash` gave it: 12 to 64 lowercase hex
   characters, a prefix of the full hash. A hash that is not the current one is refused with `hash_mismatch`.
@@ -514,11 +514,12 @@ the two outcomes.
 | run | pause | applied |
 | run | resume | applied |
 | integration | merge | applied |
+| pm | message | applied |
 
 Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
 `design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
 `message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`; `integration merge`
-(no arguments; see Merge). Text is cleaned
+(no arguments; see Merge); `pm message <text>`. Text is cleaned
 and capped like the text of the feed (section 8).
 
 An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
@@ -574,6 +575,16 @@ The member as it appears in the result (the other fields are those of Result bel
 
 The merge also confirms the integration and tells the PM. A merge may take minutes; a client waits up to five.
 
+### Message to the PM
+
+`pm message <text>` sends the project's active PM a message from the person, at once (`applied`). The PM gets it as an
+action message whose text is marked as untrusted, from the client named by `--client`; the result's `messageId` names
+it, and its delivery shows in the feed like any message to the PM. `--expect` binds the message to the PM the person
+saw: it is the SHA-256, in lowercase hex, of the canonical JSON `{"pm":"<agentId>"}` of the one agent of kind `PM` in
+state `active` (for `pm-1`, the SHA-256 of `{"pm":"pm-1"}`). With no active PM the call is refused with `no_active_pm`;
+once another PM has taken over, with `hash_mismatch`. Messages to the PM are not capped per request but count toward
+the hourly limit of the project (`[remote] messages_per_hour`, 30 by default), with forwards and replies.
+
 ### Result
 
 A decision that was made, or repeated, answers one object with these fields (`messageId` and `replaces` are present only
@@ -601,8 +612,8 @@ standard error without it. `message` is for a person.
 | `hash_mismatch` | `--expect` is not a prefix of the current content hash |
 | `nonce_reused` | the nonce was used for another decision |
 | `needs_terminal` | the answer is made at the terminal (see Verbs) |
-| `no_active_pm` | a forward or a reply needs an active PM and there is none |
-| `limit_reached` | the request already has 10 messages to the PM from remote clients |
+| `no_active_pm` | a forward, a reply or a message to the PM needs an active PM and there is none |
+| `limit_reached` | the request already has 10 messages to the PM from remote clients, or the project sent its hourly number of messages to the PM |
 | `invalid_request` | the request id, a flag, the verb or its arguments are not valid |
 | `merge_…`, `busy`, … | the refusals of `integration merge` (see Merge) |
 | `forbidden` | the caller is not the operator |
