@@ -62,11 +62,15 @@ public struct DecideResult: Sendable, Equatable {
     public let messageId: String?
     /// The message of an earlier forward that this one replaces.
     public let replaces: String?
+    /// What a merge made (`integration merge` only).
+    public let merge: MergeResult?
 
     public init(
         decisionId: String, requestId: String, nonce: String, outcome: DecideKind, isRepeat: Bool, kind: String,
-        verb: String, contentHash: String, eventSeq: Int64? = nil, messageId: String? = nil, replaces: String? = nil
+        verb: String, contentHash: String, eventSeq: Int64? = nil, messageId: String? = nil, replaces: String? = nil,
+        merge: MergeResult? = nil
     ) {
+        self.merge = merge
         self.decisionId = decisionId
         self.requestId = requestId
         self.nonce = nonce
@@ -98,7 +102,72 @@ public struct DecideResult: Sendable, Equatable {
         eventSeq = try json.optionalInt64("eventSeq")
         messageId = try json.optionalString("messageId")
         replaces = try json.optionalString("replaces")
+        merge = try json.optional("merge").map(MergeResult.init(json:))
     }
+}
+
+/// What `integration merge` made (section 11, Merge). Ids and states only: no host text.
+public struct MergeResult: Sendable, Equatable {
+    public enum Verify: Sendable, Equatable {
+        case passed(runId: String)
+        case notConfigured
+        case other(String)
+    }
+
+    public let integrationId: String
+    public let branch: String
+    /// nil when the head was already in the project's branch (`alreadyInHead`).
+    public let mergeCommit: String?
+    public let alreadyInHead: Bool
+    public let verify: Verify
+    /// The merged branch is cleaned up after the merge; false when cleanup is off.
+    public let cleanupScheduled: Bool
+    /// Always true: the merge never pushes.
+    public let pushDisabled: Bool
+
+    public init(
+        integrationId: String, branch: String, mergeCommit: String?, alreadyInHead: Bool, verify: Verify,
+        cleanupScheduled: Bool, pushDisabled: Bool = true
+    ) {
+        self.integrationId = integrationId
+        self.branch = branch
+        self.mergeCommit = mergeCommit
+        self.alreadyInHead = alreadyInHead
+        self.verify = verify
+        self.cleanupScheduled = cleanupScheduled
+        self.pushDisabled = pushDisabled
+    }
+
+    public init(json: JSONValue) throws {
+        _ = try json.members("merge")
+        integrationId = try json.string("integrationId")
+        branch = try json.string("branch")
+        mergeCommit = try json.optionalString("mergeCommit")
+        alreadyInHead = try json.bool("alreadyInHead")
+        let verifyValue = try json.required("verify")
+        switch try verifyValue.string("state") {
+        case "passed": verify = .passed(runId: try verifyValue.optionalString("runId") ?? "")
+        case "not_configured": verify = .notConfigured
+        case let state: verify = .other(state)
+        }
+        if let cleanup = json.optional("cleanup") {
+            cleanupScheduled = (try? cleanup.string("state")) == "scheduled"
+        } else {
+            cleanupScheduled = false
+        }
+        if let push = json.optional("push") {
+            pushDisabled = (try? push.string("state")) != "enabled"
+        } else {
+            pushDisabled = true
+        }
+    }
+
+    /// The refusal codes of the merge, in the order its gates answer (they decode as `DecideErrorCode.other`).
+    public static let refusalCodes = [
+        "merge_unrecorded", "merge_disabled", "invalid_commit", "invalid_branch", "no_identity", "run_paused", "busy",
+        "not_reviewed", "not_verified", "branch_moved", "unsafe_config", "wrong_branch", "dirty_tree", "merge_conflict",
+        "git_too_old", "merge_failed", "git_unavailable",
+    ]
 }
 
 /// One line of `cstan decide --json`: a result, or `{v: 1, error: {code, message}}`.
@@ -150,5 +219,6 @@ public struct DecideVerbRow: Sendable, Equatable {
         DecideVerbRow(kind: "agent", verb: "resume", outcome: "applied"),
         DecideVerbRow(kind: "run", verb: "pause", outcome: "applied"),
         DecideVerbRow(kind: "run", verb: "resume", outcome: "applied"),
+        DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied"),
     ]
 }
