@@ -387,7 +387,11 @@ struct ItemDetailScreen: View {
             case .design:
                 designBar(ctx, stacked: stacked)
             case .reply:
-                ReplyBar(text: $reply, enabled: !sending && isAvailable(.messageReply("x"))) { text in
+                ReplyBar(
+                    text: $reply,
+                    options: ctx.project?.messages?.values.first { $0.requestId == ctx.item.requestId }?.options ?? [],
+                    enabled: !sending && isAvailable(.messageReply("x"))
+                ) { text in
                     run(.messageReply(text))
                 }
             }

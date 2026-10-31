@@ -180,3 +180,34 @@ fn the_asking_agent_closes_a_question_answered_in_the_terminal() {
     assert!(closed_effects.contains(&("waiting".into(), "message:1".into())), "{closed_effects:?}");
     assert_eq!(code(close("pm-1", 1).unwrap_err()), "not_open");
 }
+
+#[test]
+fn a_question_carries_its_choices_and_an_info_message_takes_none() {
+    let rig = Rig::new();
+    rig.core
+        .send_to_user(
+            &rig.ctx("pm-1"),
+            &json!({"body": "What next?", "class": "action", "options": ["Close out plan-8 (Recommended)", "Start the follow-ups"]}),
+        )
+        .unwrap();
+    let page = messages_page(&rig.core, None, 10).unwrap();
+    assert_eq!(page.items[0].options, ["Close out plan-8 (Recommended)", "Start the follow-ups"]);
+    let info = rig.core.send_to_user(
+        &rig.ctx("pm-1"),
+        &json!({"body": "FYI", "class": "info", "options": ["x"]}),
+    );
+    assert!(info.is_err());
+    let many: Vec<String> = (0..7).map(|n| format!("choice {n}")).collect();
+    assert!(rig
+        .core
+        .send_to_user(&rig.ctx("pm-1"), &json!({"body": "Pick", "class": "action", "options": many}))
+        .is_err());
+    assert!(rig
+        .core
+        .send_to_user(&rig.ctx("pm-1"), &json!({"body": "Pick", "class": "action", "options": ["two\nlines"]}))
+        .is_err());
+    // Without options the list is empty.
+    send(&rig, "pm-1", "Plain question?", "action").unwrap();
+    let all = messages_page(&rig.core, None, 10).unwrap();
+    assert!(all.items.last().unwrap().options.is_empty());
+}

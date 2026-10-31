@@ -2030,6 +2030,8 @@ pub struct MessageItem {
     pub answered_at: Option<String>,
     /// `message:<messageId>`: the request id of the waiting item while the message is open.
     pub request_id: String,
+    /// The choices of a question, in order (cleaned, at most 256 bytes each); empty without.
+    pub options: Vec<String>,
 }
 
 const MESSAGE_COLUMNS: &[&str] = &[
@@ -2041,6 +2043,7 @@ const MESSAGE_COLUMNS: &[&str] = &[
     "body",
     "created_at",
     "answered_at",
+    "options_json",
 ];
 
 /// Messages to the user among the latest [`user_messages::LISTED_MESSAGES`]: the one of sequence `only`, or those after
@@ -2089,6 +2092,11 @@ fn message_rows(
                 created_at: text(&cols, "created_at"),
                 answered_at: cols.get("answered_at").and_then(Value::as_str).map(str::to_string),
                 request_id: format!("{MESSAGE_KIND}:{}", text(&cols, "message_id")),
+                options: serde_json::from_str::<Vec<String>>(&text(&cols, "options_json"))
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|option| shown_to(option, 256))
+                    .collect(),
             }
         })
         .collect())
