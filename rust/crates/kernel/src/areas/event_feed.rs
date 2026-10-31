@@ -568,8 +568,8 @@ pub const MAPPING: &[Rule] = &[
     // A message from an agent to the user: its item in `messages`, and its waiting item while it is an open question.
     rule(
         "user_message",
-        "user_message.send",
-        "-",
+        "user_message.send|user_message.close",
+        "*",
         "*",
         Kind::Invalidate("messages"),
     ),

@@ -148,7 +148,10 @@ the ledger lacks it (it is the `--anchor` of the next page); `rowsRead` is diagn
 An agent sends the user a message with `cstan send [--action|--info] @user <text>` (at most 4096 bytes; the agents of a
 project send at most 60 an hour, the next is refused with `limit_reached`; a caller that is not an active agent is
 refused with `not_an_agent`). `--action` asks a question: it is `open` and waits in `waiting` as kind `message` until
-the user answers it with `message reply` (section 11). Without `--action` it is `info`.
+the user answers it with `message reply` (section 11). Without `--action` it is `info`. The agent that asked closes a
+question the user answered at its terminal with `cstan send --answered @user <n>` (`n` is the message's `sequence`): it
+becomes `answered` and stops waiting; another agent's question is refused with `not_yours`, one that is not open with
+`not_open`.
 
 `feed messages [--after <key>] [--limit <n>]` lists the latest 200 messages to the user, oldest first. An item is
 `{key, messageId, sequence, senderAgentId, class, state, body, truncated, createdAt, answeredAt, requestId}`: `class`
@@ -156,7 +159,8 @@ is `action` or `info`, `state` is `open`, `answered` or `info`, `body` is cleane
 and `requestId` is `message:<messageId>`, the request id of the waiting item while the message is open. The waiting
 item's `summary` is the body and its `contentHash` is the SHA-256 of the canonical JSON of `{id, body}`.
 
-Sending writes a `snapshot.invalidated` event for the item in `messages` and, for a question, its item in `waiting`. A
+Sending or closing writes a `snapshot.invalidated` event for the item in `messages` and, for a question, its item in
+`waiting`. A
 `decision.remote` on a `message:` request also invalidates the item in `messages`. The body is the agent's text: a
 client shows it as plain text, never as a link or rich text, and never in a notification.
 

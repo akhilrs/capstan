@@ -875,6 +875,11 @@ impl Core {
         user_messages::send_to_user(&self.kernel, context, input)
     }
 
+    /// `user_message.close`: the asking agent marks its question answered in the terminal.
+    pub fn close_user_question(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        user_messages::close_question(&self.kernel, context, input)
+    }
+
     /// `ControllerCore.message`.
     pub fn message(&self, message_id: &str) -> KernelResult<Value> {
         messages::message(&self.kernel, message_id)

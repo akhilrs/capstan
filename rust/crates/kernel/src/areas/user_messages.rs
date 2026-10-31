@@ -1,6 +1,7 @@
 //! Messages from an agent to the user (`cstan send @user`), the other half of the remote conversation with the PM.
 //!
-//! An agent writes one with `user_message.send`. An `action` message asks the user something: it is `open` and waits in
+//! An agent writes one with `user_message.send`; an agent whose question the user answered in the terminal closes it
+//! with `user_message.close` (`cstan send --answered @user <n>`). An `action` message asks the user something: it is `open` and waits in
 //! the snapshot's waiting list (kind `message`) until the user answers it with the `message reply` decision, which sends
 //! the answer to the agent as an action message and marks the row `answered`. An `info` message only tells the user
 //! something (state `info`). Every message is listed in the snapshot's `messages` section, latest
@@ -157,6 +158,54 @@ fn apply_send(
         json!({"messageId": message_id, "sequence": sequence}),
         event,
     ))
+}
+
+/// `user_message.close`: the agent that asked question `sequence` says the user answered it in the terminal, so it
+/// stops waiting on the remote clients. Input `{sequence}`. Refused when the question is not the caller's
+/// (`not_yours`) or not open (`not_open`). Returns `{messageId, sequence}`.
+pub fn close_question(kernel: &Kernel, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+    let sequence = input
+        .get("sequence")
+        .and_then(Value::as_i64)
+        .filter(|n| *n > 0)
+        .ok_or_else(|| KernelError::type_error("the question number must be a positive integer"))?;
+    kernel.mutate(
+        context,
+        "user_message.close",
+        "message:send",
+        &json!({"sequence": sequence}),
+        |actor| {
+            let Some(caller) = kernel.agent_by_actor(&actor.actor_id)? else {
+                return Err(refused("not_an_agent", "only an active agent closes its question"));
+            };
+            let row = query_opt(
+                &kernel.database,
+                &format!("SELECT {COLUMNS} FROM user_messages WHERE project_id = ? AND sequence = ?"),
+                rusqlite::params![kernel.project_id, sequence],
+                from_row,
+            )?
+            .ok_or_else(|| refused("not_open", "there is no such question"))?;
+            if row.sender_agent_id != caller.agent_id {
+                return Err(refused("not_yours", "only the agent that asked closes a question"));
+            }
+            if row.state != "open" {
+                return Err(refused("not_open", "the question is not waiting for an answer"));
+            }
+            execute(
+                &kernel.database,
+                "UPDATE user_messages SET state = 'answered', answered_at = ?
+                  WHERE project_id = ? AND message_id = ? AND state = 'open'",
+                rusqlite::params![kernel.now(), kernel.project_id, row.message_id],
+            )?;
+            let event = MutationEvent::new("user_message", &row.message_id, 1)
+                .transition("open", "answered")
+                .with_details(json!({"sequence": sequence, "answeredIn": "terminal"}));
+            Ok(MutationOutput::new(
+                json!({"messageId": row.message_id, "sequence": sequence}),
+                event,
+            ))
+        },
+    )
 }
 
 /// The message with this id, if any.

@@ -160,3 +160,23 @@ fn a_question_whose_agent_is_gone_cannot_be_answered() {
     );
     assert_eq!(count(&rig, "SELECT count(*) FROM user_messages WHERE state = 'open'"), 1);
 }
+
+#[test]
+fn the_asking_agent_closes_a_question_answered_in_the_terminal() {
+    let rig = Rig::new();
+    let sent = send(&rig, "pm-1", "Ship today? 1. Yes 2. No", "action").unwrap();
+    let id = sent["messageId"].as_str().unwrap().to_string();
+    let close = |who: &str, n: i64| rig.core.close_user_question(&rig.ctx(who), &json!({"sequence": n}));
+    assert_eq!(code(close("dev-1", 1).unwrap_err()), "not_yours");
+    assert_eq!(code(close("pm-1", 9).unwrap_err()), "not_open");
+    let start = rig.head();
+    close("pm-1", 1).unwrap();
+    assert!(waiting_page(&rig.core, None, 50, Some("message")).unwrap().items.is_empty());
+    assert_eq!(content_hash(&rig.core, &format!("message:{id}")).unwrap(), None);
+    let listed = snapshot_item(&rig.core, "messages", "1").unwrap().unwrap();
+    assert_eq!(listed["state"], json!("answered"));
+    let closed_effects = effects(&rig.since(start));
+    assert!(closed_effects.contains(&("messages".into(), "1".into())), "{closed_effects:?}");
+    assert!(closed_effects.contains(&("waiting".into(), "message:1".into())), "{closed_effects:?}");
+    assert_eq!(code(close("pm-1", 1).unwrap_err()), "not_open");
+}
