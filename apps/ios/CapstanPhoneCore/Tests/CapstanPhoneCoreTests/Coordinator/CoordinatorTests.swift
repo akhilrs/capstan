@@ -301,6 +301,19 @@ final class CoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.runningHosts.count, 2)
     }
 
+    func testOnChangeFollowsTheCoordinatorsState() async throws {
+        let fixture = try CoordinatorFixture(test: self)
+        let box = try fixture.saveHost("Box")
+        var calls = 0
+        fixture.coordinator.onChange = { calls += 1 }
+        fixture.coordinator.start()
+        XCTAssertGreaterThan(calls, 0, "the hosts were loaded")
+        let afterStart = calls
+        fixture.transport.send(.authRefused(hostId: box.id), hostId: box.id)
+        await fixture.settle { fixture.coordinator.problems[box.id] == .authRefused }
+        XCTAssertGreaterThan(calls, afterStart, "a problem was noted")
+    }
+
     func testUpdateHostToAnotherPlaceForgetsItsPin() async throws {
         let fixture = try CoordinatorFixture(test: self)
         let box = try fixture.saveHost("Box", hostname: "box.example")

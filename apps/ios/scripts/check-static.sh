@@ -68,7 +68,7 @@ run_checks() {
   report "markup" <<< "$out"
 
   # (3) links are opened only from the allowed files
-  out=$(grep -rnE --include='*.swift' '(^|[^A-Za-z0-9_])Link\(|openURL|UIApplication\.shared\.open|\.open\(url' "$ios")
+  out=$(grep -rnE --include='*.swift' '(^|[^A-Za-z0-9_])Link\(|(^|[^A-Za-z0-9_])openURL|UIApplication\.shared\.open\(' "$ios")
   if [ -n "$out" ]; then
     local allowed line file
     while IFS= read -r line; do
@@ -191,14 +191,14 @@ self_test() {
     fi
   done
 
-  # An allowed file may open links; a test file may hold a path; "not pushed" is allowed text; a surface file
-  # with only counts and kinds is fine.
+  # An allowed file may open links; receiving a link (onOpenURL) opens nothing; a test file may hold a path; "not
+  # pushed" is allowed text; a surface file with only counts and kinds is fine.
   fresh
   mkdir -p "$tmp/repo/apps/ios/CapstanPhone/Detail" "$tmp/repo/apps/ios/CapstanPhoneCore/Tests/CapstanPhoneCoreTests" \
     "$tmp/repo/apps/ios/CapstanWidgets"
   echo 'UIApplication.shared.open(u)' > "$tmp/repo/apps/ios/CapstanPhone/Detail/DesignLinkConfirm.swift"
   echo 'let p = "/home/x"' > "$tmp/repo/apps/ios/CapstanPhoneCore/Tests/CapstanPhoneCoreTests/Planted.swift"
-  echo 'let a = Text("Merged, not pushed")' > "$tmp/repo/apps/ios/CapstanPhone/Planted.swift"
+  printf 'let a = Text("Merged, not pushed")\nview.onOpenURL { url in model.handle(url: url) }\n' > "$tmp/repo/apps/ios/CapstanPhone/Planted.swift"
   printf 'import WidgetKit\nlet count: Int = 0\nlet kind: WaitingKind = .op\n' > "$tmp/repo/apps/ios/CapstanWidgets/Counts.swift"
   if ! run_checks "$tmp/repo" >"$tmp/allow.out" 2>&1; then
     echo "self-test: an allowed pattern was flagged" >&2; cat "$tmp/allow.out" >&2; rc=1
