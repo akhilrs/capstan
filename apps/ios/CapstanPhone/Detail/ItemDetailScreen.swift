@@ -548,6 +548,9 @@ enum DetailBar: Equatable {
             if case .refused(_, .refresh) = outcome { return .showNew }
         }
         let copyOrNone: DetailBar = shown.cut && shown.any ? .copy : .empty
+        // An integration is read-only in the shared inspector (the Mac merges from the terminal); here the Merge button
+        // decides, and `mergeable` already holds the host's decide capability and the built state.
+        if case .integration = ctx.item.kind { return mergeable && ctx.ready && ctx.live ? .merge : copyOrNone }
         guard ctx.answerable else { return copyOrNone }
         switch ctx.item.kind {
         case .op:
