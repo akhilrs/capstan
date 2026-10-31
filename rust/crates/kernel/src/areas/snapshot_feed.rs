@@ -2030,6 +2030,8 @@ pub struct MessageItem {
     pub answered_at: Option<String>,
     /// `message:<messageId>`: the request id of the waiting item while the message is open.
     pub request_id: String,
+    /// The choices of a question, in order (cleaned, at most 256 bytes each); empty without.
+    pub options: Vec<String>,
 }
 
 const MESSAGE_COLUMNS: &[&str] = &[
@@ -2041,7 +2043,27 @@ const MESSAGE_COLUMNS: &[&str] = &[
     "body",
     "created_at",
     "answered_at",
+    "options_json",
 ];
+
+/// `clean_text` line by line, keeping the line breaks of a message body: `\r\n` and `\r` become `\n`, every other
+/// control or format character is a space as in `clean_text`, and more than one empty line in a row becomes one. A
+/// client shows the result as plain text, so lists and small tables keep their shape.
+pub fn clean_lines(text: &str) -> String {
+    let unified = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out: Vec<String> = Vec::new();
+    for line in unified.split('\n') {
+        let line = clean_text(line).trim_end().to_string();
+        if line.is_empty() && out.last().is_some_and(String::is_empty) {
+            continue;
+        }
+        out.push(line);
+    }
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
+    out.join("\n")
+}
 
 /// Messages to the user among the latest [`user_messages::LISTED_MESSAGES`]: the one of sequence `only`, or those after
 /// `after`, oldest first.
@@ -2074,7 +2096,7 @@ fn message_rows(
     Ok(rows(core, &sql, params, MESSAGE_COLUMNS)?
         .into_iter()
         .map(|cols| {
-            let cleaned = clean_text(&text(&cols, "body"));
+            let cleaned = clean_lines(&text(&cols, "body"));
             let (body, truncated) = cap_text(&cleaned, TEXT_CAP);
             let sequence = int(&cols, "sequence");
             MessageItem {
@@ -2089,6 +2111,11 @@ fn message_rows(
                 created_at: text(&cols, "created_at"),
                 answered_at: cols.get("answered_at").and_then(Value::as_str).map(str::to_string),
                 request_id: format!("{MESSAGE_KIND}:{}", text(&cols, "message_id")),
+                options: serde_json::from_str::<Vec<String>>(&text(&cols, "options_json"))
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|option| shown_to(option, 256))
+                    .collect(),
             }
         })
         .collect())

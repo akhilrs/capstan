@@ -174,6 +174,25 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             "send takes --action or --info, not both",
         ));
     }
+    // `@user <text> --option <a> --option <b>`: a question's choices follow its text.
+    let mut options: Vec<String> = Vec::new();
+    let args: Vec<String> = if args.first().map(String::as_str) == Some("@user") && args.len() > 2 {
+        let mut rest = args[2..].iter();
+        while let Some(word) = rest.next() {
+            match (word.as_str(), rest.next()) {
+                ("--option", Some(value)) => options.push(value.clone()),
+                _ => {
+                    return Some(fail(
+                        ErrorCode::InvalidRequest,
+                        "after the text, send @user takes only --option <choice>, once per choice",
+                    ))
+                }
+            }
+        }
+        args[..2].to_vec()
+    } else {
+        args
+    };
     if flags > 1 || args.len() != 2 {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -194,7 +213,7 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         ));
     }
     if target == "@user" {
-        return Some(send_to_user(env, call, body, action_flag));
+        return Some(send_to_user(env, call, body, action_flag, options));
     }
     if target != "@pm" && !is_safe_agent_id(&target) {
         return Some(fail(
@@ -293,6 +312,7 @@ fn send_to_user(
     call: &CommandCall<'_>,
     body: String,
     action: bool,
+    options: Vec<String>,
 ) -> CommandResponse {
     if call.identity.agent.is_none() {
         return fail(
@@ -305,7 +325,7 @@ fn send_to_user(
         let context = new_context(core, &credential)?;
         let sent = core.send_to_user(
             &context,
-            &json!({"body": body, "class": if action { "action" } else { "info" }}),
+            &json!({"body": body, "class": if action { "action" } else { "info" }, "options": options}),
         )?;
         Ok(ok(json!({"messageId": sent["messageId"], "sequence": sent["sequence"]})))
     })

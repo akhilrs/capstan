@@ -558,6 +558,8 @@ public struct MessageItem: WireItem {
     public let answeredAt: String?
     /// `message:<messageId>`: the request id of the waiting item while the question is open.
     public let requestId: String
+    /// The choices of a question, in order; empty without, and from a host older than them.
+    public let options: [String]
 
     public init(json: JSONValue) throws {
         _ = try json.members("message item")
@@ -571,6 +573,14 @@ public struct MessageItem: WireItem {
         createdAt = try json.string("createdAt")
         answeredAt = try json.optionalString("answeredAt")
         requestId = try json.string("requestId")
+        if case .array(let list)? = json.optional("options") {
+            options = list.compactMap { value -> String? in
+                if case .string(let text) = value { return text }
+                return nil
+            }
+        } else {
+            options = []
+        }
     }
 }
 

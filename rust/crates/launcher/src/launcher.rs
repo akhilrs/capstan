@@ -93,6 +93,10 @@ impl LauncherService for Launcher {
         Ok(self.kernel.interrupt(agent_id)?)
     }
 
+    fn dismiss_question(&self, agent_id: &str, question: &str) -> LauncherResult<bool> {
+        Ok(self.kernel.dismiss_question(agent_id, question)?)
+    }
+
     fn status(&self) -> LauncherStatus {
         self.kernel.launcher_status().unwrap_or_default()
     }

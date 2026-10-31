@@ -51,4 +51,13 @@ final class MessagesSectionTests: XCTestCase {
         harness.apply(.event(projectId: "proj-a", removed))
         XCTAssertNil(harness.alpha?.messages?["1"])
     }
+
+    func testAQuestionsChoicesDecodeAndAnOlderHostHasNone() throws {
+        let withOptions = messageItem(4).replacingOccurrences(
+            of: "}", with: ",\"options\":[\"Close out plan-8 (Recommended)\",\"Start the follow-ups\"]}")
+        let item = try MessageItem(json: try decodeJSON(Data(withOptions.utf8)))
+        XCTAssertEqual(item.options, ["Close out plan-8 (Recommended)", "Start the follow-ups"])
+        let older = try MessageItem(json: try decodeJSON(Data(messageItem(5).utf8)))
+        XCTAssertEqual(older.options, [])
+    }
 }

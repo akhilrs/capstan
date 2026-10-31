@@ -469,6 +469,11 @@ pub trait LauncherService: Send + Sync {
     ) -> LauncherResult<RelayOutcome>;
     /// Sends one Esc to a worker Herdr shows working; true when sent.
     fn interrupt(&self, agent_id: &str) -> LauncherResult<bool>;
+    /// Closes the picker of a question the agent asked and the user answered from a remote client (see
+    /// `LauncherAdapter::dismiss_question`); true when the Esc was sent. The default sends nothing.
+    fn dismiss_question(&self, _agent_id: &str, _question: &str) -> LauncherResult<bool> {
+        Ok(false)
+    }
     fn status(&self) -> LauncherStatus;
     /// The environment an approved Operator command runs in.
     fn operator_environment(&self) -> BTreeMap<String, String>;

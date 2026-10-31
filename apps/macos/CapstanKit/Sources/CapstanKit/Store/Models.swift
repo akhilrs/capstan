@@ -441,11 +441,14 @@ public struct StoredMessage: Codable, Sendable, Equatable {
     public var createdAt: String
     public var answeredAt: String?
     public var requestId: String
+    /// The choices of a question; nil in saved files from before them.
+    public var options: [String]?
 
     public init(
         key: String, messageId: String, sequence: Int64, senderAgentId: String, messageClass: String, state: String,
-        body: UntrustedText, createdAt: String, answeredAt: String? = nil, requestId: String
+        body: UntrustedText, createdAt: String, answeredAt: String? = nil, requestId: String, options: [String]? = nil
     ) {
+        self.options = options
         self.key = key
         self.messageId = messageId
         self.sequence = sequence
@@ -462,7 +465,7 @@ public struct StoredMessage: Codable, Sendable, Equatable {
         self.init(
             key: item.key, messageId: item.messageId, sequence: item.sequence, senderAgentId: item.senderAgentId,
             messageClass: item.messageClass, state: item.state, body: item.body, createdAt: item.createdAt,
-            answeredAt: item.answeredAt, requestId: item.requestId)
+            answeredAt: item.answeredAt, requestId: item.requestId, options: item.options)
     }
 
     /// A question the person has not answered yet.

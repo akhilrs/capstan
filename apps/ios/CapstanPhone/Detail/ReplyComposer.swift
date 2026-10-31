@@ -6,22 +6,39 @@ import SwiftUI
 /// empty or over the cap. The text is sent as plain text; the counter shows once the text nears the cap.
 struct ReplyBar: View {
     @Binding var text: String
+    /// The choices of the question, shown as buttons that fill the reply; empty without.
+    var options: [String] = []
     let enabled: Bool
     let onSend: (String) -> Void
 
     private let budget = TextBudget(limit: ProtocolLimits.reasonCap)
 
+    private func send() {
+        guard enabled, ComposerState.check(text, budget: budget) == .ready, let clean = NoteText.normalized(text) else {
+            return
+        }
+        onSend(clean)
+        text = ""
+    }
+
     var body: some View {
         let state = ComposerState.check(text, budget: budget)
         VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            if !options.isEmpty {
+                ChoiceButtons(options: options, current: text, enabled: enabled) { text = $0 }
+                    .padding(.bottom, Tokens.space[1])
+            }
             if budget.used(text) * 5 >= budget.limit * 4 {
                 Text(verbatim: String(budget.used(text)) + " of " + String(budget.limit) + " bytes")
                     .font(TypeStyle.footnote.monospacedDigit())
                     .foregroundStyle(state == .overLimit ? Tokens.color(.red) : Tokens.color(.label2))
             }
             HStack(alignment: .bottom, spacing: Tokens.space[2]) {
-                TextField(text: $text, axis: .vertical) { Text("Your reply") }
+                TextField(text: $text, axis: .vertical) {
+                    if options.isEmpty { Text("Your reply") } else { Text("Pick a choice or write your answer") }
+                }
                     .lineLimit(1...5)
+                    .sendOnReturn($text, send: send)
                     .font(TypeStyle.body)
                     .padding(.horizontal, Tokens.space[3])
                     .padding(.vertical, Tokens.space[2])
@@ -29,10 +46,7 @@ struct ReplyBar: View {
                     .background(Tokens.color(.cell), in: RoundedRectangle(cornerRadius: 22))
                     .disabled(!enabled)
                 Button {
-                    if let clean = NoteText.normalized(text) {
-                        onSend(clean)
-                        text = ""
-                    }
+                    send()
                 } label: {
                     Image(systemName: "arrow.up")
                         .font(TypeStyle.headline)

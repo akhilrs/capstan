@@ -698,6 +698,12 @@ pub trait LauncherAdapter: PaneRegistry {
     fn answer_prompt(&self, input: AnswerPromptInput<'_>) -> AdapterResult<RelayOutcome>;
     /// Sends one Esc to a worker Herdr shows working; true when sent.
     fn interrupt_working(&self, pane_id: &str, log: KeyLogger<'_>) -> AdapterResult<bool>;
+    /// Closes, with one Esc, a question the agent shows in a picker and the user answered elsewhere: only when Herdr
+    /// shows the agent stopped (not working), the screen has no input box, offers "Esc to cancel" and shows the
+    /// question's text. True when the key was sent. The default sends nothing.
+    fn dismiss_question(&self, _pane_id: &str, _question: &str, _log: KeyLogger<'_>) -> AdapterResult<bool> {
+        Ok(false)
+    }
 }
 
 /// `NotifierAdapter` of src/notifier.ts: shows a notification in Herdr.

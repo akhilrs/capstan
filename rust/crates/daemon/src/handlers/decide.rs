@@ -83,10 +83,47 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         }
     };
     let credential = call.credential.to_string();
-    Some(answer(env.deps.kernel.run(move |core| {
+    let reply_to = (input.kind == Kind::Message && input.verb == "reply").then(|| input.target.clone());
+    let decided = env.deps.kernel.run(move |core| {
         let context = crate::deps::new_context(core, &credential)?;
         remote_decisions::decide_with(core, &context, &input, options)
-    })))
+    });
+    if let (Ok(result), Some(message_id)) = (&decided, reply_to) {
+        if result["outcome"] == "applied" {
+            close_answered_picker(env, &message_id);
+        }
+    }
+    Some(answer(decided))
+}
+
+/// After a question was answered from a remote client: the agent that asked may still show it in a picker, which
+/// holds the answer back until someone presses a key at the terminal. One Esc closes it, only when the screen shows
+/// that question (the launcher checks); the answer is then delivered as a message. Runs on its own thread.
+fn close_answered_picker(env: &CommandEnv<'_>, message_id: &str) {
+    let Some(launcher) = env.deps.launcher.clone() else {
+        return;
+    };
+    let id = message_id.to_string();
+    let Ok(Some(row)) = env.deps.kernel.run(move |core| {
+        capstan_kernel::areas::user_messages::user_message_row(core.kernel(), &id)
+    }) else {
+        return;
+    };
+    let deps = env.deps.clone();
+    let _ = std::thread::Builder::new()
+        .name("close-answered-picker".into())
+        .spawn(move || {
+            let outcome = launcher.dismiss_question(&row.sender_agent_id, &row.body);
+            deps.detail_log(
+                "question_picker_closed",
+                serde_json::json!({
+                    "agentId": row.sender_agent_id,
+                    "sequence": row.sequence,
+                    "sent": matches!(outcome, Ok(true)),
+                    "error": outcome.err().map(|error| error.to_string()),
+                }),
+            );
+        });
 }
 
 #[cfg(test)]

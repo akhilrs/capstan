@@ -64,6 +64,8 @@ struct ConversationScreen: View {
                 .padding(Tokens.margin)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // A chat opens at its newest message, and stays there as messages arrive.
+            .defaultScrollAnchor(.bottom)
             .onAppear { if let last = entries.last { proxy.scrollTo(last.id, anchor: .bottom) } }
             .onChange(of: entries.count) { _, _ in
                 if let last = entries.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
@@ -90,6 +92,9 @@ struct ConversationScreen: View {
                             .font(TypeStyle.footnote.weight(.semibold))
                             .frame(minHeight: 44)
                     }
+                }
+                if let answering, !(answering.options ?? []).isEmpty {
+                    ChoiceButtons(options: answering.options ?? [], current: text, enabled: !sending) { text = $0 }
                 }
                 MessageComposer(
                     text: $text, enabled: (pm != nil || answering != nil) && !sending,
@@ -126,7 +131,9 @@ struct ConversationScreen: View {
         default: state = "For your information"
         }
         return VStack(alignment: .leading, spacing: Tokens.space[1]) {
-            DetailTextBlock(text: message.body, name: message.senderAgentId + " · " + state, shownAs: "shown as written")
+            DetailTextBlock(
+                text: message.body, name: message.senderAgentId + " · " + state, shownAs: "shown as written",
+                keepLines: true)
             HStack(spacing: Tokens.space[2]) {
                 Text(verbatim: time)
                     .font(TypeStyle.footnote)
@@ -255,6 +262,13 @@ struct MessageComposer: View {
 
     private let budget = TextBudget(limit: SentMessageLog.textCap)
 
+    private func send() {
+        guard enabled, ComposerState.check(text, budget: budget) == .ready, let clean = NoteText.normalized(text) else {
+            return
+        }
+        onSend(clean)
+    }
+
     var body: some View {
         let state = ComposerState.check(text, budget: budget)
         VStack(alignment: .trailing, spacing: Tokens.space[1]) {
@@ -268,6 +282,7 @@ struct MessageComposer: View {
                     Text(verbatim: placeholder ?? "No active PM")
                 }
                 .lineLimit(1...5)
+                .sendOnReturn($text, send: send)
                 .font(TypeStyle.body)
                 .padding(.horizontal, Tokens.space[3])
                 .padding(.vertical, Tokens.space[2])
@@ -275,7 +290,7 @@ struct MessageComposer: View {
                 .background(Tokens.color(.cell), in: RoundedRectangle(cornerRadius: 22))
                 .disabled(!enabled)
                 Button {
-                    if let clean = NoteText.normalized(text) { onSend(clean) }
+                    send()
                 } label: {
                     Image(systemName: "arrow.up")
                         .font(TypeStyle.headline)

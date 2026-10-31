@@ -23,6 +23,10 @@ use serde_json::{json, Value};
 pub const MAX_USER_MESSAGE_BYTES: usize = 4096;
 /// The most messages the agents of a project may send the user in an hour.
 pub const MESSAGES_PER_HOUR: i64 = 60;
+/// The most choices of a question.
+pub const MAX_OPTIONS: usize = 6;
+/// The most characters of one choice.
+pub const MAX_OPTION_CHARS: usize = 120;
 /// How many of the latest messages the snapshot lists.
 pub const LISTED_MESSAGES: i64 = 200;
 
@@ -38,10 +42,12 @@ pub struct UserMessageRow {
     pub reply_message_id: Option<String>,
     pub created_at: String,
     pub answered_at: Option<String>,
+    /// The choices of a question, in order; empty without.
+    pub options: Vec<String>,
 }
 
-const COLUMNS: &str =
-    "message_id, sequence, sender_agent_id, class, body, state, reply_message_id, created_at, answered_at";
+const COLUMNS: &str = "message_id, sequence, sender_agent_id, class, body, state, reply_message_id, created_at, answered_at,
+     options_json";
 
 fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserMessageRow> {
     Ok(UserMessageRow {
@@ -54,6 +60,7 @@ fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserMessageRow> {
         reply_message_id: row.get(6)?,
         created_at: row.get(7)?,
         answered_at: row.get(8)?,
+        options: serde_json::from_str(&row.get::<_, String>(9)?).unwrap_or_default(),
     })
 }
 
@@ -84,14 +91,41 @@ pub fn send_to_user(kernel: &Kernel, context: &MutationContext, input: &Value) -
         "info" => "info",
         other => return Err(KernelError::type_error(format!("unknown message class {other}"))),
     };
+    let options = options_of(input, class)?;
     let body_hash = sha256(&body);
     kernel.mutate(
         context,
         "user_message.send",
         "message:send",
-        &json!({"class": class, "bodyHash": body_hash, "bodyBytes": body.len()}),
-        |actor| apply_send(kernel, actor, &body, &body_hash, class),
+        &json!({"class": class, "bodyHash": body_hash, "bodyBytes": body.len(), "options": options.len()}),
+        |actor| apply_send(kernel, actor, &body, &body_hash, class, &options),
     )
+}
+
+/// The `options` of an input: at most [`MAX_OPTIONS`] one-line texts of at most [`MAX_OPTION_CHARS`] characters, and
+/// only on a question (an info message takes none). Missing is none.
+fn options_of(input: &Value, class: &str) -> KernelResult<Vec<String>> {
+    let Some(list) = input.get("options").filter(|v| !v.is_null()) else {
+        return Ok(Vec::new());
+    };
+    let items = list
+        .as_array()
+        .ok_or_else(|| KernelError::type_error("options must be a list of texts"))?;
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+    if class != "action" {
+        return Err(KernelError::type_error("only a question (--action) has options"));
+    }
+    if items.len() > MAX_OPTIONS {
+        return Err(KernelError::type_error(format!(
+            "a question has at most {MAX_OPTIONS} options"
+        )));
+    }
+    items
+        .iter()
+        .map(|item| safe_text(item, "an option", MAX_OPTION_CHARS, false))
+        .collect()
 }
 
 fn apply_send(
@@ -100,6 +134,7 @@ fn apply_send(
     body: &str,
     body_hash: &str,
     class: &str,
+    options: &[String],
 ) -> KernelResult<MutationOutput> {
     let Some(sender) = kernel.agent_by_actor(&actor.actor_id)? else {
         return Err(refused("not_an_agent", "only an active agent sends the user a message"));
@@ -131,8 +166,8 @@ fn apply_send(
     execute(
         &kernel.database,
         "INSERT INTO user_messages(project_id, message_id, sequence, sender_agent_id, sender_actor_id, class, body,
-           body_hash, state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+           body_hash, state, created_at, options_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rusqlite::params![
             kernel.project_id,
             message_id,
@@ -143,7 +178,8 @@ fn apply_send(
             body,
             body_hash,
             state,
-            now
+            now,
+            serde_json::to_string(options).expect("texts serialize")
         ],
     )?;
     kernel.touch_agent(&sender.agent_id, &now)?;

@@ -36,6 +36,17 @@ public struct UntrustedText: Codable, Sendable, Equatable {
         return String(scalars)
     }
 
+    /// `displayPlain` that keeps line breaks: a message laid out in lines (a list, a small table) keeps its shape.
+    /// `\r\n` and `\r` become `\n`; every other unsafe scalar is a space, as in `displayPlain`.
+    public var displayLines: String {
+        var scalars = String.UnicodeScalarView()
+        let unified = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        for scalar in unified.unicodeScalars {
+            scalars.append(scalar == "\n" ? scalar : (UntrustedText.isUnsafe(scalar) ? " " : scalar))
+        }
+        return String(scalars)
+    }
+
     private static func isUnsafe(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x00...0x1F, 0x7F...0x9F, 0x2028...0x202E, 0x2066...0x2069, 0xFEFF:
