@@ -59,8 +59,12 @@ pub(crate) struct MergeDone {
     pub made_commit: bool,
 }
 
-/// The handler of the decide-merge route (`decide::register` serves it).
+/// The handler of the decide-merge route (`decide::register` serves it). `decide-merge targets` lists the branches a
+/// merge may go into and changes nothing.
 pub fn decide_merge(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
+    if call.args.len() == 1 && call.args[0] == "targets" {
+        return Some(merge_targets(env));
+    }
     let input = match remote_decisions::parse(call.args) {
         Ok(input) => input,
         Err(refusal) => {
@@ -106,6 +110,31 @@ pub fn decide_merge(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comm
     response
 }
 
+/// `{enabled, defaultBranch, checkedOut, branches}`: whether `[remote] merge` is on, the branch a merge without
+/// `--into` goes into (`merge_branch`, else the remote's default branch), the branch checked out in the project's root
+/// and the branches `--into` may name (none checked out in another worktree, no integration branch).
+fn merge_targets(env: &CommandEnv<'_>) -> CommandResponse {
+    let remote = fresh_config(env).map(|config| config.remote.clone()).unwrap_or_default();
+    let repo = seamed_repo(env.deps, &env.deps.options.workspace_root);
+    let default_branch = if remote.merge {
+        match repo.merge_target(remote.merge_branch.as_deref()) {
+            Ok(branch) => branch,
+            Err(error) => return git_response(&error),
+        }
+    } else {
+        None
+    };
+    match repo.merge_targets(SMALL_GIT_TIMEOUT) {
+        Ok(targets) => ok(json!({
+            "enabled": remote.merge,
+            "defaultBranch": default_branch,
+            "checkedOut": targets.checked_out,
+            "branches": targets.branches,
+        })),
+        Err(error) => git_response(&error),
+    }
+}
+
 /// What the hand-off thread does after an applied merge.
 struct HandOff {
     done: MergeDone,
@@ -144,6 +173,9 @@ struct Go {
     verify: VerifyState,
     target: String,
     already_in_head: bool,
+    /// The target is the branch checked out in the project's root: the merge updates that checkout. Otherwise
+    /// (`--into` another branch) it moves only the branch.
+    checkout: bool,
 }
 
 impl Run<'_> {
@@ -234,23 +266,55 @@ impl Run<'_> {
         (text("branch"), text("headSha"))
     }
 
-    /// At most three git calls: the target branch, the tip of the integration branch, whether the head is in HEAD.
+    /// The branch `--into` names, if any.
+    fn into(&self) -> Option<String> {
+        self.input.args.get("into").and_then(Value::as_str).map(str::to_string)
+    }
+
+    /// The branch checked out in the project's root; none on a detached or unborn HEAD.
+    fn checked_out(&self) -> Option<String> {
+        let out = self
+            .repo
+            .root_git(&RootCall {
+                args: ["symbolic-ref", "-q", "--short", "HEAD"].map(String::from).to_vec(),
+                timeout: SMALL_GIT_TIMEOUT,
+                config_env: Vec::new(),
+                network: false,
+                user_config: false,
+            })
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (out.code == 0 && !text.is_empty()).then_some(text)
+    }
+
+    /// A merge goes into the root's checkout unless `--into` names another branch.
+    fn into_checkout(&self, target: &str) -> bool {
+        self.into().is_none() || self.checked_out().as_deref() == Some(target)
+    }
+
+    /// At most four git calls: the target branch, the checkout, the tip of the integration branch, whether the head is
+    /// in the target.
     fn facts(&self) -> Result<MergeFacts, IntegrateError> {
         let (branch, head) = self.integration();
         let merge_enabled = self.remote.merge;
-        let target_branch = if merge_enabled {
+        let target_branch = if !merge_enabled {
+            None
+        } else if let Some(into) = self.into() {
+            Some(into)
+        } else {
             self.repo
                 .merge_target(self.remote.merge_branch.as_deref())?
-        } else {
-            None
         };
         let usable = target_branch.is_some();
         let branch_tip = match (&branch, usable) {
             (Some(branch), true) => self.repo.branch_tip(branch)?,
             _ => None,
         };
-        let already_in_head = match (&head, usable) {
-            (Some(head), true) => self.repo.is_in_head(head)?,
+        let already_in_head = match (&head, &target_branch) {
+            (Some(head), Some(target)) if !self.into_checkout(target) => {
+                self.repo.is_in_branch(head, target, SMALL_GIT_TIMEOUT)?
+            }
+            (Some(head), Some(_)) => self.repo.is_in_head(head)?,
             _ => false,
         };
         Ok(MergeFacts {
@@ -298,6 +362,7 @@ impl Run<'_> {
                     branch,
                     head_sha,
                     verify,
+                    checkout: self.into_checkout(&target),
                     target,
                     already_in_head,
                 }),
@@ -342,9 +407,27 @@ impl Run<'_> {
         if let Some(seams) = &self.seams {
             wait_hold(&seams.hold_b);
         }
-        // 2: the head is in HEAD already.
+        // 2: the head is in HEAD (or the target branch) already.
         if go.already_in_head {
             return self.record_for(go, false, None);
+        }
+        // `--into` a branch that is not checked out: the branch moves, no working tree is touched, so neither the
+        // marker nor the index lock of the checkout matters.
+        if !go.checkout {
+            let merged = self
+                .repo
+                .merge_into_ref(&go.target, &go.branch, &go.head_sha, MERGE_TIMEOUT);
+            return match merged {
+                Ok(RootMerge::Merged { commit }) => self.record_for(go, true, Some(commit)),
+                Ok(RootMerge::AlreadyInHead) => self.record_for(go, false, None),
+                Ok(RootMerge::Refused(refusal)) => PhaseB::Answer(refusal_response(&refusal)),
+                Ok(RootMerge::Failed { reason, restored }) => PhaseB::Answer(merge_failed(
+                    reason,
+                    restored,
+                    "the merge into the branch did not finish",
+                )),
+                Err(error) => PhaseB::Answer(git_response(&error)),
+            };
         }
         let marker = match self.git_path(MARKER_NAME) {
             Ok(path) => path,
@@ -419,8 +502,10 @@ impl Run<'_> {
     fn record_for(&self, go: Go, made_commit: bool, commit: Option<String>) -> PhaseB {
         let merge_commit = if made_commit {
             commit
+        } else if go.checkout {
+            self.merge_commit_of(&go.head_sha, "HEAD")
         } else {
-            self.merge_commit_of(&go.head_sha)
+            self.merge_commit_of(&go.head_sha, &format!("refs/heads/{}", go.target))
         };
         PhaseB::Record {
             merge_commit,
@@ -501,8 +586,8 @@ impl Run<'_> {
         Ok(guard)
     }
 
-    /// The first-parent commit, at most `LOOKUP_DEPTH` back, whose second parent is `head_sha`.
-    fn merge_commit_of(&self, head_sha: &str) -> Option<String> {
+    /// The first-parent commit of `tip`, at most `LOOKUP_DEPTH` back, whose second parent is `head_sha`.
+    fn merge_commit_of(&self, head_sha: &str, tip: &str) -> Option<String> {
         let depth = self
             .seams
             .as_ref()
@@ -516,7 +601,7 @@ impl Run<'_> {
                     "--first-parent",
                     "--parents",
                     &format!("--max-count={depth}"),
-                    "HEAD",
+                    tip,
                 ]
                 .map(String::from)
                 .to_vec(),
@@ -550,6 +635,7 @@ impl Run<'_> {
         let merge = json!({
             "integrationId": go.integration_id,
             "branch": go.branch,
+            "into": go.target,
             "mergeCommit": merge_commit,
             "alreadyInHead": !made_commit,
             "verify": match &go.verify {

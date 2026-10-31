@@ -226,6 +226,12 @@ pub struct VerbRow {
     pub flags: &'static [Flag],
 }
 
+/// `integration merge --into <branch>`: a local branch other than the checked-out one, merged without a checkout.
+const INTO: Flag = Flag {
+    name: "--into",
+    key: "into",
+    required: false,
+};
 const REASON: Flag = Flag {
     name: "--reason",
     key: "reason",
@@ -347,7 +353,7 @@ pub const VERBS: &[VerbRow] = &[
         "merge",
         Outcome::Applied,
         Positional::None,
-        &[],
+        &[INTO],
     ),
     row(
         Kind::Pm,
@@ -591,6 +597,9 @@ pub fn parse(argv: &[String]) -> Result<DecideInput, Refusal> {
             .ok_or_else(|| Refusal::invalid(format!("{} needs a value", flag.name)))?;
         if args.contains_key(flag.key) {
             return Err(Refusal::invalid(format!("{} is given twice", flag.name)));
+        }
+        if flag.key == "into" && capstan_config::remote::validate_branch_name(value).is_err() {
+            return Err(Refusal::invalid(format!("--into {value} is not a branch name")));
         }
         let max_chars = (flag.key == "reason").then_some(PAUSE_REASON_CHARS);
         args.insert(

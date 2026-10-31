@@ -3127,6 +3127,14 @@ pub enum Preflight {
     Refused(Refusal),
 }
 
+/// The branches a remote merge may go into (`GitRepo::merge_targets`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeTargets {
+    pub checked_out: Option<String>,
+    pub branches: Vec<String>,
+}
+
 /// The result of a merge into the root checkout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
@@ -4460,6 +4468,220 @@ impl GitRepo {
             &plan,
             &deadline,
         )
+    }
+
+    /// The branches a remote merge may go into: the one checked out in the project's root (`checked_out`, none on a
+    /// detached or unborn HEAD) and every other local branch that no worktree has checked out (a worker's branch is
+    /// checked out in its worktree) and that is not an integration branch. Sorted, read-only.
+    pub fn merge_targets(&self, timeout: Duration) -> IntegrateResult<MergeTargets> {
+        let deadline = Deadline::new(timeout);
+        let head = self.check_code(&["symbolic-ref", "-q", "HEAD"], &deadline, &[0, 1])?;
+        let checked_out = (head.code == 0)
+            .then(|| String::from_utf8_lossy(head.stdout.strip_suffix(b"\n").unwrap_or(&head.stdout)).to_string())
+            .and_then(|full| full.strip_prefix("refs/heads/").map(str::to_string));
+        let busy = self.worktree_branches(&deadline)?;
+        let listed = self.check_code(
+            &["rev-parse", "--symbolic-full-name", "--branches"],
+            &deadline,
+            &[0],
+        )?;
+        let mut branches: Vec<String> = String::from_utf8_lossy(&listed.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix("refs/heads/"))
+            .filter(|name| !name.starts_with("integration/"))
+            .filter(|name| capstan_config::remote::validate_branch_name(name).is_ok())
+            .filter(|name| Some(*name) == checked_out.as_deref() || !busy.contains(*name))
+            .map(str::to_string)
+            .collect();
+        branches.sort();
+        branches.dedup();
+        Ok(MergeTargets {
+            checked_out,
+            branches,
+        })
+    }
+
+    /// The branches checked out in any worktree of the repository, the root's included: the root's `HEAD`, and the
+    /// `HEAD` file of each linked worktree under the common dir (read as files; no git command lists them).
+    fn worktree_branches(&self, deadline: &Deadline) -> IntegrateResult<HashSet<String>> {
+        let mut found = HashSet::new();
+        let head = self.check_code(&["symbolic-ref", "-q", "HEAD"], deadline, &[0, 1])?;
+        if head.code == 0 {
+            let text = String::from_utf8_lossy(&head.stdout).trim().to_string();
+            if let Some(name) = text.strip_prefix("refs/heads/") {
+                found.insert(name.to_string());
+            }
+        }
+        let common = self.check_code(&["rev-parse", "--git-common-dir"], deadline, &[0])?;
+        let text = String::from_utf8_lossy(&common.stdout).trim().to_string();
+        let dir = self.root.join(&text).join("worktrees");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return Ok(found);
+        };
+        for entry in entries.flatten() {
+            let Ok(head) = std::fs::read_to_string(entry.path().join("HEAD")) else {
+                continue;
+            };
+            if let Some(name) = head.trim().strip_prefix("ref: refs/heads/") {
+                found.insert(name.to_string());
+            }
+        }
+        Ok(found)
+    }
+
+    /// Merges `head_sha` (the tip of `merged_branch`) into `target`, a local branch that no worktree has checked out,
+    /// without touching any working tree: `merge-tree` writes the merged tree, `commit-tree` the merge commit, and
+    /// `update-ref` moves the branch only if it still points where it did (a branch that moved meanwhile fails with
+    /// nothing changed). The same refusals as the merge into the root, except `dirty_tree`, which no working tree can
+    /// cause here; a target checked out in a worktree is `wrong_branch`.
+    pub fn merge_into_ref(
+        &self,
+        target: &str,
+        merged_branch: &str,
+        head_sha: &str,
+        timeout: Duration,
+    ) -> IntegrateResult<RootMerge> {
+        let deadline = Deadline::new(timeout);
+        if self.git_too_old(&deadline)? {
+            return Ok(refused_merge("git_too_old", &[]));
+        }
+        if let Some(refusal) = self
+            .unsafe_repo_config_in(UnsafeScope::Merge, Some(&deadline))?
+            .into_refusal()
+        {
+            return Ok(RootMerge::Refused(refusal));
+        }
+        let commit = format!("{head_sha}^{{commit}}");
+        if !is_commit_id(head_sha)
+            || self
+                .check_code(&["rev-parse", "--verify", "--quiet", &commit], &deadline, &[0, 1])?
+                .code
+                == 1
+        {
+            return Ok(refused_merge("invalid_commit", &[head_sha]));
+        }
+        if capstan_config::remote::validate_branch_name(merged_branch).is_err() {
+            return Ok(refused_merge("invalid_branch", &[merged_branch]));
+        }
+        if capstan_config::remote::validate_branch_name(target).is_err()
+            || target.starts_with("integration/")
+            || self
+                .check_code(&["check-ref-format", "--branch", target], &deadline, &[0, 1, 128])?
+                .code
+                != 0
+        {
+            return Ok(refused_merge("invalid_branch", &[target]));
+        }
+        let reference = format!("refs/heads/{target}");
+        let tip = self.check_code(
+            &["rev-parse", "--verify", "--quiet", &format!("{reference}^{{commit}}")],
+            &deadline,
+            &[0, 1],
+        )?;
+        if tip.code == 1 {
+            return Ok(refused_merge("invalid_branch", &[target]));
+        }
+        let old = String::from_utf8_lossy(&tip.stdout).trim().to_string();
+        if !is_commit_id(&old) {
+            return Err(unavailable("git printed no commit for the target branch"));
+        }
+        if self.worktree_branches(&deadline)?.contains(target) {
+            return Ok(refused_merge("wrong_branch", &[target]));
+        }
+        let ancestor = self.check_code(
+            &["merge-base", "--is-ancestor", head_sha, &old],
+            &deadline,
+            &[0, 1],
+        )?;
+        if ancestor.code == 0 {
+            return Ok(RootMerge::AlreadyInHead);
+        }
+        let Some((name, email)) = self.strict_identity(&deadline)? else {
+            let mut missing: Vec<&str> = Vec::new();
+            for key in ["user.name", "user.email"] {
+                if self.identity_value(key, &deadline)?.is_none() {
+                    missing.push(key);
+                }
+            }
+            return Ok(refused_merge("no_identity", &missing));
+        };
+        let base = self.check_code(&["merge-base", &old, head_sha], &deadline, &[0, 1])?;
+        if base.code == 1 {
+            return Ok(refused_merge("merge_conflict", &[ENTRY_UNRELATED_HISTORIES]));
+        }
+        let merged = self.check_code(
+            &[
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                "--no-messages",
+                "-z",
+                &old,
+                head_sha,
+            ],
+            &deadline,
+            &[0, 1],
+        )?;
+        let tree = if merged.code == 0 {
+            let first = merged.stdout.split(|byte| *byte == 0).next().unwrap_or(&[]);
+            tree_id(first).ok_or_else(|| unavailable("git merge-tree printed no tree"))?
+        } else {
+            let Some((_, paths)) = parse_merge_tree(&merged.stdout) else {
+                return Err(unavailable("git merge-tree printed no conflict"));
+            };
+            return Ok(RootMerge::Refused(Refusal::new("merge_conflict", paths)));
+        };
+        let message = format!("Merge branch '{merged_branch}' into {target}");
+        let created = self.step(
+            &["commit-tree", &tree, "-p", &old, "-p", head_sha, "-m", &message],
+            &deadline,
+            false,
+            &[
+                ("GIT_AUTHOR_NAME", name.as_str()),
+                ("GIT_AUTHOR_EMAIL", email.as_str()),
+                ("GIT_COMMITTER_NAME", name.as_str()),
+                ("GIT_COMMITTER_EMAIL", email.as_str()),
+                ("TZ", "UTC"),
+            ],
+        );
+        let new = String::from_utf8_lossy(&created.stdout).trim().to_string();
+        if created.code != 0 || !is_commit_id(&new) {
+            return Ok(if created.killed {
+                RootMerge::failed("timeout", true)
+            } else {
+                RootMerge::failed("merge_failed", true)
+            });
+        }
+        let moved = self.step(
+            &["update-ref", "-m", &message, &reference, &new, &old],
+            &deadline,
+            false,
+            &[
+                ("GIT_COMMITTER_NAME", name.as_str()),
+                ("GIT_COMMITTER_EMAIL", email.as_str()),
+            ],
+        );
+        if moved.code != 0 {
+            // The branch still points where it did (update-ref is all or nothing), unless it moved meanwhile.
+            return Ok(RootMerge::failed(
+                if moved.killed { "timeout" } else { "merge_failed" },
+                true,
+            ));
+        }
+        Ok(RootMerge::Merged { commit: new })
+    }
+
+    /// Whether `sha` is in the history of the local branch `branch`.
+    pub fn is_in_branch(&self, sha: &str, branch: &str, timeout: Duration) -> IntegrateResult<bool> {
+        let deadline = Deadline::new(timeout);
+        if !is_commit_id(sha) || capstan_config::remote::validate_branch_name(branch).is_err() {
+            return Ok(false);
+        }
+        let reference = format!("refs/heads/{branch}");
+        Ok(self
+            .check_code(&["merge-base", "--is-ancestor", sha, &reference], &deadline, &[0, 1, 128])?
+            .code
+            == 0)
     }
 
     /// Runs one git child and folds a timeout (`killed`) or any other failure to run it into the step.

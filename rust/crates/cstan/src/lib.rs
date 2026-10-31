@@ -15,6 +15,7 @@ pub mod git;
 pub mod gitignore;
 pub mod init;
 pub mod jsops;
+pub mod merge_targets;
 pub mod operator;
 pub mod projects;
 pub mod recent;
@@ -380,6 +381,7 @@ impl Cli<'_> {
             "events" => return events_plan(&rest).map(Flow::Events),
             "decide" => return self.decide(&rest),
             "recent" => return self.recent(&rest),
+            "merge-targets" => return self.merge_targets(&rest),
             "start" => return self.start(&rest),
             "stop" => return self.stop(&rest),
             "restart" => return self.restart(&rest),
@@ -457,6 +459,14 @@ impl Cli<'_> {
 
     /// `cstan recent`: the recent history of a local project, over its operator socket. Like `decide`, it never reads
     /// the agent environment and never starts a daemon.
+    fn merge_targets(&mut self, args: &[String]) -> Result<Flow, Fail> {
+        let plan = merge_targets::plan(args).ok_or(Fail::Usage)?;
+        let reply = merge_targets::run(&plan, &controllers::processes(), merge_targets::TIMEOUT_MS);
+        self.io.out.extend_from_slice(reply.stdout.as_bytes());
+        self.io.err.extend_from_slice(reply.stderr.as_bytes());
+        Ok(Flow::Code(reply.exit))
+    }
+
     fn recent(&mut self, args: &[String]) -> Result<Flow, Fail> {
         let plan = recent::plan(args).ok_or(Fail::Usage)?;
         let reply = recent::run(&plan, &controllers::processes(), recent::TIMEOUT_MS);
