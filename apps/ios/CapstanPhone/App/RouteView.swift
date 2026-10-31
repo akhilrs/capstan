@@ -9,9 +9,8 @@ extension View {
     }
 }
 
-/// A pushed screen by route. Items show their details (`scr-detail`), hosts their details and a project that is not
-/// ready its state and fix (`scr-hosts`); until the packages for a ready project (`scr-overview`), agents, plans and
-/// conversations arrive, the others say what they are.
+/// A pushed screen by route: item details, host details, a project (its overview when ready, else its state and
+/// fix), agents, plans and Settings. Conversations arrive with `scr-messages` (R3).
 struct RouteView: View {
     @Environment(AppModel.self) private var model
     let route: PhoneRoute
@@ -28,11 +27,7 @@ struct RouteView: View {
         case .settings:
             SettingsScreen()
         case .project(let hostId, let projectId):
-            ContentUnavailableView {
-                Label { Text(verbatim: projectId) } icon: { Image(systemName: "folder") }
-            } description: {
-                Text(verbatim: model.hosts.first(where: { $0.id == hostId })?.displayName ?? "")
-            }
+            ProjectOverviewScreen(hostId: hostId, projectId: projectId)
         case .agent(let hostId, let projectId, let agentId):
             AgentDetailScreen(hostId: hostId, projectId: projectId, agentId: agentId)
         case .plan(let ref):
