@@ -12,7 +12,7 @@ struct CapstanPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                RootTabView(counts: shell.model.tabCounts)
+                RootTabView()
                     .environment(shell.model)
                     .opacity(shell.locked ? 0 : 1)
                     .accessibilityHidden(shell.locked)
