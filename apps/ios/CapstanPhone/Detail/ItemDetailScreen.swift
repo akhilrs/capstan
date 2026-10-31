@@ -58,6 +58,8 @@ struct ItemDetailScreen: View {
     @State private var link: LinkItem?
     @State private var askingChanges = false
     @State private var reply = ""
+    @State private var receivedAt = Date()
+    @State private var toast = false
 
     var body: some View {
         if let item = model.item(row) {
@@ -83,7 +85,7 @@ struct ItemDetailScreen: View {
     private func content(_ ctx: DetailContext) -> some View {
         let main = ctx.mainText
         let shown = ShownText(main.text)
-        let bar = DetailBar.make(ctx, shown: shown)
+        let bar = DetailBar.make(ctx, shown: shown, outcome: sending ? nil : outcome)
         return ScrollView {
             VStack(alignment: .leading, spacing: Tokens.space[3]) {
                 DetailHeader(
@@ -92,20 +94,24 @@ struct ItemDetailScreen: View {
                     pills: RowPills.make(
                         needsTerminal: ctx.item.needsTerminal, forwarded: model.forwardShown(row),
                         stale: ctx.project?.staleSince != nil))
+                if let outcome, !sending {
+                    OutcomeBanner(
+                        outcome: outcome, hostName: ctx.hostName, receivedAt: receivedAt,
+                        onRetry: { id in retry(id) },
+                        onTryAgain: tryAgain)
+                }
                 if ctx.item.kind != .integration {
                     DetailFacts(facts: facts(ctx))
                 }
                 notices(ctx, shown: shown)
                 kindBody(ctx, main: main, shown: shown)
-                if sending || outcome != nil {
-                    outcomeLine(ctx)
-                }
             }
             .padding(.horizontal, Tokens.margin)
             .padding(.vertical, Tokens.space[2])
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Tokens.color(.ground))
+        .outcomeToast($toast)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .primaryAction) { moreMenu(ctx, shown: shown) } }
         .toolbar(bar == .empty ? .automatic : .hidden, for: .tabBar)
@@ -142,18 +148,26 @@ struct ItemDetailScreen: View {
         return RowText.inspectorTitle(kind: ctx.item.kind, key: ctx.item.key, summary: ctx.item.summary.displayPlain)
     }
 
-    /// The item was answered or withdrawn: it left the snapshot.
+    /// The item was answered or withdrawn: it left the snapshot. A decision taken here shows its result.
+    @ViewBuilder
     private var gone: some View {
-        ContentUnavailableView {
-            Label("No longer waiting", systemImage: "checkmark.circle")
-        } description: {
-            if let outcome {
-                Text(verbatim: Presentation.present(outcome, hostName: hostName).title)
-            } else {
-                Text("It was answered or withdrawn on the host.")
+        if let outcome {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Tokens.space[3]) {
+                    Text("No longer waiting").font(TypeStyle.title2)
+                    OutcomeBanner(outcome: outcome, hostName: hostName, receivedAt: receivedAt)
+                }
+                .padding(Tokens.margin)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .background(Tokens.color(.ground))
+            .outcomeToast($toast)
+        } else {
+            ContentUnavailableView(
+                "No longer waiting", systemImage: "checkmark.circle",
+                description: Text("It was answered or withdrawn on the host."))
+            .background(Tokens.color(.ground))
         }
-        .background(Tokens.color(.ground))
     }
 
     private var hostName: String {
@@ -301,49 +315,6 @@ struct ItemDetailScreen: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: Outcome
-
-    /// The state of the last decision in the words of `Presentation`; `scr-outcomes` draws the full board 05.
-    private func outcomeLine(_ ctx: DetailContext) -> some View {
-        let presentation = Presentation.present(sending ? nil : outcome, hostName: ctx.hostName)
-        return HStack(spacing: Tokens.space[2]) {
-            if sending {
-                ProgressView()
-            } else {
-                Image(systemName: stateSymbol(presentation.tone))
-                    .foregroundStyle(presentation.tone.color)
-                    .accessibilityHidden(true)
-            }
-            Text(verbatim: presentation.title)
-                .font(TypeStyle.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if !sending {
-                ForEach(Array(presentation.actions.enumerated()), id: \.offset) { _, action in
-                    switch action {
-                    case .refresh:
-                        Button("Refresh") { model.refresh(hostId: row.hostId, projectIds: [row.projectId]) }
-                    case .retry:
-                        if let id = pendingId { Button("Retry") { retry(id) } }
-                    case .tryAgain:
-                        if let lastVerb { Button("Try again") { run(lastVerb) } }
-                    }
-                }
-            }
-        }
-        .padding(Tokens.space[3])
-        .frame(minHeight: 44)
-        .background(Tokens.color(.fill2), in: RoundedRectangle(cornerRadius: Tokens.radius.section))
-        .accessibilityElement(children: .contain)
-    }
-
-    private var pendingId: UUID? {
-        switch outcome {
-        case .notSent(_, let id)?: return id
-        case .malformed(_, let id)?: return id
-        default: return nil
-        }
-    }
-
     // MARK: Toolbar and action bar
 
     private func moreMenu(_ ctx: DetailContext, shown: ShownText) -> some View {
@@ -378,13 +349,18 @@ struct ItemDetailScreen: View {
             case .copy:
                 Button { copy(shown.text) } label: { Text("Copy what is shown") }
                     .buttonStyle(.capstanQuiet)
+            case .showNew:
+                Button { showNewVersion() } label: { Text("Show the new version") }
+                    .buttonStyle(.capstanPrimary)
             case .op:
                 BarLayout(stacked: stacked) {
                     Button { confirmDeny = true } label: { Text("Deny…") }
                         .buttonStyle(.capstanDestructive)
                         .disabled(sending || !isAvailable(.opDeny(note: nil)))
                 } primary: {
-                    Button { forwardApproval() } label: { Text("Send approval to PM") }
+                    Button { forwardApproval() } label: {
+                        if sending { SendingLabel() } else { Text("Send approval to PM") }
+                    }
                         .buttonStyle(.capstanPrimary)
                         .disabled(sending || !isAvailable(.opApprove))
                 }
@@ -417,7 +393,9 @@ struct ItemDetailScreen: View {
                 esc
             } primary: {
                 Button { forwardOption(ctx) } label: {
-                    if let number = selected {
+                    if sending {
+                        SendingLabel()
+                    } else if let number = selected {
                         Text(verbatim: "Send option " + String(number) + " to PM")
                     } else {
                         Text("Choose an option")
@@ -440,7 +418,7 @@ struct ItemDetailScreen: View {
             Button {
                 if let design { run(.designApprove(link: design.link.raw, askedUser: "Approved")) }
             } label: {
-                Text("Approve")
+                if sending { SendingLabel() } else { Text("Approve") }
             }
             .buttonStyle(.capstanPrimary)
             .disabled(sending || !approvable || !isAvailable(.designApprove(link: "x", askedUser: "Approved")))
@@ -485,9 +463,7 @@ struct ItemDetailScreen: View {
         outcome = nil
         Task {
             let result = await model.decide(verb, on: row)
-            outcome = result
-            sending = false
-            Haptics.play(ItemDetailScreen.haptic(result))
+            received(result)
         }
     }
 
@@ -497,18 +473,35 @@ struct ItemDetailScreen: View {
         outcome = nil
         Task {
             let result = await model.retry(pendingId)
-            outcome = result
-            sending = false
-            Haptics.play(ItemDetailScreen.haptic(result))
+            received(result)
         }
     }
 
-    static func haptic(_ outcome: DecideOutcome) -> Haptics.Kind {
-        switch outcome {
-        case .applied, .forwarded: return .success
-        case .refused: return .warning
-        case .notSent, .malformed: return .error
+    /// Sends the last decision again with a new request; nil when there is none.
+    private var tryAgain: (() -> Void)? {
+        guard let lastVerb else { return nil }
+        return { run(lastVerb) }
+    }
+
+    /// Shows the result, fires its haptic, and announces a new forward with the toast.
+    private func received(_ result: DecideOutcome) {
+        receivedAt = Date()
+        outcome = result
+        sending = false
+        if OutcomeLines.isNewForward(result) { toast = true }
+        switch OutcomeLines.feel(result) {
+        case .success?: Haptics.play(.success)
+        case .warning?: Haptics.play(.warning)
+        case .error?: Haptics.play(.error)
+        case nil: break
         }
+    }
+
+    /// After `hash_mismatch`: read the project again and clear the result, so the new text is what is answered.
+    private func showNewVersion() {
+        model.refresh(hostId: row.hostId, projectIds: [row.projectId])
+        outcome = nil
+        lastVerb = nil
     }
 
     private func copy(_ text: String) {
@@ -527,12 +520,18 @@ enum DetailBar: Equatable {
     case empty
     /// The text is cut or failed its check: nothing is decided from here.
     case copy
+    /// The item changed since it was opened (`hash_mismatch`).
+    case showNew
     case op
     case prompt(allTerminal: Bool)
     case design
     case reply
 
-    static func make(_ ctx: DetailContext, shown: ShownText) -> DetailBar {
+    static func make(_ ctx: DetailContext, shown: ShownText, outcome: DecideOutcome?) -> DetailBar {
+        if let outcome {
+            if OutcomeLines.isDone(outcome) { return .empty }
+            if case .refused(_, .refresh) = outcome { return .showNew }
+        }
         let copyOrNone: DetailBar = shown.cut && shown.any ? .copy : .empty
         guard ctx.answerable else { return copyOrNone }
         switch ctx.item.kind {

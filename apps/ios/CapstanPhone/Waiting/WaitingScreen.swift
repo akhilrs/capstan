@@ -176,10 +176,11 @@ struct WaitingScreen: View {
     private func deny(_ row: InboxRow, note: String?) {
         Task {
             let outcome = await model.decide(.opDeny(note: note), on: row.id)
-            switch outcome {
-            case .applied, .forwarded: Haptics.play(.success)
-            case .notSent: Haptics.play(.error)
-            default: Haptics.play(.warning)
+            switch OutcomeLines.feel(outcome) {
+            case .success?: Haptics.play(.success)
+            case .warning?: Haptics.play(.warning)
+            case .error?: Haptics.play(.error)
+            case nil: break
             }
         }
     }
