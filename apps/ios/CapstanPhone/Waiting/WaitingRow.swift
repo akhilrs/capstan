@@ -29,15 +29,11 @@ struct WaitingRow: View {
                             .font(TypeStyle.subheadline.monospacedDigit())
                             .foregroundStyle(Tokens.color(.label2))
                     }
-                    Image(systemName: "chevron.right")
-                        .font(TypeStyle.footnote)
-                        .foregroundStyle(Tokens.color(.label2))
-                        .accessibilityHidden(true)
                 }
                 secondLine
             }
         }
-        .padding(.vertical, Tokens.space[2])
+        .padding(.vertical, Tokens.space[0])
         .opacity(row.stale ? 0.6 : 1)
         .contentShape(Rectangle())
         .frame(minHeight: 44)

@@ -49,6 +49,7 @@ struct WaitingScreen: View {
         .scrollContentBackground(.hidden)
         .background(Tokens.color(.ground))
         .navigationTitle("Waiting for you")
+        .navigationBarTitleDisplayMode(.large)
         .searchable(text: $model.inboxSearch, prompt: Text("Search projects and summaries"))
         .refreshable { refreshAll() }
         .toolbar {
