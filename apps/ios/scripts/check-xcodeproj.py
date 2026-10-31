@@ -19,6 +19,8 @@ DEFAULT_PROJECT = os.path.join(HERE, "..", "CapstanPhone.xcodeproj")
 PACKAGES = ("../macos/CapstanKit", "../macos/CapstanAppCore", "CapstanPhoneCore", "CapstanSSH")
 PRODUCTS = ("CapstanKit", "CapstanAppCore", "CapstanPhoneCore", "CapstanSSH")
 INFO_PLIST = "CapstanPhone/Info.plist"
+WIDGETS_PLIST = "CapstanWidgets/Info.plist"
+BUNDLE_ID = "in.qusol.capstan.phone"
 ID = re.compile(r"\b[0-9A-F]{24}\b")
 
 
@@ -84,15 +86,20 @@ def check_project(project):
     need(root, "no rootObject")
     proj = obj(pbx, root.group(1))
 
-    # one synchronized group, CapstanPhone, with Info.plist kept out of the target's files
+    # two synchronized groups, CapstanPhone and CapstanWidgets, each keeping its Info.plist out of the target's files
     groups = re.findall(r"^\t\t([0-9A-F]{24})\b[^=\n]*= \{\n\t\t\tisa = PBXFileSystemSynchronizedRootGroup;", pbx, flags=re.M)
-    need(len(groups) == 1, f"expected one synchronized group, found {len(groups)}")
-    group = obj(pbx, groups[0])
-    need(re.search(r"path = CapstanPhone;", group), "the synchronized group is not CapstanPhone")
-    exceptions = id_list(group, "exceptions")
-    need(exceptions, "the synchronized group keeps Info.plist as a resource (no exception set)")
-    need(any(re.search(r"membershipExceptions = \(\s*Info\.plist,", obj(pbx, e)) for e in exceptions),
-         "Info.plist is not excluded from the target's files")
+    need(len(groups) == 2, f"expected two synchronized groups, found {len(groups)}")
+    paths_seen = []
+    for gid in groups:
+        group = obj(pbx, gid)
+        m = re.search(r"path = (\w+);", group)
+        need(m, f"synchronized group {gid} has no path")
+        paths_seen.append(m.group(1))
+        exceptions = id_list(group, "exceptions")
+        need(exceptions, f"the {m.group(1)} group keeps Info.plist as a resource (no exception set)")
+        need(any(re.search(r"membershipExceptions = \(\s*Info\.plist,", obj(pbx, e)) for e in exceptions),
+             f"Info.plist is not excluded from the {m.group(1)} target's files")
+    need(sorted(paths_seen) == ["CapstanPhone", "CapstanWidgets"], f"the synchronized groups are {sorted(paths_seen)}")
 
     # package references: the four local packages, each holding a Package.swift
     refs = id_list(proj, "packageReferences")
@@ -108,33 +115,53 @@ def check_project(project):
     for p in paths:
         need(os.path.isfile(os.path.join(base, p, "Package.swift")), f"{p} holds no Package.swift")
 
-    # the CapstanPhone app target and its build settings
+    # the CapstanPhone app target, the CapstanWidgets extension, and their build settings
     targets = id_list(proj, "targets")
-    need(len(targets) == 1, "expected one target")
-    target = obj(pbx, targets[0])
-    need("com.apple.product-type.application" in target, "the target is not an application")
-    need(re.search(r"name = CapstanPhone;", target), "the target is not named CapstanPhone")
+    need(len(targets) == 2, f"expected two targets, found {len(targets)}")
+    by_name = {}
+    for tid in targets:
+        body = obj(pbx, tid)
+        m = re.search(r"\bname = (\w+);", body)
+        need(m, f"target {tid} has no name")
+        by_name[m.group(1)] = (tid, body)
+    need(set(by_name) == {"CapstanPhone", "CapstanWidgets"}, f"the targets are {sorted(by_name)}")
+    app_id, target = by_name["CapstanPhone"]
+    ext_id, ext = by_name["CapstanWidgets"]
+    need("com.apple.product-type.application" in target, "CapstanPhone is not an application")
+    need("com.apple.product-type.app-extension" in ext, "CapstanWidgets is not an app extension")
     linked = set(re.findall(r"productName = (\w+);", pbx))
     need(set(PRODUCTS) <= linked, f"the package products are not all linked: {sorted(set(PRODUCTS) - linked)}")
     frameworks = [p for p in id_list(target, "buildPhases") if "PBXFrameworksBuildPhase" in obj(pbx, p)]
     need(frameworks and len(id_list(obj(pbx, frameworks[0]), "files")) == len(PRODUCTS),
          "the Frameworks phase does not link the four products")
-    lst = re.search(r"buildConfigurationList = ([0-9A-F]{24})", target)
-    need(lst, "the target has no configuration list")
-    configs = id_list(obj(pbx, lst.group(1)), "buildConfigurations")
-    need(len(configs) >= 2, "the target has fewer than two configurations")
-    for cid in configs:
-        settings = obj(pbx, cid)
-        for key, want in (
-            ("IPHONEOS_DEPLOYMENT_TARGET", "26.0"),
-            ("SDKROOT", "iphoneos"),
-            ("SWIFT_VERSION", "6.0"),
-            ("GENERATE_INFOPLIST_FILE", "YES"),
-            ("INFOPLIST_FILE", INFO_PLIST),
-            ("TARGETED_DEVICE_FAMILY", "1"),
-        ):
-            m = re.search(r"\b" + key + r" = ([^;]+);", settings)
-            need(m and m.group(1).strip().strip('"') == want, f"{key} is not {want} in configuration {cid}")
+    embeds = [p for p in id_list(target, "buildPhases") if "PBXCopyFilesBuildPhase" in obj(pbx, p)]
+    need(embeds and re.search(r"dstSubfolderSpec = 13;", obj(pbx, embeds[0])), "the app does not embed the extension")
+    need(any("CapstanWidgets.appex" in obj(pbx, f) for f in id_list(obj(pbx, embeds[0]), "files"))
+         or "CapstanWidgets.appex in Embed" in pbx, "the embed phase does not hold CapstanWidgets.appex")
+    deps = id_list(target, "dependencies")
+    need(any(ext_id in obj(pbx, d) for d in deps), "the app does not depend on the extension")
+    for name, (tid, body), plist, bundle in (
+        ("CapstanPhone", (app_id, target), INFO_PLIST, BUNDLE_ID),
+        ("CapstanWidgets", (ext_id, ext), WIDGETS_PLIST, BUNDLE_ID + ".widgets"),
+    ):
+        lst = re.search(r"buildConfigurationList = ([0-9A-F]{24})", body)
+        need(lst, f"{name} has no configuration list")
+        configs = id_list(obj(pbx, lst.group(1)), "buildConfigurations")
+        need(len(configs) >= 2, f"{name} has fewer than two configurations")
+        for cid in configs:
+            settings = obj(pbx, cid)
+            for key, want in (
+                ("IPHONEOS_DEPLOYMENT_TARGET", "26.0"),
+                ("SDKROOT", "iphoneos"),
+                ("SWIFT_VERSION", "6.0"),
+                ("GENERATE_INFOPLIST_FILE", "YES"),
+                ("INFOPLIST_FILE", plist),
+                ("TARGETED_DEVICE_FAMILY", "1"),
+                ("PRODUCT_BUNDLE_IDENTIFIER", bundle),
+            ):
+                m = re.search(r"\b" + key + r" = ([^;]+);", settings)
+                need(m and m.group(1).strip().strip('"') == want, f"{key} is not {want} in {name} configuration {cid}")
+    targets = [app_id]
 
     # no sandbox setting and no entitlements, so no push entitlement (D8)
     need("ENABLE_APP_SANDBOX" not in pbx, "ENABLE_APP_SANDBOX is set")
@@ -154,6 +181,16 @@ def check_project(project):
     schemes = [s for t in info.get("CFBundleURLTypes", []) for s in t.get("CFBundleURLSchemes", [])]
     need(schemes == ["capstan"], f"the URL schemes are {schemes}, expected ['capstan']")
     need("aps-environment" not in info, f"{INFO_PLIST} names aps-environment")
+    need(info.get("NSSupportsLiveActivities") is True, f"{INFO_PLIST} does not support Live Activities")
+
+    # the extension's Info.plist: a WidgetKit extension
+    try:
+        with open(os.path.join(base, WIDGETS_PLIST), "rb") as f:
+            winfo = plistlib.load(f)
+    except (OSError, plistlib.InvalidFileException, ValueError) as e:
+        raise Finding(f"{WIDGETS_PLIST} is not a readable plist: {e}")
+    need(winfo.get("NSExtension", {}).get("NSExtensionPointIdentifier") == "com.apple.widgetkit-extension",
+         f"{WIDGETS_PLIST} is not a WidgetKit extension")
 
     # shared scheme
     scheme_path = os.path.join(project, "xcshareddata", "xcschemes", "CapstanPhone.xcscheme")
@@ -199,6 +236,10 @@ def mutations():
         ("no Face ID string", INFO_PLIST, sub("<key>NSFaceIDUsageDescription</key>", "<key>NSFaceIDUsageDescriptionX</key>")),
         ("remote notification mode", INFO_PLIST, sub("<string>fetch</string>", "<string>fetch</string>\n\t\t<string>remote-notification</string>")),
         ("no URL scheme", INFO_PLIST, sub("<string>capstan</string>", "<string>other</string>")),
+        ("no Live Activities", INFO_PLIST, sub("<key>NSSupportsLiveActivities</key>", "<key>NSSupportsLiveActivitiesX</key>")),
+        ("extension not embedded", pbx, sub("\t\t\t\tB10000000000000000000047 /* Embed Foundation Extensions */,\n", "")),
+        ("extension bundle id", pbx, sub("PRODUCT_BUNDLE_IDENTIFIER = in.qusol.capstan.phone.widgets;", "PRODUCT_BUNDLE_IDENTIFIER = other.widgets;")),
+        ("not a widget extension", WIDGETS_PLIST, sub("com.apple.widgetkit-extension", "com.apple.other")),
     ]
 
 
@@ -218,6 +259,8 @@ def self_test(project):
             os.makedirs(os.path.join(copy_ios, "CapstanPhone"))
             shutil.copytree(project, os.path.join(copy_ios, "CapstanPhone.xcodeproj"))
             shutil.copy(os.path.join(ios, INFO_PLIST), os.path.join(copy_ios, INFO_PLIST))
+            os.makedirs(os.path.join(copy_ios, "CapstanWidgets"))
+            shutil.copy(os.path.join(ios, WIDGETS_PLIST), os.path.join(copy_ios, WIDGETS_PLIST))
             for p in ("CapstanPhoneCore", "CapstanSSH"):
                 os.symlink(os.path.join(ios, p), os.path.join(copy_ios, p))
             os.makedirs(os.path.join(tmp, "macos"))

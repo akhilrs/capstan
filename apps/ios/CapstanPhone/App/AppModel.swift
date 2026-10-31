@@ -93,6 +93,8 @@ final class AppModel {
     let overview: OverviewStore
 
     @ObservationIgnored private(set) var coordinator: HostsCoordinator?
+    /// The "N waiting" Live Activity (package `live-activity`).
+    @ObservationIgnored let liveActivity = LiveActivityController()
     @ObservationIgnored let runner: (any ProcessRunner)?
     @ObservationIgnored let registry: PhoneHostRegistry?
     @ObservationIgnored let pins: HostKeyStore?
@@ -330,6 +332,7 @@ final class AppModel {
         for (id, entry) in pending where generations[id] == entry.generation && hosts.contains(where: { $0.id == id }) {
             show(entry.model)
         }
+        publishGlance()
     }
 
     /// Publishes a host's model with each project's state passed through the silent debounce.
@@ -361,6 +364,7 @@ final class AppModel {
         if case .live = state, case .reconnecting? = connection[hostId] { reconnected = true }
         connection[hostId] = state
         overviewConnection(state, hostId: hostId, engine: engines[hostId])
+        publishGlance()
         if reconnected, let config = hosts.first(where: { $0.id == hostId }) {
             probe(config, generation: generation)
         }
