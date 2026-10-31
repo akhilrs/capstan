@@ -34,11 +34,7 @@ struct RootTabView: View {
 
             Tab("Messages", systemImage: "bubble.left", value: PhoneTab.messages) {
                 NavigationStack(path: path(.messages)) {
-                    ContentUnavailableView(
-                        "No messages", systemImage: "bubble.left",
-                        description: Text("Your conversations with the PM appear here."))
-                        .navigationTitle("Messages")
-                        .routes()
+                    ConversationsScreen().routes()
                 }
             }
             .badge(counts.messages)
