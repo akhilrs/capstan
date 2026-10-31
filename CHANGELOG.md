@@ -2,6 +2,35 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.14.0 (2026-10-31)
+
+### Features
+
+- **messages:** agents message the user's phone; PM asks on phone and terminal (#73) (a08458f)
+- **kit:** build CapstanKit and CapstanAppCore for iOS (1d31802)
+- **macos:** Mac app: decisions, merge, PM chat, package detail (7e26d8d)
+
+### Bug fixes
+
+- **macos:** assign the urgent refresh closure without a ternary (7dc0cc3)
+- **macos:** build the re-read in the pause-arrives-through-the-feed test (cddfdbd)
+- **macos:** give the urgent callback an explicit type in the test engine (2a5c968)
+- **macos:** read runBody from the event body (1fd0cfa)
+- **macos:** look up a plan's stored data through a public PlanRow API (aeaa7de)
+- **events:** cstan events: silent only after 3 missed polls or 10 s (99b2e96)
+- **macos:** defer state written during layout and skip non-key windows (374ba87)
+- **macos:** send terminate signals off the caller and time out the exit test with XCTest (21b874a)
+- **macos:** wait for the old child and restart on refresh at most once a minute (85b6179)
+- **macos:** show live with unsupported projects and aggregate the toolbar pill (107f3ed)
+- **macos:** track terminated connections as a set and weaken the exit handler (459f5be)
+- **macos:** terminate each child once, guard process exit, clearer old-cstan banner (7ff83a6)
+- **macos:** split long sort and map chains into typed steps (1e60ca2)
+- **macos:** stop calling setUp from test bodies and reply once on quit (844b1c9)
+
+### Tests
+
+- **macos:** advance the urgent-refresh test clock to the end of the gap (fd7f81a)
+- **macos:** assert the full run-resume argv including --client (3fcf1a5)
 ## 0.13.0 (2026-10-27)
 
 ### Features
