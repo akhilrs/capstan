@@ -186,6 +186,12 @@ final class AppModel {
     func syncCoordinator() {
         guard let coordinator else { return }
         hosts = coordinator.hosts
+        if problems != coordinator.problems {
+            for (id, problem) in coordinator.problems where problems[id] != problem {
+                let name = coordinator.hosts.first { $0.id == id }?.displayName ?? id.uuidString
+                AppModel.log.notice("\(name, privacy: .public): blocked: \(String(describing: problem), privacy: .public)")
+            }
+        }
         problems = coordinator.problems
         pendingTrust = coordinator.pendingTrust
         pinsUnreadable = coordinator.pinsUnreadable

@@ -1,5 +1,6 @@
 import CapstanAppCore
 import CapstanKit
+import CapstanPhoneCore
 import SwiftUI
 import UIKit
 
@@ -231,18 +232,59 @@ struct HostStateBanners: View {
 
     var body: some View {
         ForEach(model.hosts, id: \.id) { host in
-            let specs = BannerChoice.make(
-                state: model.connection[host.id], anyLoading: false, decide: nil, hostName: host.displayName,
-                destination: model.phoneHost(host.id)?.hostname ?? host.displayName, now: Date())
-            ForEach(Array(specs.enumerated()), id: \.offset) { _, spec in
-                banner(spec, hostId: host.id)
+            if let problem = model.problems[host.id] {
+                problemBanner(problem, host: host)
+            } else {
+                connectionBanners(host)
             }
-            if case .stopped(.user)? = model.connection[host.id] {
-                // Stopped by the app (the scene went to the background) and not started again.
-                Banner(
-                    tone: .grey, text: "Not following " + host.displayName, actionTitle: "Try again",
-                    action: { model.restart(hostId: host.id) })
+        }
+    }
+
+    /// A problem the transport found before any stream ran (the coordinator blocks the host until it is fixed).
+    private func problemBanner(_ problem: HostProblem, host: HostConfig) -> Banner {
+        let name = host.displayName
+        switch problem {
+        case .hostKeyUnknown:
+            return Banner(
+                tone: .yellow, text: name + "'s host key is not trusted yet", actionTitle: "Review the key",
+                action: { model.navigation.sheet = .trust(host.id) })
+        case .hostKeyChanged:
+            return Banner(
+                tone: .red,
+                text: name + "'s host key changed, so connections are blocked. Compare the fingerprint on the host, "
+                    + "then remove the host and add it again.")
+        case .authRefused:
+            var line: UntrustedText?
+            if case .present(_, let publicLine, _) = model.key {
+                line = UntrustedText(raw: publicLine, verified: true, truncated: false)
             }
+            return Banner(
+                tone: .red,
+                text: name + " refused this iPhone's key. Add this line to ~/.ssh/authorized_keys on the host, then "
+                    + "try again.",
+                detail: line, actionTitle: "Try again", action: { model.restart(hostId: host.id) })
+        case .unsupported:
+            return Banner(
+                tone: .red, text: name + " offers no SSH algorithm this app can use", actionTitle: "Try again",
+                action: { model.restart(hostId: host.id) })
+        case .pinsUnreadable:
+            return Banner(tone: .red, text: "The saved host keys cannot be read, so every host waits")
+        }
+    }
+
+    @ViewBuilder
+    private func connectionBanners(_ host: HostConfig) -> some View {
+        let specs = BannerChoice.make(
+            state: model.connection[host.id], anyLoading: false, decide: nil, hostName: host.displayName,
+            destination: model.phoneHost(host.id)?.hostname ?? host.displayName, now: Date())
+        ForEach(Array(specs.enumerated()), id: \.offset) { _, spec in
+            banner(spec, hostId: host.id)
+        }
+        if case .stopped(.user)? = model.connection[host.id] {
+            // Stopped by the app (the scene went to the background) and not started again.
+            Banner(
+                tone: .grey, text: "Not following " + host.displayName, actionTitle: "Try again",
+                action: { model.restart(hostId: host.id) })
         }
     }
 
