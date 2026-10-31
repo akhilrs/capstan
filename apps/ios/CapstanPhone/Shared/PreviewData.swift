@@ -1,0 +1,209 @@
+import CapstanAppCore
+import CapstanKit
+import CapstanPhoneCore
+import Foundation
+
+/// Fixtures for #Previews (every board state the screens need), made by decoding JSON text because the kit's memberwise initializers are internal.
+/// A fixture that fails to decode is skipped, so a preview never crashes; `decoded` and `written` count them.
+@MainActor
+enum PreviewData {
+    static let alphaId = UUID(uuidString: "A1A1A1A1-0000-4000-8000-000000000001")!
+    static let betaId = UUID(uuidString: "B2B2B2B2-0000-4000-8000-000000000002")!
+
+    /// The number of fixtures written below and the number that decoded; they are equal when nothing is skipped.
+    private(set) static var written = 0
+    private(set) static var decoded = 0
+
+    private static func decode<T: Decodable>(_ type: T.Type, _ json: String) -> T? {
+        written += 1
+        let value = try? JSONDecoder().decode(type, from: Data(json.utf8))
+        if value != nil { decoded += 1 }
+        return value
+    }
+
+    private static func text(_ raw: String, verified: Bool = true, truncated: Bool = false) -> String {
+        let escaped = raw.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return "{\"raw\":\"\(escaped)\",\"verified\":\(verified),\"truncated\":\(truncated)}"
+    }
+
+    private static func waiting(
+        _ key: String, kind: String, summary: String, hash: String, needsTerminal: Bool = false, extra: String = ""
+    ) -> String {
+        "\"\(key)\":{\"key\":\"\(key)\",\"requestId\":\"req-\(hash)\",\"kind\":\"\(kind)\",\"since\":\"2026-10-29T08:00:00Z\","
+            + "\"summary\":\(summary),\"contentHash\":\"\(hash)\",\"needsTerminal\":\(needsTerminal)\(extra)}"
+    }
+
+    /// The latest event of a waiting key; `body` holds the event's members without the braces.
+    private static func detail(_ key: String, type: String, seq: Int, body: String) -> String {
+        "\"\(key)\":{\"key\":\"\(key)\",\"eventType\":\"\(type)\",\"seq\":\(seq),\"body\":{\"effects\":[],\(body)}}"
+    }
+
+    private static func json(_ raw: String) -> String {
+        "\"" + raw.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n") + "\""
+    }
+
+    private static func agent(_ id: String, role: String, state: String, paused: Bool = false, task: String? = "Write the shared views") -> String {
+        let taskPart = task.map { ",\"task\":\(text($0))" } ?? ""
+        return "\"agent:\(id)\":{\"key\":\"agent:\(id)\",\"agentId\":\"\(id)\",\"kind\":\"claude\",\"role\":\"\(role)\","
+            + "\"generation\":1,\"state\":\"\(state)\",\"paused\":\(paused)\(taskPart),\"requestId\":\"req-\(id)\",\"contentHash\":\"h-\(id)\"}"
+    }
+
+    private static func plan(_ id: String, seq: Int, title: String, state: String, counts: (Int, Int, Int, Int)) -> String {
+        "\"plan:\(id)\":{\"key\":\"plan:\(id)\",\"planId\":\"\(id)\",\"sequence\":\(seq),\"title\":\(text(title)),\"state\":\"\(state)\","
+            + "\"packages\":{\"total\":\(counts.0),\"assigned\":\(counts.1),\"reported\":\(counts.2),\"integrated\":\(counts.3)}}"
+    }
+
+    private static func project(
+        _ id: String, root: String, availability: String, waiting: String = "", agents: String = "", plans: String = "",
+        details: String = "", attention: String = ""
+    ) -> String {
+        "\"\(id)\":{\"projectId\":\"\(id)\",\"root\":\"\(root)\",\"availability\":\"\(availability)\",\"epoch\":\"e1\",\"head\":42,"
+            + "\"waiting\":{\(waiting)},\"agents\":{\(agents)},\"plans\":{\(plans)},\"run\":null,\"details\":{\(details)},"
+            + "\"attention\":{\(attention)},\"snapshotComplete\":true,\"staleSince\":null}"
+    }
+
+    private static func host(_ id: UUID, name: String) -> HostConfig? {
+        decode(HostConfig.self,
+            "{\"id\":\"\(id.uuidString)\",\"displayName\":\"\(name)\",\"destination\":\"\(PhoneHost.alias(for: id))\",\"cstanPath\":\"cstan\","
+                + "\"extraRoots\":[],\"pollMs\":2000,\"identityFile\":null,\"enabled\":true}")
+    }
+
+    private static func hostModel(_ id: UUID, hello: String, projects: String) -> HostModel? {
+        decode(HostModel.self,
+            "{\"hostId\":\"\(id.uuidString)\",\"hello\":{\"version\":\(text("1")),\"host\":\(text(hello)),\"projects\":3},"
+                + "\"projects\":{\(projects)},\"cursor\":null,\"forwards\":{}}")
+    }
+
+    /// Two hosts with every availability; a waiting item of each kind (one of 4096 bytes, one failing integrity);
+    /// agents in every health; plans at several stages.
+    static var standard: PreviewSeed {
+        written = 0
+        decoded = 0
+        let long = text(String(repeating: "0123456789abcdef", count: 256), truncated: true)
+        let unverified = text("", verified: false)
+        let longCommand = "cstan plan approve plan-8 && for f in $(git ls-files '*.swift'); do swift-format -i \"$f\"; done "
+            + String(repeating: "&& git commit -am \"format\" ", count: 200)
+        let details = [
+            detail("waiting-op", type: "operator.proposed", seq: 3, body:
+                "\"proposalId\":\"op-14\",\"kind\":\"command\",\"state\":\"proposed\",\"command\":\(json("git push origin feat/plan-92"))"),
+            detail("waiting-prompt", type: "prompt.waiting", seq: 7, body:
+                "\"relayId\":\"r1\",\"agentId\":\"dev-needs\",\"state\":\"waiting\","
+                    + "\"text\":\(json("Bash command\nrm -rf build/ && npm run build\nDo you want to proceed?")),"
+                    + "\"options\":[{\"number\":1,\"text\":\"Yes\",\"acceptsText\":false,\"widensPermissions\":false},"
+                    + "{\"number\":2,\"text\":\"Yes, and don't ask again for rm commands in this project\",\"acceptsText\":false,\"widensPermissions\":true},"
+                    + "{\"number\":3,\"text\":\"No, and tell the agent what to do differently\",\"acceptsText\":true,\"widensPermissions\":false}],"
+                    + "\"textVerified\":true"),
+            detail("waiting-prompt-terminal", type: "prompt.waiting", seq: 8, body:
+                "\"relayId\":\"r2\",\"agentId\":\"dev-working\",\"state\":\"waiting\","
+                    + "\"text\":\(json("Edit file\nsrc/billing/ledger.rs\nDo you want to make this edit?")),"
+                    + "\"options\":[{\"number\":1,\"text\":\"Yes, allow all edits during this session\",\"acceptsText\":false,\"widensPermissions\":true},"
+                    + "{\"number\":2,\"text\":\"No, and tell the agent what to do differently\",\"acceptsText\":true,\"widensPermissions\":false}]"),
+            detail("waiting-design", type: "design.decided", seq: 9, body:
+                "\"planId\":\"plan-8\",\"packageId\":\"onboarding\",\"reportId\":\"r-31\",\"decision\":\"pending\","
+                    + "\"link\":\"https://claude.ai/artifact/7Qe-example-Lm2\""),
+            detail("waiting-message", type: "message.sent", seq: 10, body:
+                "\"messageId\":\"m-4\",\"recipientAgentId\":\"pm-1\",\"state\":\"sent\","
+                    + "\"body\":\(json("Two packages are blocked on the staging database credentials. Which environment should the integration tests use?"))"),
+            detail("waiting-long", type: "operator.proposed", seq: 11, body:
+                "\"proposalId\":\"op-15\",\"kind\":\"command\",\"state\":\"proposed\",\"command\":\(json(longCommand)),\"truncated\":true"),
+            detail("waiting-bad-op", type: "operator.proposed", seq: 12, body:
+                "\"proposalId\":\"op-16\",\"kind\":\"command\",\"state\":\"proposed\",\"command\":\"\",\"textVerified\":false"),
+        ].joined(separator: ",")
+        let alphaWaiting = [
+            waiting("waiting-op", kind: "op", summary: text("git push origin feat/plan-92"), hash: "a1a1a1a1a1a1"),
+            waiting("waiting-prompt", kind: "prompt", summary: text("Allow edits to Package.swift?"), hash: "a2a2a2a2a2a2"),
+            waiting("waiting-design", kind: "design", summary: text("Approve the Mac app design"), hash: "a3a3a3a3a3a3"),
+            waiting("waiting-message", kind: "message", summary: text("Which target should the merge use?"), hash: "a4a4a4a4a4a4"),
+            waiting("waiting-prompt-terminal", kind: "prompt", summary: text("Edit src/billing/ledger.rs?"), hash: "a8a8a8a8a8a8"),
+            waiting("waiting-merge", kind: "integration", summary: text("merged integration/plan-12"), hash: "a5a5a5a5a5a5",
+                extra: ",\"integrationState\":\"merged\",\"branch\":\(text("integration/plan-12")),\"headSha\":\"7c41e9a02d5f\""),
+            waiting("waiting-bad-op", kind: "op", summary: text("swift-format the sources"), hash: "a9a9a9a9a9a9"),
+            waiting("waiting-long", kind: "op", summary: long, hash: "a6a6a6a6a6a6", needsTerminal: true),
+            waiting("waiting-unverified", kind: "message", summary: unverified, hash: "a7a7a7a7a7a7"),
+        ].joined(separator: ",")
+        let agents = [
+            agent("dev-working", role: "developer", state: "active"),
+            agent("dev-needs", role: "developer", state: "active"),
+            agent("dev-stalled", role: "developer", state: "active"),
+            agent("dev-lost", role: "developer", state: "lost"),
+            agent("dev-blocked", role: "developer", state: "blocked"),
+            agent("dev-paused", role: "developer", state: "active", paused: true),
+            agent("dev-idle", role: "reviewer", state: "idle", task: nil),
+        ].joined(separator: ",")
+        let plans = [
+            plan("p-start", seq: 1, title: "Not started", state: "approved", counts: (4, 0, 0, 0)),
+            plan("p-assigned", seq: 2, title: "Assigned", state: "running", counts: (4, 3, 0, 0)),
+            plan("p-reported", seq: 3, title: "In review", state: "running", counts: (4, 4, 3, 1)),
+            plan("p-done", seq: 4, title: "Integrated", state: "done", counts: (4, 4, 4, 4)),
+        ].joined(separator: ",")
+        let alphaProjects = [
+            project("capstan", root: "/work/capstan", availability: "ready", waiting: alphaWaiting, agents: agents,
+                plans: plans, details: details, attention: "\"dev-stalled\":\"stalled\""),
+            project("notes", root: "/work/notes", availability: "no_key"),
+            project("site", root: "/work/site", availability: "silent"),
+        ].joined(separator: ",")
+        let betaProjects = [
+            project("api", root: "/srv/api", availability: "refused"),
+            project("legacy", root: "/srv/legacy", availability: "unsupported"),
+            project("old", root: "/srv/old", availability: "gone"),
+        ].joined(separator: ",")
+
+        let hosts = [host(alphaId, name: "Studio"), host(betaId, name: "Build box")].compactMap { $0 }
+        let phoneHosts = [
+            PhoneHost(id: alphaId, hostname: "studio.local", user: "dev"),
+            PhoneHost(id: betaId, hostname: "10.0.0.7", port: 2222, user: "build"),
+        ]
+        var models: [UUID: HostModel] = [:]
+        if let m = hostModel(alphaId, hello: "studio", projects: alphaProjects) { models[alphaId] = m }
+        if let m = hostModel(betaId, hello: "build-box", projects: betaProjects) { models[betaId] = m }
+        let now = Date()
+        return PreviewSeed(
+            hosts: hosts, phoneHosts: phoneHosts, hostModels: models,
+            connection: [
+                alphaId: .live(since: now.addingTimeInterval(-600), lastLineAt: now),
+                betaId: .reconnecting(attempt: 2, retryAt: now.addingTimeInterval(8), lastError: .interrupted),
+            ],
+            capabilities: [
+                alphaId: HostCapabilities(reachable: true, events: true, decide: true),
+                betaId: HostCapabilities(reachable: true, events: true, decide: false),
+            ],
+            key: .present(
+                kind: .secureEnclaveP256,
+                publicLine: "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBNBdu2BZ capstan-iphone",
+                fingerprint: "SHA256:hJ9Famw23O3IM5x2TU0TIqsIP6NO12HAESadGc0TiYs"))
+    }
+
+    /// The standard seed with a host whose key is not trusted yet and one that refused the phone's key.
+    static var problems: PreviewSeed {
+        var seed = standard
+        let pin = HostKeyPin(algorithm: "ssh-ed25519", blob: Data(repeating: 7, count: 51))
+        seed.pendingTrust = [alphaId: PendingTrust(hostId: alphaId, pin: pin)]
+        seed.problems = [alphaId: .hostKeyUnknown(pin), betaId: .authRefused]
+        return seed
+    }
+
+    /// A host whose key changed since it was trusted.
+    static var changedKey: PreviewSeed {
+        var seed = standard
+        seed.problems = [betaId: .hostKeyChanged]
+        seed.pins = [betaId: HostKeyPin(algorithm: "ssh-ed25519", blob: Data(repeating: 3, count: 51))]
+        return seed
+    }
+
+    /// No host and no key: the first launch.
+    static var empty: PreviewSeed {
+        PreviewSeed()
+    }
+}
+
+#if DEBUG
+import SwiftUI
+
+#Preview("PreviewData fixtures") {
+    let seed = PreviewData.standard
+    let line = String(PreviewData.decoded) + " of " + String(PreviewData.written) + " fixtures decoded, "
+        + String(seed.hosts.count) + " hosts"
+    Text(verbatim: line).padding()
+}
+#endif
