@@ -52,8 +52,12 @@ final class AppShell {
         let runner = SSHRunner(
             registry: registry, vault: KeychainKeyVault(), trust: pins, tuning: TransportTuning(), clock: SystemClock(),
             hook: TuningHook())
+        // Read into a local: @Observable storage may not be read before every property is set.
+        let loaded = PhoneSettingsStore(directory: directory).load()
         self.runner = runner
-        settings = PhoneSettingsStore(directory: directory).load()
+        settings = loaded
+        locked = loaded.faceID
+        lifecycle = LifecycleState(locked: loaded.faceID)
         coordinator = HostsCoordinator(
             transport: runner, registry: registry, pins: pins, phoneStore: PhoneHostStore(directory: directory),
             hostsFile: HostsFile(directory: directory),
@@ -61,8 +65,6 @@ final class AppShell {
                 HostSession(config: config, runner: runner, consumer: PlaceholderConsumer(), clock: SystemClock())
             },
             checker: HostsCoordinator.checker(runner: runner, clock: SystemClock()))
-        locked = settings.faceID
-        lifecycle = LifecycleState(locked: settings.faceID)
     }
 
     private static func supportDirectory() -> URL {
