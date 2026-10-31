@@ -36,6 +36,13 @@ struct HostsScreen: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button {
+                    model.navigation.show(.hosts, model.navigation.path(.hosts) + [.settings])
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { model.navigation.sheet = .addHost } label: {
                     Label("Add a host", systemImage: "plus")
                 }

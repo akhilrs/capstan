@@ -25,6 +25,8 @@ struct RouteView: View {
             ProjectStateScreen(hostId: hostId, projectId: projectId)
         case .host(let hostId):
             HostDetailScreen(hostId: hostId)
+        case .settings:
+            SettingsScreen()
         case .project(let hostId, let projectId):
             ContentUnavailableView {
                 Label { Text(verbatim: projectId) } icon: { Image(systemName: "folder") }
