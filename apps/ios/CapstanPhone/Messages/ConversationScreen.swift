@@ -64,6 +64,8 @@ struct ConversationScreen: View {
                 .padding(Tokens.margin)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // A chat opens at its newest message, and stays there as messages arrive.
+            .defaultScrollAnchor(.bottom)
             .onAppear { if let last = entries.last { proxy.scrollTo(last.id, anchor: .bottom) } }
             .onChange(of: entries.count) { _, _ in
                 if let last = entries.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
