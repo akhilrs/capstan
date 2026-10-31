@@ -39,12 +39,23 @@ public final class HostsCoordinator: SessionControl {
     public typealias SessionMaker = @MainActor (HostConfig) -> any HostSessionControl
     public typealias Checker = @Sendable (HostConfig) -> AsyncStream<HostCheck>
 
-    public private(set) var hosts: [HostConfig] = []
+    public private(set) var hosts: [HostConfig] = [] {
+        didSet { onChange?() }
+    }
     /// Per host: what keeps it from connecting.
-    public private(set) var problems: [UUID: HostProblem] = [:]
+    public private(set) var problems: [UUID: HostProblem] = [:] {
+        didSet { onChange?() }
+    }
     /// Per host (a candidate included): the key waiting for Trust or Cancel.
-    public private(set) var pendingTrust: [UUID: PendingTrust] = [:]
-    public private(set) var pinsUnreadable = false
+    public private(set) var pendingTrust: [UUID: PendingTrust] = [:] {
+        didSet { onChange?() }
+    }
+    public private(set) var pinsUnreadable = false {
+        didSet { onChange?() }
+    }
+    /// Called after `hosts`, `problems`, `pendingTrust` or `pinsUnreadable` changed, so the app's observable model
+    /// can copy them (this package does not import Observation).
+    public var onChange: (@MainActor () -> Void)?
     public private(set) var started = false
 
     private let transport: any TransportControl

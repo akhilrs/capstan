@@ -12,7 +12,8 @@ struct CapstanPhoneApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                RootTabView()
+                RootTabView(counts: shell.model.tabCounts)
+                    .environment(shell.model)
                     .opacity(shell.locked ? 0 : 1)
                     .accessibilityHidden(shell.locked)
                     .allowsHitTesting(!shell.locked)
@@ -21,6 +22,7 @@ struct CapstanPhoneApp: App {
                 }
             }
             .onChange(of: scenePhase, initial: true) { _, phase in shell.phaseChanged(phase) }
+            .onOpenURL { url in shell.model.handle(url: url) }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
                 shell.shutdown()
             }
@@ -28,19 +30,18 @@ struct CapstanPhoneApp: App {
     }
 }
 
-/// What the app holds until the real model (package `app-model`) takes over: the one `SSHRunner`, the hosts
-/// coordinator, the settings and the Face ID lock, driven by `LifecyclePlanner`.
+/// The app's process-wide parts: the one `SSHRunner`, the `AppModel` (which owns the hosts coordinator) and the Face ID
+/// lock, driven by `LifecyclePlanner`.
 @MainActor
 @Observable
 final class AppShell {
     let runner: SSHRunner
-    let coordinator: HostsCoordinator
-    private(set) var settings: PhoneSettings
+    let model: AppModel
     /// The content is covered until Face ID passes.
     private(set) var locked: Bool
 
     private var lifecycle: LifecycleState
-    private var coordinatorStarted = false
+    private var modelStarted = false
     /// The Face ID sheet itself makes the scene inactive and active again; one prompt at a time.
     private var prompting = false
     private let gate: any BiometricGate = FaceIDGate()
@@ -49,22 +50,17 @@ final class AppShell {
         let directory = AppShell.supportDirectory()
         let pins = HostKeyStore(directory: directory)
         let registry = PhoneHostRegistry(store: pins)
+        let vault = KeychainKeyVault()
         let runner = SSHRunner(
-            registry: registry, vault: KeychainKeyVault(), trust: pins, tuning: TransportTuning(), clock: SystemClock(),
+            registry: registry, vault: vault, trust: pins, tuning: TransportTuning(), clock: SystemClock(),
             hook: TuningHook())
         // Read into a local: @Observable storage may not be read before every property is set.
-        let loaded = PhoneSettingsStore(directory: directory).load()
+        let made = AppModel(
+            directory: directory, runner: runner, transport: runner, registry: registry, pins: pins, vault: vault)
         self.runner = runner
-        settings = loaded
-        locked = loaded.faceID
-        lifecycle = LifecycleState(locked: loaded.faceID)
-        coordinator = HostsCoordinator(
-            transport: runner, registry: registry, pins: pins, phoneStore: PhoneHostStore(directory: directory),
-            hostsFile: HostsFile(directory: directory),
-            makeSession: { config in
-                HostSession(config: config, runner: runner, consumer: PlaceholderConsumer(), clock: SystemClock())
-            },
-            checker: HostsCoordinator.checker(runner: runner, clock: SystemClock()))
+        model = made
+        locked = made.settings.faceID
+        lifecycle = LifecycleState(locked: made.settings.faceID)
     }
 
     private static func supportDirectory() -> URL {
@@ -84,7 +80,7 @@ final class AppShell {
         case .background: mapped = .background
         @unknown default: return
         }
-        apply(LifecyclePlanner.phase(mapped, state: lifecycle, faceIDOn: settings.faceID, now: Date()))
+        apply(LifecyclePlanner.phase(mapped, state: lifecycle, faceIDOn: model.settings.faceID, now: Date()))
     }
 
     func promptFaceID() {
@@ -114,27 +110,19 @@ final class AppShell {
             case .promptFaceID:
                 promptFaceID()
             case .startSessions:
-                if coordinatorStarted {
-                    coordinator.startSessions()
+                if modelStarted {
+                    model.coordinator?.startSessions()
                 } else {
-                    coordinatorStarted = true
-                    coordinator.start()
+                    modelStarted = true
+                    model.start()
                 }
             case .stopSessionsThenSuspend:
-                coordinator.stopSessionsThenSuspend()
+                model.coordinator?.stopSessionsThenSuspend()
             case .noop:
                 break
             }
         }
     }
-}
-
-/// Takes the stream until the real engines arrive with package `app-model`.
-struct PlaceholderConsumer: StreamConsumer {
-    func apply(host: UUID, lines: [StreamLine]) async {}
-    func connection(host: UUID, _ state: ConnectionState) async {}
-    func resumeCursor(host: UUID) async -> Cursor? { nil }
-    func dropCursor(host: UUID) async {}
 }
 
 /// Opaque and full screen: nothing of the content shows until Face ID passes.
