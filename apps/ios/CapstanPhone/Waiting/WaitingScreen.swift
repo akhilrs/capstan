@@ -198,7 +198,7 @@ private struct WaitingPreview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.space[2]) {
             Label {
-                Text(verbatim: RowText.kindName(row.kind) + " · " + row.projectName + " · "
+                Text(verbatim: WaitingPreview.kindName(row) + " · " + row.projectName + " · "
                     + AgeText.short(since: row.since, now: Date()))
             } icon: {
                 Image(systemName: row.kind.glyph)
@@ -210,6 +210,12 @@ private struct WaitingPreview: View {
         .padding(Tokens.margin)
         .frame(width: 340)
         .background(Tokens.color(.cell))
+    }
+
+    /// The kind as the preview names it; an integration that did not merge is a merge conflict.
+    static func kindName(_ row: InboxRow) -> String {
+        if row.kind == .integration, RowText.integrationState(row) != .merged { return "Merge conflict" }
+        return RowText.kindName(row.kind)
     }
 }
 
