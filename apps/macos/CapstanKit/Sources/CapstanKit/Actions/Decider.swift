@@ -61,7 +61,7 @@ public actor Decider {
 
     /// How long a request's child may run.
     public static func timeout(for verb: DecideVerb) -> TimeInterval {
-        verb == .integrationMerge ? mergeTimeoutSeconds : timeoutSeconds
+        verb.isMerge ? mergeTimeoutSeconds : timeoutSeconds
     }
 
     private enum Finish {

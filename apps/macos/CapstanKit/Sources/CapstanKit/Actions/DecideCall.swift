@@ -15,13 +15,24 @@ public enum DecideVerb: Sendable, Equatable, Codable {
     case runResume(reason: String?)
     /// Merges a waiting integration into the project's branch (section 11, Merge). Never pushes.
     case integrationMerge
+    /// Merges a waiting integration into another local branch the person chose (`merge --into <branch>`): a branch
+    /// that is not checked out moves without the checkout being touched. Never pushes.
+    case integrationMergeInto(String)
     /// A free message from the person to the project's active PM (section 11, Message to the PM).
     case pmMessage(String)
 
     /// Denying and pausing cannot be taken back by the person with one more tap.
     public var isDestructive: Bool {
         switch self {
-        case .opDeny, .runPause, .integrationMerge: return true
+        case .opDeny, .runPause, .integrationMerge, .integrationMergeInto: return true
+        default: return false
+        }
+    }
+
+    /// A merge of an integration, into the project's branch or into a chosen one.
+    public var isMerge: Bool {
+        switch self {
+        case .integrationMerge, .integrationMergeInto: return true
         default: return false
         }
     }
@@ -40,7 +51,8 @@ public enum DecideVerb: Sendable, Equatable, Codable {
         case .agentResume: return DecideVerbRow(kind: "agent", verb: "resume", outcome: "applied")
         case .runPause: return DecideVerbRow(kind: "run", verb: "pause", outcome: "applied")
         case .runResume: return DecideVerbRow(kind: "run", verb: "resume", outcome: "applied")
-        case .integrationMerge: return DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied")
+        case .integrationMerge, .integrationMergeInto:
+            return DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied")
         case .pmMessage: return DecideVerbRow(kind: "pm", verb: "message", outcome: "applied")
         }
     }
@@ -172,6 +184,9 @@ public struct DecideRequest: Sendable, Equatable, Codable {
             return ["resume"] + (try DecideRequest.reasonWords(reason))
         case .integrationMerge:
             return ["merge"]
+        case .integrationMergeInto(let branch):
+            guard !branch.hasPrefix("-") else { throw DecideRequestError.idDash("branch") }
+            return ["merge", "--into", try DecideRequest.text(branch, "branch")]
         case .pmMessage(let text):
             return ["message", try DecideRequest.text(text, "message")]
         }

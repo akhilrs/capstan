@@ -40,7 +40,7 @@ struct MergeText: Equatable {
             let commit = merge.mergeCommit.map { " as " + String($0.prefix(12)) } ?? ""
             return MergeText(
                 tone: .good, title: "Merged, not pushed",
-                line: "Merged into the project's branch" + commit + " at " + time + ". The PM was told."
+                line: "Merged into " + (merge.into ?? "the project's branch") + commit + " at " + time + ". The PM was told."
                     + (merge.cleanupScheduled ? " The integration branch is cleaned up." : ""),
                 headline: merge.branch + " is merged", hostText: nil)
         case .refused(let refusal, _):
@@ -94,7 +94,9 @@ struct MergeText: Equatable {
         case "branch_moved":
             return refused("the branch moved", "The integration branch changed after the integration was made.")
         case "wrong_branch":
-            return refused("wrong branch", "The checkout on " + hostName + " is not on the branch the merge goes into.")
+            return refused(
+                "wrong branch",
+                "The checkout on " + hostName + " is not on the branch the merge goes into, or that branch is checked out in a worker's worktree. Choose another branch under Into.")
         case "dirty_tree":
             return refused("the working tree has changes", "Tracked files are modified in the checkout on " + hostName + ".", files: true)
         case "unsafe_config": return refused("unsafe git configuration", "The repository's git settings are not safe for a merge.")

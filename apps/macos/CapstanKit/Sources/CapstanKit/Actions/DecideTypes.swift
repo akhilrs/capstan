@@ -124,6 +124,8 @@ public struct MergeResult: Sendable, Equatable {
     public let cleanupScheduled: Bool
     /// Always true: the merge never pushes.
     public let pushDisabled: Bool
+    /// The branch merged into; nil from a host older than `--into`.
+    public var into: String? = nil
 
     public init(
         integrationId: String, branch: String, mergeCommit: String?, alreadyInHead: Bool, verify: Verify,
@@ -144,6 +146,7 @@ public struct MergeResult: Sendable, Equatable {
         branch = try json.string("branch")
         mergeCommit = try json.optionalString("mergeCommit")
         alreadyInHead = try json.bool("alreadyInHead")
+        into = try? json.optionalString("into")
         let verifyValue = try json.required("verify")
         switch try verifyValue.string("state") {
         case "passed": verify = .passed(runId: try verifyValue.optionalString("runId") ?? "")

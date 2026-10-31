@@ -22,6 +22,11 @@ struct MergeSheet: View {
     @State private var fixLine: String?
     /// The project was resumed from this sheet: the bar offers the merge again.
     @State private var resumed = false
+    /// The branches the host lets this merge go into; nil while they are read or when the host cannot list them.
+    @State private var targets: MergeTargets?
+    @State private var targetsNote: String?
+    /// The branch chosen in the Into picker.
+    @State private var into: String = ""
     @FocusState private var cancelFocused: Bool
 
     private var hostName: String { model.hosts.first { $0.id == row.hostId }?.displayName ?? "the host" }
@@ -61,6 +66,7 @@ struct MergeSheet: View {
         .presentationBackground(Tokens.color(.ground))
         .interactiveDismissDisabled(sending)
         .onAppear { cancelFocused = true }
+        .task { await loadTargets() }
     }
 
     // MARK: Confirmation
@@ -68,6 +74,7 @@ struct MergeSheet: View {
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: Tokens.space[3]) {
             DetailFacts(facts: facts)
+            intoPicker
             HStack(spacing: Tokens.space[2]) {
                 review
                 verify
@@ -82,10 +89,69 @@ struct MergeSheet: View {
     private var facts: [DetailFact] {
         var rows = [
             DetailFact(label: "Branch", value: branch, mono: true),
-            DetailFact(label: "Into", value: "the project's branch on " + hostName),
         ]
+        if targets == nil {
+            rows.append(DetailFact(label: "Into", value: "the project's branch on " + hostName))
+        }
         if let head = item.headSha { rows.append(DetailFact(label: "Commit", value: String(head.prefix(12)), mono: true)) }
         return rows
+    }
+
+    /// The branch the merge goes into. The checked-out branch is merged in its checkout; any other branch moves on the
+    /// host without the checkout being touched.
+    @ViewBuilder
+    private var intoPicker: some View {
+        if let targets, !targets.branches.isEmpty {
+            VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                Picker(selection: $into) {
+                    ForEach(targets.branches, id: \.self) { branch in
+                        Text(verbatim: label(branch, targets)).tag(branch)
+                    }
+                } label: {
+                    Text("Into")
+                }
+                .pickerStyle(.navigationLink)
+                .disabled(sending)
+                Text(verbatim: intoNote(targets))
+                    .font(TypeStyle.footnote)
+                    .foregroundStyle(Tokens.color(.label2))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Tokens.space[3])
+            .background(Tokens.color(.cell), in: RoundedRectangle(cornerRadius: Tokens.radius.block))
+        } else if let targetsNote {
+            Text(verbatim: targetsNote)
+                .font(TypeStyle.footnote)
+                .foregroundStyle(Tokens.color(.label2))
+        }
+    }
+
+    private func label(_ branch: String, _ targets: MergeTargets) -> String {
+        var marks: [String] = []
+        if branch == targets.checkedOut { marks.append("checked out") }
+        if branch == targets.defaultBranch { marks.append("default") }
+        return marks.isEmpty ? branch : branch + " (" + marks.joined(separator: ", ") + ")"
+    }
+
+    private func intoNote(_ targets: MergeTargets) -> String {
+        if into == targets.checkedOut {
+            return into + " is checked out on " + hostName + ": the merge updates that checkout, which must have no uncommitted changes."
+        }
+        return into + " is not checked out: the host moves the branch and leaves the checkout on " + hostName + " as it is."
+    }
+
+    private func loadTargets() async {
+        switch await model.mergeTargets(hostId: row.hostId, projectId: row.projectId) {
+        case .targets(let found) where !found.branches.isEmpty:
+            targets = found
+            into = found.preferred ?? found.branches[0]
+        case .targets:
+            targetsNote = "The host lists no branch to merge into; the merge goes into the project's branch."
+        case .unsupported:
+            targetsNote = nil
+        case .error:
+            targetsNote = "The branch list could not be read; the merge goes into the project's branch."
+        }
     }
 
     @ViewBuilder
@@ -220,7 +286,8 @@ struct MergeSheet: View {
         guard !sending else { return }
         sending = true
         Task {
-            let result = await model.decide(.integrationMerge, on: row)
+            let verb: DecideVerb = targets != nil && !into.isEmpty ? .integrationMergeInto(into) : .integrationMerge
+            let result = await model.decide(verb, on: row)
             finish(result)
         }
     }
