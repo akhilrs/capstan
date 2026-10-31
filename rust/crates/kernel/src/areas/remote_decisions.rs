@@ -33,13 +33,31 @@ pub const ERROR_CODES: &[&str] = &[
     "no_active_pm",
     "limit_reached",
     "invalid_request",
+    "merge_unrecorded",
+    "merge_disabled",
+    "invalid_commit",
+    "invalid_branch",
+    "no_identity",
+    "run_paused",
+    "busy",
+    "not_reviewed",
+    "not_verified",
+    "branch_moved",
+    "unsafe_config",
+    "wrong_branch",
+    "dirty_tree",
+    "merge_conflict",
+    "git_too_old",
+    "merge_failed",
+    "git_unavailable",
 ];
 
-/// The codes of the refusals of the integration merge verb, in the order its gates answer. The verb can also answer
-/// `not_waiting`, `hash_mismatch`, `nonce_reused` and `invalid_request` of `ERROR_CODES`. Later packages append.
-pub const PENDING_ERROR_CODES: &[&str] = MERGE_ERROR_CODES;
+/// The codes of refusals of verbs whose protocol text is not yet written; empty since the merge was documented. A new
+/// verb appends here until section 11 of the protocol describes it.
+pub const PENDING_ERROR_CODES: &[&str] = &[];
 
-/// The refusals the merge gates and the merge itself give.
+/// The refusals the merge gates and the merge itself give, in the order its gates answer (also in `ERROR_CODES`). The
+/// verb can also answer `not_waiting`, `hash_mismatch`, `nonce_reused` and `invalid_request`.
 pub const MERGE_ERROR_CODES: &[&str] = &[
     "merge_unrecorded",
     "merge_disabled",
@@ -60,8 +78,11 @@ pub const MERGE_ERROR_CODES: &[&str] = &[
     "git_unavailable",
 ];
 
-/// The result fields of the verbs not yet in `RESULT_FIELDS`: the object the merge made. Later packages append.
-pub const PENDING_RESULT_FIELDS: &[&str] = &["merge"];
+/// The result fields of verbs whose protocol text is not yet written; empty since the merge was documented.
+pub const PENDING_RESULT_FIELDS: &[&str] = &[];
+
+/// The field the merge verb adds to `RESULT_FIELDS`: the object the merge made (section 11, Merge).
+pub const MERGE_RESULT_FIELDS: &[&str] = &["merge"];
 
 /// The fields of a result, in the order the protocol lists them.
 pub const RESULT_FIELDS: &[&str] = &[
@@ -316,17 +337,18 @@ pub const VERBS: &[VerbRow] = &[
         Positional::None,
         &[REASON],
     ),
+    row(
+        Kind::Integration,
+        "merge",
+        Outcome::Applied,
+        Positional::None,
+        &[],
+    ),
 ];
 
-/// The verbs `parse` accepts besides `VERBS`: those whose protocol text is not yet written (plan-74 folds them into
-/// `VERBS`). Later packages append.
-pub const PENDING_VERBS: &[VerbRow] = &[row(
-    Kind::Integration,
-    "merge",
-    Outcome::Applied,
-    Positional::None,
-    &[],
-)];
+/// The verbs `parse` accepts besides `VERBS`: those whose protocol text is not yet written. Empty since the merge was
+/// documented; a new verb appends here until section 11 describes it.
+pub const PENDING_VERBS: &[VerbRow] = &[];
 
 /// A parsed decision.
 #[derive(Clone, Debug, PartialEq)]

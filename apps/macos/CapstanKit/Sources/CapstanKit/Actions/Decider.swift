@@ -56,6 +56,13 @@ public enum DecideOutcome: Sendable, Equatable {
 public actor Decider {
     /// The child is stopped after this many seconds.
     public static let timeoutSeconds: TimeInterval = 20
+    /// A merge may run for minutes on the host (`cstan decide` waits five); the child gets a little longer.
+    public static let mergeTimeoutSeconds: TimeInterval = 310
+
+    /// How long a request's child may run.
+    public static func timeout(for verb: DecideVerb) -> TimeInterval {
+        verb == .integrationMerge ? mergeTimeoutSeconds : timeoutSeconds
+    }
 
     private enum Finish {
         case done(stdout: Data, code: Int32)
@@ -109,13 +116,14 @@ public actor Decider {
             return .notSent(reason: .couldNotStart, pendingId: record.id)
         }
         let clock = self.clock
+        let limit = Decider.timeout(for: record.request.verb)
         let finish: Finish = await withTaskGroup(of: Finish?.self) { group in
             group.addTask {
                 let stdout = await process.stdoutAll()
                 return .done(stdout: stdout, code: await process.exitCode())
             }
             group.addTask {
-                do { try await clock.sleep(seconds: Decider.timeoutSeconds) } catch { return nil }
+                do { try await clock.sleep(seconds: limit) } catch { return nil }
                 // Stopping the child also ends the task that waits for its output.
                 process.terminate()
                 return .timeout

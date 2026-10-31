@@ -44,6 +44,7 @@ fn request_of(kind: &str) -> &'static str {
         "message" => "message:0b6a5d4e-1111-4222-8333-444455556666",
         "agent" => "agent:dev-1",
         "run" => "run",
+        "integration" => "integration:int-1",
         other => panic!("{other}"),
     }
 }
@@ -104,8 +105,8 @@ fn every_row_of_the_verb_table_parses_with_its_flags_and_nothing_else_does() {
             );
         }
     }
-    let kinds = ["op", "prompt", "design", "message", "agent", "run"];
-    assert_eq!(VERBS.len(), 11);
+    let kinds = ["op", "prompt", "design", "message", "agent", "run", "integration"];
+    assert_eq!(VERBS.len(), 12);
     for kind in kinds {
         assert!(VERBS.iter().any(|row| row.kind.as_str() == kind), "{kind}");
     }
@@ -370,7 +371,24 @@ fn free_text_is_cleaned_capped_and_kept_in_the_arguments() {
             "needs_terminal",
             "no_active_pm",
             "limit_reached",
-            "invalid_request"
+            "invalid_request",
+            "merge_unrecorded",
+            "merge_disabled",
+            "invalid_commit",
+            "invalid_branch",
+            "no_identity",
+            "run_paused",
+            "busy",
+            "not_reviewed",
+            "not_verified",
+            "branch_moved",
+            "unsafe_config",
+            "wrong_branch",
+            "dirty_tree",
+            "merge_conflict",
+            "git_too_old",
+            "merge_failed",
+            "git_unavailable"
         ]
     );
     assert_eq!(RESULT_FIELDS.len(), 12);

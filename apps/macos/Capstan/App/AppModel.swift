@@ -544,6 +544,7 @@ final class AppModel {
                     "kind": .string(stored.kind.wireName), "since": .string(stored.since),
                     "summary": .string(stored.summary.raw), "contentHash": .string(stored.contentHash),
                     "needsTerminal": .bool(stored.needsTerminal),
+                    "integrationState": stored.integrationState.map { JSONValue.string($0) } ?? .null,
                 ]))
         } catch {
             log.error("stored item could not be read as a wire item: \(String(describing: error), privacy: .public)")
