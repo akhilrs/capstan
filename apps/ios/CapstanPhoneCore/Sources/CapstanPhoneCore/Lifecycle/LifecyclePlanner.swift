@@ -27,12 +27,19 @@ public struct LifecycleState: Sendable, Equatable {
     /// The content is covered until an unlock.
     public var locked: Bool
     public var sessionsRunning: Bool
+    /// Face ID was already asked in this stay in the foreground: the system sheet itself makes the scene inactive and
+    /// active again, which must not ask again (a cancel would loop). The Unlock button asks after that.
+    public var asked: Bool
 
-    public init(lastUnlock: Date? = nil, backgroundedAt: Date? = nil, locked: Bool = false, sessionsRunning: Bool = false) {
+    public init(
+        lastUnlock: Date? = nil, backgroundedAt: Date? = nil, locked: Bool = false, sessionsRunning: Bool = false,
+        asked: Bool = false
+    ) {
         self.lastUnlock = lastUnlock
         self.backgroundedAt = backgroundedAt
         self.locked = locked
         self.sessionsRunning = sessionsRunning
+        self.asked = asked
     }
 }
 
@@ -57,12 +64,17 @@ public enum LifecyclePlanner {
         case .background:
             next.backgroundedAt = now
             next.sessionsRunning = false
+            next.asked = false
             return Plan(actions: state.sessionsRunning ? [.stopSessionsThenSuspend] : [.noop], state: next)
         case .active:
-            let required = FaceIDRule.required(
+            // A cover that is up stays up until Face ID passes: a cancelled or failed unlock is not undone by leaving
+            // and coming back within the minute.
+            let required = (faceIDOn && state.locked) || FaceIDRule.required(
                 settingOn: faceIDOn, lastUnlock: state.lastUnlock, backgroundedAt: state.backgroundedAt, now: now)
             if required {
                 next.locked = true
+                if state.asked { return Plan(actions: [.lockUI], state: next) }
+                next.asked = true
                 return Plan(actions: [.lockUI, .promptFaceID], state: next)
             }
             next.backgroundedAt = nil
