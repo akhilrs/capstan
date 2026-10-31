@@ -186,6 +186,12 @@ final class AppModel {
     func syncCoordinator() {
         guard let coordinator else { return }
         hosts = coordinator.hosts
+        if problems != coordinator.problems {
+            for (id, problem) in coordinator.problems where problems[id] != problem {
+                let name = coordinator.hosts.first { $0.id == id }?.displayName ?? id.uuidString
+                AppModel.log.notice("\(name, privacy: .public): blocked: \(String(describing: problem), privacy: .public)")
+            }
+        }
         problems = coordinator.problems
         pendingTrust = coordinator.pendingTrust
         pinsUnreadable = coordinator.pinsUnreadable
@@ -279,7 +285,13 @@ final class AppModel {
             })
         var running = config
         running.pollMs = max(config.pollMs, settings.pollMs)
-        let session = HostSession(config: running, runner: runner, consumer: engine, clock: SystemClock())
+        let hostName = config.displayName
+        let session = HostSession(
+            config: running, runner: runner, consumer: engine, clock: SystemClock(),
+            diagnostic: { what, detail in
+                // The detail may be host text (ssh stderr), so it stays private in the log.
+                AppModel.log.notice("\(hostName, privacy: .public): \(what, privacy: .public) \(detail ?? "", privacy: .private)")
+            })
         engines[id] = engine
         sessions[id] = session
         connection[id] = .connecting
