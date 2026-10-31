@@ -60,6 +60,7 @@ struct ItemDetailScreen: View {
     @State private var reply = ""
     @State private var receivedAt = Date()
     @State private var toast = false
+    @State private var merging = false
 
     var body: some View {
         if let item = model.item(row) {
@@ -85,7 +86,9 @@ struct ItemDetailScreen: View {
     private func content(_ ctx: DetailContext) -> some View {
         let main = ctx.mainText
         let shown = ShownText(main.text)
-        let bar = DetailBar.make(ctx, shown: shown, outcome: sending ? nil : outcome)
+        let bar = DetailBar.make(
+            ctx, shown: shown, outcome: sending ? nil : outcome,
+            mergeable: ctx.item.kind == .integration && isAvailable(.integrationMerge))
         return ScrollView {
             VStack(alignment: .leading, spacing: Tokens.space[3]) {
                 DetailHeader(
@@ -105,6 +108,9 @@ struct ItemDetailScreen: View {
                 }
                 notices(ctx, shown: shown)
                 kindBody(ctx, main: main, shown: shown)
+                if ctx.item.kind == .integration, bar != .merge, let reason = mergeBlocked(ctx) {
+                    footnote("Merge is not offered: " + reason)
+                }
             }
             .padding(.horizontal, Tokens.margin)
             .padding(.vertical, Tokens.space[2])
@@ -133,6 +139,9 @@ struct ItemDetailScreen: View {
         }
         .sheet(item: $link) { item in
             DesignLinkConfirm(link: item.text)
+        }
+        .sheet(isPresented: $merging) {
+            MergeSheet(row: row, item: ctx.item)
         }
         .sheet(isPresented: $askingChanges) {
             ChangesSheet { text in run(.designChanges(askedUser: text, link: nil)) }
@@ -352,6 +361,10 @@ struct ItemDetailScreen: View {
             case .showNew:
                 Button { showNewVersion() } label: { Text("Show the new version") }
                     .buttonStyle(.capstanPrimary)
+            case .merge:
+                Button { merging = true } label: { Text("Merge…") }
+                    .buttonStyle(.capstanPrimary)
+                    .keyboardShortcut(.return, modifiers: .command)
             case .op:
                 BarLayout(stacked: stacked) {
                     Button { confirmDeny = true } label: { Text("Deny…") }
@@ -455,6 +468,20 @@ struct ItemDetailScreen: View {
         ctx.detail?.promptBody.map { $0.agentId + "'s terminal" } ?? "the agent's terminal"
     }
 
+    /// Why an integration shows no Merge button, in the order the checks run; nil when nothing blocks it.
+    private func mergeBlocked(_ ctx: DetailContext) -> String? {
+        if model.capabilities[row.hostId] == nil { return "the host has not been checked yet." }
+        if case .hidden(let why) = model.availability(.integrationMerge, row: row, option: nil) {
+            return why.hasSuffix(".") ? why : why + "."
+        }
+        if case .terminalOnly(let why) = model.availability(.integrationMerge, row: row, option: nil) {
+            return why.hasSuffix(".") ? why : why + "."
+        }
+        if !ctx.ready { return "the project is not ready on the host." }
+        if !ctx.live { return "the connection to the host is not live." }
+        return nil
+    }
+
     private func isAvailable(_ verb: DecideVerb, option: PromptOption? = nil) -> Bool {
         model.availability(verb, row: row, option: option) == .available
     }
@@ -525,17 +552,22 @@ enum DetailBar: Equatable {
     case copy
     /// The item changed since it was opened (`hash_mismatch`).
     case showNew
+    /// A built integration the host lets this phone merge (board 10).
+    case merge
     case op
     case prompt(allTerminal: Bool)
     case design
     case reply
 
-    static func make(_ ctx: DetailContext, shown: ShownText, outcome: DecideOutcome?) -> DetailBar {
+    static func make(_ ctx: DetailContext, shown: ShownText, outcome: DecideOutcome?, mergeable: Bool = false) -> DetailBar {
         if let outcome {
             if OutcomeLines.isDone(outcome) { return .empty }
             if case .refused(_, .refresh) = outcome { return .showNew }
         }
         let copyOrNone: DetailBar = shown.cut && shown.any ? .copy : .empty
+        // An integration is read-only in the shared inspector (the Mac merges from the terminal); here the Merge button
+        // decides, and `mergeable` already holds the host's decide capability and the built state.
+        if case .integration = ctx.item.kind { return mergeable && ctx.ready && ctx.live ? .merge : copyOrNone }
         guard ctx.answerable else { return copyOrNone }
         switch ctx.item.kind {
         case .op:
@@ -548,7 +580,9 @@ enum DetailBar: Equatable {
             return shown.verified ? .design : .empty
         case .message:
             return ctx.detail?.messageBody != nil && shown.verified ? .reply : .empty
-        case .integration, .other:
+        case .integration:
+            return mergeable ? .merge : .empty
+        case .other:
             return .empty
         }
     }
