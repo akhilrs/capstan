@@ -19,6 +19,7 @@ struct DeviceChecksScreen: View {
     @State private var linkWatch: Date?
     @State private var backgroundedAt: Date?
     @State private var awayFor: TimeInterval?
+    @State private var activityResult: String?
 
     enum Check: Int, CaseIterable, Identifiable {
         case enclave = 1, faceID, localNetwork, sshLogin, stream, deadLink, background
@@ -84,10 +85,21 @@ struct DeviceChecksScreen: View {
                     let sample = GlanceSnapshot(
                         asOf: Date(), kindCounts: ["op": 2, "prompt": 2, "design": 1, "message": 1, "integration": 1],
                         projects: [], hostsReachable: 1, hostsTotal: 1, pollMs: model.settings.pollMs)
-                    model.liveActivity.apply(sample, allowed: true)
+                    model.liveActivity.showSample(sample)
+                    activityResult = model.liveActivity.lastResult
                 }
-                Button("Show the real counts") { model.publishGlance() }
-                Button("End the Live Activity", role: .destructive) { model.liveActivity.endAll() }
+                Button("Show the real counts") {
+                    model.liveActivity.resumeReal()
+                    model.publishGlance()
+                    activityResult = model.liveActivity.lastResult
+                }
+                Button("End the Live Activity", role: .destructive) {
+                    model.liveActivity.endAll()
+                    activityResult = model.liveActivity.lastResult
+                }
+                if let activityResult {
+                    Text(verbatim: activityResult).font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
+                }
             } header: {
                 Text("Live Activity")
             } footer: {
