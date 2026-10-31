@@ -43,7 +43,7 @@ fn ledger_before(file: &Path) {
 /// Name and SQL of every schema object except the new index (and what later migrations add), and every `controller_events` row.
 fn snapshot(conn: &Connection) -> (BTreeSet<(String, String)>, Vec<String>) {
     let mut schema = conn
-        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name <> 'controller_events_by_successor' AND name NOT LIKE '%integration_details%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration')")
+        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name <> 'controller_events_by_successor' AND name NOT LIKE '%integration_details%' AND name NOT LIKE '%user_messages%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration')")
         .unwrap();
     let schema = schema
         .query_map([INDEX], |r| Ok((r.get(0)?, r.get(1)?)))

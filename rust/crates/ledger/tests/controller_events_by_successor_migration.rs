@@ -45,7 +45,7 @@ fn has_index(conn: &Connection) -> bool {
 /// Name and SQL of every schema object except the new index.
 fn schema(conn: &Connection) -> BTreeSet<(String, String)> {
     let mut stmt = conn
-        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name NOT LIKE '%integration_details%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration')")
+        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name NOT LIKE '%integration_details%' AND name NOT LIKE '%user_messages%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration')")
         .unwrap();
     let rows = stmt
         .query_map([INDEX], |r| Ok((r.get(0)?, r.get(1)?)))
