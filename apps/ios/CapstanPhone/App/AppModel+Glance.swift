@@ -16,10 +16,32 @@ extension AppModel {
             pollMs: settings.pollMs, asOf: now)
     }
 
-    /// Writes the glance and updates the Live Activity; called after the hosts' models or connections change.
+    /// Writes the glance, updates the Live Activity and the badge, and posts the notifications for items not seen
+    /// before (`RefreshPlanner`); called after the hosts' models or connections change, here and in a background
+    /// refresh alike, so each item is announced once.
     func publishGlance() {
         let glance = makeGlance()
         if let directory { try? GlanceStore(directory: directory).write(glance) }
         liveActivity.apply(glance, allowed: settings.liveActivityAllowed)
+        notifier.setBadge(glance.totalWaiting)
+        announceNew()
+    }
+
+    /// Posts what waits and was not seen before. Only hosts whose snapshot is complete take part, so a half-read
+    /// host is not taken for one where items vanished, and its remembered items are kept for the next pass.
+    private func announceNew() {
+        guard let directory else { return }
+        let complete = hosts.compactMap { hostModels[$0.id] }.filter(RefreshPlanner.isComplete)
+        guard !complete.isEmpty else { return }
+        let store = SeenStore(directory: directory)
+        let previous = store.read()
+        let pass = RefreshPlanner.pass(models: complete, seen: previous, settings: settings) { name in
+            FileManager.default.fileExists(atPath: PhoneSounds.userDirectory.appendingPathComponent(name).path)
+        }
+        let readPrefixes = complete.map { $0.hostId.uuidString + "/" }
+        let kept = (previous ?? []).filter { key in !readPrefixes.contains { key.hasPrefix($0) } }
+        let next = pass.seen.union(kept)
+        if next != previous { try? store.write(next) }
+        if !pass.notifications.isEmpty { notifier.post(pass.notifications) }
     }
 }

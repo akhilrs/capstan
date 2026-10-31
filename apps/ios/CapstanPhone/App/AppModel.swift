@@ -95,6 +95,8 @@ final class AppModel {
     @ObservationIgnored private(set) var coordinator: HostsCoordinator?
     /// The "N waiting" Live Activity (package `live-activity`).
     @ObservationIgnored let liveActivity = LiveActivityController()
+    /// Local notifications and the badge (package `background-refresh`).
+    @ObservationIgnored let notifier = Notifier()
     @ObservationIgnored let runner: (any ProcessRunner)?
     @ObservationIgnored let registry: PhoneHostRegistry?
     @ObservationIgnored let pins: HostKeyStore?

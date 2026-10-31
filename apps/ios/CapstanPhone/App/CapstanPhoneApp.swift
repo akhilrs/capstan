@@ -1,5 +1,6 @@
 import CapstanKit
 import CapstanPhoneCore
+import BackgroundTasks
 import CapstanSSH
 import SwiftUI
 import UIKit
@@ -10,7 +11,8 @@ struct CapstanPhoneApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
-        WindowGroup {
+        let shell = self.shell
+        return WindowGroup {
             ZStack {
                 RootTabView()
                     .environment(shell.model)
@@ -22,11 +24,17 @@ struct CapstanPhoneApp: App {
                 }
             }
             .onboarding(shell.model, enabled: !shell.locked)
-            .onChange(of: scenePhase, initial: true) { _, phase in shell.phaseChanged(phase) }
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                shell.phaseChanged(phase)
+                if phase == .background { BackgroundRefresh.schedule() }
+            }
             .onOpenURL { url in shell.model.handle(url: url) }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
                 shell.shutdown()
             }
+        }
+        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
+            await shell.backgroundRefresh()
         }
     }
 }
@@ -62,6 +70,36 @@ final class AppShell {
         model = made
         locked = made.settings.faceID
         lifecycle = LifecycleState(locked: made.settings.faceID)
+        made.notifier.onOpen = { [weak made] url in made?.handle(url: url) }
+    }
+
+    /// A background refresh (plan 7.4): start the sessions, wait until every host read is live with a complete
+    /// snapshot or the budget is spent, publish the glance (badge, Live Activity, notifications), and stop again if
+    /// the app is still in the background. It never asks for Face ID and never decides anything.
+    func backgroundRefresh() async {
+        if modelStarted {
+            model.coordinator?.startSessions()
+        } else {
+            modelStarted = true
+            model.start()
+        }
+        let started = Date()
+        while true {
+            let ids = RefreshPlanner.hosts(model.hosts, blocked: Set(model.problems.keys))
+            let complete = !ids.isEmpty && ids.allSatisfy { id in
+                guard case .live(let since, _)? = model.connection[id], since >= started else { return false }
+                return RefreshPlanner.isComplete(model.hostModels[id])
+            }
+            if RefreshPlanner.shouldStop(started: started, now: Date(), complete: complete) { break }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        // Let the last model reach the main actor, then publish what was read.
+        try? await Task.sleep(for: .milliseconds(500))
+        model.publishGlance()
+        BackgroundRefresh.schedule()
+        if UIApplication.shared.applicationState == .background {
+            model.coordinator?.stopSessionsThenSuspend()
+        }
     }
 
     private static func supportDirectory() -> URL {
@@ -117,6 +155,7 @@ final class AppShell {
                     modelStarted = true
                     model.start()
                 }
+                model.notifier.requestAuthorization()
             case .stopSessionsThenSuspend:
                 model.coordinator?.stopSessionsThenSuspend()
             case .noop:
@@ -154,4 +193,18 @@ struct LockOverlay: View {
 
 #Preview("LockOverlay") {
     LockOverlay {}
+}
+
+/// The background refresh task: its identifier (listed in Info.plist) and the request for the next run. iOS decides
+/// when it runs; "less often than the Mac" is expected (R5).
+enum BackgroundRefresh {
+    static let identifier = "in.qusol.capstan.phone.refresh"
+    /// The earliest a refresh is asked for after the last one.
+    static let interval: TimeInterval = 15 * 60
+
+    static func schedule() {
+        let request = BGAppRefreshTaskRequest(identifier: identifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: interval)
+        try? BGTaskScheduler.shared.submit(request)
+    }
 }
