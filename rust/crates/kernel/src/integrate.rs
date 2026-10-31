@@ -4663,10 +4663,11 @@ impl GitRepo {
         );
         if moved.code != 0 {
             // The branch still points where it did (update-ref is all or nothing), unless it moved meanwhile.
-            return Ok(RootMerge::failed(
-                if moved.killed { "timeout" } else { "merge_failed" },
-                true,
-            ));
+            return Ok(if moved.killed {
+                RootMerge::failed("timeout", true)
+            } else {
+                RootMerge::failed("merge_failed", true)
+            });
         }
         Ok(RootMerge::Merged { commit: new })
     }
