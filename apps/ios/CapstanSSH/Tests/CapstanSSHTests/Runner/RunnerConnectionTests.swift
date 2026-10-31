@@ -113,7 +113,7 @@ final class RunnerConnectionTests: XCTestCase {
     }
 
     func testSocketOptionsFromTheHookAreApplied() async throws {
-        let options = [SocketOption(level: 0xFFFF, name: 0x0008, value: 1)]
+        let options = [CapstanSSH.SocketOption(level: 0xFFFF, name: 0x0008, value: 1)]
         let custom = try RunnerFixture(hook: OptionsHook(options: options))
         defer { custom.stop() }
         let seen = SeenOptions()
@@ -127,17 +127,17 @@ final class RunnerConnectionTests: XCTestCase {
 
 private final class SeenOptions: @unchecked Sendable {
     private let lock = NSLock()
-    private var options: [SocketOption]?
+    private var options: [CapstanSSH.SocketOption]?
 
-    func set(_ value: [SocketOption]) { lock.withLock { options = value } }
-    var value: [SocketOption]? { lock.withLock { options } }
+    func set(_ value: [CapstanSSH.SocketOption]) { lock.withLock { options = value } }
+    var value: [CapstanSSH.SocketOption]? { lock.withLock { options } }
 }
 
 /// SO_KEEPALIVE (SOL_SOCKET 0xffff, SO_KEEPALIVE 0x0008 on Darwin), the library's algorithms, close-only terminate.
 private struct OptionsHook: TransportHook {
-    let options: [SocketOption]
+    let options: [CapstanSSH.SocketOption]
 
-    func channelOptions() -> [SocketOption] { options }
+    func channelOptions() -> [CapstanSSH.SocketOption] { options }
     func algorithms(pinnedHostKey: String?) -> AlgorithmPreferences { SupportedAlgorithms.library }
     func terminate(_ channel: Channel, grace: TimeInterval, clock: any SessionClock) -> EventLoopFuture<Void> {
         channel.close()

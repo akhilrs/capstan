@@ -71,7 +71,7 @@ final class RunnerUnsupportedTests: XCTestCase {
 private struct KexHook: TransportHook {
     let kex: [String]
 
-    func channelOptions() -> [SocketOption] { [] }
+    func channelOptions() -> [CapstanSSH.SocketOption] { [] }
     func algorithms(pinnedHostKey: String?) -> AlgorithmPreferences {
         AlgorithmPreferences(hostKeys: SupportedAlgorithms.hostKeys, kex: kex, ciphers: SupportedAlgorithms.ciphers)
     }
