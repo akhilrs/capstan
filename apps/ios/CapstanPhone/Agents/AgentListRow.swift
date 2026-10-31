@@ -6,15 +6,19 @@ import SwiftUI
 /// seen it, then its task and branch on one or two lines. Flat: rows are never glass.
 struct AgentListRow: View {
     let row: AgentRow
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            HStack(alignment: .firstTextBaseline, spacing: Tokens.space[1]) {
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.space[1]))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: Tokens.space[1]))
+            layout {
                 Text(verbatim: row.agentId).font(TypeStyle.headline)
                 Text(verbatim: row.role).font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2))
                     .lineLimit(1)
                     .layoutPriority(-1)
-                Spacer(minLength: Tokens.space[1])
+                if !typeSize.isAccessibilitySize { Spacer(minLength: Tokens.space[1]) }
                 TimelineView(.periodic(from: .now, by: 30)) { context in
                     StatePill(word: pillWord(now: context.date), symbol: row.healthSymbol, tone: AgentTone.tone(row.health))
                 }

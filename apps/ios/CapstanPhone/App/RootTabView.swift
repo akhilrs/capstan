@@ -16,9 +16,7 @@ struct RootTabView: View {
         let counts = model.tabCounts
         TabView(selection: $model.navigation.tab) {
             Tab("Waiting", systemImage: "tray", value: PhoneTab.waiting) {
-                NavigationStack(path: path(.waiting)) {
-                    WaitingScreen().routes()
-                }
+                WaitingTab(path: path(.waiting))
             }
             .badge(counts.waiting)
 

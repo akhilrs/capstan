@@ -10,6 +10,7 @@ struct WaitingRow: View {
     /// How many of a prompt's options widen permissions.
     let widening: Int
     var quiet = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.space[2]) {
@@ -18,12 +19,16 @@ struct WaitingRow: View {
                 .frame(width: 24)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Tokens.space[0]) {
-                HStack(alignment: .firstTextBaseline) {
+                // At accessibility sizes the title wraps and the age goes under it.
+                let layout = typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.space[0]))
+                    : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+                layout {
                     Text(verbatim: RowText.title(row))
                         .font(TypeStyle.headline)
                         .foregroundStyle(quiet ? Tokens.color(.label2) : Tokens.color(.label))
-                        .lineLimit(1)
-                    Spacer(minLength: Tokens.space[1])
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                    if !typeSize.isAccessibilitySize { Spacer(minLength: Tokens.space[1]) }
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         Text(verbatim: AgeText.short(since: row.since, now: context.date))
                             .font(TypeStyle.subheadline.monospacedDigit())
@@ -44,7 +49,10 @@ struct WaitingRow: View {
         VStack(alignment: .leading, spacing: Tokens.space[0]) {
             let pills = RowPills.make(needsTerminal: row.needsTerminal, forwarded: forwarded, stale: row.stale)
             if widening > 0 || !pills.isEmpty {
-                HStack(spacing: Tokens.space[1]) {
+                let pillLayout = typeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: Tokens.space[1]))
+                    : AnyLayout(HStackLayout(spacing: Tokens.space[1]))
+                pillLayout {
                     if widening > 0 {
                         Text(verbatim: widening == 1 ? "1 option widens" : String(widening) + " options widen")
                             .font(TypeStyle.subheadline.weight(.medium))
