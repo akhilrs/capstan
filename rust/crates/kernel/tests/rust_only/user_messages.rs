@@ -211,3 +211,14 @@ fn a_question_carries_its_choices_and_an_info_message_takes_none() {
     let all = messages_page(&rig.core, None, 10).unwrap();
     assert!(all.items.last().unwrap().options.is_empty());
 }
+
+#[test]
+fn a_message_keeps_its_lines_and_loses_only_control_characters() {
+    use capstan_kernel::areas::snapshot_feed::clean_lines;
+    assert_eq!(clean_lines("HCP resync\r\n\r\n\r\nStage 3:  9201 of 9871\n- failed: 0  \n"), "HCP resync\n\nStage 3:  9201 of 9871\n- failed: 0");
+    assert_eq!(clean_lines("a\u{1b}[31mred\u{202e}x\rb"), "a [31mred x\nb");
+    let rig = Rig::new();
+    send(&rig, "pm-1", "Status:\n  sent    9222\n  failed     0", "info").unwrap();
+    let page = messages_page(&rig.core, None, 10).unwrap();
+    assert_eq!(page.items[0].body, "Status:\n  sent    9222\n  failed     0");
+}

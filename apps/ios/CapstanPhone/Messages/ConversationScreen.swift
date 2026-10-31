@@ -131,7 +131,9 @@ struct ConversationScreen: View {
         default: state = "For your information"
         }
         return VStack(alignment: .leading, spacing: Tokens.space[1]) {
-            DetailTextBlock(text: message.body, name: message.senderAgentId + " · " + state, shownAs: "shown as written")
+            DetailTextBlock(
+                text: message.body, name: message.senderAgentId + " · " + state, shownAs: "shown as written",
+                keepLines: true)
             HStack(spacing: Tokens.space[2]) {
                 Text(verbatim: time)
                     .font(TypeStyle.footnote)

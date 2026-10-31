@@ -2046,6 +2046,25 @@ const MESSAGE_COLUMNS: &[&str] = &[
     "options_json",
 ];
 
+/// `clean_text` line by line, keeping the line breaks of a message body: `\r\n` and `\r` become `\n`, every other
+/// control or format character is a space as in `clean_text`, and more than one empty line in a row becomes one. A
+/// client shows the result as plain text, so lists and small tables keep their shape.
+pub fn clean_lines(text: &str) -> String {
+    let unified = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut out: Vec<String> = Vec::new();
+    for line in unified.split('\n') {
+        let line = clean_text(line).trim_end().to_string();
+        if line.is_empty() && out.last().is_some_and(String::is_empty) {
+            continue;
+        }
+        out.push(line);
+    }
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
 /// Messages to the user among the latest [`user_messages::LISTED_MESSAGES`]: the one of sequence `only`, or those after
 /// `after`, oldest first.
 fn message_rows(
@@ -2077,7 +2096,7 @@ fn message_rows(
     Ok(rows(core, &sql, params, MESSAGE_COLUMNS)?
         .into_iter()
         .map(|cols| {
-            let cleaned = clean_text(&text(&cols, "body"));
+            let cleaned = clean_lines(&text(&cols, "body"));
             let (body, truncated) = cap_text(&cleaned, TEXT_CAP);
             let sequence = int(&cols, "sequence");
             MessageItem {

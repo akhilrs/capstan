@@ -162,7 +162,8 @@ becomes `answered` and stops waiting; another agent's question is refused with `
 `feed messages [--after <key>] [--limit <n>]` lists the latest 200 messages to the user, oldest first. An item is
 `{key, messageId, sequence, senderAgentId, class, state, body, truncated, createdAt, answeredAt, requestId, options}`
 (`options` is the list of choices, empty without): `class`
-is `action` or `info`, `state` is `open`, `answered` or `info`, `body` is cleaned and cut at 1024 bytes (`truncated`),
+is `action` or `info`, `state` is `open`, `answered` or `info`, `body` is cleaned line by line (its line breaks are kept
+as `\n`, at most one empty line in a row) and cut at 1024 bytes (`truncated`),
 and `requestId` is `message:<messageId>`, the request id of the waiting item while the message is open. The waiting
 item's `summary` is the body and its `contentHash` is the SHA-256 of the canonical JSON of `{id, body}`.
 

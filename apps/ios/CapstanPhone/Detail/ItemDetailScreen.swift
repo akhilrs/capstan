@@ -264,7 +264,7 @@ struct ItemDetailScreen: View {
         case .design:
             designBody(ctx, main: main)
         default:
-            DetailTextBlock(text: main.text, name: main.name)
+            DetailTextBlock(text: main.text, name: main.name, keepLines: ctx.item.kind == .message)
             if shown.cut { CutTextNote() }
             if !main.received {
                 waitingFor(ctx.item.kind == .op ? "The full command has not arrived yet." : "The full message has not arrived yet.")

@@ -13,7 +13,8 @@ struct ShownText: Equatable {
     /// The bytes this app did not show.
     let hiddenBytes: Int
 
-    init(_ untrusted: UntrustedText) {
+    /// `keepLines` keeps the text's line breaks (a message); otherwise it is one run of text (a command, a prompt).
+    init(_ untrusted: UntrustedText, keepLines: Bool = false) {
         verified = untrusted.verified
         guard untrusted.verified else {
             text = ""
@@ -21,7 +22,7 @@ struct ShownText: Equatable {
             hiddenBytes = 0
             return
         }
-        let plain = untrusted.displayPlain
+        let plain = keepLines ? untrusted.displayLines : untrusted.displayPlain
         let shown = TextBudget.displayPrefix(plain, maxBytes: ProtocolLimits.textCap)
         text = shown.text
         hostCut = untrusted.truncated
@@ -44,9 +45,11 @@ struct DetailTextBlock: View {
     /// How a whole, verified text is shown, after "untrusted, ".
     var shownAs = "shown as written"
     var symbol = "exclamationmark.triangle"
+    /// Keep the text's line breaks: a message from an agent laid out in lines.
+    var keepLines = false
 
     var body: some View {
-        let shown = ShownText(text)
+        let shown = ShownText(text, keepLines: keepLines)
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Tokens.space[1]) {
                 Image(systemName: symbol).imageScale(.small).accessibilityHidden(true)

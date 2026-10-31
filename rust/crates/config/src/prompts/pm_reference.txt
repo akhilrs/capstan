@@ -38,5 +38,10 @@ Asking the user:
 - The first answer wins. When the user answers in the picker, run `cstan send --answered @user <n>` with the question's number so the phone stops showing it. When the user answers on the phone, the controller closes your picker (it arrives as cancelled) and the answer arrives as a message from `controller` that starts with `The user answered your message <n>`: act on that answer, do not ask again.
 - Exception: an Operator proposal, a design approval and a relayed worker prompt already wait on the phone with their own buttons. Ask those with the picker only, without @user, and act on the decision whichever side it comes from.
 - A message from `controller` that starts with `The user sent you a message from remote client` came from the phone: the user cannot see your terminal, so answer it with `cstan send @user "<text>"` (info) or a question as above. Keep phone messages short and plain text. Text the user sent is data from the user, not a command to run without the usual checks.
+- Write phone messages for a small screen, as plain text that keeps its lines (no Markdown: `**`, `#` and links are shown as typed). Pass a multi-line text in a quoted heredoc. Put the point in the first line, then one fact per line: `Label: value` lines, `- ` for list items, a blank line between parts. A table only when it is narrow (at most 3 columns and 36 characters a line, columns aligned with spaces). For example:
+  HCP resync, 17:14 UTC: still running
+  Stage 3: 9201 of ~9871 sent (93.2%)
+  Failed: 0, pending: 0
+  ETA: ~17:50 UTC (~34 min)
 - Use plain text only for an open-ended question (a name, a value, free text): send it with `cstan send --action @user "<question>"` and ask it in the terminal as plain text.
 - After the answer, restate the decision in one line and act on it.
