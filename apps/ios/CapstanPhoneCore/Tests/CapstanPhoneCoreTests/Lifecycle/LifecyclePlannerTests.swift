@@ -35,6 +35,32 @@ final class LifecyclePlannerTests: XCTestCase {
         XCTAssertEqual(back.actions, [.lockUI, .promptFaceID])
     }
 
+    func testACancelledUnlockIsNotUndoneByComingBackWithinTheMinute() {
+        // Unlocked once, then away over a minute: the cover goes up and the person cancels Face ID.
+        let away = LifecyclePlanner.phase(.background, state: unlockedState(), faceIDOn: true, now: start.addingTimeInterval(10))
+        let back = LifecyclePlanner.phase(.active, state: away.state, faceIDOn: true, now: start.addingTimeInterval(100))
+        let cancelled = LifecyclePlanner.unlockFailed(state: back.state)
+        // Home Screen for ten seconds and back: still covered, Face ID asked again, no session started.
+        let home = LifecyclePlanner.phase(.background, state: cancelled.state, faceIDOn: true, now: start.addingTimeInterval(110))
+        let again = LifecyclePlanner.phase(.active, state: home.state, faceIDOn: true, now: start.addingTimeInterval(120))
+        XCTAssertEqual(again.actions, [.lockUI, .promptFaceID])
+        XCTAssertTrue(again.state.locked)
+        XCTAssertFalse(again.actions.contains(.startSessions))
+    }
+
+    func testACancelAsksOnceNotInALoop() {
+        // Cold start asks; the Face ID sheet closing makes the scene active again: the cover stays, no second prompt.
+        let cold = LifecyclePlanner.phase(.active, state: LifecycleState(locked: true), faceIDOn: true, now: start)
+        XCTAssertEqual(cold.actions, [.lockUI, .promptFaceID])
+        let cancelled = LifecyclePlanner.unlockFailed(state: cold.state)
+        let sheetGone = LifecyclePlanner.phase(.active, state: cancelled.state, faceIDOn: true, now: start.addingTimeInterval(2))
+        XCTAssertEqual(sheetGone.actions, [.lockUI])
+        // Leaving and coming back asks again.
+        let home = LifecyclePlanner.phase(.background, state: sheetGone.state, faceIDOn: true, now: start.addingTimeInterval(5))
+        let back = LifecyclePlanner.phase(.active, state: home.state, faceIDOn: true, now: start.addingTimeInterval(8))
+        XCTAssertEqual(back.actions, [.lockUI, .promptFaceID])
+    }
+
     func testInactiveRecordsNothing() {
         let state = unlockedState()
         let plan = LifecyclePlanner.phase(.inactive, state: state, faceIDOn: true, now: start.addingTimeInterval(500))
