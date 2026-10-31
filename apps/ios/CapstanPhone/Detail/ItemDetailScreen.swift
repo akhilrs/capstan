@@ -362,6 +362,7 @@ struct ItemDetailScreen: View {
                         if sending { SendingLabel() } else { Text("Send approval to PM") }
                     }
                         .buttonStyle(.capstanPrimary)
+                        .keyboardShortcut(.return, modifiers: .command)
                         .disabled(sending || !isAvailable(.opApprove))
                 }
             case .prompt(let allTerminal):
@@ -402,6 +403,7 @@ struct ItemDetailScreen: View {
                     }
                 }
                 .buttonStyle(.capstanPrimary)
+                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(sending || option == nil || !isAvailable(.promptOption(Int(selected ?? 0)), option: option))
             }
         }
@@ -421,6 +423,7 @@ struct ItemDetailScreen: View {
                 if sending { SendingLabel() } else { Text("Approve") }
             }
             .buttonStyle(.capstanPrimary)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(sending || !approvable || !isAvailable(.designApprove(link: "x", askedUser: "Approved")))
         }
     }
