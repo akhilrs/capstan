@@ -55,21 +55,11 @@ struct RootTabView: View {
 
             Tab("Hosts", systemImage: "server.rack", value: PhoneTab.hosts) {
                 NavigationStack(path: path(.hosts)) {
-                    ContentUnavailableView(
-                        "Hosts", systemImage: "server.rack",
-                        description: Text("Your hosts and their projects appear here."))
-                        .navigationTitle("Hosts")
-                        .toolbar {
-                            ToolbarItem(placement: .primaryAction) {
-                                Button { model.navigation.sheet = .addHost } label: {
-                                    Label("Add a host", systemImage: "plus")
-                                }
-                            }
-                        }
-                        .routes()
+                    HostsScreen().routes()
                 }
             }
         }
+        .hostSheets(model)
         .tabBarMinimizeBehavior(.onScrollDown)
         .tint(Tokens.color(.accent))
     }

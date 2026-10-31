@@ -25,6 +25,8 @@ enum PhoneSheet: Identifiable, Hashable {
     case addHost
     case editHost(UUID)
     case trust(UUID)
+    /// The saved host keys cannot be read: reset them all (scr-hosts).
+    case resetPins
     case settings
 
     var id: Self { self }
