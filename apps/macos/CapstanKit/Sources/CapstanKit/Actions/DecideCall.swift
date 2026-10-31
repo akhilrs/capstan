@@ -15,6 +15,8 @@ public enum DecideVerb: Sendable, Equatable, Codable {
     case runResume(reason: String?)
     /// Merges a waiting integration into the project's branch (section 11, Merge). Never pushes.
     case integrationMerge
+    /// A free message from the person to the project's active PM (section 11, Message to the PM).
+    case pmMessage(String)
 
     /// Denying and pausing cannot be taken back by the person with one more tap.
     public var isDestructive: Bool {
@@ -39,6 +41,7 @@ public enum DecideVerb: Sendable, Equatable, Codable {
         case .runPause: return DecideVerbRow(kind: "run", verb: "pause", outcome: "applied")
         case .runResume: return DecideVerbRow(kind: "run", verb: "resume", outcome: "applied")
         case .integrationMerge: return DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied")
+        case .pmMessage: return DecideVerbRow(kind: "pm", verb: "message", outcome: "applied")
         }
     }
 }
@@ -169,6 +172,8 @@ public struct DecideRequest: Sendable, Equatable, Codable {
             return ["resume"] + (try DecideRequest.reasonWords(reason))
         case .integrationMerge:
             return ["merge"]
+        case .pmMessage(let text):
+            return ["message", try DecideRequest.text(text, "message")]
         }
     }
 

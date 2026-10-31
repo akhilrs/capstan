@@ -6,6 +6,8 @@ public enum RouteTarget: Sendable, Equatable {
     case row(key: String)
     case agent(id: String)
     case run
+    /// The project's active PM: a free message (`pm message`).
+    case pm
 }
 
 /// The request id and content hash a decision must carry, read from the model the person is looking at.
@@ -18,6 +20,12 @@ public enum RequestTarget {
     public static func forAgent(_ p: ProjectModel, id: String) -> (requestId: String, expect: String)? {
         guard let item = p.agents["agent:" + id] else { return nil }
         return (item.requestId, item.contentHash)
+    }
+
+    /// The PM binding; nil without exactly one active PM.
+    public static func forPm(_ p: ProjectModel) -> (requestId: String, expect: String)? {
+        guard let agentId = PmBinding.activePm(p) else { return nil }
+        return (PmBinding.requestId, PmBinding.hash(agentId: agentId))
     }
 
     public static func forRun(_ p: ProjectModel) -> (requestId: String, expect: String)? {
@@ -34,6 +42,15 @@ public enum LocalOutcome {
                 code: .notWaiting,
                 message: UntrustedText(raw: "This item is not waiting any more", verified: true, truncated: false)),
             hint: .gone)
+    }
+
+    /// No PM is active to send a message to: refused here, as the host would.
+    public static func noActivePm() -> DecideOutcome {
+        .refused(
+            DecideRefusal(
+                code: .noActivePm,
+                message: UntrustedText(raw: "There is no active PM in this project", verified: true, truncated: false)),
+            hint: .noPm)
     }
 
     /// Hosts send only the fixed codes of the protocol, so `local-busy` cannot come from a host.
@@ -69,8 +86,11 @@ public enum DecideRouter {
         case .row(let key): found = RequestTarget.forRow(project, key: key)
         case .agent(let id): found = RequestTarget.forAgent(project, id: id)
         case .run: found = RequestTarget.forRun(project)
+        case .pm: found = RequestTarget.forPm(project)
         }
-        guard let found else { return .local(LocalOutcome.notWaiting()) }
+        guard let found else {
+            return .local(target == .pm ? LocalOutcome.noActivePm() : LocalOutcome.notWaiting())
+        }
         let key = BusyKey(hostId: hostId, projectId: projectId, requestId: found.requestId)
         if let refusal = BusyGate.check(busy, key) { return .local(refusal) }
         let request = DecideRequest(
