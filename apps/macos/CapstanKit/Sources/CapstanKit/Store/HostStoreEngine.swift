@@ -140,6 +140,9 @@ public actor HostStoreEngine: StreamConsumer {
                 && staging.pending[$0] == nil
         }
         urgent.formIntersection(refresh)
+        // The read is owed until the project's next snapshot ends, even if the session stops before it runs.
+        for projectId in refresh { model.projects[projectId]?.needsRead = true }
+        if !refresh.isEmpty { onChange(model) }
         if let onUrgentRefresh, !urgent.isEmpty {
             onUrgentRefresh(urgent)
             refresh.subtract(urgent)

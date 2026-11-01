@@ -318,6 +318,36 @@ final class PersistenceTests: XCTestCase {
         XCTAssertNil(cursorAfterRelaunch)
     }
 
+    /// The phone stopped (or was closed) before an invalidate's read ran: the cursor had already moved past the event,
+    /// so the project is read in full on the next connection, in this run and after a relaunch.
+    func testAReadStillOwedIsKeptAcrossAStopAndARelaunchUntilTheNextSnapshot() async throws {
+        let hostId = UUID()
+        let store = MemoryPersistence()
+        let engine = makeEngine(hostId: hostId, persistence: store)
+        await engine.apply(
+            host: hostId, lines: try [StoreWire.hello()] + completeProject() + [StoreWire.cursor(makeCursor(["proj-a"]))])
+        await engine.apply(
+            host: hostId, lines: [try agentInvalidate("proj-a"), try StoreWire.cursor(makeCursor(["proj-a"], sequence: 2))])
+        await engine.flush()
+        let owed = await engine.current().projects["proj-a"]?.needsRead
+        XCTAssertEqual(owed, true)
+        let resume = await engine.resumeCursor(host: hostId)
+        XCTAssertNil(resume, "the reconnect reads the project in full")
+        let saved = try XCTUnwrap(store.stored)
+        XCTAssertEqual(saved.projects["proj-a"]?.waiting.count, 1, "its items are kept to show")
+        XCTAssertNil(saved.cursor, "but not its place in the stream")
+
+        let relaunched = makeEngine(hostId: hostId, persistence: store)
+        let afterRelaunch = await relaunched.resumeCursor(host: hostId)
+        XCTAssertNil(afterRelaunch)
+        await relaunched.apply(host: hostId, lines: try [StoreWire.hello()] + completeProject())
+        let read = await relaunched.current().projects["proj-a"]
+        XCTAssertNil(read?.needsRead, "the snapshot pays the read")
+        await relaunched.apply(host: hostId, lines: [try StoreWire.cursor(makeCursor(["proj-a"], sequence: 3))])
+        let next = await relaunched.resumeCursor(host: hostId)
+        XCTAssertEqual(next, makeCursor(["proj-a"], sequence: 3))
+    }
+
     func testTheFullSnapshotAfterARunChangeBringsTheHash() async throws {
         let hostId = UUID()
         let engine = makeEngine(hostId: hostId, persistence: MemoryPersistence())
