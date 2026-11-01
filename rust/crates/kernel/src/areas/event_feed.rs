@@ -915,6 +915,13 @@ fn load_integration(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
     )
 }
 
+/// One item of a snapshot section as `snapshot_item` reads it (two reads charged); `None` when it is not listed.
+fn read_item(ctx: &mut Ctx<'_>, section: &str, key: &str) -> Step<Option<Value>> {
+    ctx.charge()?;
+    ctx.charge()?;
+    Ok(super::snapshot_feed::snapshot_item(ctx.core, section, key)?)
+}
+
 fn load_user_message(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
     let project = ctx.project_id.clone();
     ctx.lookup(
@@ -1761,16 +1768,24 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 };
                 let sequence = num_text(&message, "sequence");
                 let key = item_key("messages", "message", &sequence);
+                let waiting_key = item_key("waiting", MESSAGE_KIND, &sequence);
                 body.insert("section".into(), json!(section));
                 body.insert("key".into(), json!(key));
-                let mut list = vec![effect("messages", "invalidate", key, json!({}))];
+                // A message that was just sent travels with its event: the item as the snapshot lists it (and, for a
+                // question, its waiting item), so a client shows it at once instead of reading the snapshot again. A
+                // later change of it (answered, closed) is an invalidate, applied after this one.
+                let sent = row.action == "user_message.send";
+                let listed = if sent { read_item(ctx, "messages", &key)? } else { None };
+                let mut list = vec![match listed {
+                    Some(item) => effect("messages", "upsert", key, item),
+                    None => effect("messages", "invalidate", key, json!({})),
+                }];
                 if text_of(&message, "class") == Some("action") {
-                    list.push(effect(
-                        "waiting",
-                        "invalidate",
-                        item_key("waiting", MESSAGE_KIND, &sequence),
-                        json!({}),
-                    ));
+                    let waiting = if sent { read_item(ctx, "waiting", &waiting_key)? } else { None };
+                    list.push(match waiting {
+                        Some(item) => effect("waiting", "upsert", waiting_key, item),
+                        None => effect("waiting", "invalidate", waiting_key, json!({})),
+                    });
                 }
                 body.insert("effects".into(), Value::Array(list));
                 base.body = body;

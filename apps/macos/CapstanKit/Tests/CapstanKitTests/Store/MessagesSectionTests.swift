@@ -61,4 +61,16 @@ final class MessagesSectionTests: XCTestCase {
         let older = try MessageItem(json: try decodeJSON(Data(messageItem(5).utf8)))
         XCTAssertEqual(older.options, [])
     }
+
+    func testAMessageThatComesWithItsEventIsShownWithoutARead() throws {
+        var harness = ReducerHarness()
+        harness.apply(try StoreWire.hello(projects: 1), try StoreWire.project("proj-a"))
+        harness.apply(try StoreWire.end("proj-a"))
+        let event = try StoreWire.event(
+            "snapshot.invalidated", entity: ("user_message", "msg-7"),
+            effects: [("messages", "upsert", "7", messageItem(7, state: "info", body: "Merged."))])
+        let output = harness.apply(.event(projectId: "proj-a", event))
+        XCTAssertEqual(output.refresh, [], "no read is needed")
+        XCTAssertEqual(harness.alpha?.messages?["7"]?.body.raw, "Merged.")
+    }
 }

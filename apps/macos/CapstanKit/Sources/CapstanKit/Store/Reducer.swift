@@ -320,8 +320,11 @@ public enum StoreReducer {
             }
             model.agents[key] = stored
         case "messages":
-            // The host only invalidates messages; an upsert is read again in full.
-            return false
+            // A message that was just sent comes whole with its event; anything less is read again.
+            guard let item = try? MessageItem(json: merged(nil, effect)) else { return false }
+            var messages = model.messages ?? [:]
+            messages[key] = StoredMessage(item)
+            model.messages = messages
         case "plans":
             guard let item = try? PlanItem(json: merged(model.plans[key]?.json, effect)) else { return false }
             var stored = StoredPlan(item)

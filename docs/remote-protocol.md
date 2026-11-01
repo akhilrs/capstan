@@ -167,8 +167,10 @@ as `\n`, at most one empty line in a row) and cut at 1024 bytes (`truncated`),
 and `requestId` is `message:<messageId>`, the request id of the waiting item while the message is open. The waiting
 item's `summary` is the body and its `contentHash` is the SHA-256 of the canonical JSON of `{id, body}`.
 
-Sending or closing writes a `snapshot.invalidated` event for the item in `messages` and, for a question, its item in
-`waiting`. A
+Sending writes a `snapshot.invalidated` event whose effects `upsert` the new item in `messages` and, for a question,
+its item in `waiting`, each with every field as `feed item` would answer it, so a client shows it without reading the
+snapshot again (an item the read cannot find is an `invalidate` instead). Closing writes the same event with
+`invalidate` effects. A
 `decision.remote` on a `message:` request also invalidates the item in `messages`. The body is the agent's text: a
 client shows it as plain text, never as a link or rich text, and never in a notification.
 
@@ -219,7 +221,7 @@ Effects: every event has `body.effects`, a list of `{section, op, key, fields}` 
 `agents`, `plans`, `messages` and `run`. `op` is:
 
 - `upsert`: set the item `key` of `section` to include `fields`. It is used only for facts fixed when the ledger row is
-  written (a registered agent); a client that holds the item merges `fields` into it. One ordered group is also
+  written (a registered agent, and a message just sent, with its whole item); a client that holds the item merges `fields` into it. One ordered group is also
   carried: `activity`, `activitySince` and `activitySeq` (an `agent.activity` event) are fixed for that row, and a client
   applies the three together only when `activitySeq` is greater than the one it holds (none held counts as 0). A client
   ignores an upsert carrying `activitySeq` for an agent key it does not hold, with no refresh: it only adds activity to

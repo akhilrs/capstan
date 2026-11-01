@@ -191,7 +191,7 @@ struct MergeSheet: View {
                     .foregroundStyle(Tokens.color(.label2))
                     .fixedSize(horizontal: false, vertical: true)
             } else if text.fix == .askPM {
-                Text("Ask the PM to fix this sends the refusal to the project's PM, who can fix the checkout on the host. The message also appears in Messages.")
+                Text("Ask the PM sends this refusal to the project's PM, who can fix it on the host. The message also appears in Messages.")
                     .font(TypeStyle.footnote)
                     .foregroundStyle(Tokens.color(.label2))
                     .fixedSize(horizontal: false, vertical: true)
@@ -222,9 +222,11 @@ struct MergeSheet: View {
         Group {
             if let outcome {
                 let pending = OutcomeLines.pendingId(outcome)
-                let stack = typeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(spacing: Tokens.space[2])) : AnyLayout(HStackLayout(spacing: Tokens.space[2]))
                 let text = MergeText.make(outcome, branch: branch, hostName: hostName, at: receivedAt)
+                // A fix action has a longer label: the buttons stack, the action on top, so neither wraps.
+                let hasFix = resumed || text.fix == .resumeProject || (text.fix == .askPM && fixLine == nil)
+                let stack = typeSize.isAccessibilitySize || hasFix
+                    ? AnyLayout(VStackLayout(spacing: Tokens.space[2])) : AnyLayout(HStackLayout(spacing: Tokens.space[2]))
                 stack {
                     if let pending {
                         Button { retry(pending) } label: {
@@ -234,26 +236,26 @@ struct MergeSheet: View {
                         .disabled(sending)
                     }
                     if resumed {
-                        Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
                         Button { mergeAgain() } label: {
                             if sending { SendingLabel() } else { Text("Merge again") }
                         }
                         .buttonStyle(.capstanPrimary)
                         .disabled(sending)
-                    } else if text.fix == .resumeProject {
                         Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
+                    } else if text.fix == .resumeProject {
                         Button { resumeProject() } label: {
                             if fixing { SendingLabel() } else { Text("Resume project") }
                         }
                         .buttonStyle(.capstanPrimary)
                         .disabled(fixing)
-                    } else if text.fix == .askPM && fixLine == nil {
                         Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
+                    } else if text.fix == .askPM && fixLine == nil {
                         Button { askPM(text) } label: {
-                            if fixing { SendingLabel() } else { Text("Ask the PM to fix this") }
+                            if fixing { SendingLabel() } else { Text("Ask the PM") }
                         }
                         .buttonStyle(.capstanPrimary)
                         .disabled(fixing)
+                        Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
                     } else {
                         Button("Done") { dismiss() }.buttonStyle(.capstanPrimary)
                     }
