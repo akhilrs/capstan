@@ -505,6 +505,10 @@ public struct ProjectModel: Codable, Sendable, Equatable {
     /// Messages from the agents to the person, by key (the message sequence); nil in saved files from before them and
     /// from a host that does not send them.
     public var messages: [String: StoredMessage]?
+    /// An event said part of the project changed and must be read again, and that read has not happened yet. Kept
+    /// across stops and runs: the cursor has already moved past the event, so only a new snapshot brings the change.
+    /// Nil in saved files from before it.
+    public var needsRead: Bool?
 
     public init(
         projectId: String, root: String, availability: ProjectAvailability = .ready, epoch: String? = nil,
@@ -532,7 +536,13 @@ public struct ProjectModel: Codable, Sendable, Equatable {
 
     /// The project can be resumed from a saved cursor: its snapshot is complete and its run, if any, has a hash. A run
     /// whose hash is unknown (a `run.changed` not yet read) is read again in full instead, which brings the hash.
-    var isResumable: Bool { snapshotComplete && (run?.hashKnown ?? true) }
+    /// A project with a read still owed is not resumed either: it is read again in full, so nothing an event pointed at
+    /// is lost when the app stopped before the read.
+    var isResumable: Bool { isSavable && needsRead != true }
+
+    /// The project is worth keeping for the next run: its snapshot is complete and its run, if any, has a hash. One
+    /// that owes a read is kept for display but left out of the saved cursor.
+    var isSavable: Bool { snapshotComplete && (run?.hashKnown ?? true) }
 
     /// The folded overview sections as a set.
     public var folded: Set<String> { Set(foldedSections ?? []) }

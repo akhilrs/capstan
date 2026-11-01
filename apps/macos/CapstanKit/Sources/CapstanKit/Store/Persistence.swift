@@ -29,7 +29,7 @@ public struct PersistedHost: Codable, Sendable, Equatable {
     /// the entries of any other project. Forwards are kept for every project, each list within its cap, because a
     /// record stays true while its project is being snapshotted again.
     init(host: HostModel, staging: Staging, savedAt: Date) {
-        let resumable = host.projects.filter { $0.value.isResumable && staging.pending[$0.key] == nil }
+        let resumable = host.projects.filter { $0.value.isSavable && staging.pending[$0.key] == nil }
         // Only the two times of the freshness marks are saved; a snapshot that was arriving is not.
         let projects: [String: ProjectModel] = resumable.mapValues { (project: ProjectModel) -> ProjectModel in
             var saved = project
@@ -37,7 +37,8 @@ public struct PersistedHost: Codable, Sendable, Equatable {
             return saved
         }
         self.init(
-            hostId: host.hostId, cursor: PersistedHost.trimmed(host.cursor, keeping: Set(projects.keys)),
+            hostId: host.hostId,
+            cursor: PersistedHost.trimmed(host.cursor, keeping: Set(projects.filter { $0.value.isResumable }.keys)),
             projects: projects,
             forwards: host.forwards.mapValues { Array($0.suffix(HostStoreEngine.maxForwardsPerProject)) },
             savedAt: savedAt)

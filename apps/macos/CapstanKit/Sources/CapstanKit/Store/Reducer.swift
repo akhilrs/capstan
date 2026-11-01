@@ -161,6 +161,7 @@ public enum StoreReducer {
         model.attention = [:]
         model.head = head
         model.snapshotComplete = true
+        model.needsRead = nil
         model.markFreshness { $0.complete(at: now) }
         host.projects[projectId] = model
     }
