@@ -253,7 +253,7 @@ always present but may be `null`):
 
 | type | required body fields |
 |---|---|
-| `message.action_needed` | `messageId`, `recipientAgentId`, `state`, `body`, `reason`, `textVerified`, `truncated`, `untrusted`; `requeuedFrom` (the id of the message it replaces) when a PM restart queued it again for the new PM |
+| `message.action_needed` | `messageId`, `recipientAgentId`, `state`, `body`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `message.state` | `messageId`, `recipientAgentId`, `state`, `body`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `prompt.waiting` | `relayId`, `agentId`, `state`, `text`, `options`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `prompt.answered` | `relayId`, `agentId`, `state`, `text`, `options`, `reason`, `textVerified`, `truncated`, `untrusted` |
@@ -283,6 +283,8 @@ always present but may be `null`):
 | `integration.finished` | `integrationId`, `state` |
 | `decision.remote` | `requestId`, `outcome`, `verb`, `client`, `contentHash`, `messageId`, `replaces` |
 | `snapshot.invalidated` | `section`, `key` |
+
+A `message.action_needed` event of a message that a PM restart queued again for the new PM also carries `requeuedFrom`, the id of the message it replaces.
 
 Notes: `plan.needs_attention` comes from the controller's attention list, which lists agent episodes, not plans: its
 `planId` is `null`, its `state` is the episode kind and its entity is an agent. `decision.remote` is the record of a decision made with `cstan decide` (section 11): `messageId` and `replaces` may be `null`,
