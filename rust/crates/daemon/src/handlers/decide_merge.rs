@@ -296,7 +296,7 @@ impl Run<'_> {
     }
 
     /// A merge goes into the root's checkout unless `--into` names another branch.
-    fn into_checkout(&self, target: &str) -> bool {
+    fn targets_checkout(&self, target: &str) -> bool {
         self.into().is_none() || self.checked_out().as_deref() == Some(target)
     }
 
@@ -319,7 +319,7 @@ impl Run<'_> {
             _ => None,
         };
         let already_in_head = match (&head, &target_branch) {
-            (Some(head), Some(target)) if !self.into_checkout(target) => {
+            (Some(head), Some(target)) if !self.targets_checkout(target) => {
                 self.repo.is_in_branch(head, target, SMALL_GIT_TIMEOUT)?
             }
             (Some(head), Some(_)) => self.repo.is_in_head(head)?,
@@ -370,7 +370,7 @@ impl Run<'_> {
                     branch,
                     head_sha,
                     verify,
-                    checkout: self.into_checkout(&target),
+                    checkout: self.targets_checkout(&target),
                     target,
                     already_in_head,
                 }),
