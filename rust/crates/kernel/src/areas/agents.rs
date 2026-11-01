@@ -16,13 +16,15 @@ use crate::helpers::{
 use crate::json::stringify;
 use crate::kernel::Kernel;
 use crate::records::{
-    is_final_state, AgentFindingRow, MutationEvent, MutationOutput, MAX_SUMMARY_BODY,
+    is_final_state, AgentFindingRow, MessageRow, MutationEvent, MutationOutput, MAX_SUMMARY_BODY,
     MAX_SUMMARY_BYTES, MAX_SUMMARY_LINKS, MAX_SUMMARY_MESSAGES, MAX_SUMMARY_WORK,
     TRUNCATION_MARKER,
 };
 use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
+
+use super::messaging::MessageClass;
 
 use super::{
     actors, findings, integrations, links, message_notices, messages, operator_grants,
@@ -712,6 +714,17 @@ pub fn restart_agent_generation(
                 [&kernel.project_id, agent_id],
                 |row| row.get::<_, String>(0),
             )?;
+            // The open messages the user or another agent sent: the restart cancels them for this generation, and they are
+            // queued again for the next one so the new PM receives them as messages to act on (the summary still lists
+            // them, as context). Controller notices are only summarized; the controller raises them again while they
+            // still apply.
+            let carry: Vec<MessageRow> = messages::open_message_rows_for(kernel, agent_id)?
+                .into_iter()
+                .filter(|row| {
+                    !matches!(row.state.as_str(), "acked" | "acked_late" | "cancelled")
+                        && row.sender_actor_id != kernel.internal_actor_id
+                })
+                .collect();
             let (summary_json, summary) =
                 restart_summary(kernel, agent_id, agent.generation, &carried)?;
             let summary_hash = sha256(&summary_json);
@@ -742,6 +755,32 @@ pub fn restart_agent_generation(
                     kernel.now()
                 ],
             )?;
+            if let Some(successor) = kernel.agent_row(agent_id)? {
+                let now = kernel.now();
+                let mut moved = Vec::new();
+                for row in &carry {
+                    let class = MessageClass::parse(&row.class).unwrap_or(MessageClass::Action);
+                    let message_id = messages::insert_queued_message(
+                        kernel,
+                        &row.sender_actor_id,
+                        &successor,
+                        &row.body,
+                        &sha256(&row.body),
+                        &now,
+                        row.action_needed == 1,
+                        class,
+                    )?;
+                    let mut event = MutationEvent::new("message", &message_id, 0).with_details(json!({
+                        "recipientAgentId": successor.agent_id,
+                        "bodyHash": sha256(&row.body),
+                        "requeuedFrom": row.message_id,
+                    }));
+                    event.to_state = Some("queued".into());
+                    replaced.extra_events.push(event);
+                    moved.push(json!({"from": row.message_id, "to": message_id}));
+                }
+                replaced.value["requeued"] = json!(moved);
+            }
             replaced.value["restartId"] = json!(restart_id);
             replaced.value["summary"] = summary;
             if let Some(Value::Object(details)) = replaced.event.details.as_mut() {

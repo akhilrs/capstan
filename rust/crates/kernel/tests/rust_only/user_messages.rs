@@ -222,3 +222,34 @@ fn a_message_keeps_its_lines_and_loses_only_control_characters() {
     let page = messages_page(&rig.core, None, 10).unwrap();
     assert_eq!(page.items[0].body, "Status:\n  sent    9222\n  failed     0");
 }
+
+#[test]
+fn a_pm_restart_queues_the_users_and_agents_open_messages_for_the_new_pm() {
+    let rig = Rig::new();
+    rig.enqueue("pm-1", "The user sent you a message from remote client iPhone: ship it", true);
+    rig.core
+        .enqueue_message(
+            &rig.ctx("dev-1"),
+            &json!({"recipientAgentId": "pm-1", "body": "Report: package 2 done", "actionNeeded": true}),
+        )
+        .unwrap();
+    let before: i64 = rig
+        .db()
+        .query_row("SELECT generation FROM agents WHERE agent_id = 'pm-1'", [], |r| r.get(0))
+        .unwrap();
+    let restarted = rig.core.restart_agent_generation(&rig.ctx("owner"), "pm-1").unwrap();
+    assert_eq!(restarted["requeued"].as_array().unwrap().len(), 2);
+    let after: i64 = rig
+        .db()
+        .query_row("SELECT generation FROM agents WHERE agent_id = 'pm-1'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(after, before + 1);
+    let queued = count(
+        &rig,
+        &format!(
+            "SELECT count(*) FROM messages WHERE recipient_agent_id = 'pm-1' AND recipient_generation = {after}
+               AND state = 'queued' AND body IN ('The user sent you a message from remote client iPhone: ship it', 'Report: package 2 done')"
+        ),
+    );
+    assert_eq!(queued, 2, "both are queued for the new PM");
+}
