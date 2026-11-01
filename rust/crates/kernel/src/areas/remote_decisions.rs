@@ -356,6 +356,13 @@ pub const VERBS: &[VerbRow] = &[
         &[INTO],
     ),
     row(
+        Kind::Integration,
+        "discard",
+        Outcome::Applied,
+        Positional::None,
+        &[],
+    ),
+    row(
         Kind::Pm,
         "message",
         Outcome::Applied,
@@ -814,7 +821,7 @@ pub fn decide_with(
 ) -> KernelResult<Value> {
     let kernel = core.kernel();
     authorize_operator(kernel, context)?;
-    if input.kind == Kind::Integration {
+    if input.kind == Kind::Integration && input.verb == "merge" {
         return Err(Refusal::invalid(
             "an integration is merged by the merge verb, not decided here",
         )
@@ -920,6 +927,7 @@ fn apply(
         (Kind::Message, _) => reply_to_message(kernel, actor, input)?,
         (Kind::Agent, _) => pause_agent(kernel, actor, input)?,
         (Kind::Run, _) => pause_run(kernel, context, actor, input)?,
+        (Kind::Integration, "discard") => discard_integration(kernel, actor, input)?,
         (Kind::Integration, _) => {
             return Err(Refusal::invalid("an integration is not decided here").into())
         }
@@ -1309,6 +1317,28 @@ fn decide_design(
         message_id: None,
         replaces: None,
         item_key: item_key("waiting", "design", &format!("{sequence}/{package_id}")),
+    })
+}
+
+/// `integration discard`: the integration waiting to be merged (or a conflicted one) is discarded, as `cstan integrate
+/// discard` does. The daemon then removes its branch.
+fn discard_integration(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    input: &DecideInput,
+) -> KernelResult<Done> {
+    require_capability(actor, "operator:decide")?;
+    let integration = integrations::integration_row(kernel, &input.target)?
+        .ok_or_else(|| Refusal::new("not_waiting", format!("{} is not waiting", input.request_id)))?;
+    let output = integrations::apply_settle(kernel, &input.target, "discarded").map_err(|error| match error {
+        KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
+        other => other,
+    })?;
+    Ok(Done {
+        events: events_of(output),
+        message_id: None,
+        replaces: None,
+        item_key: item_key("waiting", "integration", &integration.sequence.to_string()),
     })
 }
 

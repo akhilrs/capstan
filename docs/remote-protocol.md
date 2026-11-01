@@ -549,6 +549,7 @@ the two outcomes.
 | run | pause | applied |
 | run | resume | applied |
 | integration | merge | applied |
+| integration | discard | applied |
 | pm | message | applied |
 
 Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
@@ -573,6 +574,12 @@ widens permissions or accepts typed text, a prompt with no option that can be an
 A `message reply` answers an open question an agent sent the user (section 4, Messages to the user). The answer goes to
 that agent as an action message with the text marked as untrusted, quoting the question (cut at 600 bytes), and the
 question becomes `answered`. A question whose agent is no longer active is refused with `not_waiting`.
+
+An `integration discard` discards a waiting integration (`integration:<id>`, `merged` or `conflicted`) that the person
+does not want merged, as `cstan integrate discard` does: the integration becomes `discarded`, its packages stop
+counting as integrated, and the daemon then removes the integration branch (a branch it could not remove is offered
+again by `cstan cleanup`). An integration that is not waiting, or whose review is still open, is refused with
+`not_waiting`. It is never offered as a swipe.
 
 ### Merge
 

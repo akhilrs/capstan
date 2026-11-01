@@ -81,4 +81,26 @@ final class MergeVerbTests: XCTestCase {
             XCTFail("an op is not merged")
         }
     }
+
+    func testADiscardIsItsOwnVerbAndAnyWaitingIntegrationTakesIt() throws {
+        let request = makeRequest(verb: .integrationDiscard, requestId: "integration:int-7")
+        XCTAssertEqual(
+            try request.remoteArguments(),
+            ["decide", "--project", "proj-1", "--json", "integration:int-7", "--expect", testHash, "--nonce", testNonce,
+             "--client", "Mac", "discard"])
+        XCTAssertEqual(DecideVerb.integrationDiscard.row,
+                       DecideVerbRow(kind: "integration", verb: "discard", outcome: "applied"))
+        XCTAssertTrue(DecideVerb.integrationDiscard.isDestructive, "a discard confirms first")
+        XCTAssertFalse(DecideVerb.integrationDiscard.isMerge)
+        XCTAssertEqual(Decider.timeout(for: .integrationDiscard), Decider.timeoutSeconds)
+        let caps = HostCapabilities(reachable: true, events: true, decide: true)
+        for state in ["merged", "conflicted"] {
+            let item = try WaitingItem(json: .object([
+                "key": .string("integration:7"), "requestId": .string("integration:int-7"), "kind": .string("integration"),
+                "since": .string("t"), "summary": .string(state + " integration/plan-3"), "contentHash": .string(testHash),
+                "needsTerminal": .bool(false), "integrationState": .string(state),
+            ]))
+            XCTAssertEqual(availability(.integrationDiscard, capabilities: caps, item: item, option: nil), .available, state)
+        }
+    }
 }

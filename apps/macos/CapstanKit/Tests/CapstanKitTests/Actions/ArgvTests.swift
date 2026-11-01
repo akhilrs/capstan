@@ -94,7 +94,8 @@ final class ArgvTests: XCTestCase {
         let verbs: [DecideVerb] = [
             .opDeny(note: nil), .opApprove, .promptOption(1), .promptEsc, .designApprove(link: "l", askedUser: "a"),
             .designChanges(askedUser: "a", link: nil), .messageReply("r"), .agentPause(reason: nil),
-            .agentResume(reason: nil), .runPause(reason: nil), .runResume(reason: nil),
+            .agentResume(reason: nil), .runPause(reason: nil), .runResume(reason: nil), .integrationMerge,
+            .integrationDiscard, .pmMessage("m"),
         ]
         XCTAssertEqual(verbs.map(\.row), DecideVerbRow.documented)
     }

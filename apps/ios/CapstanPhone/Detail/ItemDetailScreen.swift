@@ -65,6 +65,7 @@ struct ItemDetailScreen: View {
     @State private var receivedAt = Date()
     @State private var toast = false
     @State private var merging = false
+    @State private var confirmDiscard = false
 
     var body: some View {
         if let item = model.item(row) {
@@ -143,6 +144,14 @@ struct ItemDetailScreen: View {
         }
         .sheet(item: $link) { item in
             DesignLinkConfirm(link: item.text)
+        }
+        .sheet(isPresented: $confirmDiscard) {
+            ConfirmSheet(
+                title: "Discard this integration?", detail: main.text, noteLimit: nil,
+                destructiveLabel: "Discard", detailLabel: "Integration · " + ctx.projectName,
+                footnote: "It is not merged. The host marks it discarded and removes its branch; "
+                    + "this cannot be taken back from here.",
+                onConfirm: { _ in run(.integrationDiscard) })
         }
         .sheet(isPresented: $merging) {
             MergeSheet(row: row, item: ctx.item)
@@ -342,6 +351,13 @@ struct ItemDetailScreen: View {
                 }
             }
             Button { openProject() } label: { Label("Open project", systemImage: "folder") }
+            if ctx.item.kind == .integration, ctx.ready, ctx.live, isAvailable(.integrationDiscard) {
+                Divider()
+                Button(role: .destructive) { confirmDiscard = true } label: {
+                    Label("Discard integration…", systemImage: "trash")
+                }
+                .disabled(sending)
+            }
             if ctx.item.kind == .op, ctx.answerable {
                 Divider()
                 Button(role: .destructive) { confirmDeny = true } label: { Label("Deny…", systemImage: "xmark.octagon") }
