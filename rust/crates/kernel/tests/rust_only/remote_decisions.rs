@@ -46,6 +46,7 @@ fn request_of(kind: &str) -> &'static str {
         "run" => "run",
         "integration" => "integration:int-1",
         "pm" => "pm",
+        "plan" => "plan:plan-1",
         other => panic!("{other}"),
     }
 }
@@ -116,8 +117,9 @@ fn every_row_of_the_verb_table_parses_with_its_flags_and_nothing_else_does() {
         "run",
         "integration",
         "pm",
+        "plan",
     ];
-    assert_eq!(VERBS.len(), 14);
+    assert_eq!(VERBS.len(), 15);
     for kind in kinds {
         assert!(VERBS.iter().any(|row| row.kind.as_str() == kind), "{kind}");
     }

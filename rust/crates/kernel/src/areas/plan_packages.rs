@@ -1,5 +1,6 @@
 //! The plan packages (src/controller/plan-packages.ts).
 
+use crate::auth::AuthenticatedActor;
 use crate::canonical::sha256;
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
@@ -713,161 +714,172 @@ pub fn cancel_plan(
         Some(value) => Some(safe_id(value, "package id")?),
     };
     kernel.mutate(context, "plan.cancel", "plan:write", input, |actor| {
-        if actor.role != "operator" {
-            return Err(KernelError::controller("only the operator cancels a plan"));
-        }
-        let Some(plan) = plans::plan_row(kernel, plan_id)? else {
-            return Err(KernelError::controller(format!("plan {plan_id} does not exist")));
-        };
-        if plan.cancelled_at.is_some() {
+        apply_cancel_plan(kernel, actor, plan_id, package_id)
+    })
+}
+
+/// The body of `plan.cancel`, run inside a mutation by the operator: the whole plan (any state but superseded, a plan
+/// in review back to draft first) or one package of an approved plan.
+pub fn apply_cancel_plan(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    plan_id: &str,
+    package_id: Option<&str>,
+) -> KernelResult<MutationOutput> {
+    if actor.role != "operator" {
+        return Err(KernelError::controller("only the operator cancels a plan"));
+    }
+    let Some(plan) = plans::plan_row(kernel, plan_id)? else {
+        return Err(KernelError::controller(format!("plan {plan_id} does not exist")));
+    };
+    if plan.cancelled_at.is_some() {
+        return Err(KernelError::controller(format!(
+            "{}: plan {plan_id} was cancelled",
+            if package_id.is_none() { "already_cancelled" } else { "plan_cancelled" }
+        )));
+    }
+    let now = kernel.now();
+    let cancelled_packages: Vec<String>;
+    let mut review_id: Option<String> = None;
+    let mut reviewer_agent_id: Option<String> = None;
+    if let Some(package_id) = package_id {
+        if plan.state != "approved" {
             return Err(KernelError::controller(format!(
-                "{}: plan {plan_id} was cancelled",
-                if package_id.is_none() { "already_cancelled" } else { "plan_cancelled" }
+                "plan_not_approved: plan {plan_id} is {}",
+                plan.state
             )));
         }
-        let now = kernel.now();
-        let cancelled_packages: Vec<String>;
-        let mut review_id: Option<String> = None;
-        let mut reviewer_agent_id: Option<String> = None;
-        if let Some(package_id) = package_id {
-            if plan.state != "approved" {
-                return Err(KernelError::controller(format!(
-                    "plan_not_approved: plan {plan_id} is {}",
-                    plan.state
-                )));
+        let row = plan_package_rows(kernel, plan_id)?
+            .into_iter()
+            .find(|r| r.package_id == package_id);
+        let Some(row) = row else {
+            return Err(KernelError::controller(format!(
+                "plan {plan_id} has no package {package_id}"
+            )));
+        };
+        if row.cancelled_at.is_some() {
+            return Err(KernelError::controller(format!(
+                "already_cancelled: package {package_id} was cancelled"
+            )));
+        }
+        if package_facts(kernel, plan_id, &row, false)?.confirmed {
+            return Err(KernelError::controller(format!(
+                "package_confirmed: package {package_id} is already integrated and confirmed"
+            )));
+        }
+        execute(
+            &kernel.database,
+            "UPDATE plan_packages SET cancelled_at = ? WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
+            [now.as_str(), kernel.project_id.as_str(), plan_id, package_id],
+        )?;
+        cancelled_packages = vec![package_id.to_string()];
+    } else {
+        if plan.state == "superseded" {
+            return Err(KernelError::controller(format!(
+                "plan_superseded: plan {plan_id} was superseded"
+            )));
+        }
+        if plan.state == "in_review" {
+            let open = query_opt(
+                &kernel.database,
+                "SELECT review_id, reviewer_agent_id FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state = 'started'",
+                [&kernel.project_id, plan_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?;
+            if let Some((open_review, open_reviewer)) = open {
+                execute(
+                    &kernel.database,
+                    "UPDATE reviews SET state = 'cancelled', failure_reason = 'plan cancelled', completed_at = ? WHERE project_id = ? AND review_id = ? AND state = 'started'",
+                    [now.as_str(), kernel.project_id.as_str(), open_review.as_str()],
+                )?;
+                review_id = Some(open_review);
+                reviewer_agent_id = Some(open_reviewer);
             }
-            let row = plan_package_rows(kernel, plan_id)?
-                .into_iter()
-                .find(|r| r.package_id == package_id);
-            let Some(row) = row else {
-                return Err(KernelError::controller(format!(
-                    "plan {plan_id} has no package {package_id}"
-                )));
-            };
-            if row.cancelled_at.is_some() {
-                return Err(KernelError::controller(format!(
-                    "already_cancelled: package {package_id} was cancelled"
-                )));
+            execute(
+                &kernel.database,
+                "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+                [now.as_str(), kernel.project_id.as_str(), plan_id],
+            )?;
+        }
+        let mut live = Vec::new();
+        for row in plan_package_rows(kernel, plan_id)? {
+            if row.cancelled_at.is_none() && !package_facts(kernel, plan_id, &row, false)?.confirmed {
+                live.push(row.package_id);
             }
-            if package_facts(kernel, plan_id, &row, false)?.confirmed {
-                return Err(KernelError::controller(format!(
-                    "package_confirmed: package {package_id} is already integrated and confirmed"
-                )));
-            }
+        }
+        for package in &live {
             execute(
                 &kernel.database,
                 "UPDATE plan_packages SET cancelled_at = ? WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
-                [now.as_str(), kernel.project_id.as_str(), plan_id, package_id],
-            )?;
-            cancelled_packages = vec![package_id.to_string()];
-        } else {
-            if plan.state == "superseded" {
-                return Err(KernelError::controller(format!(
-                    "plan_superseded: plan {plan_id} was superseded"
-                )));
-            }
-            if plan.state == "in_review" {
-                let open = query_opt(
-                    &kernel.database,
-                    "SELECT review_id, reviewer_agent_id FROM reviews WHERE project_id = ? AND subject_plan_id = ? AND state = 'started'",
-                    [&kernel.project_id, plan_id],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                )?;
-                if let Some((open_review, open_reviewer)) = open {
-                    execute(
-                        &kernel.database,
-                        "UPDATE reviews SET state = 'cancelled', failure_reason = 'plan cancelled', completed_at = ? WHERE project_id = ? AND review_id = ? AND state = 'started'",
-                        [now.as_str(), kernel.project_id.as_str(), open_review.as_str()],
-                    )?;
-                    review_id = Some(open_review);
-                    reviewer_agent_id = Some(open_reviewer);
-                }
-                execute(
-                    &kernel.database,
-                    "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
-                    [now.as_str(), kernel.project_id.as_str(), plan_id],
-                )?;
-            }
-            let mut live = Vec::new();
-            for row in plan_package_rows(kernel, plan_id)? {
-                if row.cancelled_at.is_none() && !package_facts(kernel, plan_id, &row, false)?.confirmed {
-                    live.push(row.package_id);
-                }
-            }
-            for package in &live {
-                execute(
-                    &kernel.database,
-                    "UPDATE plan_packages SET cancelled_at = ? WHERE project_id = ? AND plan_id = ? AND package_id = ? AND cancelled_at IS NULL",
-                    [now.as_str(), kernel.project_id.as_str(), plan_id, package.as_str()],
-                )?;
-            }
-            cancelled_packages = live;
-            execute(
-                &kernel.database,
-                "UPDATE plans SET cancelled_at = ?, updated_at = ? WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL",
-                [now.as_str(), now.as_str(), kernel.project_id.as_str(), plan_id],
+                [now.as_str(), kernel.project_id.as_str(), plan_id, package.as_str()],
             )?;
         }
-        let released: Vec<String> = if package_id.is_none() {
-            warm_reviewers::release_plan(kernel, plan_id, "cancel", &now)?
-                .into_iter()
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let mut notified = plans::queue_plan_notice(kernel, "plan_notice",
-            &plan,
-            &plan_cancelled_notice(plan_id, package_id),
-            &now,
-            true,
+        cancelled_packages = live;
+        execute(
+            &kernel.database,
+            "UPDATE plans SET cancelled_at = ?, updated_at = ? WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL",
+            [now.as_str(), now.as_str(), kernel.project_id.as_str(), plan_id],
         )?;
-        let held: Vec<PackageRow> = plan_package_rows(kernel, plan_id)?
+    }
+    let released: Vec<String> = if package_id.is_none() {
+        warm_reviewers::release_plan(kernel, plan_id, "cancel", &now)?
             .into_iter()
-            .filter(|row| cancelled_packages.contains(&row.package_id))
-            .collect();
-        for row in held {
-            let developer = match &row.assignee_agent_id {
-                Some(id) => kernel.agent_row(id)?,
-                None => None,
-            };
-            let Some(developer) = developer.filter(|d| d.state == "active") else {
-                continue;
-            };
-            let body = format!(
-                "Stop work on package {} of plan {plan_id}: it was cancelled by the operator. Do not report it.",
-                row.package_id
-            );
-            messages::insert_queued_message(
-                kernel,
-                &kernel.controller_actor_id()?,
-                &developer,
-                &body,
-                &sha256(&body),
-                &now,
-                false,
-                messages::class_for_kind(kernel, "work_package_cancelled"),
-            )?;
-            if !notified.contains(&developer.agent_id) {
-                notified.push(developer.agent_id.clone());
-            }
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut notified = plans::queue_plan_notice(kernel, "plan_notice",
+        &plan,
+        &plan_cancelled_notice(plan_id, package_id),
+        &now,
+        true,
+    )?;
+    let held: Vec<PackageRow> = plan_package_rows(kernel, plan_id)?
+        .into_iter()
+        .filter(|row| cancelled_packages.contains(&row.package_id))
+        .collect();
+    for row in held {
+        let developer = match &row.assignee_agent_id {
+            Some(id) => kernel.agent_row(id)?,
+            None => None,
+        };
+        let Some(developer) = developer.filter(|d| d.state == "active") else {
+            continue;
+        };
+        let body = format!(
+            "Stop work on package {} of plan {plan_id}: it was cancelled by the operator. Do not report it.",
+            row.package_id
+        );
+        messages::insert_queued_message(
+            kernel,
+            &kernel.controller_actor_id()?,
+            &developer,
+            &body,
+            &sha256(&body),
+            &now,
+            false,
+            messages::class_for_kind(kernel, "work_package_cancelled"),
+        )?;
+        if !notified.contains(&developer.agent_id) {
+            notified.push(developer.agent_id.clone());
         }
-        let mut value = json!({
-            "planId": plan_id,
-            "packageId": package_id,
-            "cancelledPackages": cancelled_packages,
-            "reviewId": review_id,
-            "reviewerAgentId": reviewer_agent_id,
-            "notified": notified,
-        });
-        if !released.is_empty() {
-            value["releasedReviewerAgentIds"] = json!(released);
-        }
-        Ok(MutationOutput::new(
-            value,
-            MutationEvent::new("plan", plan_id, 0)
-                .with_details(json!({"packageId": package_id, "cancelledPackages": cancelled_packages})),
-        ))
-    })
+    }
+    let mut value = json!({
+        "planId": plan_id,
+        "packageId": package_id,
+        "cancelledPackages": cancelled_packages,
+        "reviewId": review_id,
+        "reviewerAgentId": reviewer_agent_id,
+        "notified": notified,
+    });
+    if !released.is_empty() {
+        value["releasedReviewerAgentIds"] = json!(released);
+    }
+    Ok(MutationOutput::new(
+        value,
+        MutationEvent::new("plan", plan_id, 0)
+            .with_details(json!({"packageId": package_id, "cancelledPackages": cancelled_packages})),
+    ))
 }
 
 /// The operations of this area, by the `ControllerCore` method name; `None` for a name that is not this area's.

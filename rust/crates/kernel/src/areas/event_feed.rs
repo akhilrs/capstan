@@ -1685,6 +1685,8 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 "run"
             } else if request.starts_with("agent:") {
                 "agents"
+            } else if request.starts_with("plan:") {
+                "plans"
             } else {
                 "waiting"
             };

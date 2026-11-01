@@ -8,15 +8,50 @@ import SwiftUI
 struct PlanDetailScreen: View {
     @Environment(AppModel.self) private var model
     let ref: PlanRef
+    @State private var confirmCancel = false
+    @State private var sending = false
+    @State private var outcome: DecideOutcome?
+    @State private var receivedAt = Date()
 
     var body: some View {
         if let project = model.project(ref.hostId, ref.projectId),
             let row = PlanRow.rows(project).first(where: { $0.planId == ref.planId })
         {
             content(row, project)
+        } else if case .applied? = outcome {
+            ContentUnavailableView("Plan cancelled", systemImage: "xmark.circle",
+                                   description: Text("Its open packages were stopped and the PM was told."))
+                .background(Tokens.color(.ground))
         } else {
             ContentUnavailableView("This plan is no longer listed", systemImage: "list.bullet.rectangle")
                 .background(Tokens.color(.ground))
+        }
+    }
+
+    private var hostName: String {
+        model.hosts.first { $0.id == ref.hostId }?.displayName ?? "the host"
+    }
+
+    /// The plan can be cancelled from here: the host can decide and sent the plan's binding.
+    private func cancellable(_ stored: StoredPlan?) -> Bool {
+        (model.capabilities[ref.hostId]?.decide ?? false) && stored?.requestId != nil && stored?.contentHash != nil
+    }
+
+    private func cancel(_ key: String) {
+        guard !sending else { return }
+        sending = true
+        outcome = nil
+        Task {
+            let result = await model.cancelPlan(key: key, hostId: ref.hostId, projectId: ref.projectId)
+            receivedAt = Date()
+            outcome = result
+            sending = false
+            switch OutcomeLines.feel(result) {
+            case .success?: Haptics.play(.success)
+            case .warning?: Haptics.play(.warning)
+            case .error?: Haptics.play(.error)
+            case nil: break
+            }
         }
     }
 
@@ -35,6 +70,9 @@ struct PlanDetailScreen: View {
                             .foregroundStyle(Tokens.color(.label2))
                     }
                     Text(verbatim: row.title).font(TypeStyle.title2).accessibilityAddTraits(.isHeader)
+                }
+                if let outcome, !sending {
+                    OutcomeBanner(outcome: outcome, hostName: hostName, receivedAt: receivedAt)
                 }
                 VStack(alignment: .leading, spacing: Tokens.space[1]) {
                     PlanProgressBar(progress: row.progress).accessibilityHidden(true)
@@ -90,6 +128,32 @@ struct PlanDetailScreen: View {
         }
         .background(Tokens.color(.ground))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if cancellable(stored) {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(role: .destructive) { confirmCancel = true } label: {
+                            if row.state == "draft" {
+                                Label("Cancel draft…", systemImage: "xmark.circle")
+                            } else {
+                                Label("Cancel plan…", systemImage: "xmark.circle")
+                            }
+                        }
+                        .disabled(sending)
+                    } label: {
+                        Label("More actions", systemImage: "ellipsis")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $confirmCancel) {
+            ConfirmSheet(
+                title: "Cancel this plan?", detail: stored?.title, noteLimit: nil,
+                destructiveLabel: "Cancel plan", detailLabel: "Plan · " + projectName + " · " + row.planId,
+                footnote: "Its open packages stop and their developers and the PM are told. "
+                    + "A cancelled plan cannot be taken back from here.",
+                onConfirm: { _ in if let key = stored?.key { cancel(key) } })
+        }
     }
 }
 

@@ -15,6 +15,11 @@ extension AppModel {
         await perform(verb, target: .agent(id: agentId), hostId: hostId, projectId: projectId)
     }
 
+    /// Cancels a plan of the `plans` section (`plan cancel`), bound to the plan as it is listed.
+    func cancelPlan(key: String, hostId: UUID, projectId: String) async -> DecideOutcome {
+        await perform(.planCancel, target: .plan(key: key), hostId: hostId, projectId: projectId)
+    }
+
     func decideRun(_ verb: DecideVerb, hostId: UUID, projectId: String) async -> DecideOutcome {
         await perform(verb, target: .run, hostId: hostId, projectId: projectId)
     }

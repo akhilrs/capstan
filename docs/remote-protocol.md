@@ -307,7 +307,8 @@ Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line
 pane) and untrusted text (section 8). The three activity fields are the agent's latest observed
 activity state, the time it was observed and its sequence; they are `null` while the agent has no observation, and
 `contentHash` does not cover them. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
-integrated}`. `state` of a plan is `draft`, `in_review`, `approved` or `signed_off`: a plan with a sign-off stays in
+integrated}`, `requestId` (`plan:<planId>`) and `contentHash` (the SHA-256 of the canonical
+`{"plan": planId, "state": state, "title": title}`). `state` of a plan is `draft`, `in_review`, `approved` or `signed_off`: a plan with a sign-off stays in
 `plans`, as `signed_off`, while one of its sign-offs is on an integration that is neither confirmed nor discarded, and
 leaves when that integration is confirmed or discarded (a cancelled plan is never listed). `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`; the run item has no key of its own and
 its line uses `run`. `Page<T>`: `head`, `items`, `next`.
@@ -470,7 +471,7 @@ The daemon route `feed` takes these subcommands: `head`, `page --after <seq>:<k>
 The `head`, `snapshot` and `page` answers carry `anchor` (section 4).
 
 `hash` always answers the object `{requestId, contentHash}`: the content hash of a request id (`op:<id>`,
-`prompt:<id>`, `design:<plan>/<package>`, `message:<id>`, `integration:<id>`, `agent:<id>` or `run`), with
+`prompt:<id>`, `design:<plan>/<package>`, `message:<id>`, `integration:<id>`, `plan:<id>`, `agent:<id>` or `run`), with
 `contentHash` `null` once nothing waits on it. `item` always answers `{section, key, item}`, with `item` `null` when
 the row is gone or no longer listed (the client removes it).
 
@@ -550,12 +551,13 @@ the two outcomes.
 | run | resume | applied |
 | integration | merge | applied |
 | integration | discard | applied |
+| plan | cancel | applied |
 | pm | message | applied |
 
 Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
 `design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
 `message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`; `integration merge`
-(no arguments; see Merge); `pm message <text>`. Text is cleaned
+(no arguments; see Merge); `integration discard` and `plan cancel` (no arguments); `pm message <text>`. Text is cleaned
 and capped like the text of the feed (section 8).
 
 An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
@@ -632,6 +634,13 @@ The member as it appears in the result (the other fields are those of Result bel
 ```
 
 The merge also confirms the integration and tells the PM. A merge may take minutes; a client waits up to five.
+
+### Cancel a plan
+
+`plan cancel` cancels a plan (`plan:<planId>`, a draft, one in review, approved or signed off), as `cstan plan cancel`
+does, at once (`applied`): its open packages stop and their developers and the PM are told, and an open review of it
+ends. A plan that is cancelled, superseded or does not exist has no binding and is refused with `not_waiting`. It is
+never offered as a swipe.
 
 ### Message to the PM
 

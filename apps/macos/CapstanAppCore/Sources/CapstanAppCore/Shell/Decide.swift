@@ -8,6 +8,8 @@ public enum RouteTarget: Sendable, Equatable {
     case run
     /// The project's active PM: a free message (`pm message`).
     case pm
+    /// A plan of the `plans` section, by its item key (`plan cancel`).
+    case plan(key: String)
 }
 
 /// The request id and content hash a decision must carry, read from the model the person is looking at.
@@ -26,6 +28,12 @@ public enum RequestTarget {
     public static func forPm(_ p: ProjectModel) -> (requestId: String, expect: String)? {
         guard let agentId = PmBinding.activePm(p) else { return nil }
         return (PmBinding.requestId, PmBinding.hash(agentId: agentId))
+    }
+
+    /// The plan's request and binding; nil once it is gone, or from a host that does not send them.
+    public static func forPlan(_ p: ProjectModel, key: String) -> (requestId: String, expect: String)? {
+        guard let plan = p.plans[key], let requestId = plan.requestId, let hash = plan.contentHash else { return nil }
+        return (requestId, hash)
     }
 
     public static func forRun(_ p: ProjectModel) -> (requestId: String, expect: String)? {
@@ -87,6 +95,7 @@ public enum DecideRouter {
         case .agent(let id): found = RequestTarget.forAgent(project, id: id)
         case .run: found = RequestTarget.forRun(project)
         case .pm: found = RequestTarget.forPm(project)
+        case .plan(let key): found = RequestTarget.forPlan(project, key: key)
         }
         guard let found else {
             return .local(target == .pm ? LocalOutcome.noActivePm() : LocalOutcome.notWaiting())
