@@ -2,6 +2,15 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.16.0 (2026-11-01)
+
+### Features
+
+- **messages:** choices as buttons, picker + phone, readable messages (#77) (fc78ec9)
+
+### Tests
+
+- fix four tests broken by #73, #76 and #77 (#78) (9daf325)
 ## 0.15.0 (2026-10-31)
 
 ### Features
