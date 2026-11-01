@@ -1291,6 +1291,82 @@ pub fn open_message_rows_for(kernel: &Kernel, agent_id: &str) -> KernelResult<Ve
     )
 }
 
+/// `message.requeue`: after a PM restart, queues again for the new generation the open messages the restart cancelled for
+/// the previous one (`generation_replaced`), when the user (a remote client or the CLI) or another agent sent them; controller notices are left to
+/// the controller, which raises them again while they apply. Each new message's event names the one it replaces
+/// (`requeuedFrom`). A message already queued again (same sender and body for the new generation) is skipped, so a second
+/// call adds nothing. Returns `{requeued: [{from, to}]}`; nothing to move writes nothing.
+pub fn requeue_after_restart(kernel: &Kernel, context: &MutationContext, agent_id: &str) -> KernelResult<Value> {
+    let Some(agent) = kernel.agent_row(agent_id)?.filter(|a| a.state == "active" && a.kind == "PM") else {
+        return Ok(json!({"requeued": []}));
+    };
+    let restarted = query_opt(
+        &kernel.database,
+        "SELECT 1 FROM pm_restarts WHERE project_id = ? AND agent_id = ? AND summarized_generation = ?",
+        rusqlite::params![kernel.project_id, agent.agent_id, agent.generation - 1],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if restarted.is_none() {
+        return Ok(json!({"requeued": []}));
+    }
+    let rows = query_all(
+        &kernel.database,
+        "SELECT * FROM messages m WHERE m.project_id = ?1 AND m.recipient_agent_id = ?2 AND m.recipient_generation = ?3
+           AND m.state = 'cancelled' AND m.state_reason = 'generation_replaced' AND m.sender_actor_id <> ?4
+           AND NOT EXISTS (SELECT 1 FROM messages n WHERE n.project_id = m.project_id AND n.recipient_agent_id = m.recipient_agent_id
+                             AND n.recipient_generation = ?5 AND n.sender_actor_id = m.sender_actor_id AND n.body_hash = m.body_hash)
+         ORDER BY m.sequence",
+        rusqlite::params![
+            kernel.project_id,
+            agent.agent_id,
+            agent.generation - 1,
+            kernel.internal_actor_id,
+            agent.generation
+        ],
+        MessageRow::from_row,
+    )?;
+    if rows.is_empty() {
+        return Ok(json!({"requeued": []}));
+    }
+    kernel.mutate(
+        context,
+        "message.requeue",
+        "message:send",
+        &json!({"agentId": agent.agent_id, "count": rows.len()}),
+        |_| {
+            let now = kernel.now();
+            let mut moved = Vec::new();
+            let mut events = Vec::new();
+            for row in &rows {
+                let class = MessageClass::parse(&row.class).unwrap_or(MessageClass::Action);
+                let body_hash = sha256(&row.body);
+                let message_id = insert_queued_message(
+                    kernel,
+                    &row.sender_actor_id,
+                    &agent,
+                    &row.body,
+                    &body_hash,
+                    &now,
+                    row.action_needed == 1,
+                    class,
+                )?;
+                let mut event = MutationEvent::new("message", &message_id, 0).with_details(json!({
+                    "recipientAgentId": agent.agent_id,
+                    "bodyHash": body_hash,
+                    "requeuedFrom": row.message_id,
+                }));
+                event.to_state = Some("queued".into());
+                events.push(event);
+                moved.push(json!({"from": row.message_id, "to": message_id}));
+            }
+            let first = events.remove(0);
+            let mut output = MutationOutput::new(json!({"requeued": moved}), first);
+            output.extra_events = events;
+            Ok(output)
+        },
+    )
+}
+
 /// Queues a message from `sender_actor_id` to `recipient` and returns its id (`insertQueuedMessage`). The caller owns the transaction.
 #[allow(clippy::too_many_arguments)]
 pub fn insert_queued_message(

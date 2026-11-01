@@ -164,6 +164,30 @@ enum MessageStateText {
         case .notSent: return "Not sent"
         }
     }
+
+    static func symbol(_ delivery: SentMessage.Delivery) -> String {
+        switch delivery {
+        case .queued: return "clock"
+        case .delivered: return "checkmark"
+        case .read: return "checkmark.circle.fill"
+        case .dropped: return "xmark.circle"
+        }
+    }
+
+    /// The host's delivery of a sent message, in a few words; nil before the host said.
+    static func delivery(_ message: SentMessage, now: Date) -> String? {
+        switch message.delivery {
+        case .queued(let since)?:
+            let minutes = Int(now.timeIntervalSince(since) / 60)
+            return message.stuck(now: now)
+                ? "Waiting for the PM for " + String(minutes) + " min: it is busy, stuck at a question, or paused"
+                : "Queued: the PM gets it when it is free"
+        case .delivered?: return "Delivered to the PM"
+        case .read?: return "Read by the PM"
+        case .dropped(let state, _)?: return "Not delivered (" + state + ")"
+        case nil: return nil
+        }
+    }
 }
 
 #Preview("Messages") {

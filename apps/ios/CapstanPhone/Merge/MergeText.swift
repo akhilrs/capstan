@@ -99,7 +99,11 @@ struct MergeText: Equatable {
                 "The checkout on " + hostName + " is not on the branch the merge goes into, or that branch is checked out in a worker's worktree. Choose another branch under Into.")
         case "dirty_tree":
             return refused("the working tree has changes", "Tracked files are modified in the checkout on " + hostName + ".", files: true)
-        case "unsafe_config": return refused("unsafe git configuration", "The repository's git settings are not safe for a merge.")
+        case "unsafe_config":
+            return refused(
+                "unsafe git configuration",
+                "The repository has a git setting or file that could run a program or change what a merge reads (the host names it below).",
+                files: true)
         case "no_identity": return refused("no git identity", "git has no committer name and email in the repository.")
         case "git_too_old": return refused("git is too old", "Update git on " + hostName + ".")
         case "invalid_commit", "invalid_branch":

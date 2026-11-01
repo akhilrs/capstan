@@ -196,8 +196,18 @@ struct ConversationScreen: View {
             Label { Text(verbatim: "Sending") } icon: { ProgressView().controlSize(.mini) }
                 .font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
         case .sent:
-            Label { Text(verbatim: "Sent · on the host " + time) } icon: { Image(systemName: "checkmark") }
-                .font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
+            // The host's delivery when it said (queued, delivered, read), else that the host took it.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let delivery = MessageStateText.delivery(message, now: context.date)
+                let stuck = message.stuck(now: context.date)
+                Label {
+                    Text(verbatim: delivery.map { $0 + " · " + time } ?? "Sent · on the host " + time)
+                } icon: {
+                    Image(systemName: stuck ? "exclamationmark.triangle" : (message.delivery.map(MessageStateText.symbol) ?? "checkmark"))
+                }
+                .font(TypeStyle.footnote)
+                .foregroundStyle(stuck ? Tokens.color(.yellow) : Tokens.color(.label2))
+            }
         case .notSent(let reason, _):
             HStack(spacing: Tokens.space[1]) {
                 Label { Text(verbatim: "Not sent · " + reason) } icon: { Image(systemName: "exclamationmark.triangle") }

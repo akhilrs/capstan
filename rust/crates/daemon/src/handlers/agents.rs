@@ -299,7 +299,26 @@ fn pm_restart(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRes
         ));
     }
     Some(match launcher.restart_pm() {
-        Ok(result) => ok(result.to_value()),
+        Ok(result) => {
+            let mut value = result.to_value();
+            // A separate step after the restart: the user's and agents' messages the restart cancelled go to the new PM.
+            if let (Some(agent_id), Some(map)) = (result.agent_id.clone(), value.as_object_mut()) {
+                let credential = call.credential.to_string();
+                let moved = env.deps.kernel.run(move |core| {
+                    let context = crate::deps::new_context(core, &credential)?;
+                    core.requeue_after_restart(&context, &agent_id)
+                });
+                match moved {
+                    Ok(moved) => {
+                        map.insert("requeued".into(), moved["requeued"].clone());
+                    }
+                    Err(error) => {
+                        map.insert("requeueError".into(), json!(error.to_string()));
+                    }
+                }
+            }
+            ok(value)
+        }
         Err(error) => map_error(&HandlerError::from(error)),
     })
 }
