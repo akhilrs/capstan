@@ -880,6 +880,11 @@ impl Core {
         user_messages::close_question(&self.kernel, context, input)
     }
 
+    /// `message.requeue`: after a PM restart, the user's and agents' cancelled open messages are queued for the new PM.
+    pub fn requeue_after_restart(&self, context: &MutationContext, agent_id: &str) -> KernelResult<Value> {
+        messages::requeue_after_restart(&self.kernel, context, agent_id)
+    }
+
     /// `ControllerCore.message`.
     pub fn message(&self, message_id: &str) -> KernelResult<Value> {
         messages::message(&self.kernel, message_id)

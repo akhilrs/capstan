@@ -46,6 +46,7 @@ code message.fail
 code message.input_clear
 code message.notified
 code message.pull
+code message.requeue
 code message.resolve
 code message.sent
 code message.transition

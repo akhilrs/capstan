@@ -253,7 +253,7 @@ always present but may be `null`):
 
 | type | required body fields |
 |---|---|
-| `message.action_needed` | `messageId`, `recipientAgentId`, `state`, `body`, `reason`, `textVerified`, `truncated`, `untrusted` |
+| `message.action_needed` | `messageId`, `recipientAgentId`, `state`, `body`, `reason`, `textVerified`, `truncated`, `untrusted`; `requeuedFrom` (the id of the message it replaces) when a PM restart queued it again for the new PM |
 | `message.state` | `messageId`, `recipientAgentId`, `state`, `body`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `prompt.waiting` | `relayId`, `agentId`, `state`, `text`, `options`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `prompt.answered` | `relayId`, `agentId`, `state`, `text`, `options`, `reason`, `textVerified`, `truncated`, `untrusted` |

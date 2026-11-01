@@ -169,6 +169,8 @@ extension AppModel {
 
     /// Called by the live stream for the events of a project. They join the history by their key.
     func overviewLive(hostId: UUID, projectId: String, events: [FeedEvent]) {
+        // Every live event batch passes here: the delivery of the messages this phone sent comes with it.
+        messages.noteEvents(events)
         guard let controller = overview.controller(hostId) else { return }
         controller.noteLive(projectId: projectId, events: events)
         overview.touch()

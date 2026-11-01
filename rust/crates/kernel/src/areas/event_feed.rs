@@ -333,6 +333,14 @@ pub const MAPPING: &[Rule] = &[
         "queued",
         ev("message.action_needed"),
     ),
+    // A message a PM restart queued again for the new PM: like a new one, and its event names the one it replaces.
+    rule(
+        "message",
+        "message.requeue",
+        "-",
+        "queued",
+        ev("message.action_needed"),
+    ),
     rule("message", MESSAGE_ACTIONS, "*", "+", ev("message.state")),
     rule(
         "prompt_relay",
@@ -1207,6 +1215,9 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
             text.put_free(&mut body, "reason", text_of(&row.details, "reason"));
             if let Some(decision) = text_of(&row.details, "decision") {
                 body.insert("decision".into(), json!(decision));
+            }
+            if let Some(from) = text_of(&row.details, "requeuedFrom") {
+                body.insert("requeuedFrom".into(), json!(from));
             }
             let mut list = vec![effect(
                 "waiting",

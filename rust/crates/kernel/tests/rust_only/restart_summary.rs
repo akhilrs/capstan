@@ -142,3 +142,24 @@ fn a_very_large_task_brief_is_shown_as_a_marked_preview_so_the_summary_always_fi
     assert!(chars(preview) <= 2000, "{}", chars(preview));
     assert!(serde_json::to_string(&summary).unwrap().len() <= 32 * 1024);
 }
+
+#[test]
+fn after_a_restart_the_cancelled_messages_are_queued_again_for_the_new_pm_once() {
+    use crate::fixture::{context, OWNER};
+    let f = Fixture::new();
+    f.tell_pm("first");
+    f.tell_pm("second");
+    f.restart_pm();
+    let core = f.core();
+    let moved = core.requeue_after_restart(&context(core, OWNER), "pm-1").unwrap();
+    let moved = moved["requeued"].as_array().unwrap().clone();
+    assert_eq!(moved.len(), 2, "{moved:?}");
+    assert_ne!(moved[0]["from"], moved[0]["to"]);
+    let again = core.requeue_after_restart(&context(core, OWNER), "pm-1").unwrap();
+    assert!(again["requeued"].as_array().unwrap().is_empty(), "a second call adds nothing");
+    // A PM never restarted has nothing to move.
+    let g = Fixture::new();
+    g.tell_pm("hello");
+    let none = g.core().requeue_after_restart(&context(g.core(), OWNER), "pm-1").unwrap();
+    assert!(none["requeued"].as_array().unwrap().is_empty());
+}

@@ -46,3 +46,38 @@ final class SentMessagesTests: XCTestCase {
         XCTAssertEqual(SentMessageStore(directory: directory.appendingPathComponent("none")).load().messages.count, 0)
     }
 }
+
+final class SentMessageDeliveryTests: XCTestCase {
+    private let host = UUID()
+
+    private func log(_ id: String) -> SentMessageLog {
+        var log = SentMessageLog()
+        log.append(SentMessage(hostId: host, projectId: "p", text: "ship it", sentAt: Date(timeIntervalSince1970: 0),
+                               state: .sent(messageId: id)))
+        return log
+    }
+
+    func testTheHostStatesMoveAMessageFromQueuedToRead() {
+        var log = log("m1")
+        log.noteDelivery(messageId: "m1", hostState: "queued", at: Date(timeIntervalSince1970: 10))
+        XCTAssertEqual(log.messages[0].delivery, .queued(since: Date(timeIntervalSince1970: 10)))
+        log.noteDelivery(messageId: "m1", hostState: "deferred", at: Date(timeIntervalSince1970: 20))
+        XCTAssertEqual(log.messages[0].delivery, .queued(since: Date(timeIntervalSince1970: 10)), "keeps the first time")
+        XCTAssertTrue(log.messages[0].stuck(now: Date(timeIntervalSince1970: 200)))
+        log.noteDelivery(messageId: "m1", hostState: "sent", at: Date(timeIntervalSince1970: 30))
+        log.noteDelivery(messageId: "m1", hostState: "acked", at: Date(timeIntervalSince1970: 40))
+        XCTAssertEqual(log.messages[0].delivery, .read(at: Date(timeIntervalSince1970: 40)))
+        log.noteDelivery(messageId: "m1", hostState: "sent", at: Date(timeIntervalSince1970: 50))
+        XCTAssertEqual(log.messages[0].delivery, .read(at: Date(timeIntervalSince1970: 40)), "never goes back")
+    }
+
+    func testARestartMovesTheMessageToItsNewId() {
+        var log = log("m1")
+        log.noteDelivery(messageId: "m1", hostState: "cancelled", at: Date(timeIntervalSince1970: 10))
+        log.noteDelivery(messageId: "m2", hostState: "queued", at: Date(timeIntervalSince1970: 10), requeuedFrom: "m1")
+        XCTAssertEqual(log.messages[0].messageId, "m2")
+        XCTAssertEqual(log.messages[0].delivery, .queued(since: Date(timeIntervalSince1970: 10)))
+        log.noteDelivery(messageId: "other", hostState: "acked", at: Date(timeIntervalSince1970: 20))
+        XCTAssertEqual(log.messages[0].delivery, .queued(since: Date(timeIntervalSince1970: 10)))
+    }
+}
