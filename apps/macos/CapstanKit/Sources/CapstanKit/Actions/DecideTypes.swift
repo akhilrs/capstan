@@ -225,5 +225,6 @@ public struct DecideVerbRow: Sendable, Equatable {
         DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied"),
         DecideVerbRow(kind: "integration", verb: "discard", outcome: "applied"),
         DecideVerbRow(kind: "pm", verb: "message", outcome: "applied"),
+        DecideVerbRow(kind: "plan", verb: "cancel", outcome: "applied"),
     ]
 }

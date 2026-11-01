@@ -176,6 +176,10 @@ pub struct PlanItem {
     pub packages: PackageCounts,
     pub package_details: Vec<PackageDetail>,
     pub package_details_omitted: u32,
+    /// `plan:<planId>`: the request a remote client cancels the plan with (`plan cancel`).
+    pub request_id: String,
+    /// The binding of that request ([`plan_hash_input`]).
+    pub content_hash: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -964,10 +968,13 @@ fn plan_item(core: &Core, row: &Map<String, Value>) -> KernelResult<PlanItem> {
         .collect();
 
     let sequence = int(row, "sequence");
+    let content_hash = sha256(&plan_hash_input(&plan_id, &text(row, "state"), &text(row, "title")));
     Ok(PlanItem {
         key: item_key("plans", "plan", &sequence.to_string()),
         title: shown(&text(row, "title")),
         state: text(row, "state"),
+        request_id: format!("plan:{plan_id}"),
+        content_hash,
         plan_id,
         sequence,
         packages: counts,
@@ -2198,6 +2205,23 @@ pub fn content_hash(core: &Core, request_id: &str) -> KernelResult<Option<String
     Ok(content_hash_counted(core, request_id)?.0)
 }
 
+/// What a plan's binding hashes: its id, state and title, so a cancel names the plan as the person saw it.
+pub fn plan_hash_input(plan_id: &str, state: &str, title: &str) -> String {
+    canonical(&json!({"plan": plan_id, "state": state, "title": title}))
+}
+
+/// The binding of a plan a remote client may cancel: none once it is cancelled or superseded, or when there is no such plan.
+pub fn plan_hash(core: &Core, plan_id: &str) -> KernelResult<Option<String>> {
+    let kernel = core.kernel();
+    let found = raw_query_opt(
+        &kernel.database,
+        "SELECT state, title FROM plans WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL AND state <> 'superseded'",
+        [kernel.project_id.as_str(), plan_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )?;
+    Ok(found.map(|(state, title)| sha256(&plan_hash_input(plan_id, &state, &title))))
+}
+
 /// The binding of a message to the PM: the SHA-256 of `{"pm":"<agentId>"}`, the one active PM (agent kind `PM`, state
 /// `active`); none without exactly one. A message meant for one PM is refused once another has taken over.
 pub fn pm_hash(core: &Core) -> KernelResult<Option<String>> {
@@ -2230,6 +2254,9 @@ pub fn content_hash_counted(
         .split_once(':')
         .filter(|(_, id)| !id.is_empty())
         .ok_or_else(|| invalid(format!("{request_id} is not a request id")))?;
+    if kind == "plan" {
+        return Ok((plan_hash(core, id)?, 1));
+    }
     if kind == "agent" {
         let item = agent_rows(core, AgentSel::One(id), 1)?.pop();
         return Ok((item.map(|item| item.content_hash), 2));

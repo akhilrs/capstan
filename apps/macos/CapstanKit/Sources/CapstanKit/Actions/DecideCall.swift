@@ -22,11 +22,13 @@ public enum DecideVerb: Sendable, Equatable, Codable {
     case integrationDiscard
     /// A free message from the person to the project's active PM (section 11, Message to the PM).
     case pmMessage(String)
+    /// Cancels a plan, a draft or one in progress (section 11, Cancel a plan).
+    case planCancel
 
     /// Denying and pausing cannot be taken back by the person with one more tap.
     public var isDestructive: Bool {
         switch self {
-        case .opDeny, .runPause, .integrationMerge, .integrationMergeInto, .integrationDiscard: return true
+        case .opDeny, .runPause, .integrationMerge, .integrationMergeInto, .integrationDiscard, .planCancel: return true
         default: return false
         }
     }
@@ -57,6 +59,7 @@ public enum DecideVerb: Sendable, Equatable, Codable {
             return DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied")
         case .integrationDiscard: return DecideVerbRow(kind: "integration", verb: "discard", outcome: "applied")
         case .pmMessage: return DecideVerbRow(kind: "pm", verb: "message", outcome: "applied")
+        case .planCancel: return DecideVerbRow(kind: "plan", verb: "cancel", outcome: "applied")
         }
     }
 }
@@ -192,6 +195,8 @@ public struct DecideRequest: Sendable, Equatable, Codable {
             return ["merge", "--into", try DecideRequest.text(branch, "branch")]
         case .integrationDiscard:
             return ["discard"]
+        case .planCancel:
+            return ["cancel"]
         case .pmMessage(let text):
             return ["message", try DecideRequest.text(text, "message")]
         }

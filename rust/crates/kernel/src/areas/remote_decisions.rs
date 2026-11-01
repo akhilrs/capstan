@@ -163,6 +163,8 @@ pub enum Kind {
     Integration,
     /// The project's active PM: a free message from the person (`pm message <text>`).
     Pm,
+    /// A plan in progress or a draft (`plan:<planId>`): the person cancels it (`plan cancel`).
+    Plan,
 }
 
 impl Kind {
@@ -176,6 +178,7 @@ impl Kind {
             Kind::Run => "run",
             Kind::Integration => "integration",
             Kind::Pm => "pm",
+            Kind::Plan => "plan",
         }
     }
 }
@@ -363,6 +366,13 @@ pub const VERBS: &[VerbRow] = &[
         &[],
     ),
     row(
+        Kind::Plan,
+        "cancel",
+        Outcome::Applied,
+        Positional::None,
+        &[],
+    ),
+    row(
         Kind::Pm,
         "message",
         Outcome::Applied,
@@ -425,6 +435,7 @@ fn split_request(request_id: &str) -> Result<(Kind, String), Refusal> {
         "message" => Kind::Message,
         "agent" => Kind::Agent,
         "integration" => Kind::Integration,
+        "plan" => Kind::Plan,
         _ => {
             return Err(Refusal::invalid(format!(
                 "a request of kind {kind} is not decided remotely"
@@ -932,6 +943,7 @@ fn apply(
             return Err(Refusal::invalid("an integration is not decided here").into())
         }
         (Kind::Pm, _) => message_pm(kernel, actor, input)?,
+        (Kind::Plan, _) => cancel_plan(kernel, actor, input)?,
     };
     if input.outcome == Outcome::Applied {
         let open = open_forwards(kernel, &input.request_id, None)?;
@@ -1339,6 +1351,24 @@ fn discard_integration(
         message_id: None,
         replaces: None,
         item_key: item_key("waiting", "integration", &integration.sequence.to_string()),
+    })
+}
+
+/// `plan cancel`: the operator cancels a plan in progress or a draft, as `cstan plan cancel` does: its open packages
+/// stop, their developers and the PM are told, and an open review of it ends.
+fn cancel_plan(kernel: &Kernel, actor: &AuthenticatedActor, input: &DecideInput) -> KernelResult<Done> {
+    require_capability(actor, "plan:write")?;
+    let plan = plans::plan_row(kernel, &input.target)?
+        .ok_or_else(|| Refusal::new("not_waiting", format!("{} does not exist", input.request_id)))?;
+    let output = super::plan_packages::apply_cancel_plan(kernel, actor, &input.target, None).map_err(|error| match error {
+        KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
+        other => other,
+    })?;
+    Ok(Done {
+        events: events_of(output),
+        message_id: None,
+        replaces: None,
+        item_key: item_key("plans", "plan", &plan.sequence.to_string()),
     })
 }
 

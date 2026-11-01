@@ -502,6 +502,10 @@ public struct PlanItem: WireItem {
     public let packageDetails: [PackageDetail]?
     /// Packages the host left out of `packageDetails`; nil from an older host.
     public let packageDetailsOmitted: Int64?
+    /// `plan:<planId>`, the request a cancel is sent on; nil from a host that cannot cancel a plan remotely.
+    public let requestId: String?
+    /// The binding of that request; nil with `requestId`.
+    public let contentHash: String?
 
     public init(json: JSONValue) throws {
         _ = try json.members("plan item")
@@ -524,6 +528,8 @@ public struct PlanItem: WireItem {
             packageDetails = nil
         }
         packageDetailsOmitted = try json.optionalInt64("packageDetailsOmitted")
+        requestId = try json.optionalString("requestId")
+        contentHash = try json.optionalString("contentHash")
     }
 }
 

@@ -964,3 +964,48 @@ fn an_integration_under_review_is_not_discarded() {
     insert_review(&rig, "int-1", 1, "started");
     assert_eq!(code_of(&discard(&rig, "int-1", "nonce-0001").unwrap_err()), "not_waiting");
 }
+
+// ------------------------------------------------------------------------------------------------------- plan cancel
+
+fn cancel_plan(rig: &Rig, plan: &str, expect: &str, nonce: &str) -> Result<Value, KernelError> {
+    let input = parse(&argv(&[&format!("plan:{plan}"), "--expect", expect, "--nonce", nonce, "cancel"])).unwrap();
+    rig.core.decide(&rig.ctx("owner"), &input)
+}
+
+#[test]
+fn a_plan_and_a_draft_are_cancelled_from_a_remote_client() {
+    use capstan_kernel::areas::snapshot_feed::plans_page;
+    let rig = Rig::new();
+    let plan = rig.approved_plan();
+    let page = plans_page(&rig.core, None, 50).unwrap();
+    let item = page.items.iter().find(|i| i.plan_id == plan).unwrap();
+    assert_eq!(item.request_id, format!("plan:{plan}"));
+    let hash = content_hash(&rig.core, &item.request_id).unwrap().unwrap();
+    assert_eq!(item.content_hash, hash);
+    let start = rig.head();
+    let result = cancel_plan(&rig, &plan, &hash[..12], "nonce-0001").unwrap();
+    assert_eq!(result["outcome"], json!("applied"));
+    assert!(plans_page(&rig.core, None, 50).unwrap().items.iter().all(|i| i.plan_id != plan));
+    assert_eq!(content_hash(&rig.core, &item.request_id).unwrap(), None);
+    let effects: Vec<String> = rig
+        .since(start)
+        .iter()
+        .flat_map(|e| e["body"]["effects"].as_array().cloned().unwrap_or_default())
+        .map(|e| format!("{}:{}", e["section"].as_str().unwrap(), e["key"].as_str().unwrap()))
+        .collect();
+    assert!(effects.contains(&format!("plans:{}", item.sequence)), "{effects:?}");
+    assert_eq!(code_of(&cancel_plan(&rig, &plan, &hash[..12], "nonce-0002").unwrap_err()), "not_waiting");
+
+    // A draft the architect never submitted.
+    let draft = rig
+        .core
+        .open_plan(&rig.ctx("pm-1"), &json!({"tier": "normal", "title": "Old draft"}))
+        .unwrap()["planId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let hash = content_hash(&rig.core, &format!("plan:{draft}")).unwrap().unwrap();
+    assert_eq!(cancel_plan(&rig, &draft, &hash, "nonce-0003").unwrap()["outcome"], json!("applied"));
+    // No such plan.
+    assert_eq!(code_of(&cancel_plan(&rig, "nope", &"a".repeat(12), "nonce-0004").unwrap_err()), "not_waiting");
+}

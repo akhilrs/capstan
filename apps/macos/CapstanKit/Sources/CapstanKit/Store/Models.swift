@@ -316,11 +316,17 @@ public struct StoredPlan: Codable, Sendable, Equatable {
     /// Nil from a host that does not send them, and in saved files from before it did.
     public var packageDetails: [PackageDetail]?
     public var packageDetailsOmitted: Int64?
+    /// `plan:<planId>` and its binding, for a cancel; nil from an older host and in older saved files.
+    public var requestId: String?
+    public var contentHash: String?
 
     public init(
         key: String, planId: String, sequence: Int64, title: UntrustedText, state: String, packages: StoredCounts,
-        packageDetails: [PackageDetail]? = nil, packageDetailsOmitted: Int64? = nil
+        packageDetails: [PackageDetail]? = nil, packageDetailsOmitted: Int64? = nil, requestId: String? = nil,
+        contentHash: String? = nil
     ) {
+        self.requestId = requestId
+        self.contentHash = contentHash
         self.packageDetails = packageDetails
         self.packageDetailsOmitted = packageDetailsOmitted
         self.key = key
@@ -337,7 +343,8 @@ public struct StoredPlan: Codable, Sendable, Equatable {
             packages: StoredCounts(
                 total: item.packages.total, assigned: item.packages.assigned, reported: item.packages.reported,
                 integrated: item.packages.integrated),
-            packageDetails: item.packageDetails, packageDetailsOmitted: item.packageDetailsOmitted)
+            packageDetails: item.packageDetails, packageDetailsOmitted: item.packageDetailsOmitted,
+            requestId: item.requestId, contentHash: item.contentHash)
     }
 
     var json: JSONValue {
@@ -351,6 +358,8 @@ public struct StoredPlan: Codable, Sendable, Equatable {
         ]
         if let packageDetails { members["packageDetails"] = .array(packageDetails.map { $0.json }) }
         if let packageDetailsOmitted { members["packageDetailsOmitted"] = .int(packageDetailsOmitted) }
+        if let requestId { members["requestId"] = .string(requestId) }
+        if let contentHash { members["contentHash"] = .string(contentHash) }
         return .object(members)
     }
 }
