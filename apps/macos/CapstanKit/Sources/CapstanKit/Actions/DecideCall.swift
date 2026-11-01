@@ -18,13 +18,15 @@ public enum DecideVerb: Sendable, Equatable, Codable {
     /// Merges a waiting integration into another local branch the person chose (`merge --into <branch>`): a branch
     /// that is not checked out moves without the checkout being touched. Never pushes.
     case integrationMergeInto(String)
+    /// Discards a waiting integration the person does not want merged; the host removes its branch.
+    case integrationDiscard
     /// A free message from the person to the project's active PM (section 11, Message to the PM).
     case pmMessage(String)
 
     /// Denying and pausing cannot be taken back by the person with one more tap.
     public var isDestructive: Bool {
         switch self {
-        case .opDeny, .runPause, .integrationMerge, .integrationMergeInto: return true
+        case .opDeny, .runPause, .integrationMerge, .integrationMergeInto, .integrationDiscard: return true
         default: return false
         }
     }
@@ -53,6 +55,7 @@ public enum DecideVerb: Sendable, Equatable, Codable {
         case .runResume: return DecideVerbRow(kind: "run", verb: "resume", outcome: "applied")
         case .integrationMerge, .integrationMergeInto:
             return DecideVerbRow(kind: "integration", verb: "merge", outcome: "applied")
+        case .integrationDiscard: return DecideVerbRow(kind: "integration", verb: "discard", outcome: "applied")
         case .pmMessage: return DecideVerbRow(kind: "pm", verb: "message", outcome: "applied")
         }
     }
@@ -187,6 +190,8 @@ public struct DecideRequest: Sendable, Equatable, Codable {
         case .integrationMergeInto(let branch):
             guard !branch.hasPrefix("-") else { throw DecideRequestError.idDash("branch") }
             return ["merge", "--into", try DecideRequest.text(branch, "branch")]
+        case .integrationDiscard:
+            return ["discard"]
         case .pmMessage(let text):
             return ["message", try DecideRequest.text(text, "message")]
         }

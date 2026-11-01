@@ -918,3 +918,49 @@ fn messages_per_hour_caps_the_messages_to_the_pm_and_the_default_is_thirty() {
     .unwrap();
     decide_with(&rig.core, &rig.ctx("owner"), &input, options).unwrap();
 }
+
+// ------------------------------------------------------------------------------------------------------------ discard
+
+fn discard(rig: &Rig, id: &str, nonce: &str) -> Result<Value, KernelError> {
+    discard_as(rig, id, &hash_of_or_dummy(rig, id), nonce)
+}
+
+fn discard_as(rig: &Rig, id: &str, expect: &str, nonce: &str) -> Result<Value, KernelError> {
+    let input = parse(&argv(&[&request(id), "--expect", expect, "--nonce", nonce, "discard"])).unwrap();
+    rig.core.decide(&rig.ctx("owner"), &input)
+}
+
+#[test]
+fn a_waiting_integration_is_discarded_from_a_remote_client_once() {
+    let rig = Rig::new();
+    insert_integration(&rig, "int-1", 1, "merged", Some(HEAD));
+    let start = rig.head();
+    let hash = hash_of(&rig, "int-1");
+    let result = discard_as(&rig, "int-1", &hash, "nonce-0001").unwrap();
+    assert_eq!(result["outcome"], json!("applied"));
+    let state: String = rig
+        .db()
+        .query_row("SELECT state FROM integrations WHERE integration_id = 'int-1'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(state, "discarded");
+    assert_eq!(content_hash(&rig.core, &request("int-1")).unwrap(), None, "it no longer waits");
+    let effects: Vec<String> = rig
+        .since(start)
+        .iter()
+        .flat_map(|e| e["body"]["effects"].as_array().cloned().unwrap_or_default())
+        .map(|e| format!("{}:{}", e["section"].as_str().unwrap(), e["key"].as_str().unwrap()))
+        .collect();
+    assert!(effects.contains(&"waiting:integration:1".to_string()), "{effects:?}");
+    assert!(effects.contains(&"plans:plan".to_string()), "{effects:?}");
+    // The same nonce answers again; a new one finds nothing waiting.
+    assert_eq!(discard_as(&rig, "int-1", &hash, "nonce-0001").unwrap()["repeat"], json!(true));
+    assert_eq!(code_of(&discard(&rig, "int-1", "nonce-0002").unwrap_err()), "not_waiting");
+}
+
+#[test]
+fn an_integration_under_review_is_not_discarded() {
+    let rig = Rig::new();
+    insert_integration(&rig, "int-1", 1, "merged", Some(HEAD));
+    insert_review(&rig, "int-1", 1, "started");
+    assert_eq!(code_of(&discard(&rig, "int-1", "nonce-0001").unwrap_err()), "not_waiting");
+}

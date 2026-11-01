@@ -12,6 +12,8 @@ use capstan_config::{Remote, RoleConfig};
 use capstan_kernel::areas::remote_decisions::{
     self, DecideOptions, Kind, ERROR_CODES, MERGE_ERROR_CODES,
 };
+use capstan_kernel::areas::integrations;
+use capstan_kernel::integrate::GitRepo;
 use capstan_kernel::{KernelError, KernelResult};
 use serde_json::Value;
 
@@ -84,6 +86,18 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     };
     let credential = call.credential.to_string();
     let reply_to = (input.kind == Kind::Message && input.verb == "reply").then(|| input.target.clone());
+    // A discard removes the integration's branch once the decision is applied: its name and head, read before.
+    let discarding = if input.kind == Kind::Integration && input.verb == "discard" {
+        let id = input.target.clone();
+        env.deps
+            .kernel
+            .run(move |core| integrations::integration_row(core.kernel(), &id))
+            .ok()
+            .flatten()
+            .and_then(|row| row.head_sha.clone().filter(|_| row.state == "merged").map(|sha| (row.branch.clone(), sha)))
+    } else {
+        None
+    };
     let decided = env.deps.kernel.run(move |core| {
         let context = crate::deps::new_context(core, &credential)?;
         remote_decisions::decide_with(core, &context, &input, options)
@@ -91,6 +105,16 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     if let (Ok(result), Some(message_id)) = (&decided, reply_to) {
         if result["outcome"] == "applied" {
             close_answered_picker(env, &message_id);
+        }
+    }
+    if let (Ok(result), Some((branch, head_sha))) = (&decided, discarding) {
+        if result["outcome"] == "applied" && result["repeat"] != true {
+            let repo = GitRepo::new(env.deps.options.workspace_root.clone());
+            let removed = repo.delete_branch_at(&branch, &head_sha).unwrap_or(false);
+            if !removed {
+                // `cstan cleanup` offers the branch of a discarded integration again.
+                env.log("integration_branch_not_removed", serde_json::json!({"branch": branch}));
+            }
         }
     }
     Some(answer(decided))

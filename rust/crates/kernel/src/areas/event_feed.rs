@@ -1689,6 +1689,10 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 "waiting"
             };
             let mut list = vec![effect(section, "invalidate", key.to_string(), json!({}))];
+            // A discarded integration stops counting its packages as integrated, as a settle does.
+            if key.starts_with("integration:") {
+                list.push(effect("plans", "invalidate", kind_key("plan"), json!({})));
+            }
             // An answered message also changes its item in `messages`.
             if let Some(sequence) = key.strip_prefix("message:") {
                 list.push(effect(

@@ -34,7 +34,7 @@ fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
 
 /// A row of `integrations`.
 #[derive(Clone, Debug)]
-pub(crate) struct IntegrationRow {
+pub struct IntegrationRow {
     pub integration_id: String,
     pub sequence: i64,
     pub base_sha: String,
@@ -70,7 +70,7 @@ impl IntegrationRow {
     }
 }
 
-pub(crate) fn integration_row(
+pub fn integration_row(
     kernel: &Kernel,
     integration_id: &str,
 ) -> KernelResult<Option<IntegrationRow>> {
@@ -450,49 +450,53 @@ pub fn settle_integration(
         "integration.settle",
         "controller:reconcile",
         input,
-        |_| {
-            let row = required_row(kernel, integration_id)?;
-            // A conflicted integration holds no branch; it can only be discarded.
-            let discarding_conflicted = row.state == "conflicted" && outcome == "discarded";
-            if row.state != "merged" && !discarding_conflicted {
-                return Err(KernelError::controller(
-                    "only a merged integration can be settled",
-                ));
-            }
-            if present(
-                kernel,
-                "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
-                [&kernel.project_id, integration_id],
-            )? {
-                return Err(KernelError::controller(
-                    "a review of this integration is open",
-                ));
-            }
-            if outcome == "confirmed" {
-                let latest = query_opt(
-                    &kernel.database,
-                    "SELECT state FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state IN ('passed', 'findings')
-                     ORDER BY sequence DESC LIMIT 1",
-                    [&kernel.project_id, integration_id],
-                    |r| r.get::<_, String>(0),
-                )?;
-                if latest.as_deref() != Some("passed") {
-                    return Err(KernelError::controller(
-                        "an integration is confirmed only after its latest review passed",
-                    ));
-                }
-            }
-            execute(
-                &kernel.database,
-                "UPDATE integrations SET state = ? WHERE project_id = ? AND integration_id = ?",
-                [outcome, &kernel.project_id, integration_id],
-            )?;
-            let event = MutationEvent::new("integration", integration_id, 0)
-                .transition(&row.state, outcome)
-                .with_details(json!({}));
-            Ok(MutationOutput::new(integration_record(kernel, integration_id)?, event))
-        },
+        |_| apply_settle(kernel, integration_id, outcome),
     )
+}
+
+/// The body of `integration.settle`, run inside a mutation: refused unless the integration is merged (or conflicted,
+/// for a discard) and no review of it is open; a confirm needs its latest review passed.
+pub fn apply_settle(kernel: &Kernel, integration_id: &str, outcome: &str) -> KernelResult<MutationOutput> {
+    let row = required_row(kernel, integration_id)?;
+    // A conflicted integration holds no branch; it can only be discarded.
+    let discarding_conflicted = row.state == "conflicted" && outcome == "discarded";
+    if row.state != "merged" && !discarding_conflicted {
+        return Err(KernelError::controller(
+            "only a merged integration can be settled",
+        ));
+    }
+    if present(
+        kernel,
+        "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
+        [&kernel.project_id, integration_id],
+    )? {
+        return Err(KernelError::controller(
+            "a review of this integration is open",
+        ));
+    }
+    if outcome == "confirmed" {
+        let latest = query_opt(
+            &kernel.database,
+            "SELECT state FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state IN ('passed', 'findings')
+             ORDER BY sequence DESC LIMIT 1",
+            [&kernel.project_id, integration_id],
+            |r| r.get::<_, String>(0),
+        )?;
+        if latest.as_deref() != Some("passed") {
+            return Err(KernelError::controller(
+                "an integration is confirmed only after its latest review passed",
+            ));
+        }
+    }
+    execute(
+        &kernel.database,
+        "UPDATE integrations SET state = ? WHERE project_id = ? AND integration_id = ?",
+        [outcome, &kernel.project_id, integration_id],
+    )?;
+    let event = MutationEvent::new("integration", integration_id, 0)
+        .transition(&row.state, outcome)
+        .with_details(json!({}));
+    Ok(MutationOutput::new(integration_record(kernel, integration_id)?, event))
 }
 
 /// A plan package's report may only be integrated after the reports of its depends_on packages: those must already be in a

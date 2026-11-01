@@ -117,7 +117,7 @@ fn every_row_of_the_verb_table_parses_with_its_flags_and_nothing_else_does() {
         "integration",
         "pm",
     ];
-    assert_eq!(VERBS.len(), 13);
+    assert_eq!(VERBS.len(), 14);
     for kind in kinds {
         assert!(VERBS.iter().any(|row| row.kind.as_str() == kind), "{kind}");
     }
