@@ -216,7 +216,10 @@ public enum StoreReducer {
                 let pendingKey = FreshnessMarks.pendingKey(section: effect.section, key: effect.key)
                 model.markFreshness { $0.pending.insert(pendingKey) }
                 output.refresh.insert(projectId)
-                if effect.section == "run" || event.type == "decision.remote" { output.urgent.insert(projectId) }
+                // A message or question from an agent is read at once, like a change of the run or a decision.
+                if effect.section == "run" || effect.section == "messages" || event.type == "decision.remote" {
+                    output.urgent.insert(projectId)
+                }
             case .remove:
                 remove(effect, from: &model)
             case .upsert:

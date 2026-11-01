@@ -43,6 +43,7 @@ final class MessagesSectionTests: XCTestCase {
             effects: [("messages", "invalidate", "2", "{}"), ("waiting", "invalidate", "message:2", "{}")])
         let output = harness.apply(.event(projectId: "proj-a", event))
         XCTAssertEqual(output.refresh, ["proj-a"])
+        XCTAssertEqual(output.urgent, ["proj-a"], "a new message is read at once")
         XCTAssertNotNil(harness.alpha?.messages?["2"], "an invalidate keeps the item until the read")
 
         let removed = try StoreWire.event(
