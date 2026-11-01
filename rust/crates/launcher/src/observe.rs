@@ -113,7 +113,8 @@ impl LauncherKernel {
     /// not show it.
     pub fn dismiss_question(&self, agent_id: &str, question: &str) -> OpResult<bool> {
         let pane_id = self.active_pane(agent_id)?;
-        let log = |entry: &KeyLogEntry| self.log("question_dismiss_key", key_entry(agent_id, entry));
+        let log =
+            |entry: &KeyLogEntry| self.log("question_dismiss_key", key_entry(agent_id, entry));
         Ok(self.adapter.dismiss_question(&pane_id, question, &log)?)
     }
 

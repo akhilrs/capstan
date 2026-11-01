@@ -456,7 +456,11 @@ pub fn settle_integration(
 
 /// The body of `integration.settle`, run inside a mutation: refused unless the integration is merged (or conflicted,
 /// for a discard) and no review of it is open; a confirm needs its latest review passed.
-pub fn apply_settle(kernel: &Kernel, integration_id: &str, outcome: &str) -> KernelResult<MutationOutput> {
+pub fn apply_settle(
+    kernel: &Kernel,
+    integration_id: &str,
+    outcome: &str,
+) -> KernelResult<MutationOutput> {
     let row = required_row(kernel, integration_id)?;
     // A conflicted integration holds no branch; it can only be discarded.
     let discarding_conflicted = row.state == "conflicted" && outcome == "discarded";
@@ -496,7 +500,10 @@ pub fn apply_settle(kernel: &Kernel, integration_id: &str, outcome: &str) -> Ker
     let event = MutationEvent::new("integration", integration_id, 0)
         .transition(&row.state, outcome)
         .with_details(json!({}));
-    Ok(MutationOutput::new(integration_record(kernel, integration_id)?, event))
+    Ok(MutationOutput::new(
+        integration_record(kernel, integration_id)?,
+        event,
+    ))
 }
 
 /// A plan package's report may only be integrated after the reports of its depends_on packages: those must already be in a

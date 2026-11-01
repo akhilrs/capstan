@@ -1296,8 +1296,15 @@ pub fn open_message_rows_for(kernel: &Kernel, agent_id: &str) -> KernelResult<Ve
 /// the controller, which raises them again while they apply. Each new message's event names the one it replaces
 /// (`requeuedFrom`). A message already queued again (same sender and body for the new generation) is skipped, so a second
 /// call adds nothing. Returns `{requeued: [{from, to}]}`; nothing to move writes nothing.
-pub fn requeue_after_restart(kernel: &Kernel, context: &MutationContext, agent_id: &str) -> KernelResult<Value> {
-    let Some(agent) = kernel.agent_row(agent_id)?.filter(|a| a.state == "active" && a.kind == "PM") else {
+pub fn requeue_after_restart(
+    kernel: &Kernel,
+    context: &MutationContext,
+    agent_id: &str,
+) -> KernelResult<Value> {
+    let Some(agent) = kernel
+        .agent_row(agent_id)?
+        .filter(|a| a.state == "active" && a.kind == "PM")
+    else {
         return Ok(json!({"requeued": []}));
     };
     let restarted = query_opt(

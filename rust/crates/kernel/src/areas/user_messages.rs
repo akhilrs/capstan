@@ -74,7 +74,11 @@ fn refused(code: &str, message: &str) -> KernelError {
 /// `user_message.send`: the calling agent sends the user a message. Input `{body, class}`, class `action` or `info`
 /// (default `info`). Refused for a caller that is not an active agent (`not_an_agent`) and past
 /// [`MESSAGES_PER_HOUR`] messages of the project in the last hour (`limit_reached`). Returns `{messageId, sequence}`.
-pub fn send_to_user(kernel: &Kernel, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+pub fn send_to_user(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+) -> KernelResult<Value> {
     let body = safe_text(
         input.get("body").unwrap_or(&Value::Null),
         "message body",
@@ -89,7 +93,11 @@ pub fn send_to_user(kernel: &Kernel, context: &MutationContext, input: &Value) -
     let class = match input.get("class").and_then(Value::as_str).unwrap_or("info") {
         "action" => "action",
         "info" => "info",
-        other => return Err(KernelError::type_error(format!("unknown message class {other}"))),
+        other => {
+            return Err(KernelError::type_error(format!(
+                "unknown message class {other}"
+            )))
+        }
     };
     let options = options_of(input, class)?;
     let body_hash = sha256(&body);
@@ -115,7 +123,9 @@ fn options_of(input: &Value, class: &str) -> KernelResult<Vec<String>> {
         return Ok(Vec::new());
     }
     if class != "action" {
-        return Err(KernelError::type_error("only a question (--action) has options"));
+        return Err(KernelError::type_error(
+            "only a question (--action) has options",
+        ));
     }
     if items.len() > MAX_OPTIONS {
         return Err(KernelError::type_error(format!(
@@ -137,7 +147,10 @@ fn apply_send(
     options: &[String],
 ) -> KernelResult<MutationOutput> {
     let Some(sender) = kernel.agent_by_actor(&actor.actor_id)? else {
-        return Err(refused("not_an_agent", "only an active agent sends the user a message"));
+        return Err(refused(
+            "not_an_agent",
+            "only an active agent sends the user a message",
+        ));
     };
     let now = kernel.now();
     let recent = query_opt(
@@ -199,7 +212,11 @@ fn apply_send(
 /// `user_message.close`: the agent that asked question `sequence` says the user answered it in the terminal, so it
 /// stops waiting on the remote clients. Input `{sequence}`. Refused when the question is not the caller's
 /// (`not_yours`) or not open (`not_open`). Returns `{messageId, sequence}`.
-pub fn close_question(kernel: &Kernel, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+pub fn close_question(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+) -> KernelResult<Value> {
     let sequence = input
         .get("sequence")
         .and_then(Value::as_i64)
@@ -212,20 +229,31 @@ pub fn close_question(kernel: &Kernel, context: &MutationContext, input: &Value)
         &json!({"sequence": sequence}),
         |actor| {
             let Some(caller) = kernel.agent_by_actor(&actor.actor_id)? else {
-                return Err(refused("not_an_agent", "only an active agent closes its question"));
+                return Err(refused(
+                    "not_an_agent",
+                    "only an active agent closes its question",
+                ));
             };
             let row = query_opt(
                 &kernel.database,
-                &format!("SELECT {COLUMNS} FROM user_messages WHERE project_id = ? AND sequence = ?"),
+                &format!(
+                    "SELECT {COLUMNS} FROM user_messages WHERE project_id = ? AND sequence = ?"
+                ),
                 rusqlite::params![kernel.project_id, sequence],
                 from_row,
             )?
             .ok_or_else(|| refused("not_open", "there is no such question"))?;
             if row.sender_agent_id != caller.agent_id {
-                return Err(refused("not_yours", "only the agent that asked closes a question"));
+                return Err(refused(
+                    "not_yours",
+                    "only the agent that asked closes a question",
+                ));
             }
             if row.state != "open" {
-                return Err(refused("not_open", "the question is not waiting for an answer"));
+                return Err(refused(
+                    "not_open",
+                    "the question is not waiting for an answer",
+                ));
             }
             execute(
                 &kernel.database,
@@ -256,7 +284,11 @@ pub fn user_message_row(kernel: &Kernel, message_id: &str) -> KernelResult<Optio
 
 /// Marks an open message answered by the message `reply_message_id` to its sender. Run inside the decision's
 /// transaction. False when the message was not open.
-pub fn mark_answered(kernel: &Kernel, message_id: &str, reply_message_id: &str) -> KernelResult<bool> {
+pub fn mark_answered(
+    kernel: &Kernel,
+    message_id: &str,
+    reply_message_id: &str,
+) -> KernelResult<bool> {
     let now = kernel.now();
     let changed = execute(
         &kernel.database,

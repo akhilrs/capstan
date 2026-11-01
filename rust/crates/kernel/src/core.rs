@@ -876,12 +876,20 @@ impl Core {
     }
 
     /// `user_message.close`: the asking agent marks its question answered in the terminal.
-    pub fn close_user_question(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+    pub fn close_user_question(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
         user_messages::close_question(&self.kernel, context, input)
     }
 
     /// `message.requeue`: after a PM restart, the user's and agents' cancelled open messages are queued for the new PM.
-    pub fn requeue_after_restart(&self, context: &MutationContext, agent_id: &str) -> KernelResult<Value> {
+    pub fn requeue_after_restart(
+        &self,
+        context: &MutationContext,
+        agent_id: &str,
+    ) -> KernelResult<Value> {
         messages::requeue_after_restart(&self.kernel, context, agent_id)
     }
 

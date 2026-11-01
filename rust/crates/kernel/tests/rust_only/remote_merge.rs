@@ -926,7 +926,15 @@ fn discard(rig: &Rig, id: &str, nonce: &str) -> Result<Value, KernelError> {
 }
 
 fn discard_as(rig: &Rig, id: &str, expect: &str, nonce: &str) -> Result<Value, KernelError> {
-    let input = parse(&argv(&[&request(id), "--expect", expect, "--nonce", nonce, "discard"])).unwrap();
+    let input = parse(&argv(&[
+        &request(id),
+        "--expect",
+        expect,
+        "--nonce",
+        nonce,
+        "discard",
+    ]))
+    .unwrap();
     rig.core.decide(&rig.ctx("owner"), &input)
 }
 
@@ -940,21 +948,44 @@ fn a_waiting_integration_is_discarded_from_a_remote_client_once() {
     assert_eq!(result["outcome"], json!("applied"));
     let state: String = rig
         .db()
-        .query_row("SELECT state FROM integrations WHERE integration_id = 'int-1'", [], |r| r.get(0))
+        .query_row(
+            "SELECT state FROM integrations WHERE integration_id = 'int-1'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(state, "discarded");
-    assert_eq!(content_hash(&rig.core, &request("int-1")).unwrap(), None, "it no longer waits");
+    assert_eq!(
+        content_hash(&rig.core, &request("int-1")).unwrap(),
+        None,
+        "it no longer waits"
+    );
     let effects: Vec<String> = rig
         .since(start)
         .iter()
         .flat_map(|e| e["body"]["effects"].as_array().cloned().unwrap_or_default())
-        .map(|e| format!("{}:{}", e["section"].as_str().unwrap(), e["key"].as_str().unwrap()))
+        .map(|e| {
+            format!(
+                "{}:{}",
+                e["section"].as_str().unwrap(),
+                e["key"].as_str().unwrap()
+            )
+        })
         .collect();
-    assert!(effects.contains(&"waiting:integration:1".to_string()), "{effects:?}");
+    assert!(
+        effects.contains(&"waiting:integration:1".to_string()),
+        "{effects:?}"
+    );
     assert!(effects.contains(&"plans:plan".to_string()), "{effects:?}");
     // The same nonce answers again; a new one finds nothing waiting.
-    assert_eq!(discard_as(&rig, "int-1", &hash, "nonce-0001").unwrap()["repeat"], json!(true));
-    assert_eq!(code_of(&discard(&rig, "int-1", "nonce-0002").unwrap_err()), "not_waiting");
+    assert_eq!(
+        discard_as(&rig, "int-1", &hash, "nonce-0001").unwrap()["repeat"],
+        json!(true)
+    );
+    assert_eq!(
+        code_of(&discard(&rig, "int-1", "nonce-0002").unwrap_err()),
+        "not_waiting"
+    );
 }
 
 #[test]
@@ -962,13 +993,24 @@ fn an_integration_under_review_is_not_discarded() {
     let rig = Rig::new();
     insert_integration(&rig, "int-1", 1, "merged", Some(HEAD));
     insert_review(&rig, "int-1", 1, "started");
-    assert_eq!(code_of(&discard(&rig, "int-1", "nonce-0001").unwrap_err()), "not_waiting");
+    assert_eq!(
+        code_of(&discard(&rig, "int-1", "nonce-0001").unwrap_err()),
+        "not_waiting"
+    );
 }
 
 // ------------------------------------------------------------------------------------------------------- plan cancel
 
 fn cancel_plan(rig: &Rig, plan: &str, expect: &str, nonce: &str) -> Result<Value, KernelError> {
-    let input = parse(&argv(&[&format!("plan:{plan}"), "--expect", expect, "--nonce", nonce, "cancel"])).unwrap();
+    let input = parse(&argv(&[
+        &format!("plan:{plan}"),
+        "--expect",
+        expect,
+        "--nonce",
+        nonce,
+        "cancel",
+    ]))
+    .unwrap();
     rig.core.decide(&rig.ctx("owner"), &input)
 }
 
@@ -985,27 +1027,54 @@ fn a_plan_and_a_draft_are_cancelled_from_a_remote_client() {
     let start = rig.head();
     let result = cancel_plan(&rig, &plan, &hash[..12], "nonce-0001").unwrap();
     assert_eq!(result["outcome"], json!("applied"));
-    assert!(plans_page(&rig.core, None, 50).unwrap().items.iter().all(|i| i.plan_id != plan));
+    assert!(plans_page(&rig.core, None, 50)
+        .unwrap()
+        .items
+        .iter()
+        .all(|i| i.plan_id != plan));
     assert_eq!(content_hash(&rig.core, &item.request_id).unwrap(), None);
     let effects: Vec<String> = rig
         .since(start)
         .iter()
         .flat_map(|e| e["body"]["effects"].as_array().cloned().unwrap_or_default())
-        .map(|e| format!("{}:{}", e["section"].as_str().unwrap(), e["key"].as_str().unwrap()))
+        .map(|e| {
+            format!(
+                "{}:{}",
+                e["section"].as_str().unwrap(),
+                e["key"].as_str().unwrap()
+            )
+        })
         .collect();
-    assert!(effects.contains(&format!("plans:{}", item.sequence)), "{effects:?}");
-    assert_eq!(code_of(&cancel_plan(&rig, &plan, &hash[..12], "nonce-0002").unwrap_err()), "not_waiting");
+    assert!(
+        effects.contains(&format!("plans:{}", item.sequence)),
+        "{effects:?}"
+    );
+    assert_eq!(
+        code_of(&cancel_plan(&rig, &plan, &hash[..12], "nonce-0002").unwrap_err()),
+        "not_waiting"
+    );
 
     // A draft the architect never submitted.
     let draft = rig
         .core
-        .open_plan(&rig.ctx("pm-1"), &json!({"tier": "normal", "title": "Old draft"}))
+        .open_plan(
+            &rig.ctx("pm-1"),
+            &json!({"tier": "normal", "title": "Old draft"}),
+        )
         .unwrap()["planId"]
         .as_str()
         .unwrap()
         .to_string();
-    let hash = content_hash(&rig.core, &format!("plan:{draft}")).unwrap().unwrap();
-    assert_eq!(cancel_plan(&rig, &draft, &hash, "nonce-0003").unwrap()["outcome"], json!("applied"));
+    let hash = content_hash(&rig.core, &format!("plan:{draft}"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        cancel_plan(&rig, &draft, &hash, "nonce-0003").unwrap()["outcome"],
+        json!("applied")
+    );
     // No such plan.
-    assert_eq!(code_of(&cancel_plan(&rig, "nope", &"a".repeat(12), "nonce-0004").unwrap_err()), "not_waiting");
+    assert_eq!(
+        code_of(&cancel_plan(&rig, "nope", &"a".repeat(12), "nonce-0004").unwrap_err()),
+        "not_waiting"
+    );
 }

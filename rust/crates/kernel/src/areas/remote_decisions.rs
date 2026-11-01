@@ -22,7 +22,8 @@ use super::messaging::MessageClass;
 use super::operator_proposals::{self, OperatorDecision};
 use super::snapshot_feed::{canonical, content_hash};
 use super::{
-    integrations, message_notices, messages, pauses, plans, prompt_relay, user_messages, verify_runs,
+    integrations, message_notices, messages, pauses, plans, prompt_relay, user_messages,
+    verify_runs,
 };
 
 /// The codes of the refusals the kernel gives (the route adds forbidden and unauthorized, the CLI project_not_found,
@@ -617,7 +618,9 @@ pub fn parse(argv: &[String]) -> Result<DecideInput, Refusal> {
             return Err(Refusal::invalid(format!("{} is given twice", flag.name)));
         }
         if flag.key == "into" && capstan_config::remote::validate_branch_name(value).is_err() {
-            return Err(Refusal::invalid(format!("--into {value} is not a branch name")));
+            return Err(Refusal::invalid(format!(
+                "--into {value} is not a branch name"
+            )));
         }
         let max_chars = (flag.key == "reason").then_some(PAUSE_REASON_CHARS);
         args.insert(
@@ -1340,12 +1343,18 @@ fn discard_integration(
     input: &DecideInput,
 ) -> KernelResult<Done> {
     require_capability(actor, "operator:decide")?;
-    let integration = integrations::integration_row(kernel, &input.target)?
-        .ok_or_else(|| Refusal::new("not_waiting", format!("{} is not waiting", input.request_id)))?;
-    let output = integrations::apply_settle(kernel, &input.target, "discarded").map_err(|error| match error {
-        KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
-        other => other,
+    let integration = integrations::integration_row(kernel, &input.target)?.ok_or_else(|| {
+        Refusal::new(
+            "not_waiting",
+            format!("{} is not waiting", input.request_id),
+        )
     })?;
+    let output = integrations::apply_settle(kernel, &input.target, "discarded").map_err(
+        |error| match error {
+            KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
+            other => other,
+        },
+    )?;
     Ok(Done {
         events: events_of(output),
         message_id: None,
@@ -1356,14 +1365,23 @@ fn discard_integration(
 
 /// `plan cancel`: the operator cancels a plan in progress or a draft, as `cstan plan cancel` does: its open packages
 /// stop, their developers and the PM are told, and an open review of it ends.
-fn cancel_plan(kernel: &Kernel, actor: &AuthenticatedActor, input: &DecideInput) -> KernelResult<Done> {
+fn cancel_plan(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    input: &DecideInput,
+) -> KernelResult<Done> {
     require_capability(actor, "plan:write")?;
-    let plan = plans::plan_row(kernel, &input.target)?
-        .ok_or_else(|| Refusal::new("not_waiting", format!("{} does not exist", input.request_id)))?;
-    let output = super::plan_packages::apply_cancel_plan(kernel, actor, &input.target, None).map_err(|error| match error {
-        KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
-        other => other,
+    let plan = plans::plan_row(kernel, &input.target)?.ok_or_else(|| {
+        Refusal::new(
+            "not_waiting",
+            format!("{} does not exist", input.request_id),
+        )
     })?;
+    let output = super::plan_packages::apply_cancel_plan(kernel, actor, &input.target, None)
+        .map_err(|error| match error {
+            KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
+            other => other,
+        })?;
     Ok(Done {
         events: events_of(output),
         message_id: None,
@@ -1383,11 +1401,7 @@ fn reply_to_message(
     let sender_active = matches!(kernel.agent_row(&row.sender_agent_id)?,
         Some(agent) if agent.state == "active");
     if !sender_active {
-        return Err(Refusal::new(
-            "not_waiting",
-            "the agent that asked is no longer active",
-        )
-        .into());
+        return Err(Refusal::new("not_waiting", "the agent that asked is no longer active").into());
     }
     let (asked, cut) = cap_text(&row.body, REPLY_QUOTE_CAP);
     let body = format!(

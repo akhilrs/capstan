@@ -730,12 +730,18 @@ pub fn apply_cancel_plan(
         return Err(KernelError::controller("only the operator cancels a plan"));
     }
     let Some(plan) = plans::plan_row(kernel, plan_id)? else {
-        return Err(KernelError::controller(format!("plan {plan_id} does not exist")));
+        return Err(KernelError::controller(format!(
+            "plan {plan_id} does not exist"
+        )));
     };
     if plan.cancelled_at.is_some() {
         return Err(KernelError::controller(format!(
             "{}: plan {plan_id} was cancelled",
-            if package_id.is_none() { "already_cancelled" } else { "plan_cancelled" }
+            if package_id.is_none() {
+                "already_cancelled"
+            } else {
+                "plan_cancelled"
+            }
         )));
     }
     let now = kernel.now();
@@ -803,7 +809,8 @@ pub fn apply_cancel_plan(
         }
         let mut live = Vec::new();
         for row in plan_package_rows(kernel, plan_id)? {
-            if row.cancelled_at.is_none() && !package_facts(kernel, plan_id, &row, false)?.confirmed {
+            if row.cancelled_at.is_none() && !package_facts(kernel, plan_id, &row, false)?.confirmed
+            {
                 live.push(row.package_id);
             }
         }
@@ -828,7 +835,9 @@ pub fn apply_cancel_plan(
     } else {
         Vec::new()
     };
-    let mut notified = plans::queue_plan_notice(kernel, "plan_notice",
+    let mut notified = plans::queue_plan_notice(
+        kernel,
+        "plan_notice",
         &plan,
         &plan_cancelled_notice(plan_id, package_id),
         &now,
@@ -877,8 +886,9 @@ pub fn apply_cancel_plan(
     }
     Ok(MutationOutput::new(
         value,
-        MutationEvent::new("plan", plan_id, 0)
-            .with_details(json!({"packageId": package_id, "cancelledPackages": cancelled_packages})),
+        MutationEvent::new("plan", plan_id, 0).with_details(
+            json!({"packageId": package_id, "cancelledPackages": cancelled_packages}),
+        ),
     ))
 }
 

@@ -645,7 +645,12 @@ impl Adapter {
     }
 
     /// `LauncherAdapter::dismiss_question`: one Esc to a picker that shows `question`, never anything else.
-    pub fn dismiss_question_of(&self, pane_id: &str, question: &str, log: KeyLogger<'_>) -> AdapterResult<bool> {
+    pub fn dismiss_question_of(
+        &self,
+        pane_id: &str,
+        question: &str,
+        log: KeyLogger<'_>,
+    ) -> AdapterResult<bool> {
         let entry = self.assert_typable(pane_id, Action::Dialog)?;
         let Some(agent) = entry.agent.clone() else {
             return Ok(false);
@@ -661,7 +666,12 @@ impl Adapter {
         if !plain.contains("Esc to cancel") || !screen_shows_question(&plain, question) {
             return Ok(false);
         }
-        self.send_key(pane_id, "esc", "close a question the user answered from a remote client", log)?;
+        self.send_key(
+            pane_id,
+            "esc",
+            "close a question the user answered from a remote client",
+            log,
+        )?;
         Ok(true)
     }
 
@@ -918,7 +928,12 @@ impl LauncherAdapter for Adapter {
         self.interrupt_working_of(pane_id, log)
     }
 
-    fn dismiss_question(&self, pane_id: &str, question: &str, log: KeyLogger<'_>) -> AdapterResult<bool> {
+    fn dismiss_question(
+        &self,
+        pane_id: &str,
+        question: &str,
+        log: KeyLogger<'_>,
+    ) -> AdapterResult<bool> {
         self.dismiss_question_of(pane_id, question, log)
     }
 }

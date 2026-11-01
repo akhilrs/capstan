@@ -1014,7 +1014,9 @@ fn the_key_never_leaves_and_only_the_feed_reads_are_made() {
     assert!(!out.err.contains(KEY));
     assert!(out.err.contains("cannot be followed"));
     assert!(!out.err.contains('\u{1b}') && !out.err.contains('\u{202e}'));
-    let allowed = ["head", "snapshot", "page", "waiting", "agents", "plans", "messages"];
+    let allowed = [
+        "head", "snapshot", "page", "waiting", "agents", "plans", "messages",
+    ];
     assert!(world
         .calls
         .lock()
@@ -1289,6 +1291,14 @@ fn messages_are_a_snapshot_section_and_an_older_daemon_without_them_still_stream
     let out = run(&world, s);
     assert_eq!(out.code, 0);
     let got = kinds(&out);
-    assert_eq!(got.iter().filter(|k| *k == "snapshot:messages").count(), 2, "{got:?}");
-    assert_eq!(got.iter().filter(|k| *k == "snapshotEnd").count(), 2, "{got:?}");
+    assert_eq!(
+        got.iter().filter(|k| *k == "snapshot:messages").count(),
+        2,
+        "{got:?}"
+    );
+    assert_eq!(
+        got.iter().filter(|k| *k == "snapshotEnd").count(),
+        2,
+        "{got:?}"
+    );
 }

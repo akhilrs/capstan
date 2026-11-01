@@ -114,7 +114,9 @@ pub fn decide_merge(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comm
 /// `--into` goes into (`merge_branch`, else the remote's default branch), the branch checked out in the project's root
 /// and the branches `--into` may name (none checked out in another worktree, no integration branch).
 fn merge_targets(env: &CommandEnv<'_>) -> CommandResponse {
-    let remote = fresh_config(env).map(|config| config.remote.clone()).unwrap_or_default();
+    let remote = fresh_config(env)
+        .map(|config| config.remote.clone())
+        .unwrap_or_default();
     let repo = seamed_repo(env.deps, &env.deps.options.workspace_root);
     let default_branch = if remote.merge {
         match repo.merge_target(remote.merge_branch.as_deref()) {
@@ -268,7 +270,11 @@ impl Run<'_> {
 
     /// The branch `--into` names, if any.
     fn into(&self) -> Option<String> {
-        self.input.args.get("into").and_then(Value::as_str).map(str::to_string)
+        self.input
+            .args
+            .get("into")
+            .and_then(Value::as_str)
+            .map(str::to_string)
     }
 
     /// The branch checked out in the project's root; none on a detached or unborn HEAD.
@@ -276,7 +282,9 @@ impl Run<'_> {
         let out = self
             .repo
             .root_git(&RootCall {
-                args: ["symbolic-ref", "-q", "--short", "HEAD"].map(String::from).to_vec(),
+                args: ["symbolic-ref", "-q", "--short", "HEAD"]
+                    .map(String::from)
+                    .to_vec(),
                 timeout: SMALL_GIT_TIMEOUT,
                 config_env: Vec::new(),
                 network: false,
@@ -414,9 +422,9 @@ impl Run<'_> {
         // `--into` a branch that is not checked out: the branch moves, no working tree is touched, so neither the
         // marker nor the index lock of the checkout matters.
         if !go.checkout {
-            let merged = self
-                .repo
-                .merge_into_ref(&go.target, &go.branch, &go.head_sha, MERGE_TIMEOUT);
+            let merged =
+                self.repo
+                    .merge_into_ref(&go.target, &go.branch, &go.head_sha, MERGE_TIMEOUT);
             return match merged {
                 Ok(RootMerge::Merged { commit }) => self.record_for(go, true, Some(commit)),
                 Ok(RootMerge::AlreadyInHead) => self.record_for(go, false, None),

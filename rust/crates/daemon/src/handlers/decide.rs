@@ -9,10 +9,10 @@ use super::shared::{
 };
 use super::HandlerMap;
 use capstan_config::{Remote, RoleConfig};
+use capstan_kernel::areas::integrations;
 use capstan_kernel::areas::remote_decisions::{
     self, DecideOptions, Kind, ERROR_CODES, MERGE_ERROR_CODES,
 };
-use capstan_kernel::areas::integrations;
 use capstan_kernel::integrate::GitRepo;
 use capstan_kernel::{KernelError, KernelResult};
 use serde_json::Value;
@@ -85,7 +85,8 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         }
     };
     let credential = call.credential.to_string();
-    let reply_to = (input.kind == Kind::Message && input.verb == "reply").then(|| input.target.clone());
+    let reply_to =
+        (input.kind == Kind::Message && input.verb == "reply").then(|| input.target.clone());
     // A discard removes the integration's branch once the decision is applied: its name and head, read before.
     let discarding = if input.kind == Kind::Integration && input.verb == "discard" {
         let id = input.target.clone();
@@ -94,7 +95,12 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
             .run(move |core| integrations::integration_row(core.kernel(), &id))
             .ok()
             .flatten()
-            .and_then(|row| row.head_sha.clone().filter(|_| row.state == "merged").map(|sha| (row.branch.clone(), sha)))
+            .and_then(|row| {
+                row.head_sha
+                    .clone()
+                    .filter(|_| row.state == "merged")
+                    .map(|sha| (row.branch.clone(), sha))
+            })
     } else {
         None
     };
@@ -113,7 +119,10 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
             let removed = repo.delete_branch_at(&branch, &head_sha).unwrap_or(false);
             if !removed {
                 // `cstan cleanup` offers the branch of a discarded integration again.
-                env.log("integration_branch_not_removed", serde_json::json!({"branch": branch}));
+                env.log(
+                    "integration_branch_not_removed",
+                    serde_json::json!({"branch": branch}),
+                );
             }
         }
     }

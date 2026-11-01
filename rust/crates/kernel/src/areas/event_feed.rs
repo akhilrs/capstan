@@ -1792,13 +1792,21 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 // question, its waiting item), so a client shows it at once instead of reading the snapshot again. A
                 // later change of it (answered, closed) is an invalidate, applied after this one.
                 let sent = row.action == "user_message.send";
-                let listed = if sent { read_item(ctx, "messages", &key)? } else { None };
+                let listed = if sent {
+                    read_item(ctx, "messages", &key)?
+                } else {
+                    None
+                };
                 let mut list = vec![match listed {
                     Some(item) => effect("messages", "upsert", key, item),
                     None => effect("messages", "invalidate", key, json!({})),
                 }];
                 if text_of(&message, "class") == Some("action") {
-                    let waiting = if sent { read_item(ctx, "waiting", &waiting_key)? } else { None };
+                    let waiting = if sent {
+                        read_item(ctx, "waiting", &waiting_key)?
+                    } else {
+                        None
+                    };
                     list.push(match waiting {
                         Some(item) => effect("waiting", "upsert", waiting_key, item),
                         None => effect("waiting", "invalidate", waiting_key, json!({})),

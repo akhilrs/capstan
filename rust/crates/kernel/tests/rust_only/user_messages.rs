@@ -15,7 +15,13 @@ fn send(rig: &Rig, who: &str, body: &str, class: &str) -> Result<Value, KernelEr
         .send_to_user(&rig.ctx(who), &json!({"body": body, "class": class}))
 }
 
-fn reply(rig: &Rig, request: &str, expect: &str, nonce: &str, text: &str) -> Result<Value, KernelError> {
+fn reply(
+    rig: &Rig,
+    request: &str,
+    expect: &str,
+    nonce: &str,
+    text: &str,
+) -> Result<Value, KernelError> {
     let words: Vec<String> = [request, "--expect", expect, "--nonce", nonce, "reply", text]
         .iter()
         .map(|w| w.to_string())
@@ -39,7 +45,12 @@ fn count(rig: &Rig, sql: &str) -> i64 {
 fn effects(events: &[Value]) -> Vec<(String, String)> {
     events
         .iter()
-        .flat_map(|event| event["body"]["effects"].as_array().cloned().unwrap_or_default())
+        .flat_map(|event| {
+            event["body"]["effects"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
         .map(|effect| {
             (
                 effect["section"].as_str().unwrap().to_string(),
@@ -53,7 +64,13 @@ fn effects(events: &[Value]) -> Vec<(String, String)> {
 fn a_question_from_the_pm_is_listed_waits_and_is_answered_by_a_reply() {
     let rig = Rig::new();
     let start = rig.head();
-    let sent = send(&rig, "pm-1", "Ship plan-12 today or wait for the review?", "action").unwrap();
+    let sent = send(
+        &rig,
+        "pm-1",
+        "Ship plan-12 today or wait for the review?",
+        "action",
+    )
+    .unwrap();
     let id = sent["messageId"].as_str().unwrap().to_string();
     assert_eq!(sent["sequence"], json!(1));
 
@@ -63,7 +80,10 @@ fn a_question_from_the_pm_is_listed_waits_and_is_answered_by_a_reply() {
     let item = &page.items[0];
     assert_eq!(item.key, "1");
     assert_eq!(item.sender_agent_id, "pm-1");
-    assert_eq!((item.class.as_str(), item.state.as_str()), ("action", "open"));
+    assert_eq!(
+        (item.class.as_str(), item.state.as_str()),
+        ("action", "open")
+    );
     assert_eq!(item.body, "Ship plan-12 today or wait for the review?");
     assert_eq!(item.request_id, format!("message:{id}"));
     assert_eq!(page.next, None);
@@ -72,19 +92,38 @@ fn a_question_from_the_pm_is_listed_waits_and_is_answered_by_a_reply() {
     let waiting = waiting_page(&rig.core, None, 50, Some("message")).unwrap();
     assert_eq!(waiting.items.len(), 1);
     assert_eq!(waiting.items[0].key, "message:1");
-    let hash = sha256(&message_hash_input(&id, "Ship plan-12 today or wait for the review?"));
+    let hash = sha256(&message_hash_input(
+        &id,
+        "Ship plan-12 today or wait for the review?",
+    ));
     assert_eq!(waiting.items[0].content_hash, hash);
     let request = format!("message:{id}");
-    assert_eq!(content_hash(&rig.core, &request).unwrap(), Some(hash.clone()));
+    assert_eq!(
+        content_hash(&rig.core, &request).unwrap(),
+        Some(hash.clone())
+    );
 
     // The event asks for both items again.
     let sent_effects = effects(&rig.since(start));
-    assert!(sent_effects.contains(&("messages".into(), "1".into())), "{sent_effects:?}");
-    assert!(sent_effects.contains(&("waiting".into(), "message:1".into())), "{sent_effects:?}");
+    assert!(
+        sent_effects.contains(&("messages".into(), "1".into())),
+        "{sent_effects:?}"
+    );
+    assert!(
+        sent_effects.contains(&("waiting".into(), "message:1".into())),
+        "{sent_effects:?}"
+    );
 
     // The reply goes to the PM, the question is answered and stops waiting.
     let before = rig.head();
-    let answered = reply(&rig, &request, &hash[..12], "nonce-0001", "Wait for the review").unwrap();
+    let answered = reply(
+        &rig,
+        &request,
+        &hash[..12],
+        "nonce-0001",
+        "Wait for the review",
+    )
+    .unwrap();
     assert_eq!(answered["outcome"], json!("applied"));
     let to_pm: String = rig
         .db()
@@ -94,20 +133,32 @@ fn a_question_from_the_pm_is_listed_waits_and_is_answered_by_a_reply() {
             |row| row.get(0),
         )
         .unwrap();
-    assert!(to_pm.contains("The user answered your message 1"), "{to_pm}");
+    assert!(
+        to_pm.contains("The user answered your message 1"),
+        "{to_pm}"
+    );
     assert!(to_pm.contains("Ship plan-12 today"), "{to_pm}");
     assert!(to_pm.ends_with("Wait for the review"), "{to_pm}");
     assert_eq!(
         count(&rig, "SELECT count(*) FROM user_messages WHERE state = 'answered' AND reply_message_id IS NOT NULL"),
         1
     );
-    assert!(waiting_page(&rig.core, None, 50, Some("message")).unwrap().items.is_empty());
+    assert!(waiting_page(&rig.core, None, 50, Some("message"))
+        .unwrap()
+        .items
+        .is_empty());
     assert_eq!(content_hash(&rig.core, &request).unwrap(), None);
     let listed = snapshot_item(&rig.core, "messages", "1").unwrap().unwrap();
     assert_eq!(listed["state"], json!("answered"));
     let reply_effects = effects(&rig.since(before));
-    assert!(reply_effects.contains(&("waiting".into(), "message:1".into())), "{reply_effects:?}");
-    assert!(reply_effects.contains(&("messages".into(), "1".into())), "{reply_effects:?}");
+    assert!(
+        reply_effects.contains(&("waiting".into(), "message:1".into())),
+        "{reply_effects:?}"
+    );
+    assert!(
+        reply_effects.contains(&("messages".into(), "1".into())),
+        "{reply_effects:?}"
+    );
 
     // A second reply finds nothing waiting.
     assert_eq!(
@@ -129,18 +180,27 @@ fn an_info_message_is_listed_and_does_not_wait() {
     assert_eq!(rest.items.len(), 1);
     assert_eq!(rest.items[0].sender_agent_id, "dev-1");
     assert_eq!(rest.next, None);
-    assert!(waiting_page(&rig.core, None, 50, Some("message")).unwrap().items.is_empty());
+    assert!(waiting_page(&rig.core, None, 50, Some("message"))
+        .unwrap()
+        .items
+        .is_empty());
 }
 
 #[test]
 fn only_an_agent_sends_and_sixty_an_hour_is_the_limit() {
     let rig = Rig::new();
-    assert_eq!(code(send(&rig, "owner", "hello", "info").unwrap_err()), "not_an_agent");
+    assert_eq!(
+        code(send(&rig, "owner", "hello", "info").unwrap_err()),
+        "not_an_agent"
+    );
     assert!(send(&rig, "pm-1", "x", "loud").is_err());
     for n in 0..60 {
         send(&rig, "pm-1", &format!("note {n}"), "info").unwrap();
     }
-    assert_eq!(code(send(&rig, "pm-1", "one more", "info").unwrap_err()), "limit_reached");
+    assert_eq!(
+        code(send(&rig, "pm-1", "one more", "info").unwrap_err()),
+        "limit_reached"
+    );
     assert_eq!(count(&rig, "SELECT count(*) FROM user_messages"), 60);
 }
 
@@ -150,7 +210,10 @@ fn a_question_whose_agent_is_gone_cannot_be_answered() {
     let sent = send(&rig, "dev-1", "Which port?", "action").unwrap();
     let id = sent["messageId"].as_str().unwrap();
     rig.db()
-        .execute("UPDATE agents SET state = 'ended' WHERE agent_id = 'dev-1'", [])
+        .execute(
+            "UPDATE agents SET state = 'ended' WHERE agent_id = 'dev-1'",
+            [],
+        )
         .unwrap();
     let request = format!("message:{id}");
     let hash = content_hash(&rig.core, &request).unwrap().unwrap();
@@ -158,7 +221,13 @@ fn a_question_whose_agent_is_gone_cannot_be_answered() {
         code(reply(&rig, &request, &hash[..12], "nonce-0001", "8080").unwrap_err()),
         "not_waiting"
     );
-    assert_eq!(count(&rig, "SELECT count(*) FROM user_messages WHERE state = 'open'"), 1);
+    assert_eq!(
+        count(
+            &rig,
+            "SELECT count(*) FROM user_messages WHERE state = 'open'"
+        ),
+        1
+    );
 }
 
 #[test]
@@ -166,18 +235,33 @@ fn the_asking_agent_closes_a_question_answered_in_the_terminal() {
     let rig = Rig::new();
     let sent = send(&rig, "pm-1", "Ship today? 1. Yes 2. No", "action").unwrap();
     let id = sent["messageId"].as_str().unwrap().to_string();
-    let close = |who: &str, n: i64| rig.core.close_user_question(&rig.ctx(who), &json!({"sequence": n}));
+    let close = |who: &str, n: i64| {
+        rig.core
+            .close_user_question(&rig.ctx(who), &json!({"sequence": n}))
+    };
     assert_eq!(code(close("dev-1", 1).unwrap_err()), "not_yours");
     assert_eq!(code(close("pm-1", 9).unwrap_err()), "not_open");
     let start = rig.head();
     close("pm-1", 1).unwrap();
-    assert!(waiting_page(&rig.core, None, 50, Some("message")).unwrap().items.is_empty());
-    assert_eq!(content_hash(&rig.core, &format!("message:{id}")).unwrap(), None);
+    assert!(waiting_page(&rig.core, None, 50, Some("message"))
+        .unwrap()
+        .items
+        .is_empty());
+    assert_eq!(
+        content_hash(&rig.core, &format!("message:{id}")).unwrap(),
+        None
+    );
     let listed = snapshot_item(&rig.core, "messages", "1").unwrap().unwrap();
     assert_eq!(listed["state"], json!("answered"));
     let closed_effects = effects(&rig.since(start));
-    assert!(closed_effects.contains(&("messages".into(), "1".into())), "{closed_effects:?}");
-    assert!(closed_effects.contains(&("waiting".into(), "message:1".into())), "{closed_effects:?}");
+    assert!(
+        closed_effects.contains(&("messages".into(), "1".into())),
+        "{closed_effects:?}"
+    );
+    assert!(
+        closed_effects.contains(&("waiting".into(), "message:1".into())),
+        "{closed_effects:?}"
+    );
     assert_eq!(code(close("pm-1", 1).unwrap_err()), "not_open");
 }
 
@@ -191,7 +275,10 @@ fn a_question_carries_its_choices_and_an_info_message_takes_none() {
         )
         .unwrap();
     let page = messages_page(&rig.core, None, 10).unwrap();
-    assert_eq!(page.items[0].options, ["Close out plan-8 (Recommended)", "Start the follow-ups"]);
+    assert_eq!(
+        page.items[0].options,
+        ["Close out plan-8 (Recommended)", "Start the follow-ups"]
+    );
     let info = rig.core.send_to_user(
         &rig.ctx("pm-1"),
         &json!({"body": "FYI", "class": "info", "options": ["x"]}),
@@ -200,11 +287,17 @@ fn a_question_carries_its_choices_and_an_info_message_takes_none() {
     let many: Vec<String> = (0..7).map(|n| format!("choice {n}")).collect();
     assert!(rig
         .core
-        .send_to_user(&rig.ctx("pm-1"), &json!({"body": "Pick", "class": "action", "options": many}))
+        .send_to_user(
+            &rig.ctx("pm-1"),
+            &json!({"body": "Pick", "class": "action", "options": many})
+        )
         .is_err());
     assert!(rig
         .core
-        .send_to_user(&rig.ctx("pm-1"), &json!({"body": "Pick", "class": "action", "options": ["two\nlines"]}))
+        .send_to_user(
+            &rig.ctx("pm-1"),
+            &json!({"body": "Pick", "class": "action", "options": ["two\nlines"]})
+        )
         .is_err());
     // Without options the list is empty.
     send(&rig, "pm-1", "Plain question?", "action").unwrap();
@@ -215,10 +308,22 @@ fn a_question_carries_its_choices_and_an_info_message_takes_none() {
 #[test]
 fn a_message_keeps_its_lines_and_loses_only_control_characters() {
     use capstan_kernel::areas::snapshot_feed::clean_lines;
-    assert_eq!(clean_lines("HCP resync\r\n\r\n\r\nStage 3:  9201 of 9871\n- failed: 0  \n"), "HCP resync\n\nStage 3:  9201 of 9871\n- failed: 0");
+    assert_eq!(
+        clean_lines("HCP resync\r\n\r\n\r\nStage 3:  9201 of 9871\n- failed: 0  \n"),
+        "HCP resync\n\nStage 3:  9201 of 9871\n- failed: 0"
+    );
     assert_eq!(clean_lines("a\u{1b}[31mred\u{202e}x\rb"), "a [31mred x\nb");
     let rig = Rig::new();
-    send(&rig, "pm-1", "Status:\n  sent    9222\n  failed     0", "info").unwrap();
+    send(
+        &rig,
+        "pm-1",
+        "Status:\n  sent    9222\n  failed     0",
+        "info",
+    )
+    .unwrap();
     let page = messages_page(&rig.core, None, 10).unwrap();
-    assert_eq!(page.items[0].body, "Status:\n  sent    9222\n  failed     0");
+    assert_eq!(
+        page.items[0].body,
+        "Status:\n  sent    9222\n  failed     0"
+    );
 }

@@ -968,7 +968,11 @@ fn plan_item(core: &Core, row: &Map<String, Value>) -> KernelResult<PlanItem> {
         .collect();
 
     let sequence = int(row, "sequence");
-    let content_hash = sha256(&plan_hash_input(&plan_id, &text(row, "state"), &text(row, "title")));
+    let content_hash = sha256(&plan_hash_input(
+        &plan_id,
+        &text(row, "state"),
+        &text(row, "title"),
+    ));
     Ok(PlanItem {
         key: item_key("plans", "plan", &sequence.to_string()),
         title: shown(&text(row, "title")),
@@ -2116,7 +2120,10 @@ fn message_rows(
                 body: body.to_string(),
                 truncated,
                 created_at: text(&cols, "created_at"),
-                answered_at: cols.get("answered_at").and_then(Value::as_str).map(str::to_string),
+                answered_at: cols
+                    .get("answered_at")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 request_id: format!("{MESSAGE_KIND}:{}", text(&cols, "message_id")),
                 options: serde_json::from_str::<Vec<String>>(&text(&cols, "options_json"))
                     .unwrap_or_default()
@@ -2130,7 +2137,11 @@ fn message_rows(
 
 /// The messages to the user after the key `after` (a sequence), oldest first, among the latest
 /// [`user_messages::LISTED_MESSAGES`].
-pub fn messages_page(core: &Core, after: Option<&str>, limit: u32) -> KernelResult<Page<MessageItem>> {
+pub fn messages_page(
+    core: &Core,
+    after: Option<&str>,
+    limit: u32,
+) -> KernelResult<Page<MessageItem>> {
     let limit = check_limit(limit)?;
     let after = match after {
         None => 0,
@@ -2143,7 +2154,11 @@ pub fn messages_page(core: &Core, after: Option<&str>, limit: u32) -> KernelResu
     let mut items = message_rows(core, None, after, limit + 1)?;
     let more = items.len() > limit;
     items.truncate(limit);
-    let next = if more { items.last().map(|item| item.key.clone()) } else { None };
+    let next = if more {
+        items.last().map(|item| item.key.clone())
+    } else {
+        None
+    };
     Ok(Page { head, items, next })
 }
 

@@ -4477,7 +4477,10 @@ impl GitRepo {
         let deadline = Deadline::new(timeout);
         let head = self.check_code(&["symbolic-ref", "-q", "HEAD"], &deadline, &[0, 1])?;
         let checked_out = (head.code == 0)
-            .then(|| String::from_utf8_lossy(head.stdout.strip_suffix(b"\n").unwrap_or(&head.stdout)).to_string())
+            .then(|| {
+                String::from_utf8_lossy(head.stdout.strip_suffix(b"\n").unwrap_or(&head.stdout))
+                    .to_string()
+            })
             .and_then(|full| full.strip_prefix("refs/heads/").map(str::to_string));
         let busy = self.worktree_branches(&deadline)?;
         let listed = self.check_code(
@@ -4554,7 +4557,11 @@ impl GitRepo {
         let commit = format!("{head_sha}^{{commit}}");
         if !is_commit_id(head_sha)
             || self
-                .check_code(&["rev-parse", "--verify", "--quiet", &commit], &deadline, &[0, 1])?
+                .check_code(
+                    &["rev-parse", "--verify", "--quiet", &commit],
+                    &deadline,
+                    &[0, 1],
+                )?
                 .code
                 == 1
         {
@@ -4566,7 +4573,11 @@ impl GitRepo {
         if capstan_config::remote::validate_branch_name(target).is_err()
             || target.starts_with("integration/")
             || self
-                .check_code(&["check-ref-format", "--branch", target], &deadline, &[0, 1, 128])?
+                .check_code(
+                    &["check-ref-format", "--branch", target],
+                    &deadline,
+                    &[0, 1, 128],
+                )?
                 .code
                 != 0
         {
@@ -4574,7 +4585,12 @@ impl GitRepo {
         }
         let reference = format!("refs/heads/{target}");
         let tip = self.check_code(
-            &["rev-parse", "--verify", "--quiet", &format!("{reference}^{{commit}}")],
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{reference}^{{commit}}"),
+            ],
             &deadline,
             &[0, 1],
         )?;
@@ -4607,7 +4623,10 @@ impl GitRepo {
         };
         let base = self.check_code(&["merge-base", &old, head_sha], &deadline, &[0, 1])?;
         if base.code == 1 {
-            return Ok(refused_merge("merge_conflict", &[ENTRY_UNRELATED_HISTORIES]));
+            return Ok(refused_merge(
+                "merge_conflict",
+                &[ENTRY_UNRELATED_HISTORIES],
+            ));
         }
         let merged = self.check_code(
             &[
@@ -4633,7 +4652,16 @@ impl GitRepo {
         };
         let message = format!("Merge branch '{merged_branch}' into {target}");
         let created = self.step(
-            &["commit-tree", &tree, "-p", &old, "-p", head_sha, "-m", &message],
+            &[
+                "commit-tree",
+                &tree,
+                "-p",
+                &old,
+                "-p",
+                head_sha,
+                "-m",
+                &message,
+            ],
             &deadline,
             false,
             &[
@@ -4673,14 +4701,23 @@ impl GitRepo {
     }
 
     /// Whether `sha` is in the history of the local branch `branch`.
-    pub fn is_in_branch(&self, sha: &str, branch: &str, timeout: Duration) -> IntegrateResult<bool> {
+    pub fn is_in_branch(
+        &self,
+        sha: &str,
+        branch: &str,
+        timeout: Duration,
+    ) -> IntegrateResult<bool> {
         let deadline = Deadline::new(timeout);
         if !is_commit_id(sha) || capstan_config::remote::validate_branch_name(branch).is_err() {
             return Ok(false);
         }
         let reference = format!("refs/heads/{branch}");
         Ok(self
-            .check_code(&["merge-base", "--is-ancestor", sha, &reference], &deadline, &[0, 1, 128])?
+            .check_code(
+                &["merge-base", "--is-ancestor", sha, &reference],
+                &deadline,
+                &[0, 1, 128],
+            )?
             .code
             == 0)
     }
