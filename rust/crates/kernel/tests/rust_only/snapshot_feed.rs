@@ -1010,7 +1010,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     let plans = value_of(&plans_page(&rig.core, None, 10).unwrap());
     assert_eq!(
         fields(&plans["items"][0]),
-        "key,packageDetails,packageDetailsOmitted,packages,planId,sequence,state,title"
+        "contentHash,key,packageDetails,packageDetailsOmitted,packages,planId,requestId,sequence,state,title"
     );
     assert_eq!(
         fields(&plans["items"][0]["packages"]),
