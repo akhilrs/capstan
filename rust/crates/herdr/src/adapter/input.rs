@@ -653,7 +653,7 @@ impl Adapter {
         options: &[String],
         log: KeyLogger<'_>,
     ) -> AdapterResult<bool> {
-        let entry = self.assert_typable(pane_id, Action::Dialog)?;
+        let entry = self.assert_typable(pane_id, Action::CloseQuestion)?;
         let Some(agent) = entry.agent.clone() else {
             return Ok(false);
         };
@@ -661,7 +661,10 @@ impl Adapter {
             return Ok(false);
         }
         let screen = self.screen(pane_id, true, None)?;
-        if crate::screen::extract_input_line(&entry.kind, &screen).is_some() {
+        // Text typed at the prompt is never thrown away. A picker's own cursor (`❯ 1. …`) is not a prompt.
+        if crate::screen::extract_input_line(&entry.kind, &screen)
+            .is_some_and(|line| !is_option_cursor(&line))
+        {
             return Ok(false);
         }
         let plain = crate::screen::strip_ansi(&screen);
@@ -942,6 +945,13 @@ impl LauncherAdapter for Adapter {
 }
 
 /// The letters and digits of a text, lower case: what survives a terminal's wrapping, borders and styling.
+/// The line after a picker's `❯` cursor: an option number and a dot (`1. Yes`).
+fn is_option_cursor(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let digits = trimmed.chars().take_while(char::is_ascii_digit).count();
+    digits > 0 && trimmed[digits..].starts_with('.')
+}
+
 fn letters_of(text: &str) -> String {
     text.chars()
         .filter(|c| c.is_alphanumeric())
@@ -989,6 +999,17 @@ mod question_tests {
         assert!(!screen_shows_question(permission, question, &[]));
         // Too short a question is never matched.
         assert!(!screen_shows_question("Ship? Esc to cancel", "Ship?", &[]));
+    }
+
+    #[test]
+    fn a_picker_cursor_is_not_text_at_the_prompt() {
+        assert!(super::is_option_cursor(
+            "1. Yes, all recommended settings (Recommended)"
+        ));
+        assert!(super::is_option_cursor(" 12. Something"));
+        assert!(!super::is_option_cursor("fix the build"));
+        assert!(!super::is_option_cursor("2026 plans"));
+        assert!(!super::is_option_cursor(""));
     }
 
     fn options(list: &[&str]) -> Vec<String> {
