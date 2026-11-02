@@ -137,7 +137,7 @@ fn close_answered_picker(env: &CommandEnv<'_>, message_id: &str) {
     let _ = std::thread::Builder::new()
         .name("close-answered-picker".into())
         .spawn(move || {
-            let outcome = launcher.dismiss_question(&row.sender_agent_id, &row.body);
+            let outcome = launcher.dismiss_question(&row.sender_agent_id, &row.body, &row.options);
             deps.detail_log(
                 "question_picker_closed",
                 serde_json::json!({
