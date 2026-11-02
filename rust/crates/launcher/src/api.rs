@@ -471,7 +471,12 @@ pub trait LauncherService: Send + Sync {
     fn interrupt(&self, agent_id: &str) -> LauncherResult<bool>;
     /// Closes the picker of a question the agent asked and the user answered from a remote client (see
     /// `LauncherAdapter::dismiss_question`); true when the Esc was sent. The default sends nothing.
-    fn dismiss_question(&self, _agent_id: &str, _question: &str) -> LauncherResult<bool> {
+    fn dismiss_question(
+        &self,
+        _agent_id: &str,
+        _question: &str,
+        _options: &[String],
+    ) -> LauncherResult<bool> {
         Ok(false)
     }
     fn status(&self) -> LauncherStatus;

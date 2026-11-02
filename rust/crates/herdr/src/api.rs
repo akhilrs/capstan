@@ -705,6 +705,7 @@ pub trait LauncherAdapter: PaneRegistry {
         &self,
         _pane_id: &str,
         _question: &str,
+        _options: &[String],
         _log: KeyLogger<'_>,
     ) -> AdapterResult<bool> {
         Ok(false)

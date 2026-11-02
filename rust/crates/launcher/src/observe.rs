@@ -111,11 +111,18 @@ impl LauncherKernel {
 
     /// One Esc to the picker of a question the agent asked and the user answered elsewhere; false when the screen does
     /// not show it.
-    pub fn dismiss_question(&self, agent_id: &str, question: &str) -> OpResult<bool> {
+    pub fn dismiss_question(
+        &self,
+        agent_id: &str,
+        question: &str,
+        options: &[String],
+    ) -> OpResult<bool> {
         let pane_id = self.active_pane(agent_id)?;
         let log =
             |entry: &KeyLogEntry| self.log("question_dismiss_key", key_entry(agent_id, entry));
-        Ok(self.adapter.dismiss_question(&pane_id, question, &log)?)
+        Ok(self
+            .adapter
+            .dismiss_question(&pane_id, question, options, &log)?)
     }
 
     /// The recent screen of an active agent. A read: it does not wait for other launcher operations.

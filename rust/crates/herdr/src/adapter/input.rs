@@ -644,11 +644,13 @@ impl Adapter {
         })
     }
 
-    /// `LauncherAdapter::dismiss_question`: one Esc to a picker that shows `question`, never anything else.
+    /// `LauncherAdapter::dismiss_question`: one Esc to a picker that shows `question` (and its `options`), never
+    /// anything else.
     pub fn dismiss_question_of(
         &self,
         pane_id: &str,
         question: &str,
+        options: &[String],
         log: KeyLogger<'_>,
     ) -> AdapterResult<bool> {
         let entry = self.assert_typable(pane_id, Action::Dialog)?;
@@ -663,7 +665,7 @@ impl Adapter {
             return Ok(false);
         }
         let plain = crate::screen::strip_ansi(&screen);
-        if !plain.contains("Esc to cancel") || !screen_shows_question(&plain, question) {
+        if !plain.contains("Esc to cancel") || !screen_shows_question(&plain, question, options) {
             return Ok(false);
         }
         self.send_key(
@@ -932,9 +934,10 @@ impl LauncherAdapter for Adapter {
         &self,
         pane_id: &str,
         question: &str,
+        options: &[String],
         log: KeyLogger<'_>,
     ) -> AdapterResult<bool> {
-        self.dismiss_question_of(pane_id, question, log)
+        self.dismiss_question_of(pane_id, question, options, log)
     }
 }
 
@@ -947,9 +950,30 @@ fn letters_of(text: &str) -> String {
 }
 
 /// Whether `screen` shows the start of `question` (its first 60 letters and digits, at least 12).
-pub fn screen_shows_question(screen: &str, question: &str) -> bool {
-    let needle: String = letters_of(question).chars().take(60).collect();
-    needle.chars().count() >= 12 && letters_of(screen).contains(&needle)
+/// Whether the screen shows the picker of this question. Either the question's first 60 letters and digits are on the
+/// screen (a picker that repeats the whole question), or, for a question with at least two choices, every choice is on
+/// the screen together with one line of the question of at least 12 letters (a phone question that opens with
+/// context while the picker shows only its question line). Too short a text never counts, so a permission prompt
+/// with Yes and No is not taken for a question.
+pub fn screen_shows_question(screen: &str, question: &str, options: &[String]) -> bool {
+    let shown = letters_of(screen);
+    let first = |text: &str, n: usize| -> String { letters_of(text).chars().take(n).collect() };
+    let needle = first(question, 60);
+    if needle.chars().count() >= 12 && shown.contains(&needle) {
+        return true;
+    }
+    if options.len() < 2 {
+        return false;
+    }
+    let every_option = options.iter().all(|option| {
+        let letters = first(option, 40);
+        letters.chars().count() >= 2 && shown.contains(&letters)
+    });
+    every_option
+        && question.lines().any(|line| {
+            let letters = first(line, 60);
+            letters.chars().count() >= 12 && shown.contains(&letters)
+        })
 }
 
 #[cfg(test)]
@@ -960,10 +984,39 @@ mod question_tests {
     fn a_wrapped_bordered_picker_shows_its_question_and_another_screen_does_not() {
         let question = "All plan-8 work is now on develop. What next?";
         let picker = "╭────────────────────────╮\n│ All plan-8 work is now  │\n│ on develop. What next?  │\n│ ❯ 1. Close out plan-8  │\n╰────────────────────────╯\nEnter to select · Esc to cancel";
-        assert!(screen_shows_question(picker, question));
+        assert!(screen_shows_question(picker, question, &[]));
         let permission = "Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel";
-        assert!(!screen_shows_question(permission, question));
+        assert!(!screen_shows_question(permission, question, &[]));
         // Too short a question is never matched.
-        assert!(!screen_shows_question("Ship? Esc to cancel", "Ship?"));
+        assert!(!screen_shows_question("Ship? Esc to cancel", "Ship?", &[]));
+    }
+
+    fn options(list: &[&str]) -> Vec<String> {
+        list.iter().map(|o| o.to_string()).collect()
+    }
+
+    #[test]
+    fn a_phone_question_with_context_first_matches_a_picker_of_its_question_line_and_choices() {
+        let question = "Plan-8 status:\n- 3 of 4 packages merged\n- pkg-4 waits on review\n\nWhat should I do next?";
+        let choices = options(&["Close out plan-8 (Recommended)", "Start the follow-ups"]);
+        let picker = "╭──────────────────────────╮\n│ What should I do next?    │\n│ ❯ 1. Close out plan-8     │\n│      (Recommended)        │\n│   2. Start the follow-ups │\n│   3. Type something.      │\n╰──────────────────────────╯\nEnter to select · Esc to cancel";
+        assert!(screen_shows_question(picker, question, &choices));
+        // A choice the screen does not show: not this picker.
+        let other = options(&["Close out plan-8 (Recommended)", "Pause the run"]);
+        assert!(!screen_shows_question(picker, question, &other));
+        // The choices alone, without a line of the question, are not enough.
+        let unrelated = "Plan-9: Which first?\n  Close out plan-8 (Recommended)\n  Start the follow-ups\nEsc to cancel";
+        assert!(!screen_shows_question(
+            unrelated,
+            "Summary of the day\nAnything to add here?",
+            &choices
+        ));
+        // A permission prompt with Yes and No is never a two-choice question of short lines.
+        let permission = "Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel";
+        assert!(!screen_shows_question(
+            permission,
+            "Proceed?",
+            &options(&["Yes", "No"])
+        ));
     }
 }
