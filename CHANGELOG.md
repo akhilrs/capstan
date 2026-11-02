@@ -2,6 +2,12 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.17.1 (2026-11-02)
+
+### Bug fixes
+
+- Close the terminal picker when a phone question opens with context (#84) (36419ad)
+
 ## 0.17.0 (2026-11-01)
 
 ### Features
