@@ -2,8 +2,8 @@
 //! step needs an exit code git does not give on demand.
 
 use capstan_kernel::integrate::{
-    GitRepo, GitSeams, IntegrateError, Preflight, RootMerge, ENTRY_DETACHED_HEAD, ENTRY_UNBORN_HEAD,
-    ENTRY_UNRELATED_HISTORIES,
+    GitRepo, GitSeams, IntegrateError, Preflight, RootMerge, ENTRY_DETACHED_HEAD,
+    ENTRY_UNBORN_HEAD, ENTRY_UNRELATED_HISTORIES,
 };
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -699,8 +699,14 @@ fn merge_into_ref_moves_only_the_branch_and_leaves_the_checkout_and_its_changes(
     assert_eq!(fx.sha("develop"), commit);
     assert_eq!(fx.sha("develop^2"), head);
     assert_eq!(fx.sha("main"), main_before);
-    assert_eq!(std::fs::read_to_string(fx.root.join("a.txt")).unwrap(), "edited\n");
-    assert_eq!(git_out(&fx.root, &["symbolic-ref", "--short", "HEAD"]), "main");
+    assert_eq!(
+        std::fs::read_to_string(fx.root.join("a.txt")).unwrap(),
+        "edited\n"
+    );
+    assert_eq!(
+        git_out(&fx.root, &["symbolic-ref", "--short", "HEAD"]),
+        "main"
+    );
     assert!(fx.repo().is_in_branch(&head, "develop", T).unwrap());
     assert!(!fx.repo().is_in_branch(&head, "main", T).unwrap());
     // Again: already in the branch.
@@ -732,15 +738,24 @@ fn merge_into_ref_refuses_a_branch_in_a_worktree_a_missing_one_and_conflicts() {
     };
     let repo = fx.repo();
     assert_eq!(
-        code(repo.merge_into_ref("worker", "integration/x", &head, T).unwrap()),
+        code(
+            repo.merge_into_ref("worker", "integration/x", &head, T)
+                .unwrap()
+        ),
         "wrong_branch"
     );
     assert_eq!(
-        code(repo.merge_into_ref("nope", "integration/x", &head, T).unwrap()),
+        code(
+            repo.merge_into_ref("nope", "integration/x", &head, T)
+                .unwrap()
+        ),
         "invalid_branch"
     );
     assert_eq!(
-        code(repo.merge_into_ref("integration/x", "integration/x", &head, T).unwrap()),
+        code(
+            repo.merge_into_ref("integration/x", "integration/x", &head, T)
+                .unwrap()
+        ),
         "invalid_branch"
     );
     // A conflicting change on the target: refused, the branch does not move.
@@ -751,7 +766,10 @@ fn merge_into_ref_refuses_a_branch_in_a_worktree_a_missing_one_and_conflicts() {
     git(&fx.root, &["checkout", "-q", "main"]);
     let before = fx.sha("develop");
     assert_eq!(
-        code(repo.merge_into_ref("develop", "integration/x", &head, T).unwrap()),
+        code(
+            repo.merge_into_ref("develop", "integration/x", &head, T)
+                .unwrap()
+        ),
         "merge_conflict"
     );
     assert_eq!(fx.sha("develop"), before);

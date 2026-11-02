@@ -64,7 +64,11 @@ fn valid_rest(row: &capstan_kernel::areas::remote_decisions::VerbRow) -> Vec<&'s
     for flag in row.flags {
         rest.push(flag.name);
         // `--into` takes a branch name; the other flags take free text.
-        rest.push(if flag.name == "--into" { "develop" } else { "some text" });
+        rest.push(if flag.name == "--into" {
+            "develop"
+        } else {
+            "some text"
+        });
     }
     rest
 }

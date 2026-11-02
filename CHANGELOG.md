@@ -2,6 +2,19 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.17.0 (2026-11-01)
+
+### Features
+
+- Instant messages, PM-restart requeue, delivery state (#80) (47837f0)
+- Discard a waiting integration from a remote client (#81) (5cee735)
+- Cancel a plan or a draft from the phone (#82) (9bbd75c)
+
+### Bug fixes
+
+- **kit:** read a new agent message at once (#79) (000c3b6)
+- Keep a read the phone owes across a stop and a relaunch (#83) (1df5290)
+
 ## 0.16.0 (2026-11-01)
 
 ### Features

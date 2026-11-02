@@ -176,23 +176,22 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     }
     // `@user <text> --option <a> --option <b>`: a question's choices follow its text.
     let mut options: Vec<String> = Vec::new();
-    let args: Vec<String> = if args.first().map(String::as_str) == Some("@user") && args.len() > 2 {
-        let mut rest = args[2..].iter();
-        while let Some(word) = rest.next() {
-            match (word.as_str(), rest.next()) {
-                ("--option", Some(value)) => options.push(value.clone()),
-                _ => {
-                    return Some(fail(
+    let args: Vec<String> =
+        if args.first().map(String::as_str) == Some("@user") && args.len() > 2 {
+            let mut rest = args[2..].iter();
+            while let Some(word) = rest.next() {
+                match (word.as_str(), rest.next()) {
+                    ("--option", Some(value)) => options.push(value.clone()),
+                    _ => return Some(fail(
                         ErrorCode::InvalidRequest,
                         "after the text, send @user takes only --option <choice>, once per choice",
-                    ))
+                    )),
                 }
             }
-        }
-        args[..2].to_vec()
-    } else {
-        args
-    };
+            args[..2].to_vec()
+        } else {
+            args
+        };
     if flags > 1 || args.len() != 2 {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -334,7 +333,11 @@ fn send_to_user(
 
 /// `send --answered @user <n>`: the agent's question `n` was answered in its terminal, so the remote clients stop
 /// showing it as waiting.
-fn close_user_question(call: &CommandCall<'_>, env: &CommandEnv<'_>, number: &str) -> CommandResponse {
+fn close_user_question(
+    call: &CommandCall<'_>,
+    env: &CommandEnv<'_>,
+    number: &str,
+) -> CommandResponse {
     let Ok(sequence) = number.parse::<i64>() else {
         return fail(
             ErrorCode::InvalidRequest,
@@ -342,13 +345,18 @@ fn close_user_question(call: &CommandCall<'_>, env: &CommandEnv<'_>, number: &st
         );
     };
     if call.identity.agent.is_none() {
-        return fail(ErrorCode::InvalidRequest, "only an agent closes its question");
+        return fail(
+            ErrorCode::InvalidRequest,
+            "only an agent closes its question",
+        );
     }
     let credential = call.credential.to_string();
     on_kernel(env, move |core| {
         let context = new_context(core, &credential)?;
         let closed = core.close_user_question(&context, &json!({"sequence": sequence}))?;
-        Ok(ok(json!({"messageId": closed["messageId"], "sequence": closed["sequence"]})))
+        Ok(ok(
+            json!({"messageId": closed["messageId"], "sequence": closed["sequence"]}),
+        ))
     })
     .unwrap_or_else(|| fail(ErrorCode::InvalidRequest, "the controller is not answering"))
 }

@@ -106,7 +106,9 @@ pub fn run(plan: &TargetsPlan, procs: &[Proc], timeout_ms: u64) -> Reply {
                 out.push_str("merging from a remote client is off ([remote] merge)\n");
             }
             for branch in result["branches"].as_array().into_iter().flatten() {
-                let Some(name) = branch.as_str() else { continue };
+                let Some(name) = branch.as_str() else {
+                    continue;
+                };
                 let mut marks = Vec::new();
                 if checked_out.as_deref() == Some(name) {
                     marks.push("checked out");
@@ -157,7 +159,10 @@ mod tests {
                 json: true
             })
         );
-        assert_eq!(plan(&words("--json --project ims-api")).map(|p| p.project), Some("ims-api".into()));
+        assert_eq!(
+            plan(&words("--json --project ims-api")).map(|p| p.project),
+            Some("ims-api".into())
+        );
         assert_eq!(plan(&words("")), None);
         assert_eq!(plan(&words("--project")), None);
         assert_eq!(plan(&words("--project a --project b")), None);

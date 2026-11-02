@@ -93,7 +93,12 @@ impl LauncherService for Launcher {
         Ok(self.kernel.interrupt(agent_id)?)
     }
 
-    fn dismiss_question(&self, agent_id: &str, question: &str, options: &[String]) -> LauncherResult<bool> {
+    fn dismiss_question(
+        &self,
+        agent_id: &str,
+        question: &str,
+        options: &[String],
+    ) -> LauncherResult<bool> {
         Ok(self.kernel.dismiss_question(agent_id, question, options)?)
     }
 

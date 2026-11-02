@@ -668,7 +668,12 @@ impl Adapter {
         if !plain.contains("Esc to cancel") || !screen_shows_question(&plain, question, options) {
             return Ok(false);
         }
-        self.send_key(pane_id, "esc", "close a question the user answered from a remote client", log)?;
+        self.send_key(
+            pane_id,
+            "esc",
+            "close a question the user answered from a remote client",
+            log,
+        )?;
         Ok(true)
     }
 
@@ -1001,9 +1006,17 @@ mod question_tests {
         assert!(!screen_shows_question(picker, question, &other));
         // The choices alone, without a line of the question, are not enough.
         let unrelated = "Plan-9: Which first?\n  Close out plan-8 (Recommended)\n  Start the follow-ups\nEsc to cancel";
-        assert!(!screen_shows_question(unrelated, "Summary of the day\nAnything to add here?", &choices));
+        assert!(!screen_shows_question(
+            unrelated,
+            "Summary of the day\nAnything to add here?",
+            &choices
+        ));
         // A permission prompt with Yes and No is never a two-choice question of short lines.
         let permission = "Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel";
-        assert!(!screen_shows_question(permission, "Proceed?", &options(&["Yes", "No"])));
+        assert!(!screen_shows_question(
+            permission,
+            "Proceed?",
+            &options(&["Yes", "No"])
+        ));
     }
 }
