@@ -280,7 +280,13 @@ impl Adapter {
             ));
         }
         let launching = matches!(action, Action::Prepare | Action::Start);
-        if entry.role == PaneRole::Pm && (entry.phase == PanePhase::Started || !launching) {
+        // The one key the PM pane takes after its launch: the Esc that closes a question picker the user already
+        // answered from a remote client, sent only after the screen checks of `dismiss_question_of`.
+        let closing_question = action == Action::CloseQuestion && entry.phase == PanePhase::Started;
+        if entry.role == PaneRole::Pm
+            && !closing_question
+            && (entry.phase == PanePhase::Started || !launching)
+        {
             return Err(AdapterError::PmPane(
                 "the PM pane accepts only the controller's launch sequence".into(),
             ));
@@ -694,6 +700,8 @@ pub(crate) enum Action {
     Send,
     Clear,
     Dialog,
+    /// One Esc to a question picker the user answered remotely; the only key a started PM pane accepts.
+    CloseQuestion,
 }
 
 pub(crate) fn require_match_name<'a>(value: &'a str, label: &str) -> AdapterResult<&'a str> {
@@ -762,5 +770,65 @@ impl AdapterAdmin for Adapter {
 
     fn remove_worktree(&self, workspace_id: &str, force: bool) -> AdapterResult<()> {
         self.remove_worktree_of(workspace_id, force)
+    }
+}
+
+#[cfg(test)]
+mod pm_guard_tests {
+    use super::*;
+    use crate::api::{HerdrOutput, RunOptions};
+
+    struct NoRun;
+    impl HerdrRunner for NoRun {
+        fn run(&self, _args: &[String], _options: &RunOptions) -> Result<HerdrOutput, HerdrError> {
+            Err(HerdrError::new("unused", "no call is expected"))
+        }
+    }
+
+    fn adapter_with(role: PaneRole, phase: PanePhase) -> Adapter {
+        let adapter = Adapter::new(AdapterOptions::new(Arc::new(NoRun)));
+        adapter.set_entry(
+            "w1:p1",
+            PaneEntry {
+                role,
+                phase,
+                kind: "claude".into(),
+                agent: Some("pm-1".into()),
+                worktree_path: None,
+                workspace_id: None,
+            },
+        );
+        adapter
+    }
+
+    #[test]
+    fn a_started_pm_pane_takes_only_the_esc_that_closes_an_answered_question() {
+        let pm = adapter_with(PaneRole::Pm, PanePhase::Started);
+        assert!(pm.assert_typable("w1:p1", Action::CloseQuestion).is_ok());
+        for action in [
+            Action::Send,
+            Action::Clear,
+            Action::Dialog,
+            Action::Start,
+            Action::Prepare,
+        ] {
+            assert!(
+                matches!(
+                    pm.assert_typable("w1:p1", action),
+                    Err(AdapterError::PmPane(_))
+                ),
+                "{action:?}"
+            );
+        }
+        // Before its agent started, a PM pane takes nothing but the launch sequence.
+        let fresh = adapter_with(PaneRole::Pm, PanePhase::Fresh);
+        assert!(fresh
+            .assert_typable("w1:p1", Action::CloseQuestion)
+            .is_err());
+        // A worker pane takes it like any other key of a started agent.
+        let worker = adapter_with(PaneRole::Worker, PanePhase::Started);
+        assert!(worker
+            .assert_typable("w1:p1", Action::CloseQuestion)
+            .is_ok());
     }
 }
