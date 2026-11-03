@@ -2,6 +2,12 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.17.2 (2026-11-03)
+
+### Bug fixes
+
+- Let the close-question Esc reach the PM pane (#85) (6d703af)
+
 ## 0.17.1 (2026-11-02)
 
 ### Bug fixes
