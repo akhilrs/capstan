@@ -17,7 +17,8 @@
 
 mod socket;
 
-pub use socket::{bind, remove_if_ours, remove_stale_socket, SocketIdentity};
+pub use socket::{bind, rebind, remove_if_ours, remove_stale_socket, SocketIdentity};
+use socket::{is_ours, is_runtime_socket, touch_runtime_socket};
 
 use crate::deps::{Deps, LogEntry};
 use crate::handlers::shared::{fail, AbortSignal, ErrorCode};
@@ -105,6 +106,8 @@ struct Shared {
     running: Mutex<usize>,
     running_changed: Condvar,
     reaper_stop: AtomicBool,
+    /// The identity of the socket file this server created; the accept loop updates it when it rebinds.
+    identity: Mutex<SocketIdentity>,
 }
 
 impl Shared {
@@ -118,7 +121,6 @@ impl Shared {
 pub struct DaemonServer {
     shared: Arc<Shared>,
     socket_path: PathBuf,
-    identity: SocketIdentity,
     accept: Mutex<Option<JoinHandle<()>>>,
     reaper: Mutex<Option<JoinHandle<()>>>,
     /// Writing a byte here wakes the accept thread.
@@ -128,8 +130,7 @@ pub struct DaemonServer {
 impl DaemonServer {
     /// `startDaemonServer`: removes a stale socket, binds with mode 0600 and starts accepting.
     pub fn start(deps: Deps, options: ServerOptions) -> io::Result<DaemonServer> {
-        remove_stale_socket(&options.socket_path)?;
-        let (listener, identity) = bind(&options.socket_path)?;
+        let (listener, identity) = rebind(&options.socket_path)?;
         listener.set_nonblocking(true)?;
         let (wake_read, wake_write) = make_pipe()?;
         let shared = Arc::new(Shared {
@@ -142,12 +143,14 @@ impl DaemonServer {
             running: Mutex::new(0),
             running_changed: Condvar::new(),
             reaper_stop: AtomicBool::new(false),
+            identity: Mutex::new(identity),
         });
         let accept = {
             let shared = Arc::clone(&shared);
+            let path = options.socket_path.clone();
             std::thread::Builder::new()
                 .name("accept".into())
-                .spawn(move || accept_loop(shared, listener, wake_read))?
+                .spawn(move || accept_loop(shared, listener, wake_read, path))?
         };
         let reaper = {
             let shared = Arc::clone(&shared);
@@ -158,7 +161,6 @@ impl DaemonServer {
         Ok(DaemonServer {
             shared,
             socket_path: options.socket_path,
-            identity,
             accept: Mutex::new(Some(accept)),
             reaper: Mutex::new(Some(reaper)),
             wake: Mutex::new(Some(wake_write)),
@@ -237,7 +239,7 @@ impl DaemonServer {
 
     /// Removes the socket file if it is still ours.
     pub fn cleanup(&self) -> io::Result<()> {
-        remove_if_ours(&self.socket_path, self.identity)
+        remove_if_ours(&self.socket_path, *lock(&self.shared.identity))
     }
 
     pub fn close(&self) -> io::Result<()> {
@@ -322,7 +324,79 @@ fn write_byte(fd: &std::os::fd::OwnedFd) -> io::Result<()> {
     }
 }
 
-fn accept_loop(shared: Arc<Shared>, listener: UnixListener, wake: std::os::fd::OwnedFd) {
+/// How often a runtime-fallback socket and its directory are touched, and how long a failed rebind waits to be retried.
+const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(3600);
+
+/// Keeps a runtime-fallback socket alive from the accept loop's one second wakeup: an hourly touch against age-based
+/// cleaners, and a fresh listener when the file is gone or no longer ours. Never panics; failures are logged.
+struct Upkeep {
+    path: PathBuf,
+    enabled: bool,
+    next_touch: Instant,
+    next_retry: Instant,
+}
+
+impl Upkeep {
+    fn new(path: PathBuf) -> Self {
+        let now = Instant::now();
+        Self {
+            enabled: is_runtime_socket(&path),
+            path,
+            next_touch: now + MAINTENANCE_INTERVAL,
+            next_retry: now,
+        }
+    }
+
+    fn wakeup(&mut self, shared: &Shared, listener: &mut UnixListener) {
+        if !self.enabled {
+            return;
+        }
+        let now = Instant::now();
+        let identity = *lock(&shared.identity);
+        if !is_ours(&self.path, identity) {
+            if now >= self.next_retry {
+                match rebind(&self.path) {
+                    Ok((fresh, fresh_identity)) => {
+                        if fresh.set_nonblocking(true).is_ok() {
+                            // Only the listening descriptor changes; accepted connections keep running.
+                            *listener = fresh;
+                            *lock(&shared.identity) = fresh_identity;
+                            self.next_touch = now + MAINTENANCE_INTERVAL;
+                            shared.log(LogEntry::new("server", "socket_rebound"));
+                        } else {
+                            self.failed(shared, now, "cannot make the new listener non-blocking");
+                        }
+                    }
+                    Err(error) => self.failed(shared, now, &error.to_string()),
+                }
+            }
+            return;
+        }
+        if now >= self.next_touch {
+            self.next_touch = now + MAINTENANCE_INTERVAL;
+            if let Err(error) = touch_runtime_socket(&self.path) {
+                let mut entry = LogEntry::new("server", "socket_touch_failed");
+                entry.detail = Some(serde_json::json!({ "error": error.to_string() }));
+                shared.log(entry);
+            }
+        }
+    }
+
+    fn failed(&mut self, shared: &Shared, now: Instant, error: &str) {
+        self.next_retry = now + MAINTENANCE_INTERVAL;
+        let mut entry = LogEntry::new("server", "socket_rebind_failed");
+        entry.detail = Some(serde_json::json!({ "error": error }));
+        shared.log(entry);
+    }
+}
+
+fn accept_loop(
+    shared: Arc<Shared>,
+    mut listener: UnixListener,
+    wake: std::os::fd::OwnedFd,
+    socket_path: PathBuf,
+) {
+    let mut upkeep = Upkeep::new(socket_path);
     loop {
         let mut fds = [
             libc::pollfd {
@@ -349,6 +423,7 @@ fn accept_loop(shared: Arc<Shared>, listener: UnixListener, wake: std::os::fd::O
             return;
         }
         if fds[0].revents == 0 {
+            upkeep.wakeup(&shared, &mut listener);
             continue;
         }
         loop {

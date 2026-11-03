@@ -9,7 +9,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use capstan_client::{call_daemon, Response};
-use capstan_daemon::deps::SOCKET_NAME;
 
 use crate::controllers::{operator_key, Proc};
 
@@ -184,7 +183,7 @@ pub fn project_id(root: &Path) -> Option<String> {
 }
 
 pub fn socket_of(root: &Path) -> PathBuf {
-    root.join(".capstan/state").join(SOCKET_NAME)
+    capstan_wire::control_socket(&root.join(".capstan/state"))
 }
 
 /// One endpoint per canonical root among the roots of `procs` and `extra_roots`, sorted by root. A root holding

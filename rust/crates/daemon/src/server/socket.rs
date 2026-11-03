@@ -14,6 +14,51 @@ fn other(message: &str) -> io::Error {
     io::Error::other(message.to_string())
 }
 
+/// Whether the socket lives in the per-user runtime fallback directory (`/tmp/capstan-<uid>`), not in the project.
+pub fn is_runtime_socket(socket_path: &Path) -> bool {
+    socket_path
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == capstan_wire::runtime_dir_name().as_str())
+}
+
+/// For a runtime-fallback socket: creates the private runtime directory (or checks it) before anything else touches it.
+/// An in-project socket is left to the rules of `remove_stale_socket`.
+pub fn prepare_directory(socket_path: &Path) -> io::Result<()> {
+    if !is_runtime_socket(socket_path) {
+        return Ok(());
+    }
+    match socket_path.parent() {
+        Some(parent) => capstan_wire::ensure_private_dir(parent).map_err(io::Error::other),
+        None => Ok(()),
+    }
+}
+
+/// Fails when something accepts a connection at `socket_path`. Only a refused connection or a missing file counts as
+/// nobody listening. The project lock already excludes a second daemon of the same project, so this only guards against
+/// a foreign listener (a hash collision or another program); the window between this probe and the unlink that follows
+/// stays open against such a listener, and is accepted.
+fn refuse_live_listener(socket_path: &Path) -> io::Result<()> {
+    match std::os::unix::net::UnixStream::connect(socket_path) {
+        Ok(_) => Err(other(&format!(
+            "another controller listens on {}",
+            socket_path.display()
+        ))),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(other(&format!(
+            "cannot tell whether another controller listens on {}: {error}",
+            socket_path.display()
+        ))),
+    }
+}
+
 /// The caller holds the project lock, and only the lock holder binds the socket, so anything already at the path is stale
 /// by construction. A path that is relative, a directory that is not private to the user, or something at the path that is
 /// not a socket of this user is refused.
@@ -41,6 +86,9 @@ pub fn remove_stale_socket(socket_path: &Path) -> io::Result<()> {
     }
     if stat.uid() != uid() {
         return Err(other("control socket path is owned by another user"));
+    }
+    if is_runtime_socket(socket_path) {
+        refuse_live_listener(socket_path)?;
     }
     std::fs::remove_file(socket_path)
 }
@@ -102,4 +150,160 @@ pub fn remove_if_ours(socket_path: &Path, identity: SocketIdentity) -> io::Resul
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
+}
+
+/// Removes a stale socket and binds a fresh listener: the start of the server, and the recovery after the socket was lost.
+pub fn rebind(socket_path: &Path) -> io::Result<(UnixListener, SocketIdentity)> {
+    prepare_directory(socket_path)?;
+    remove_stale_socket(socket_path)?;
+    bind(socket_path)
+}
+
+/// Whether the file at `socket_path` is the socket this process created.
+pub fn is_ours(socket_path: &Path, identity: SocketIdentity) -> bool {
+    std::fs::symlink_metadata(socket_path).is_ok_and(|stat| {
+        stat.file_type().is_socket() && stat.dev() == identity.dev && stat.ino() == identity.ino
+    })
+}
+
+/// Sets the access and modification time of a runtime-fallback socket and of its directory to now, so age-based cleaners
+/// of `/tmp` leave them alone. An in-project socket is never touched.
+pub fn touch_runtime_socket(socket_path: &Path) -> io::Result<()> {
+    if !is_runtime_socket(socket_path) {
+        return Ok(());
+    }
+    let mut result = Ok(());
+    for path in [Some(socket_path), socket_path.parent()]
+        .into_iter()
+        .flatten()
+    {
+        let c_path =
+            std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str()))
+                .map_err(|_| other("path contains a NUL byte"))?;
+        let now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: libc::UTIME_NOW,
+        };
+        let times = [now, now];
+        // SAFETY: `c_path` is a NUL terminated string and `times` points at two valid timespec values.
+        let done = unsafe {
+            libc::utimensat(
+                libc::AT_FDCWD,
+                c_path.as_ptr(),
+                times.as_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if done != 0 && result.is_ok() {
+            result = Err(io::Error::last_os_error());
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::MetadataExt;
+
+    fn runtime_base() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("cs")
+            .tempdir_in("/tmp")
+            .unwrap()
+    }
+
+    fn set_old(path: &Path) {
+        let c = std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(path.as_os_str()))
+            .unwrap();
+        let old = libc::timespec {
+            tv_sec: 1_000_000,
+            tv_nsec: 0,
+        };
+        let times = [old, old];
+        // SAFETY: valid C string and two timespec values.
+        assert_eq!(
+            unsafe {
+                libc::utimensat(
+                    libc::AT_FDCWD,
+                    c.as_ptr(),
+                    times.as_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            },
+            0
+        );
+    }
+
+    #[test]
+    fn the_freshness_touch_moves_runtime_times_forward_and_skips_project_sockets() {
+        let base = runtime_base();
+        let dir = base.path().join(capstan_wire::runtime_dir_name());
+        prepare_directory(&dir.join("a.sock")).unwrap();
+        let path = dir.join("a.sock");
+        let (_listener, _) = bind(&path).unwrap();
+        set_old(&path);
+        set_old(&dir);
+        touch_runtime_socket(&path).unwrap();
+        assert!(std::fs::symlink_metadata(&path).unwrap().mtime() > 1_000_000);
+        assert!(std::fs::symlink_metadata(&dir).unwrap().mtime() > 1_000_000);
+        assert!(std::fs::symlink_metadata(&path).unwrap().atime() > 1_000_000);
+
+        let project = base.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let inside = project.join("control.sock");
+        let (_other, _) = bind(&inside).unwrap();
+        set_old(&inside);
+        set_old(&project);
+        touch_runtime_socket(&inside).unwrap();
+        assert_eq!(
+            std::fs::symlink_metadata(&inside).unwrap().mtime(),
+            1_000_000
+        );
+        assert_eq!(
+            std::fs::symlink_metadata(&project).unwrap().mtime(),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn a_live_listener_at_the_runtime_path_is_not_removed_and_a_stale_one_is() {
+        // The project lock excludes a second daemon of the same project, so only a foreign listener is probed.
+        let base = runtime_base();
+        let dir = base.path().join(capstan_wire::runtime_dir_name());
+        let path = dir.join("b.sock");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        prepare_directory(&path).unwrap();
+        let (listener, _) = bind(&path).unwrap();
+        let error = rebind(&path).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with("another controller listens on"),
+            "{error}"
+        );
+        assert!(path.exists(), "the live listener's socket is untouched");
+        drop(listener);
+        let (fresh, identity) = rebind(&path).expect("a stale socket is replaced");
+        assert!(is_ours(&path, identity));
+        drop(fresh);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, "x").unwrap();
+        assert!(rebind(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("not a socket"));
+        std::fs::remove_file(&path).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let error = prepare_directory(&path).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("not safe for the control socket"),
+            "{error}"
+        );
+    }
+
+    use std::os::unix::fs::PermissionsExt;
 }

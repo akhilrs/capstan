@@ -2,11 +2,17 @@
 //! front ends print. Everything here is checked byte for byte against Node by `tests/parity`.
 pub mod js;
 mod response;
+mod socket_path;
 mod transport;
 
 pub use response::{frame, response, FrameError, Response};
+pub use socket_path::{
+    check_private_dir, control_socket, control_socket_in, ensure_private_dir, runtime_dir_name,
+    socket_matches, SOCKET_NAME,
+};
 pub use transport::{
-    call, check_socket_path, nothing_listens, socket_path_limit, AfterSend, Timeout, WireError,
+    call, call_in, check_socket_path, nothing_listens, socket_path_limit, AfterSend, Timeout,
+    WireError,
 };
 
 /// The longest request frame, without its newline.

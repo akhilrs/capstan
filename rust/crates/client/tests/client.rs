@@ -98,11 +98,9 @@ fn a_fresh_start_then_already_running_then_stop() {
 fn a_socket_path_over_the_system_limit_starts_no_daemon_and_names_the_limit() {
     let project = Project::new();
     let mut options = project.options("serve");
-    let mut name = String::from("c");
-    while project.dir.path().join(&name).as_os_str().len() <= capstan_wire::socket_path_limit() {
-        name.push('x');
-    }
-    options.socket_path = project.dir.path().join(&name);
+    // An over-the-limit path built directly, not the resolved socket of any project.
+    let over = "x".repeat(capstan_wire::socket_path_limit() + 1);
+    options.socket_path = Path::new("/").join(over).join("control.sock");
     let (reason, message) = unavailable(ensure_daemon(&options).unwrap_err());
     assert_eq!(reason, Reason::StartFailed);
     assert!(

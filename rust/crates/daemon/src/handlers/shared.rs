@@ -948,16 +948,6 @@ pub struct SocketVerdict {
     pub expected_socket: Option<String>,
 }
 
-fn real_or_resolved(target: &std::path::Path) -> std::path::PathBuf {
-    std::fs::canonicalize(target).unwrap_or_else(|_| {
-        if target.is_absolute() {
-            target.to_path_buf()
-        } else {
-            std::env::current_dir().unwrap_or_default().join(target)
-        }
-    })
-}
-
 /// Whether `CAPSTAN_SOCKET` belongs to the project the working directory is in: the nearest ancestor with a `.capstan`
 /// directory. Pure: no output.
 pub fn socket_verdict(cwd: &std::path::Path, socket: Option<&str>) -> SocketVerdict {
@@ -969,12 +959,18 @@ pub fn socket_verdict(cwd: &std::path::Path, socket: Option<&str>) -> SocketVerd
             expected_socket: None,
         };
     };
-    let mut dir = real_or_resolved(cwd);
+    let mut dir = std::fs::canonicalize(cwd).unwrap_or_else(|_| {
+        if cwd.is_absolute() {
+            cwd.to_path_buf()
+        } else {
+            std::env::current_dir().unwrap_or_default().join(cwd)
+        }
+    });
     loop {
         if std::fs::metadata(dir.join(".capstan")).is_ok_and(|m| m.is_dir()) {
-            let expected = dir.join(".capstan").join("state").join("control.sock");
-            let same =
-                real_or_resolved(std::path::Path::new(socket)) == real_or_resolved(&expected);
+            let state = dir.join(".capstan").join("state");
+            let expected = capstan_wire::control_socket(&state);
+            let same = capstan_wire::socket_matches(&state, std::path::Path::new(socket));
             return SocketVerdict {
                 kind: if same {
                     VerdictKind::Match
@@ -1011,5 +1007,76 @@ pub fn controller_lines(result: &Value) -> Vec<String> {
     match (root, ledger) {
         (Some(root), Some(ledger)) => vec![format!("project {root}"), format!("ledger {ledger}")],
         _ => vec!["project unknown (older daemon)".to_string()],
+    }
+}
+
+#[cfg(test)]
+mod socket_verdict_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn project(root: &Path, name: &str) -> PathBuf {
+        let dir = root.join(name);
+        std::fs::create_dir_all(dir.join(".capstan").join("state")).unwrap();
+        dir
+    }
+
+    fn long_project(root: &Path, name: &str) -> PathBuf {
+        let mut dir = root.to_path_buf();
+        while dir
+            .join(name)
+            .join(".capstan/state/control.sock")
+            .as_os_str()
+            .len()
+            <= capstan_wire::socket_path_limit()
+        {
+            dir.push("nested-directory-name");
+        }
+        project(&dir, name)
+    }
+
+    fn verdict(dir: &Path, socket: &Path) -> VerdictKind {
+        socket_verdict(dir, Some(socket.to_str().unwrap())).kind
+    }
+
+    #[test]
+    fn a_long_project_matches_only_its_resolved_runtime_path() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let one = long_project(&root, "one");
+        let two = long_project(&root, "two");
+        let state = |dir: &Path| dir.join(".capstan").join("state");
+        let resolved = capstan_wire::control_socket(&state(&one));
+        assert_ne!(resolved, state(&one).join("control.sock"));
+        assert_eq!(verdict(&one, &resolved), VerdictKind::Match);
+        let result = socket_verdict(&one, Some(resolved.to_str().unwrap()));
+        assert_eq!(
+            result.expected_socket,
+            Some(resolved.to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            verdict(&one, &state(&one).join("control.sock")),
+            VerdictKind::Foreign
+        );
+        assert_eq!(
+            verdict(&one, &capstan_wire::control_socket(&state(&two))),
+            VerdictKind::Foreign
+        );
+        let same_dir_other_hash = resolved.with_file_name("00000000000000000000000000000000.sock");
+        assert_eq!(verdict(&one, &same_dir_other_hash), VerdictKind::Foreign);
+    }
+
+    #[test]
+    fn a_short_project_behaves_as_before() {
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let dir = project(&root, "p");
+        let inside = dir.join(".capstan/state/control.sock");
+        assert_eq!(verdict(&dir, &inside), VerdictKind::Match);
+        assert_eq!(
+            verdict(&dir, &root.join("other.sock")),
+            VerdictKind::Foreign
+        );
+        assert_eq!(socket_verdict(&dir, None).kind, VerdictKind::None);
     }
 }

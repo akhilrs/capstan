@@ -1,7 +1,7 @@
 //! One request on a fresh Unix-socket connection: write a frame, read one line.
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::MAX_RESPONSE_BYTES;
@@ -106,7 +106,7 @@ pub fn check_socket_path(socket: &Path) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "control socket path is {length} bytes, longer than the {limit}-byte limit of this system: {}; move the project to a shorter path",
+        "control socket path is {length} bytes, longer than the {limit}-byte limit of this system: {}; the path could not be shortened",
         socket.display()
     ))
 }
@@ -190,6 +190,17 @@ fn poll_then<T>(
 
 /// Sends `frame` (a request line with its newline) and returns the first response line without the newline.
 pub fn call(socket: &Path, frame: &[u8], timeout: Timeout) -> Result<Vec<u8>, WireError> {
+    call_in(Path::new("/tmp"), socket, frame, timeout)
+}
+
+/// As `call`, with the base of the per-user runtime directory given (tests only).
+#[doc(hidden)]
+pub fn call_in(
+    base: &Path,
+    socket: &Path,
+    frame: &[u8],
+    timeout: Timeout,
+) -> Result<Vec<u8>, WireError> {
     let started = Instant::now();
     let left = |limit: Duration| {
         limit
@@ -200,6 +211,19 @@ pub fn call(socket: &Path, frame: &[u8], timeout: Timeout) -> Result<Vec<u8>, Wi
         return Err(WireError::NotSent {
             kind: ErrorKind::InvalidInput,
             code: "ENAMETOOLONG".to_string(),
+        });
+    }
+    // A socket in the per-user runtime directory is only trusted when that directory is private to the user and the
+    // socket is theirs. The window between this check and the connect is acceptable: the directory is 0700 and ours,
+    // so nobody else can swap the socket in it.
+    let runtime: PathBuf = base.join(crate::runtime_dir_name());
+    if socket.parent() == Some(runtime.as_path())
+        && (crate::check_private_dir(&runtime).is_err()
+            || !crate::socket_path::socket_owned_by_user(socket))
+    {
+        return Err(WireError::NotSent {
+            kind: ErrorKind::PermissionDenied,
+            code: "EUNSAFE".to_string(),
         });
     }
     let mut stream = UnixStream::connect(socket).map_err(|e| WireError::NotSent {

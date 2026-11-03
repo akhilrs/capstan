@@ -299,6 +299,15 @@ Indexes left behind by worktrees removed before you set `teardown` are not clean
 
 Per-project controller files live in `.capstan/`: `project.json` (limits `maxSlices`, `maxRunMs`, `maxDispatches` shown by `cstan status`), `operator.key`, `daemon.log`, and `state/` (`controller.sqlite`, `control.sock`, `notifications.jsonl`, and the newest `controller.sqlite.pre-v*.sqlite` migration backups; see `[ledger]`).
 
+### Control socket
+
+The controller listens on a Unix socket. When the in-project path `.capstan/state/control.sock` fits the platform limit (107 bytes on Linux, 103 on macOS), that is the socket. Otherwise the socket is `/tmp/capstan-<uid>/<hash>.sock`, where `<hash>` is the first 32 hex characters of the sha256 of the canonical state directory path. No environment variable changes this; `CAPSTAN_SOCKET` only tells agents which socket to use.
+
+The fallback directory `/tmp/capstan-<uid>` is created with mode `0700`. Capstan checks it on every use: if it is owned by another user, or has any group or other permission bit, it is refused and the daemon does not start. To fix it, remove the directory if it is yours to remove, or have its owner remove it or set it to `0700` (`chmod 700 /tmp/capstan-<uid>`), then start the daemon again. A leftover fallback socket from a stopped daemon is removed at start only when nothing listens on it; a socket that still answers is never removed.
+
+The limit is checked against the canonical path (symlinks resolved; on macOS `/var` is `/private/var`, which adds 8 bytes). A project that fitted only through a non-canonical path now resolves to the fallback. A daemon an older version started on the old path is then not found after the upgrade: run `cstan stop` with the old binary, or restart the daemon, once. Projects whose canonical path fits are unaffected.
+
+
 ## Cleanup
 
 The `[cleanup]` section sets what Capstan removes after an agent ends. An absent section means the defaults below; unknown keys, values of the wrong type and a `cleanup` that is not a table are refused by `cstan config check`, with a message naming `cleanup.<key>`.

@@ -312,6 +312,7 @@ pub struct Builder {
     launch: bool,
     bare: bool,
     panes: bool,
+    long_path: bool,
 }
 
 pub fn agent(id: &str, role: &str, kind: &str) -> AgentSpec {
@@ -353,6 +354,12 @@ impl Builder {
     /// scratch run, so nothing can reach one: a spawn or a launch fails, the commands that only use the ledger work).
     pub fn launching(mut self) -> Self {
         self.launch = true;
+        self
+    }
+    /// Nests the project so that `<project>/.capstan/state/control.sock` is longer than the system's socket path limit (computed,
+    /// so it holds on Linux and macOS); the daemon then listens at the private runtime path [`World::socket`] names.
+    pub fn long_path(mut self) -> Self {
+        self.long_path = true;
         self
     }
     /// No git repository in the project.
@@ -397,6 +404,7 @@ impl World {
             launch: false,
             bare: false,
             panes: true,
+            long_path: false,
         }
     }
 
@@ -420,12 +428,27 @@ impl World {
             COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
         let _ = std::fs::remove_dir_all(&root);
-        let project = root.join("proj");
+        let mut project = root.join("proj");
+        if builder.long_path {
+            let limit = capstan_wire_limit();
+            let mut nest = root.clone();
+            let mut part = 0;
+            while nest
+                .join("proj/.capstan/state/control.sock")
+                .as_os_str()
+                .len()
+                <= limit
+            {
+                part += 1;
+                nest.push(format!("nest-{part}-abcdefghijklmnopqrstuvwxyz"));
+            }
+            project = nest.join("proj");
+        }
         let bin = root.join("bin");
         std::fs::create_dir_all(project.join(".capstan/state")).unwrap();
         std::fs::create_dir_all(&bin).unwrap();
         assert!(
-            root.to_string_lossy().len() <= 45,
+            builder.long_path || root.to_string_lossy().len() <= 45,
             "the scratch path is short enough for the project's socket: {}",
             root.display()
         );
@@ -805,8 +828,27 @@ impl World {
 
     // ------------------------------------------------------------------------------------------------- the daemon
 
+    /// Where the daemon of this world listens: in the project for a short path, in the private runtime directory for a long one.
     pub fn socket(&self) -> PathBuf {
-        self.project.join(".capstan/state/control.sock")
+        capstan_daemon::deps::control_socket(&self.project.join(".capstan/state"))
+    }
+
+    /// Removes this world's runtime socket if it is still there: only the file named by [`World::socket`], only inside the
+    /// user's own `/tmp/capstan-<uid>` directory, only a socket owned by the user. Nothing else in that directory is touched.
+    fn remove_runtime_socket(&self) {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let socket = self.socket();
+        // SAFETY: getuid has no preconditions and cannot fail.
+        let uid = unsafe { libc::getuid() };
+        let runtime = Path::new("/tmp").join(format!("capstan-{uid}"));
+        if socket.parent() != Some(runtime.as_path()) {
+            return;
+        }
+        if let Ok(meta) = std::fs::symlink_metadata(&socket) {
+            if meta.file_type().is_socket() && meta.uid() == uid {
+                let _ = std::fs::remove_file(&socket);
+            }
+        }
     }
 
     /// The environment of every child: scratch HOME and PATH, no Node, nothing of the operator's.
@@ -1117,6 +1159,12 @@ impl World {
     }
 }
 
+fn capstan_wire_limit() -> usize {
+    // SAFETY: sockaddr_un is plain data; an all-zero value is valid and only its field size is read.
+    let address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    address.sun_path.len() - 1
+}
+
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == needle)
 }
@@ -1130,6 +1178,7 @@ impl Drop for World {
         }
         // The backstop: whatever still runs in the scratch directory (a daemon that `cstan stop` could not reach) is killed.
         capstan_testkit::kill_processes_in(&self.root);
+        self.remove_runtime_socket();
         // A directory made private by a test must be writable again before it can go.
         let _ = Command::new("chmod")
             .args(["-R", "u+rwx"])

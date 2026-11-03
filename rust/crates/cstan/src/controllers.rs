@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use capstan_client::{call_daemon, Response};
-use capstan_daemon::deps::SOCKET_NAME;
 use capstan_wire::js::Value;
 use serde_json::{json, Value as Json};
 
@@ -332,7 +331,7 @@ impl Probe for Live {
         let Some(key) = operator_key(project) else {
             return Reply::NoKey;
         };
-        let socket = project.join(".capstan/state").join(SOCKET_NAME);
+        let socket = crate::projects::socket_of(project);
         let call = |command: &str| call_daemon(&socket, &key, command, &[], ASK_TIMEOUT_MS);
         match call("about") {
             Ok(Response::Ok {

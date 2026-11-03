@@ -97,7 +97,7 @@ impl Cli<'_> {
         credential: &str,
         ask: Ask,
     ) -> Result<Json, Fail> {
-        let socket = config.state_directory.join("control.sock");
+        let socket = capstan_wire::control_socket(&config.state_directory);
         if let Some(result) = request_control(&socket, credential, &ask)? {
             return Ok(result);
         }

@@ -28,7 +28,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-pub const SOCKET_NAME: &str = "control.sock";
+pub use capstan_wire::{control_socket, SOCKET_NAME};
 pub const PID_NAME: &str = "daemon.pid";
 
 // ------------------------------------------------------------------------------------------------ the log
@@ -593,7 +593,7 @@ impl DaemonOptions {
 
     /// The control socket's path.
     pub fn socket_path(&self) -> PathBuf {
-        self.state_directory.join(SOCKET_NAME)
+        control_socket(&self.state_directory)
     }
 
     pub fn pid_path(&self) -> PathBuf {

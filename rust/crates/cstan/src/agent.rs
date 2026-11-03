@@ -1,6 +1,6 @@
 //! The agent environment and the project check on its socket: `agentEnvironment` and `socketVerdict` of the Node CLI.
 use std::ffi::{OsStr, OsString};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::jsops::{has_space_or_control, JsError};
 use crate::{invalid, Cli, Fail};
@@ -10,25 +10,6 @@ pub fn var<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsStr>
     env.iter()
         .find(|(key, _)| key.as_os_str() == OsStr::new(name))
         .map(|(_, value)| value.as_os_str())
-}
-
-/// `path.resolve` for a path that is already absolute: drops `.` and empty parts and applies `..`.
-fn resolve(path: &Path) -> PathBuf {
-    let mut out = PathBuf::from("/");
-    for component in path.components() {
-        match component {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::Normal(part) => out.push(part),
-            _ => {}
-        }
-    }
-    out
-}
-
-fn real_or_resolved(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| resolve(path))
 }
 
 /// `socketVerdict`: how `socket` (the text of `CAPSTAN_SOCKET`) relates to the project `cwd` is in, the nearest ancestor
@@ -44,17 +25,17 @@ pub enum Verdict {
 }
 
 pub fn socket_verdict(cwd: &Path, socket: &Path) -> Verdict {
-    let mut dir = real_or_resolved(cwd);
+    let mut dir = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     loop {
         let marker = dir.join(".capstan");
         if std::fs::metadata(&marker).is_ok_and(|m| m.is_dir()) {
-            let expected = marker.join("state").join("control.sock");
-            return if real_or_resolved(socket) == real_or_resolved(&expected) {
+            let state = marker.join("state");
+            return if capstan_wire::socket_matches(&state, socket) {
                 Verdict::Match
             } else {
                 Verdict::Foreign {
                     project_root: dir,
-                    expected_socket: expected,
+                    expected_socket: capstan_wire::control_socket(&state),
                 }
             };
         }

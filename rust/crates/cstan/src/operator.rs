@@ -86,7 +86,7 @@ impl Cli<'_> {
         }
         let (config, credential) =
             load_project(&self.ctx.cwd).map_err(|error| invalid(error.message))?;
-        let socket_path = config.state_directory.join("control.sock");
+        let socket_path = capstan_wire::control_socket(&config.state_directory);
         Ok(Operator {
             config,
             credential,
