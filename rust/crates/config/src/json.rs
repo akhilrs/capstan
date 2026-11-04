@@ -409,6 +409,9 @@ impl RoleConfig {
         if self.impact != crate::impact::ImpactConfig::default() {
             members.push(("impact", self.impact.to_value()));
         }
+        if self.ntfy != crate::ntfy::Ntfy::default() {
+            members.push(("ntfy", self.ntfy.to_value()));
+        }
         if let Some(cache) = &self.cache {
             members.push(("cache", cache.to_value()));
         }

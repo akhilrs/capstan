@@ -718,22 +718,22 @@ pub fn action_is_mapped(action: &str) -> bool {
 
 // ------------------------------------------------------------------------------------------------------------ rows
 
-struct Row {
-    seq: i64,
-    entity_type: String,
-    entity_id: String,
-    from: Option<String>,
-    to: Option<String>,
-    actor_id: String,
-    created_at: String,
-    action: String,
+pub(crate) struct Row {
+    pub(crate) seq: i64,
+    pub(crate) entity_type: String,
+    pub(crate) entity_id: String,
+    pub(crate) from: Option<String>,
+    pub(crate) to: Option<String>,
+    pub(crate) actor_id: String,
+    pub(crate) created_at: String,
+    pub(crate) action: String,
     /// `payload.payload`: what the caller sent.
-    input: Value,
-    details: Value,
-    entity_version: i64,
+    pub(crate) input: Value,
+    pub(crate) details: Value,
+    pub(crate) entity_version: i64,
 }
 
-fn row_of(seq: i64, record: RawRow) -> Row {
+pub(crate) fn row_of(seq: i64, record: RawRow) -> Row {
     let payload: Value = serde_json::from_str(&record.payload_json).unwrap_or(Value::Null);
     Row {
         seq,
@@ -750,14 +750,14 @@ fn row_of(seq: i64, record: RawRow) -> Row {
     }
 }
 
-struct RawRow {
-    entity_type: String,
-    entity_id: String,
-    from_state: Option<String>,
-    to_state: Option<String>,
-    actor_id: String,
-    payload_json: String,
-    created_at: String,
+pub(crate) struct RawRow {
+    pub(crate) entity_type: String,
+    pub(crate) entity_id: String,
+    pub(crate) from_state: Option<String>,
+    pub(crate) to_state: Option<String>,
+    pub(crate) actor_id: String,
+    pub(crate) payload_json: String,
+    pub(crate) created_at: String,
 }
 
 /// Why a step of the page ended early.
@@ -1140,10 +1140,7 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
         Kind::Event { ty, each } => {
             let items: Vec<Value> = if each == "episodes" {
                 if queued(row) {
-                    row.input["episodes"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default()
+                    attention_episodes(&row.input)
                 } else {
                     Vec::new()
                 }
@@ -1165,8 +1162,13 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
     }
 }
 
+/// The episodes a `pm.attention` row lists (`input.episodes`); none when the key is missing or not a list.
+pub(crate) fn attention_episodes(input: &Value) -> Vec<Value> {
+    input["episodes"].as_array().cloned().unwrap_or_default()
+}
+
 /// Whether a notice row queued anything (`details.queued` is a flag or a count).
-fn queued(row: &Row) -> bool {
+pub(crate) fn queued(row: &Row) -> bool {
     match &row.details["queued"] {
         Value::Bool(flag) => *flag,
         Value::Number(n) => n.as_i64().unwrap_or(0) > 0,
@@ -2342,4 +2344,36 @@ pub fn ledger_rows(core: &Core) -> KernelResult<Vec<LedgerRow>> {
         [&kernel.project_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::attention_episodes;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn attention_episodes_lists_the_items_of_a_list_and_nothing_else() {
+        let items = json!([{"kind": "stalled", "agentId": "dev-1"}, "odd", 3, null]);
+        assert_eq!(
+            attention_episodes(&json!({"episodes": items.clone()})),
+            items.as_array().unwrap().clone()
+        );
+        assert_eq!(
+            attention_episodes(&json!({"episodes": []})),
+            Vec::<Value>::new()
+        );
+        assert_eq!(
+            attention_episodes(&json!({"other": 1})),
+            Vec::<Value>::new()
+        );
+        assert_eq!(attention_episodes(&Value::Null), Vec::<Value>::new());
+        assert_eq!(
+            attention_episodes(&json!({"episodes": {"kind": "stalled"}})),
+            Vec::<Value>::new()
+        );
+        assert_eq!(
+            attention_episodes(&json!({"episodes": "stalled"})),
+            Vec::<Value>::new()
+        );
+    }
 }

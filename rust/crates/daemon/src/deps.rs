@@ -628,6 +628,8 @@ pub struct Deps {
     pub verify: Option<Arc<crate::verify::VerifyService>>,
     /// Warm reviewers a review request is moving to a new commit (see `warm::claim`).
     pub claimed_reviewers: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// The ntfy sender, once the loops started it; empty while ntfy is off.
+    pub ntfy: Arc<std::sync::OnceLock<Arc<crate::ntfy::SenderHandle>>>,
 }
 
 impl Deps {
@@ -648,7 +650,17 @@ impl Deps {
             loops: Arc::new(NoLoops),
             verify: None,
             claimed_reviewers: Arc::default(),
+            ntfy: Arc::default(),
         }
+    }
+
+    /// The running ntfy sender; None until it is set, and always when ntfy is off.
+    pub fn ntfy(&self) -> Option<Arc<crate::ntfy::SenderHandle>> {
+        self.ntfy.get().cloned()
+    }
+
+    pub(crate) fn set_ntfy(&self, handle: &Arc<crate::ntfy::SenderHandle>) {
+        let _ = self.ntfy.set(Arc::clone(handle));
     }
 
     /// The project (operator) credential.

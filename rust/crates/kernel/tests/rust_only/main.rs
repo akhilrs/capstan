@@ -16,6 +16,7 @@ mod plan_amend;
 mod plan_reassign;
 mod plan_show_cost;
 mod prompt_relay_backfill;
+mod push_events;
 mod remote_decisions;
 mod remote_merge;
 mod restart_summary;

@@ -456,6 +456,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         },
         remote: capstan_config::Remote::default(),
         impact: Default::default(),
+        ntfy: capstan_config::Ntfy::default(),
         cache: None,
         verify: None,
         design: capstan_config::Design::default(),

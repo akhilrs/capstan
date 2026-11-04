@@ -23,6 +23,7 @@ pub mod plan_handover;
 pub mod plan_packages;
 pub mod plans;
 pub mod prompt_relay;
+pub mod push_events;
 pub mod reconcile;
 pub mod remote_decisions;
 pub mod reports;

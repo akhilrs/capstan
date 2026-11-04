@@ -166,6 +166,8 @@ struct Running {
     relay: Vec<JoinHandle<()>>,
 }
 
+type NtfyTransportSlot = Mutex<Option<Arc<dyn crate::ntfy::NtfyTransport>>>;
+
 /// The loops of the Rust daemon. Build it before the deps (`driver_view` goes into `Deps::driver`), start it through the
 /// `Loops` trait.
 pub struct RustLoops {
@@ -173,6 +175,7 @@ pub struct RustLoops {
     probe: Option<Arc<dyn ProcessActivityProbe>>,
     now: Clock,
     running: Mutex<Running>,
+    ntfy_transport: NtfyTransportSlot,
 }
 
 impl RustLoops {
@@ -191,7 +194,16 @@ impl RustLoops {
             probe,
             now,
             running: Mutex::new(Running::default()),
+            ntfy_transport: Mutex::new(None),
         })
+    }
+
+    /// Makes the ntfy sender use `transport` instead of curl (a test seam; call it before `start_ticks`).
+    pub fn set_ntfy_transport(&self, transport: Arc<dyn crate::ntfy::NtfyTransport>) {
+        *self
+            .ntfy_transport
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(transport);
     }
 
     /// What `status` reads of the driver.
@@ -217,7 +229,7 @@ fn guarded<F: FnOnce()>(log: &DriverLog, event: &str, step: F) {
     }
 }
 
-fn spawn<F: FnOnce() + Send + 'static>(name: &str, body: F) -> Option<JoinHandle<()>> {
+pub(crate) fn spawn<F: FnOnce() + Send + 'static>(name: &str, body: F) -> Option<JoinHandle<()>> {
     std::thread::Builder::new()
         .name(name.into())
         .spawn(body)
@@ -237,6 +249,16 @@ impl Loops for RustLoops {
         let credential = deps.credential().to_string();
         handles.extend(cache::start(deps, &stop, &log));
         handles.extend(retention::start(deps, &stop));
+        if let Some(config) = deps.options.capstan.clone() {
+            let transport = self
+                .ntfy_transport
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone();
+            handles.extend(crate::ntfy::start(
+                deps, &config, &stop, &self.now, &log, transport,
+            ));
+        }
         if let (Some(config), Some(adapter)) = (deps.options.capstan.clone(), deps.adapter.clone())
         {
             let notifier_log = {

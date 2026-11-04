@@ -50,6 +50,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("cache", Access::Any),
     ("verify", Access::Any),
     ("design", Access::Any),
+    ("notify", Access::Operator),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -73,6 +74,8 @@ fn client_timeout_ms(command: &str) -> u64 {
         "wait" => WAIT_SECONDS * 1000,
         "cleanup" => 120_000,
         "cache" => 600_000,
+        // The daemon's own limit for a test send (70 s) is behind this; the longest send is 60 s plus its kill grace.
+        "notify" => 65_000,
         "replace" => 1_800_000,
         "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" | "verify" => {
             600_000
@@ -151,6 +154,9 @@ impl Cli<'_> {
                 return Err(Fail::Usage);
             }
         }
+        if command == "notify" && args != ["test"] {
+            return Err(Fail::Usage);
+        }
         let access = access_of(command);
         let agent = if access == Access::Operator {
             None
@@ -225,8 +231,8 @@ impl Cli<'_> {
                 _ => "",
             },
         };
-        handle_wire(reply, &socket, json, command, now_ms, view, &mut self.io)?;
-        Ok(Flow::Code(0))
+        let code = handle_wire(reply, &socket, json, command, now_ms, view, &mut self.io)?;
+        Ok(Flow::Code(code))
     }
 
     /// `runInboxHook`: silent and exit 0 whatever happens, but for the one line of context when messages wait.
@@ -413,7 +419,7 @@ impl Cli<'_> {
                 _ => {}
             }
             let now_ms = self.ctx.now_ms;
-            handle_wire(
+            let _ = handle_wire(
                 reply,
                 socket,
                 json,
@@ -472,7 +478,7 @@ fn handle_wire(
     now_ms: f64,
     view: View,
     io: &mut crate::Io,
-) -> Result<(), JsError> {
+) -> Result<i32, JsError> {
     let line = match reply {
         Ok(line) => line,
         Err(WireError::AfterSend(error)) => {
@@ -488,12 +494,23 @@ fn handle_wire(
     };
     let result = match response(&line) {
         Response::Malformed => return Err(JsError::runtime("malformed reply")),
-        Response::Refused { .. } => return Err(refusal(&line)),
+        Response::Refused { .. } => return Err(notify_refusal(command, &line)),
         Response::Ok { result } => result,
     };
     let result = result.as_ref();
     let (stdout, stderr) = (&mut io.out, &mut io.err);
-    if !json && (command == "inbox" || command == "wait") {
+    let mut code = 0;
+    if command == "notify" {
+        let (lines, ok) = render::ntfy_test_lines(result);
+        code = i32::from(!ok);
+        if json {
+            output(stdout, result, true);
+        } else {
+            for line in lines {
+                text(stdout, &JsStr::from(line.as_str()));
+            }
+        }
+    } else if !json && (command == "inbox" || command == "wait") {
         text(stdout, &render::render_messages(result)?);
     } else if let (false, "ack", Some(lines)) = (json, command, render::ack_lines(result)) {
         for line in lines {
@@ -534,12 +551,17 @@ fn handle_wire(
                     .iter()
                     .map(|line| JsStr::from(line.as_str())),
             );
+            lines.extend(
+                render::ntfy_status_line(result)
+                    .iter()
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             for line in &lines {
                 text(stdout, line);
             }
         }
         if !json && command == "status" {
-            let compact = result.map(|r| compact::status(r, view.all));
+            let compact = result.map(|r| compact::status(&render::without_ntfy(r), view.all));
             output(stdout, compact.as_ref(), false);
         } else if let Some(lines) = result
             .filter(|_| !json && view.brief)
@@ -561,5 +583,41 @@ fn handle_wire(
     if let Some(Value::String(warning)) = jsops::read_opt(result, "warning") {
         text(stderr, &concat(&[&"warning: ".into(), warning]));
     }
-    Ok(())
+    Ok(code)
+}
+
+/// The refusal of a reply; the two `notify` refusals (`not_configured`, `busy`) are plain sentences without the code.
+fn notify_refusal(command: &str, line: &[u8]) -> JsError {
+    if command == "notify" {
+        let members = std::str::from_utf8(line)
+            .ok()
+            .and_then(|text| js::parse(text).ok())
+            .unwrap_or(Value::Null);
+        let code = members.get("code").map(jsops::to_js_string);
+        let plain = matches!(&code, Some(c) if ["not_configured", "busy"].contains(&c.to_utf8_lossy().as_str()));
+        if let (true, Some(message)) = (plain, members.get("message")) {
+            return JsError {
+                exit: EXIT_BLOCKED,
+                message: jsops::to_js_string(message),
+            };
+        }
+    }
+    refusal(line)
+}
+
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+
+    #[test]
+    fn the_notify_wait_outlasts_the_daemons_longest_send() {
+        assert!(client_timeout_ms("notify") > (60 + 2) * 1000);
+        assert_eq!(client_timeout_ms("notify"), 65_000);
+    }
+
+    #[test]
+    fn notify_is_an_operator_route() {
+        assert!(is_routed("notify"));
+        assert!(access_of("notify") == Access::Operator);
+    }
 }
