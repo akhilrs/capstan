@@ -32,6 +32,10 @@ swift test --package-path apps/macos/CapstanAppCore
 
 The shared scheme has no tests of its own; the package tests above are the test suites.
 
+## Parity pass
+
+The by-hand checks for the Mac on a real host (merge, messages, lists, notifications) are in [docs/parity-pass.md](docs/parity-pass.md).
+
 ## Static checks
 
 These run anywhere with `bash` and `python3` (no Xcode needed). They are guards, not proofs: only a build on a Mac shows that the code compiles.
