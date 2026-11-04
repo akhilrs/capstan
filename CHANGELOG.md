@@ -2,6 +2,11 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.18.0 (2026-11-04)
+
+### Features
+
+- resolve the control socket path with a private per-user fallback (2c555a7)
 ## 0.17.2 (2026-11-03)
 
 ### Bug fixes
