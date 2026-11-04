@@ -44,6 +44,8 @@ final class AppModel {
     private(set) var settings: AppSettings
     @ObservationIgnored var notifications: NotificationCoordinator!
     var presented: AppSheet?
+    /// The messages sent to the PMs, kept in `messages.json`; changed through `updateSent`.
+    private(set) var sent: SentMessageLog
     /// The project the person asked to remove from the list; the window asks to confirm.
     var projectToRemove: ProjectKey?
     @ObservationIgnored var openMainWindow: (@MainActor () -> Void)?
@@ -51,7 +53,8 @@ final class AppModel {
     @ObservationIgnored private let defaults: UserDefaults?
     @ObservationIgnored private let directory: URL?
     @ObservationIgnored private let pendingStore: PendingStore?
-    @ObservationIgnored private let decider: Decider?
+    @ObservationIgnored let decider: Decider?
+    @ObservationIgnored private let sentStore: SentMessageStore?
     @ObservationIgnored private var sessions: [UUID: HostSession] = [:]
     @ObservationIgnored private var engines: [UUID: HostStoreEngine] = [:]
     @ObservationIgnored private var generations: [UUID: Int] = [:]
@@ -91,6 +94,9 @@ final class AppModel {
         self.directory = directory
         self.pendingStore = pending
         self.decider = Decider(runner: LiveProcessRunner(), pending: pending, clock: SystemClock())
+        let sentStore = SentMessageStore(directory: directory)
+        self.sentStore = sentStore
+        self.sent = sentStore.load()
         self.hosts = HostsFile(directory: directory).load()
         self.hostModels = [:]
         self.connection = [:]
@@ -119,6 +125,8 @@ final class AppModel {
         self.directory = nil
         self.pendingStore = nil
         self.decider = nil
+        self.sentStore = nil
+        self.sent = SentMessageLog()
         self.hosts = seed.hosts
         self.hostModels = seed.hostModels
         self.connection = seed.connection
@@ -218,6 +226,7 @@ final class AppModel {
             Task { @MainActor [weak self] in
                 guard let self, self.generations[id] == generation else { return }
                 self.overviewLive(hostId: id, projectId: projectId, events: events)
+                self.updateSent { $0.noteEvents(events) }
             }
         }
         let engine = HostStoreEngine(
@@ -358,7 +367,7 @@ final class AppModel {
             return
         }
         switch saved {
-        case .inbox, .hosts, .messages:
+        case .inbox, .hosts, .messages, .allAgents, .allPlans:
             restoredSelection = nil
             return
         case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _):
@@ -530,7 +539,7 @@ final class AppModel {
         switch selection {
         case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _): return hostId
         case .hosts: return hostsFocus?.hostId
-        case .inbox, .messages: return nil
+        case .inbox, .messages, .allAgents, .allPlans: return nil
         }
     }
 
@@ -571,7 +580,7 @@ final class AppModel {
         await perform(verb, target: .run, hostId: hostId, projectId: projectId)
     }
 
-    private func perform(_ verb: DecideVerb, target: RouteTarget, hostId: UUID, projectId: String) async -> DecideOutcome {
+    func perform(_ verb: DecideVerb, target: RouteTarget, hostId: UUID, projectId: String) async -> DecideOutcome {
         let route = DecideRouter.route(
             verb, target: target, project: project(hostId, projectId), busy: busy.keys, hostId: hostId,
             projectId: projectId, client: settings.clientLabel, nonce: Nonce.make())
@@ -631,7 +640,7 @@ final class AppModel {
     /// Cmd-R: reads again the ready projects the current view shows.
     func refreshSelection() {
         switch selection {
-        case .inbox, .messages:
+        case .inbox, .messages, .allAgents, .allPlans:
             for host in hosts { refresh(hostId: host.id, projectIds: readyProjects(hostId: host.id)) }
         case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
             refresh(hostId: hostId, projectIds: readyProjects(hostId: hostId).intersection([projectId]))
@@ -705,7 +714,17 @@ final class AppModel {
                 try? FilePersistence(directory: directory).delete(hostId: id)
             }
             await pendingStore?.remove(hostId: id)
+            updateSent {
+                $0.removeHost(id)
+                return true
+            }
         }
+    }
+
+    /// Changes the sent messages and saves them when the change says it altered something.
+    func updateSent(_ change: (inout SentMessageLog) -> Bool) {
+        guard change(&sent) else { return }
+        try? sentStore?.save(sent)
     }
 
     private func saveHosts() {

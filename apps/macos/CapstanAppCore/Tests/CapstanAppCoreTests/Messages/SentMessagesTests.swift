@@ -1,6 +1,7 @@
+import CapstanKit
 import Foundation
 import XCTest
-@testable import CapstanPhoneCore
+@testable import CapstanAppCore
 
 final class SentMessagesTests: XCTestCase {
     private let host = UUID()
@@ -11,6 +12,14 @@ final class SentMessagesTests: XCTestCase {
         log.append(SentMessage(hostId: host, projectId: "b", text: "two", sentAt: Date(timeIntervalSince1970: 2)))
         XCTAssertEqual(log.thread(hostId: host, projectId: "a").map(\.text), ["one"])
         XCTAssertEqual(log.thread(hostId: UUID(), projectId: "a").count, 0)
+    }
+
+    /// The host's limit for a message to the PM is the feed text cap (4096 bytes) once kernel fix PM-410
+    /// (fix/PM-410-req-pm-message-cap) is in; before it the host cut such a message at 1024 bytes.
+    func testTheTextCapIsUnderTheProtocolTextCap() {
+        XCTAssertEqual(SentMessageLog.textCap, 4000)
+        XCTAssertLessThan(SentMessageLog.textCap, ProtocolLimits.textCap)
+        XCTAssertEqual(ProtocolLimits.textCap, 4096)
     }
 
     func testStatesAndTheCap() {
@@ -79,5 +88,59 @@ final class SentMessageDeliveryTests: XCTestCase {
         XCTAssertEqual(log.messages[0].delivery, .queued(since: Date(timeIntervalSince1970: 10)))
         log.noteDelivery(messageId: "other", hostState: "acked", at: Date(timeIntervalSince1970: 20))
         XCTAssertEqual(log.messages[0].delivery, .queued(since: Date(timeIntervalSince1970: 10)))
+    }
+}
+
+final class SentMessageEventsTests: XCTestCase {
+    private let host = UUID()
+
+    private func log(_ id: String) -> SentMessageLog {
+        var log = SentMessageLog()
+        log.append(SentMessage(hostId: host, projectId: "p", text: "ship it", sentAt: Date(timeIntervalSince1970: 0),
+                               state: .sent(messageId: id)))
+        return log
+    }
+
+    private func event(
+        _ type: String = "message.state", id: String?, state: String?, requeuedFrom: String? = nil,
+        ts: String = "2026-10-01T10:00:00Z"
+    ) throws -> FeedEvent {
+        var members = ["\"effects\":[]"]
+        if let id { members.append("\"messageId\":\"\(id)\"") }
+        if let state { members.append("\"state\":\"\(state)\"") }
+        if let requeuedFrom { members.append("\"requeuedFrom\":\"\(requeuedFrom)\"") }
+        let json = "{\"id\":\"e1\",\"seq\":1,\"k\":1,\"ts\":\"\(ts)\",\"type\":\"\(type)\","
+            + "\"entity\":{\"type\":\"message\",\"id\":\"m\"},\"body\":{" + members.joined(separator: ",") + "}}"
+        return try JSONDecoder().decode(FeedEvent.self, from: Data(json.utf8))
+    }
+
+    private let at = ISO8601DateFormatter().date(from: "2026-10-01T10:00:00Z")!
+
+    func testQueuedDeliveredAndReadEventsMoveTheMessage() throws {
+        var log = log("m1")
+        XCTAssertTrue(log.noteEvents([try event(id: "m1", state: "queued")]))
+        XCTAssertEqual(log.messages[0].delivery, .queued(since: at))
+        XCTAssertTrue(log.noteEvents([try event("message.action_needed", id: "m1", state: "sent")]))
+        XCTAssertEqual(log.messages[0].delivery, .delivered(at: at))
+        XCTAssertTrue(log.noteEvents([try event(id: "m1", state: "acked")]))
+        XCTAssertEqual(log.messages[0].delivery, .read(at: at))
+    }
+
+    func testAnEventThatChangesNothingReturnsFalse() throws {
+        var log = log("m1")
+        XCTAssertFalse(log.noteEvents([try event(id: "unknown", state: "acked")]), "unknown id")
+        XCTAssertFalse(log.noteEvents([try event("agent.state", id: "m1", state: "acked")]), "other event type")
+        XCTAssertFalse(log.noteEvents([try event(id: nil, state: "acked")]), "no message id")
+        XCTAssertFalse(log.noteEvents([try event(id: "m1", state: nil)]), "no state")
+        XCTAssertNil(log.messages[0].delivery)
+        _ = log.noteEvents([try event(id: "m1", state: "acked")])
+        XCTAssertFalse(log.noteEvents([try event(id: "m1", state: "sent")]), "an older state never replaces a newer one")
+    }
+
+    func testRequeuedFromFollowsTheMessageToItsNewId() throws {
+        var log = log("m1")
+        XCTAssertTrue(log.noteEvents([try event(id: "m2", state: "queued", requeuedFrom: "m1")]))
+        XCTAssertEqual(log.messages[0].messageId, "m2")
+        XCTAssertEqual(log.messages[0].delivery, .queued(since: at))
     }
 }

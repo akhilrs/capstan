@@ -8,8 +8,10 @@ public enum InspectorMode: Sendable, Equatable {
     /// A branch ready to merge: merging is done from the terminal.
     case readOnlyIntegration
 
-    public static func make(decide: Bool, kind: WaitingKind) -> InspectorMode {
-        if case .integration = kind { return .readOnlyIntegration }
+    /// `integrationMerge` is true where the app can merge an integration itself (`Availability.integrationMerge` is
+    /// available); only then is a branch ready to merge interactive instead of terminal-only.
+    public static func make(decide: Bool, kind: WaitingKind, integrationMerge: Bool = false) -> InspectorMode {
+        if case .integration = kind { return integrationMerge ? .interactive : .readOnlyIntegration }
         return decide ? .interactive : .readOnlyNoDecide
     }
 

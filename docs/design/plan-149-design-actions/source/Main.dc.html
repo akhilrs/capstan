@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>15r Merge sheet</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p149.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">15r Merge sheet — Into picker, no push, Cancel as default focus, every result — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="strip" style="grid-template-columns:minmax(0, 6fr) minmax(0, 5fr);margin-top:0">
+
+<div class="col">
+  <p class="plabel on-wall">1 · Confirm (Into is the checked-out default branch)</p>
+  <section class="sheetp glass" role="dialog" aria-modal="true" aria-labelledby="m1-t">
+    <div class="shead">
+      <svg class="big" style="color:var(--accent)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6"/><circle cx="4" cy="12.5" r="1.6"/><circle cx="12" cy="7" r="1.6"/><path d="M4 5.1v5.8M12 8.6c0 2.4-3 2.4-6.6 3.4"/></svg>
+      <div class="tx">
+        <h2 class="h3" id="m1-t">Merge integration/plan-12 on docs-site?</h2>
+        <p class="lead">The host checks the branch, the commit, the review and the verify again just before it merges. A refused or conflicting merge changes nothing in the checkout.</p>
+      </div>
+    </div>
+    <dl class="kv">
+      <dt>Branch</dt><dd class="mono">integration/plan-12</dd>
+      <dt><label for="m1-into">Into</label></dt><dd><button class="btn popup" id="m1-into" type="button" aria-haspopup="listbox"><span>main (checked out, default)</span><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m5 6 3-3 3 3M5 10l3 3 3-3"/></svg></button></dd>
+      <dt></dt><dd class="note">main is checked out on build-host: the merge updates that checkout, which must have no uncommitted changes.</dd>
+      <dt>Commit</dt><dd><span class="mono">7c41e9a02d5f</span><span class="note">3 packages · 14 commits ahead</span></dd>
+      <dt>Review</dt><dd><span class="pill p-green"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>Review passed</span><span class="note">reviewer-1, round 1</span></dd>
+      <dt>Verify</dt><dd><span class="pill p-green"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>Verify passed</span><span class="note">on 7c41e9a02d5f, 2 h ago</span></dd>
+    </dl>
+    <p class="hint"><svg class="ico" style="width:14px;height:14px" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v4M8 4.8v.4"/></svg>The merge stays on build-host: Capstan sends it to no remote.</p>
+    <div class="btnrow"><span class="hint" style="margin-right:auto"><span class="kbd">esc</span> or <span class="kbd">return</span> cancels</span><button class="btn is-focus" type="button">Cancel</button><button class="btn pri" type="button">Merge into main</button></div>
+  </section>
+
+  <p class="plabel on-wall">2 · Into menu open: another branch moves without touching the checkout</p>
+  <section class="sheetp glass" aria-label="Into picker open" style="position:relative;padding-bottom:20px">
+    <dl class="kv">
+      <dt><label for="m2-into">Into</label></dt><dd><button class="btn popup is-focus" id="m2-into" type="button" aria-expanded="true"><span>release/2.4</span><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m5 6 3-3 3 3M5 10l3 3 3-3"/></svg></button></dd>
+      <dt></dt><dd class="note">release/2.4 is not checked out: the host moves the branch and leaves the checkout on build-host as it is.</dd>
+    </dl>
+    <div class="menu glass" role="listbox" aria-label="Branches on build-host" style="margin-left:108px">
+      <button class="mi" type="button" role="option"><span class="mk"></span>main<span class="ms">checked out, default</span></button>
+      <div class="msep"></div>
+      <button class="mi" type="button" role="option"><span class="mk"></span>develop</button>
+      <button class="mi hl" type="button" role="option" aria-selected="true"><span class="mk"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg></span>release/2.4</button>
+      <button class="mi" type="button" role="option"><span class="mk"></span>release/2.3</button>
+    </div>
+    <p class="note">From <span class="mono">cstan merge-targets</span>: local branches, sorted, the preferred one first. Integration branches and branches checked out in a worker's worktree are not listed.</p>
+    <div class="btnrow"><button class="btn" type="button">Cancel</button><button class="btn pri" type="button">Merge into release/2.4</button></div>
+  </section>
+
+  <p class="plabel on-wall">3 · While the list loads, and when there is none</p>
+  <div class="panel" style="gap:10px">
+    <p class="hint"><svg class="spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2a6 6 0 1 1-6 6"/></svg>Into: reading the branches on build-host… Merge waits for the list.</p>
+    <p class="note">No branch listed: “The host lists no branch to merge into; the merge goes into the project's branch.”</p>
+    <p class="note">List failed: “The branch list could not be read; the merge goes into the project's branch.”</p>
+    <p class="note">Older host without <span class="mono">merge-targets</span>: no Into row; the merge goes into the project's branch, as on board 15.</p>
+  </div>
+</div>
+
+<div class="col">
+  <p class="plabel on-wall">4 · The sheet after the host answers (it stays open until Done)</p>
+  <div class="panel"><div class="banner b-green"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg><b>Merged, not pushed</b><span class="bt">Merged into main as <span class="mono">e02b9d14c7a1</span> at 12:52. The PM was told. The integration branch is cleaned up.</span></div><div class="btnrow"><button class="btn pri" type="button">Done</button></div></div>
+
+  <div class="panel"><div class="banner b-red"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>The merge has conflicts</b><span class="bt">Nothing changed in the checkout on build-host. The PM can rebase the integration and ask again.</span></div>
+    <div class="ut"><div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>From the host · shown as written</div><pre class="ut-b">CONFLICT (content): docs/search.md
+CONFLICT (content): site/nav.ts</pre></div>
+    <p class="note">Ask the PM sends this refusal to the project's PM, who can fix it on the host. The message also appears in Messages to PM.</p>
+    <div class="btnrow"><button class="btn" type="button">Done</button><button class="btn pri" type="button">Ask the PM</button></div></div>
+
+  <div class="panel"><div class="banner b-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="3" width="2.6" height="10" rx="1"/><rect x="9.4" y="3" width="2.6" height="10" rx="1"/></svg><b>Refused: the project is paused</b><span class="bt">Resume the project first. Nothing was merged.</span></div><div class="btnrow"><button class="btn" type="button">Done</button><button class="btn pri" type="button">Resume project</button></div>
+    <div class="banner b-green"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg><b>Then: the project is resumed</b><span class="bt">Merge again when you are ready.</span></div><div class="btnrow"><button class="btn" type="button">Done</button><button class="btn pri" type="button">Merge again</button></div></div>
+
+  <div class="panel"><div class="banner b-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m4 12 8-8"/></svg><b>Refused: the working tree has changes</b><span class="bt">Tracked files are modified in the checkout on build-host. Nothing was merged.</span></div>
+    <div class="ut"><div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>From the host · shown as written</div><pre class="ut-b"> M site/config.ts
+ M README.md</pre></div>
+    <p class="note">The same shape, with Ask the PM, for every other refusal:</p>
+    <dl class="codes">
+      <dt>wrong_branch</dt><dd>Wrong branch. Choose another branch under Into.</dd>
+      <dt>invalid_branch</dt><dd>Not a valid commit or branch.</dd>
+      <dt>not_reviewed</dt><dd>Not reviewed: the latest review has not passed.</dd>
+      <dt>not_verified</dt><dd>Not verified on this commit.</dd>
+      <dt>branch_moved</dt><dd>The branch moved after the integration was made.</dd>
+      <dt>unsafe_config</dt><dd>Unsafe git configuration (host text names it).</dd>
+      <dt>merge_failed</dt><dd>The merge failed (red; host text gives the reason).</dd>
+    </dl>
+    <div class="btnrow"><button class="btn" type="button">Done</button><button class="btn pri" type="button">Ask the PM</button></div></div>
+
+  <div class="panel"><div class="banner b-grey"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg><b>Refused: an integration is running</b><span class="bt">Try again when it is done. Nothing was merged.</span></div><div class="btnrow"><button class="btn pri" type="button">Done</button></div></div>
+
+  <div class="panel"><div class="banner b-blue"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg><b>Sent to the PM</b><span class="bt">Its answer arrives in Messages to PM; merge again when it says the checkout is ready.</span><span class="ba"><button class="btn" type="button">Open conversation</button></span></div>
+    <div class="banner b-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 6.5a9 9 0 0 1 12 0M4.3 9a5.5 5.5 0 0 1 7.4 0"/><path d="m2 2 12 12"/></svg><b>No answer yet</b><span class="bt">The merge may still be running on build-host. Retry asks again; it never merges twice.</span><span class="ba"><button class="btn" type="button">Retry</button></span></div></div>
+</div>
+
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":3420}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

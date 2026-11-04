@@ -6,7 +6,7 @@ import SwiftUI
 /// One project's conversation with its PM (board 11): what the agents sent the person (`cstan send @user`; host text,
 /// untrusted, plain) and what this phone sent, each with its state: Sending, Sent (on the host), or Not sent with
 /// Retry. A question that waits for an answer has Reply: the composer then answers that question (`message reply`)
-/// instead of sending a new message. The composer sends plain text up to 500 bytes; it is never run as a command.
+/// instead of sending a new message. The composer sends plain text up to 4000 bytes; it is never run as a command.
 struct ConversationScreen: View {
     @Environment(AppModel.self) private var model
     let hostId: UUID
@@ -262,7 +262,7 @@ struct ConversationScreen: View {
     }
 }
 
-/// The message field and the send button: plain text up to 500 bytes; send is off while empty or over.
+/// The message field and the send button: plain text up to 4000 bytes; send is off while empty or over.
 struct MessageComposer: View {
     @Binding var text: String
     let enabled: Bool

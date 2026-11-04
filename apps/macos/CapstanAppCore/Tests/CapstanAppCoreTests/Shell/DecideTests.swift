@@ -131,6 +131,78 @@ final class DecideTests: XCTestCase {
         XCTAssertEqual(route, .local(LocalOutcome.busy()))
     }
 
+    // MARK: Message, merge and plan routes
+
+    /// A project with an active PM, an integration item and a plan that can be cancelled.
+    private func projectWithPm(activePm: Bool = true) throws -> ProjectModel {
+        var p = try ShellFixtures.project(
+            "p1", waiting: [try ShellFixtures.waiting(key: "int1", kind: "integration", requestId: "req-int1", hash: ShellFixtures.hashA)])
+        if activePm {
+            let pm = try ShellFixtures.decode(
+                StoredAgent.self,
+                "{\"key\":\"agent:pm-1\",\"agentId\":\"pm-1\",\"kind\":\"PM\",\"role\":\"pm\",\"generation\":1,"
+                    + "\"state\":\"active\",\"paused\":false,\"requestId\":\"agent:pm-1\",\"contentHash\":\"h\"}")
+            p.agents[pm.key] = pm
+        }
+        let plan = try ShellFixtures.decode(
+            StoredPlan.self,
+            """
+            {"key":"plan:x1","planId":"x1","sequence":1,"title":{"raw":"Plan","verified":true,"truncated":false},
+             "state":"active","packages":{"total":0,"assigned":0,"reported":0,"integrated":0},
+             "requestId":"plan:x1","contentHash":"dddddddddddd"}
+            """)
+        p.plans[plan.key] = plan
+        return p
+    }
+
+    private func route(_ verb: DecideVerb, _ target: RouteTarget, _ project: ProjectModel) -> Route {
+        DecideRouter.route(
+            verb, target: target, project: project, busy: [], hostId: host, projectId: "p1", client: "Mac",
+            nonce: "nonce-abcdef")
+    }
+
+    func test_DecideRouter_pmMessage() throws {
+        guard case .send(let request, _) = route(.pmMessage("hello"), .pm, try projectWithPm()) else {
+            return XCTFail("not sent")
+        }
+        XCTAssertEqual(request.requestId, PmBinding.requestId)
+        XCTAssertEqual(request.expect, PmBinding.hash(agentId: "pm-1"))
+        XCTAssertEqual(request.verb, .pmMessage("hello"))
+    }
+
+    func test_DecideRouter_pmMessageRefusedWithoutActivePm() throws {
+        XCTAssertEqual(route(.pmMessage("hello"), .pm, try projectWithPm(activePm: false)), .local(LocalOutcome.noActivePm()))
+    }
+
+    func test_DecideRouter_integrationMergeWithAndWithoutInto() throws {
+        let project = try projectWithPm()
+        guard case .send(let plain, _) = route(.integrationMerge, .row(key: "int1"), project),
+            case .send(let into, _) = route(.integrationMergeInto("release"), .row(key: "int1"), project)
+        else { return XCTFail("not sent") }
+        XCTAssertEqual(plain.requestId, "req-int1")
+        XCTAssertEqual(plain.verb, .integrationMerge)
+        XCTAssertEqual(into.requestId, "req-int1")
+        XCTAssertEqual(into.verb, .integrationMergeInto("release"))
+        XCTAssertEqual(into.expect, ShellFixtures.hashA)
+    }
+
+    func test_DecideRouter_integrationDiscard() throws {
+        guard case .send(let request, _) = route(.integrationDiscard, .row(key: "int1"), try projectWithPm()) else {
+            return XCTFail("not sent")
+        }
+        XCTAssertEqual(request.verb, .integrationDiscard)
+        XCTAssertEqual(request.expect, ShellFixtures.hashA)
+    }
+
+    func test_DecideRouter_planCancel() throws {
+        guard case .send(let request, _) = route(.planCancel, .plan(key: "plan:x1"), try projectWithPm()) else {
+            return XCTFail("not sent")
+        }
+        XCTAssertEqual(request.requestId, "plan:x1")
+        XCTAssertEqual(request.expect, "dddddddddddd")
+        XCTAssertEqual(route(.planCancel, .plan(key: "plan:gone"), try projectWithPm()), .local(LocalOutcome.notWaiting()))
+    }
+
     func test_ForwardRecording_forwarded() {
         let at = Date(timeIntervalSince1970: 1000)
         let result = ShellFixtures.result(outcome: .forwarded, requestId: "r9", hash: "dddddddddddd", messageId: "m1")

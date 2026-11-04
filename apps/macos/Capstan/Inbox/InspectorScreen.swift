@@ -58,7 +58,9 @@ struct InspectorScreen: View {
         let locked = model.project(row.hostId, row.projectId).map { $0.availability != .ready } ?? false
         let mode = locked
             ? InspectorMode.readOnlyNoDecide
-            : InspectorMode.make(decide: model.capabilities[row.hostId]?.decide ?? false, kind: item.kind)
+            : InspectorMode.make(
+                decide: model.capabilities[row.hostId]?.decide ?? false, kind: item.kind,
+                integrationMerge: model.availability(.integrationMerge, row: row, option: nil) == .available)
         let detail = model.detail(row)
         return ScrollView {
             VStack(alignment: .leading, spacing: Tokens.space[2]) {
@@ -165,7 +167,7 @@ struct InspectorScreen: View {
     }
 
     private func integrationBody(_ row: InboxRowID, _ item: StoredWaiting) -> some View {
-        IntegrationDetailsView(rows: IntegrationDetailRows.make(item, hostName: hostName(row.hostId), now: Date()))
+        IntegrationInspector(model: model, row: row, item: item, hostName: hostName(row.hostId))
     }
 
     private func summaryOnly(_ item: StoredWaiting) -> some View {
@@ -283,14 +285,18 @@ struct InspectorScreen: View {
 
     private func messageBody(_ row: InboxRowID, _ item: StoredWaiting, _ detail: ItemDetail?, _ mode: InspectorMode) -> some View {
         let message = detail?.messageBody
+        // The question as the project's messages section has it: its text when no feed event carried it, and its choices.
+        let stored = model.project(row.hostId, row.projectId)?.messages?.values.first { $0.requestId == item.requestId }
+        let question = message?.body ?? stored?.body
         return VStack(alignment: .leading, spacing: Tokens.space[2]) {
-            UntrustedTextBlock(text: message?.body ?? item.summary, label: "Message · untrusted text")
-            if message == nil {
+            UntrustedTextBlock(text: question ?? item.summary, label: "Message · untrusted text")
+            if question == nil {
                 notReceived("Full message not received yet")
             }
-            if mode == .interactive, message != nil {
+            if mode == .interactive, question != nil {
                 ReplyComposer(
                     title: "Your reply", sendLabel: "Send reply", enabled: !sending && isAvailable(.messageReply("x"), row),
+                    options: stored?.options ?? [], limit: SentMessageLog.textCap,
                     onSend: { text in run(.messageReply(text), row) })
             }
         }
@@ -326,44 +332,6 @@ struct InspectorScreen: View {
             if self.row == row {
                 outcome = result
                 sending = false
-            }
-        }
-    }
-}
-
-/// A text box with a byte counter; the send button is on only while the text fits the cap.
-struct ReplyComposer: View {
-    let title: String
-    let sendLabel: String
-    let enabled: Bool
-    let onSend: (String) -> Void
-
-    @State private var text = ""
-    private let budget = TextBudget(limit: ProtocolLimits.reasonCap)
-
-    var body: some View {
-        let state = ComposerState.check(text, budget: budget)
-        VStack(alignment: .leading, spacing: Tokens.space[0]) {
-            Text(verbatim: title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Tokens.color(.label2))
-            TextEditor(text: $text)
-                .font(.system(size: 13))
-                .frame(minHeight: 72, maxHeight: 140)
-                .scrollContentBackground(.hidden)
-                .padding(Tokens.space[0])
-                .background(Tokens.color(.fill), in: RoundedRectangle(cornerRadius: Tokens.radius.control))
-            HStack {
-                Text(verbatim: String(budget.used(text)) + " of " + String(budget.limit) + " bytes")
-                    .font(.system(size: 12).monospacedDigit())
-                    .foregroundStyle(state == .overLimit ? Tokens.color(.red) : Tokens.color(.label2))
-                Spacer()
-                Button {
-                    if let clean = NoteText.normalized(text) { onSend(clean) }
-                } label: {
-                    Text(verbatim: sendLabel)
-                }
-                .buttonStyle(.capstanPrimary)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!enabled || state != .ready)
             }
         }
     }

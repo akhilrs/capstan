@@ -4,6 +4,10 @@
 #   check-static.sh --self-test  plant each pattern in a temporary copy and expect a finding
 set -u
 
+# Rule 9's deny-list: the CapstanKit types of messages, whose text comes from an agent or the person. Notification and
+# menu bar code may not name them.
+MESSAGE_TYPES='StoredMessage|MessageItem'
+
 # Files (relative to the repository root) that may open a link.
 ALLOW_OPEN=(
   "apps/macos/Capstan/Inbox/DesignLinkConfirm.swift"
@@ -47,9 +51,9 @@ run_checks() {
     done
   }
 
-  # (1) the kit imports nothing but Foundation and Dispatch; the app core may also import the kit
+  # (1) the kit imports nothing but Foundation, Dispatch and CryptoKit; the app core may also import the kit
   local dir allowed_imports
-  for dir in "CapstanKit|Foundation|Dispatch" "CapstanAppCore|Foundation|Dispatch|CapstanKit"; do
+  for dir in "CapstanKit|Foundation|Dispatch|CryptoKit" "CapstanAppCore|Foundation|Dispatch|CapstanKit"; do
     allowed_imports=${dir#*|}; dir=${dir%%|*}
     [ -d "$macos/$dir/Sources" ] || continue
     out=$(grep -rnE --include='*.swift' '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]' "$macos/$dir/Sources" \
@@ -103,6 +107,20 @@ run_checks() {
         echo "$spath:1: [stub] missing line: $sline"; found=1
       fi
     done < "$stubs"
+  fi
+
+  # (9) notification and menu bar code never names a message type
+  local surface file
+  surface=$(
+    { grep -rlE --include='*.swift' '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+UserNotifications' "$macos"
+      find "$macos/Capstan/System" "$macos/CapstanAppCore/Sources/CapstanAppCore/System" -name '*.swift' 2>/dev/null
+      find "$macos/Capstan/App" -name 'MenuBar*.swift' 2>/dev/null
+    } | grep -vE '/[A-Za-z]*Tests/' | sort -u)
+  if [ -n "$surface" ]; then
+    while IFS= read -r file; do
+      out=$(grep -nE "(^|[^A-Za-z0-9_])($MESSAGE_TYPES)([^A-Za-z0-9_]|\$)" "$file" | sed "s|^|$file:|")
+      report "surface" <<< "$out"
+    done <<< "$surface"
   fi
 
   # (8) the project file check belongs to another package; run it when it exists
@@ -165,6 +183,9 @@ self_test() {
     "text-key|Capstan/Planted.swift|let a = LocalizedStringKey(name)"
     "text-markdown|Capstan/Planted.swift|let a = AttributedString(markdown: name)"
     "text-interpolated|Capstan/Planted.swift|let a = Text(\"hi \\(name)\")"
+    "surface-menu|Capstan/System/Planted.swift|let m: StoredMessage? = nil"
+    "surface-core|CapstanAppCore/Sources/CapstanAppCore/System/Planted.swift|let m: MessageItem? = nil"
+    "surface-notify|Capstan/Planted.swift|import UserNotifications; let m: StoredMessage? = nil"
   )
   local c file
   for c in "${cases[@]}"; do
@@ -184,6 +205,7 @@ self_test() {
   mkdir -p "$tmp/repo/apps/macos/Capstan/Inbox" "$tmp/repo/apps/macos/CapstanKit/Tests/CapstanKitTests"
   echo 'let a = NSWorkspace.shared.open(u)' > "$tmp/repo/apps/macos/Capstan/Inbox/DesignLinkConfirm.swift"
   echo 'let p = "/home/x"' > "$tmp/repo/apps/macos/CapstanKit/Tests/CapstanKitTests/Planted.swift"
+  echo 'import CryptoKit' > "$tmp/repo/apps/macos/CapstanKit/Sources/CapstanKit/Planted.swift"
   if ! run_checks "$tmp/repo" >"$tmp/allow.out" 2>&1; then
     echo "self-test: an allowed file or a test file was flagged" >&2; cat "$tmp/allow.out" >&2; rc=1
   fi

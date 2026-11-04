@@ -3,7 +3,7 @@ import CapstanKit
 import CapstanPhoneCore
 import SwiftUI
 
-/// New message (board 11), at the large detent: the project and its PM, the message (plain text, up to 500 bytes),
+/// New message (board 11), at the large detent: the project and its PM, the message (plain text, up to 4000 bytes),
 /// Send. A sheet with typed text asks before it is discarded. After sending, the conversation opens.
 struct NewMessageSheet: View {
     @Environment(AppModel.self) private var model

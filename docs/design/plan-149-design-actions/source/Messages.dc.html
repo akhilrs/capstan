@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>16r Messages to PM</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p149.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">16r Messages to PM — delivery line, a question answered in the thread, choices, Return sends, unread count — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="win">
+  <nav class="side glass" aria-label="Sidebar">
+    <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+    <ul class="nav">
+      <li><a href="#inbox"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>Waiting for you<span class="badge">7</span></a></li>
+      <li><a href="#agents"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13c.6-2.3 2.2-3.5 4.2-3.5s3.6 1.2 4.2 3.5"/></svg>Agents<span class="badge">12</span></a></li>
+      <li><a href="#plans"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11.5" rx="2"/><path d="M6 6h4M6 8.5h4M6 11h2.5"/></svg>Plans<span class="badge">4</span></a></li>
+      <li><a class="on" href="#messages" aria-current="page"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>Messages to PM<span class="badge" aria-label="3 unread">3</span></a></li>
+    </ul>
+    <div class="sh">Conversations</div>
+    <ul class="nav">
+      <li><a class="in on" href="#c1"><b>payments-api</b><span class="badge" aria-label="1 unread">1</span></a></li>
+      <li><a class="in" href="#c2"><b>docs-site</b><span class="badge" aria-label="2 unread">2</span></a></li>
+      <li><a class="in" href="#c3">mobile-app<span class="sub">Mon</span></a></li>
+    </ul>
+  </nav>
+  <section class="mid" aria-label="Conversation with the PM on payments-api">
+    <div class="thread">
+      <span class="day">Today</span>
+      <div class="msg me"><div class="bub">Please hold plan-15 until finance signs off the refund rules.</div><span class="st"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4" stroke="var(--win)" stroke-width="1.6" fill="none"/></svg>Read by the PM · 09:12</span></div>
+      <div class="msg me"><div class="bub">Skip the nightly load test this week.</div><span class="st"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>Delivered to the PM · 11:40</span></div>
+      <div class="msg ag q"><span class="who">architect-3 · 12:14 · <span class="pill p-accent">Question</span></span><div class="bub">Two packages need a test database. Which one should the integration tests use?</div>
+        <div class="chips" role="group" aria-label="Choices from architect-3"><button class="chip on" type="button"><span class="kbd">⌘1</span>A throwaway database per run</button><button class="chip" type="button"><span class="kbd">⌘2</span>The shared staging database</button><button class="chip" type="button"><span class="kbd">⌘3</span>Skip them for now</button></div>
+        <div class="btnrow" style="justify-content:flex-start"><button class="btn plain" type="button">Reply <span class="kbd">⌘R</span></button></div></div>
+      <div class="msg me"><div class="bub">Please fix this so the integration can be merged: merging integration/plan-14 from my Mac was refused: the working tree has changes.</div><span class="st"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Queued: the PM gets it when it is free</span></div>
+      <div class="msg me"><div class="bub">Use the new seed data too.</div><span class="st bad"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Not sent · build-host did not answer<button class="btn plain" type="button">Retry</button></span></div>
+    </div>
+    <div class="tb">
+      <div class="capg glass"><h1 class="title" style="margin:0">payments-api · pm-1</h1></div>
+      <div class="capg glass" style="margin-left:auto"><button class="tbtn" type="button" aria-label="Message PM" title="Message PM (⇧⌘N)"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M13.5 8.5V13a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1H8"/><path d="m11.5 2 2.5 2.5L8.5 10H6V7.5z"/></svg></button></div>
+    </div>
+    <div class="comp glass">
+      <div class="rbar"><svg class="ico" style="width:14px;height:14px;color:var(--accent)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6.5 4 2.5 8l4 4M2.5 8H10a3.5 3.5 0 0 1 3.5 3.5V13"/></svg><b>Replying to architect-3's question</b><span>· <span class="kbd">esc</span> back to a new message</span><button class="xbtn" type="button" aria-label="Stop replying"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></svg></button></div>
+      <div class="crow"><textarea class="is-focus" aria-label="Reply to architect-3">A throwaway database per run</textarea><button class="btn pri" type="button">Send reply</button></div>
+      <p class="hint"><span class="kbd">return</span> sends · <span class="kbd">⇧ return</span> new line · 28 of 4,000 bytes</p>
+    </div>
+  </section>
+  <aside class="insp" aria-label="Question details">
+    <div class="eyebrow">Question · payments-api · open</div>
+    <h2 class="h2">architect-3 asks which test database to use</h2>
+    <dl class="meta"><dt>From</dt><dd>architect-3, via pm-1</dd><dt>Asked</dt><dd>12:14 · 9 min</dd></dl>
+    <div class="ut"><div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Question · untrusted text</div><pre class="ut-b">Two packages need a test database. Which one should the integration tests use?</pre></div>
+    <p class="plabel">Choices fill the reply; you still send it</p>
+    <div class="col" style="gap:6px">
+      <button class="chip on" type="button" style="justify-content:flex-start">A throwaway database per run</button>
+      <button class="chip" type="button" style="justify-content:flex-start">The shared staging database</button>
+      <button class="chip" type="button" style="justify-content:flex-start">Skip them for now</button>
+    </div>
+    <p class="note">Answering here, in the thread or in Waiting for you answers the same question once.</p>
+    <div class="acts"><div class="btnrow"><button class="btn pri" type="button">Reply in thread</button></div></div>
+  </aside>
+</div>
+
+<div class="strip">
+  <div class="col">
+    <p class="plabel on-wall">Delivery line under each message you sent</p>
+    <div class="panel">
+      <dl class="legend">
+        <dt><svg class="spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2a6 6 0 1 1-6 6"/></svg>Sending</dt><dd>On its way over SSH.</dd>
+        <dt><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>Sent</dt><dd>The host has it; it has not said more yet.</dd>
+        <dt><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Queued</dt><dd>“Queued: the PM gets it when it is free.” After a while: “Waiting for the PM for 14 min: it is busy, stuck at a question, or paused.”</dd>
+        <dt><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>Delivered</dt><dd>“Delivered to the PM.”</dd>
+        <dt><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4" stroke="var(--win)" stroke-width="1.6" fill="none"/></svg>Read</dt><dd>“Read by the PM.”</dd>
+        <dt style="color:var(--red)"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Not sent</dt><dd>“Not sent · reason”, with Retry. The text is kept. A message the host dropped reads “Not delivered (cancelled)”.</dd>
+      </dl>
+      <p class="note">Every state has a word and a glyph; colour is never the only signal. The line is announced to VoiceOver when it changes.</p>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Composer: new message, reply mode and back</p>
+    <div class="panel" style="gap:10px">
+      <div class="comp glass" style="position:static"><div class="crow"><textarea aria-label="Message to pm-1" placeholder="Write to pm-1…"></textarea><button class="btn pri dis" type="button" disabled>Send</button></div></div>
+      <p class="note">New message: Send is off while the field is empty. <span class="kbd">⌘R</span> on a question, its Reply button or a choice switches to reply mode.</p>
+      <div class="banner b-grey"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg><b>Answered elsewhere</b><span class="bt">architect-3's question was answered in Waiting for you. The composer is back to new messages; your text is kept.</span></div>
+      <p class="plabel">Length: up to 4,000 bytes; the field grows to 8 lines, then scrolls</p>
+      <p class="hint">Near the limit: <span class="mono">3,720 of 4,000 bytes · 280 left</span></p>
+      <div class="comp glass" style="position:static"><div class="crow"><textarea class="input bad" aria-label="Message to pm-1" aria-invalid="true" aria-describedby="ol-e" style="background:transparent">Release notes for 2.4, as agreed: … (4,112 bytes)</textarea><button class="btn pri dis" type="button" disabled>Send</button></div>
+      <p class="errtext" id="ol-e"><svg class="ico" style="width:12px;height:12px;color:var(--red)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>4,112 of 4,000 bytes · 112 over. Shorten it to send; Return does nothing until then.</p></div>
+    </div>
+    <p class="plabel on-wall">Notification: names the project and who asked, never their text</p>
+    <div class="notif glass"><span class="ap" aria-hidden="true"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg></span><span class="nt">Question on payments-api</span><span class="nw">now</span><span class="ns">architect-3 asked you a question. Open Capstan to read it.</span></div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":2840}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

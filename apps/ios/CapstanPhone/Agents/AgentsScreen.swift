@@ -26,24 +26,24 @@ struct AgentsScreen: View {
     private static let firstAgents = 4
 
     var body: some View {
-        let groups = model.agentGroups().sorted(by: AgentsScreen.byName)
+        let groups = model.agentGroups().sorted(by: AgentShow.byName)
         let all = groups.flatMap { $0.rows }
         let needle = query.trimmingCharacters(in: .whitespaces)
         let filtering = !needle.isEmpty || show != .all
         let pinned = ProjectPins.list(pinnedRaw)
         let shown: [ShownGroup] = groups.compactMap { group in
-            let rows = AgentsScreen.matching(group, show: show, needle: needle)
+            let rows = AgentShow.matching(group, show: show, needle: needle)
             return rows.isEmpty ? nil : ShownGroup(group: group, rows: rows)
         }
         let pinnedGroups = pinned.compactMap { id in shown.first { $0.group.id == id } }
         let otherGroups = shown.filter { !pinned.contains($0.group.id) }
-        let attention = AgentsScreen.attention(groups)
+        let attention = AgentShow.attention(groups)
 
         ScrollViewReader { proxy in
             List {
                 Section {
                     VStack(alignment: .leading, spacing: Tokens.space[2]) {
-                        Text(verbatim: AgentsScreen.summary(all.count, projects: groups.count))
+                        Text(verbatim: AgentShow.summary(all.count, projects: groups.count))
                             .font(TypeStyle.subheadline)
                             .foregroundStyle(Tokens.color(.label2))
                         Picker(selection: $show) {
@@ -129,7 +129,7 @@ struct AgentsScreen: View {
                 withAnimation { proxy.scrollTo(id, anchor: .top) }
             }) {
                 ProjectJumpSheet(
-                    entries: groups.map(AgentsScreen.jumpEntry),
+                    entries: groups.map(\.jumpEntry),
                     pinned: pinned,
                     recent: ProjectPins.list(recentRaw),
                     togglePin: { pinnedRaw = ProjectPins.toggled($0, in: pinnedRaw) },
@@ -205,57 +205,6 @@ struct AgentsScreen: View {
             }
         }
     }
-
-    /// A project's agents that pass the filter and the search, those that need attention first. A search that
-    /// matches the project or host name keeps every agent of it that passes the filter.
-    static func matching(_ group: AgentGroup, show: AgentShow, needle: String) -> [AgentRow] {
-        let filtered = group.rows.filter(show.matches)
-        let rows: [AgentRow]
-        if needle.isEmpty
-            || group.projectName.localizedCaseInsensitiveContains(needle)
-            || group.hostName.localizedCaseInsensitiveContains(needle) {
-            rows = filtered
-        } else {
-            rows = filtered.filter {
-                $0.agentId.localizedCaseInsensitiveContains(needle) || $0.role.localizedCaseInsensitiveContains(needle)
-            }
-        }
-        return rows.sorted { AgentShow.rank($0.health) < AgentShow.rank($1.health) }
-    }
-
-    /// Every agent that needs attention, in every project: needs you first, then the rest.
-    static func attention(_ groups: [AgentGroup]) -> [AttentionItem] {
-        groups.flatMap { group in group.rows.filter(AgentShow.attention.matches).map { AttentionItem(group: group, row: $0) } }
-            .sorted { AgentShow.rank($0.row.health) < AgentShow.rank($1.row.health) }
-    }
-
-    static func byName(_ left: AgentGroup, _ right: AgentGroup) -> Bool {
-        if left.projectName != right.projectName {
-            return left.projectName.localizedStandardCompare(right.projectName) == .orderedAscending
-        }
-        return left.hostName.localizedStandardCompare(right.hostName) == .orderedAscending
-    }
-
-    static func jumpEntry(_ group: AgentGroup) -> JumpEntry {
-        let counts = HealthCounts(group.rows)
-        return JumpEntry(
-            id: group.id, name: group.projectName, hostName: group.hostName,
-            count: group.rows.count == 1 ? "1 agent" : String(group.rows.count) + " agents",
-            state: counts.headline, tone: counts.tone)
-    }
-
-    static func summary(_ agents: Int, projects: Int) -> String {
-        let a = agents == 1 ? "1 agent" : String(agents) + " agents"
-        let p = projects == 1 ? "1 project" : String(projects) + " projects"
-        return a + " · " + p
-    }
-}
-
-/// An agent that needs attention, with its project.
-struct AttentionItem: Identifiable {
-    let group: AgentGroup
-    let row: AgentRow
-    var id: String { group.id + "/" + row.source.key }
 }
 
 /// A project and the agents of it the screen shows.
@@ -264,97 +213,14 @@ private struct ShownGroup {
     let rows: [AgentRow]
 }
 
-/// What the Agents tab shows: every agent, those that need attention (needs you, stalled, lost, blocked), those
-/// working, or those paused.
-enum AgentShow: CaseIterable, Hashable {
-    case all, attention, working, paused
-
-    var title: String {
-        switch self {
-        case .all: return "All"
-        case .attention: return "Attention"
-        case .working: return "Working"
-        case .paused: return "Paused"
-        }
-    }
-
-    func matches(_ row: AgentRow) -> Bool {
-        switch self {
-        case .all: return true
-        case .attention: return AgentFilter.needAttention.matches(row)
-        case .working: return row.health == .working
-        case .paused: return row.health == .paused
-        }
-    }
-
-    /// The order inside a project: needs you, then stalled, lost or blocked, then working, paused and idle.
-    static func rank(_ health: AgentHealth) -> Int {
-        switch health {
-        case .needsYou: return 0
-        case .stalled, .lost, .blocked: return 1
-        case .working: return 2
-        case .paused: return 3
-        case .idle: return 4
-        }
-    }
-}
-
-/// A project's agents counted by health, in words and as a bar.
-struct HealthCounts {
-    private var counts: [AgentHealth: Int] = [:]
-    let total: Int
-
-    init(_ rows: [AgentRow]) {
-        total = rows.count
-        for row in rows { counts[row.health, default: 0] += 1 }
-    }
-
-    func count(_ health: AgentHealth) -> Int { counts[health] ?? 0 }
-
-    /// "1 needs you · 1 lost": what needs attention, empty when nothing does.
-    var alert: String {
-        [AgentHealth.needsYou, .stalled, .lost, .blocked].compactMap { health in
-            count(health) > 0 ? String(count(health)) + " " + health.word.lowercased() : nil
-        }.joined(separator: " · ")
-    }
-
-    /// "2 working · 4 idle", or "all idle".
-    var rest: String {
-        var parts: [String] = []
-        if count(.working) > 0 { parts.append(String(count(.working)) + " working") }
-        if count(.paused) > 0 { parts.append(String(count(.paused)) + " paused") }
-        if count(.idle) > 0 && count(.idle) == total {
-            parts.append("all idle")
-        } else if count(.idle) > 0 {
-            parts.append(String(count(.idle)) + " idle")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    /// The tone of the most urgent health.
-    var tone: Tone {
-        if count(.needsYou) > 0 { return .accent }
-        if count(.stalled) + count(.lost) + count(.blocked) > 0 { return .red }
-        if count(.working) > 0 { return .green }
-        return .grey
-    }
-
-    /// One short word group for the jump sheet: the most urgent count.
-    var headline: String {
-        if !alert.isEmpty { return alert.components(separatedBy: " · ").first ?? alert }
-        if count(.working) > 0 { return String(count(.working)) + " working" }
-        if count(.paused) == total { return "All paused" }
-        return "All idle"
-    }
-
+extension HealthCounts {
+    /// The bar's segments with their colours.
     var bar: [(count: Int, color: Color)] {
-        [
-            (count(.needsYou), Tokens.color(.accent)),
-            (count(.stalled) + count(.lost) + count(.blocked), Tokens.color(.red)),
-            (count(.working), Tokens.color(.green)),
-            (count(.paused), Tokens.color(.blue)),
-            (count(.idle), Tokens.color(.label2).opacity(0.35)),
+        let colors = [
+            Tokens.color(.accent), Tokens.color(.red), Tokens.color(.green), Tokens.color(.blue),
+            Tokens.color(.label2).opacity(0.35),
         ]
+        return Array(zip(barCounts, colors)).map { (count: $0.0, color: $0.1) }
     }
 }
 
@@ -435,34 +301,9 @@ struct AttentionAgentRow: View {
     }
 }
 
-/// The agents of one project, as the Agents tab groups them.
-struct AgentGroup: Identifiable {
-    let hostId: UUID
-    let projectId: String
-    let projectName: String
-    let hostName: String
-    let rows: [AgentRow]
-    var id: String { hostId.uuidString + "/" + projectId }
-}
-
 extension AppModel {
     /// The agents of every ready project, by host name and then project name.
     func agentGroups() -> [AgentGroup] {
-        var groups: [AgentGroup] = []
-        for host in hosts {
-            guard let projects = hostModels[host.id]?.projects.values else { continue }
-            for project in projects where project.availability == .ready && !project.agents.isEmpty {
-                groups.append(AgentGroup(
-                    hostId: host.id, projectId: project.projectId,
-                    projectName: TextBudget.displayPrefix(project.displayName, maxBytes: 64).text,
-                    hostName: host.displayName, rows: AgentRow.rows(project)))
-            }
-        }
-        return groups.sorted { left, right in
-            if left.hostName != right.hostName {
-                return left.hostName.localizedStandardCompare(right.hostName) == .orderedAscending
-            }
-            return left.projectName.localizedStandardCompare(right.projectName) == .orderedAscending
-        }
+        AgentGroup.make(hosts: hosts, hostModels: hostModels)
     }
 }

@@ -13,7 +13,7 @@ final class TypesTests: XCTestCase {
     func test_SidebarSelection_codableRoundTrip() throws {
         let values: [SidebarSelection] = [
             .inbox, .hosts, .messages, .project(hostId: host, projectId: "p1"), .agents(hostId: host, projectId: "p1"),
-            .plans(hostId: host, projectId: "p1"),
+            .plans(hostId: host, projectId: "p1"), .allAgents, .allPlans,
         ]
         for value in values {
             let data = try JSONEncoder().encode(value)
@@ -89,5 +89,23 @@ final class TypesTests: XCTestCase {
         XCTAssertEqual(AppSheet.addHost(editing: nil).id, "addHost-new")
         let config = HostConfig(displayName: "Box", destination: "box")
         XCTAssertEqual(AppSheet.addHost(editing: config).id, "addHost-" + config.id.uuidString)
+    }
+
+    func test_SidebarSelection_allListsStayWithoutProjects() {
+        XCTAssertEqual(SidebarSelection.allAgents.resolved(against: []), .allAgents)
+        XCTAssertEqual(SidebarSelection.allPlans.resolved(against: []), .allPlans)
+    }
+
+    /// A selection saved by an earlier build still decodes to the same case, never to the inbox or a new case.
+    func test_SidebarSelection_decodesAnOldSavedValue() throws {
+        let plain = try JSONDecoder().decode(SidebarSelection.self, from: Data("{\"hosts\":{}}".utf8))
+        XCTAssertEqual(plain, .hosts)
+        let project = try JSONEncoder().encode(SidebarSelection.agents(hostId: host, projectId: "p1"))
+        XCTAssertEqual(
+            try JSONDecoder().decode(SidebarSelection.self, from: project), .agents(hostId: host, projectId: "p1"))
+        let inbox = try JSONDecoder().decode(SidebarSelection.self, from: Data("{\"inbox\":{}}".utf8))
+        XCTAssertEqual(inbox, .inbox)
+        let messages = try JSONDecoder().decode(SidebarSelection.self, from: Data("{\"messages\":{}}".utf8))
+        XCTAssertEqual(messages, .messages)
     }
 }

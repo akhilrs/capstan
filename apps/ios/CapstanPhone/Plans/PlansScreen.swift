@@ -27,7 +27,7 @@ struct PlansScreen: View {
     var body: some View {
         let groups = model.planGroups()
         let pinned = ProjectPins.list(pinnedRaw)
-        let ordered = PlansScreen.ordered(groups, pinned: pinned)
+        let ordered = PlanShow.ordered(groups, pinned: pinned)
         let scoped = ordered.filter { scope == nil || $0.id == scope }
         let items = scoped.flatMap { group in
             group.rows.reversed().map { PlanItem(group: group, row: $0, waiting: group.waiting($0)) }
@@ -37,13 +37,13 @@ struct PlansScreen: View {
             $0.row.title.localizedCaseInsensitiveContains(needle) || $0.row.planId.localizedCaseInsensitiveContains(needle)
         }
         let needs = items.filter { $0.waiting > 0 && $0.row.hasUnintegratedWork }
-        let sections = PlansScreen.sections(
+        let sections = PlanShow.sections(
             searched.filter { PlanShow.of($0.row) == show }, groups: scoped, scope: scope, show: show)
 
         List {
             Section {
                 VStack(alignment: .leading, spacing: Tokens.space[2]) {
-                    Text(verbatim: PlansScreen.summary(items.count, projects: scoped.count, scope: scoped.first?.projectName, all: scope == nil))
+                    Text(verbatim: PlanShow.summary(items.count, projects: scoped.count, scope: scoped.first?.projectName, all: scope == nil))
                         .font(TypeStyle.subheadline)
                         .foregroundStyle(Tokens.color(.label2))
                     if groups.count > 1 {
@@ -115,7 +115,7 @@ struct PlansScreen: View {
 
             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                 groupSection(section, searching: !needle.isEmpty, single: sections.count == 1,
-                             header: index == 0 ? PlansScreen.groupTitle(scope: scope, show: show) : nil)
+                             header: index == 0 ? PlanShow.groupTitle(scope: scope, show: show) : nil)
             }
 
             if !sections.isEmpty {
@@ -148,7 +148,7 @@ struct PlansScreen: View {
         }
         .sheet(isPresented: $jumping) {
             ProjectJumpSheet(
-                entries: groups.map(PlansScreen.jumpEntry),
+                entries: groups.map(\.jumpEntry),
                 pinned: pinned,
                 recent: ProjectPins.list(recentRaw),
                 togglePin: { pinnedRaw = ProjectPins.toggled($0, in: pinnedRaw) },
@@ -223,126 +223,12 @@ struct PlansScreen: View {
             }
         }
     }
-
-    /// The groups of the list. For all projects: one per project. For one project on Active: waits for you, in
-    /// progress, drafts. Otherwise one group.
-    static func sections(_ items: [PlanItem], groups: [PlanGroup], scope: String?, show: PlanShow) -> [PlanSection] {
-        if scope == nil {
-            return groups.compactMap { group in
-                let mine = items.filter { $0.group.id == group.id }
-                guard !mine.isEmpty else { return nil }
-                return PlanSection(id: group.id, title: group.projectName, subtitle: group.hostName,
-                                   tone: nil, items: mine, openByDefault: false)
-            }
-        }
-        switch show {
-        case .active:
-            let waits = items.filter { $0.waiting > 0 && $0.row.hasUnintegratedWork }
-            let drafts = items.filter { $0.row.state == "draft" }
-            let going = items.filter { item in
-                item.row.state != "draft" && !waits.contains { $0.id == item.id }
-            }
-            return [
-                PlanSection(id: "waits", title: "Waits for you", subtitle: nil, tone: .accent, items: waits, openByDefault: true),
-                PlanSection(id: "going", title: "In progress", subtitle: nil, tone: nil, items: going, openByDefault: true),
-                PlanSection(id: "drafts", title: "Drafts", subtitle: nil, tone: nil, items: drafts, openByDefault: false),
-            ].filter { !$0.items.isEmpty }
-        case .review:
-            return items.isEmpty ? [] : [
-                PlanSection(id: "review", title: "Waiting for review", subtitle: nil, tone: nil, items: items, openByDefault: true)]
-        case .done:
-            return items.isEmpty ? [] : [
-                PlanSection(id: "done", title: "Finished", subtitle: nil, tone: nil, items: items, openByDefault: true)]
-        }
-    }
-
-    static func groupTitle(scope: String?, show: PlanShow) -> String {
-        if scope == nil { return show.title + " · by project" }
-        return show == .active ? "Active · by state" : show.title
-    }
-
-    /// Pinned projects first, in pin order; then the others A to Z.
-    static func ordered(_ groups: [PlanGroup], pinned: [String]) -> [PlanGroup] {
-        let first = pinned.compactMap { id in groups.first { $0.id == id } }
-        let rest = groups.filter { !pinned.contains($0.id) }.sorted { left, right in
-            if left.projectName != right.projectName {
-                return left.projectName.localizedStandardCompare(right.projectName) == .orderedAscending
-            }
-            return left.hostName.localizedStandardCompare(right.hostName) == .orderedAscending
-        }
-        return first + rest
-    }
-
-    static func jumpEntry(_ group: PlanGroup) -> JumpEntry {
-        let waits = group.rows.filter { $0.hasUnintegratedWork && group.waiting($0) > 0 }.count
-        let active = group.rows.filter { PlanShow.of($0) == .active }.count
-        let state: String
-        let tone: Tone
-        if waits > 0 {
-            state = waits == 1 ? "1 waits for you" : String(waits) + " wait for you"
-            tone = .accent
-        } else if active > 0 {
-            state = String(active) + " active"
-            tone = .green
-        } else {
-            state = "None active"
-            tone = .grey
-        }
-        return JumpEntry(
-            id: group.id, name: group.projectName, hostName: group.hostName,
-            count: group.rows.count == 1 ? "1 plan" : String(group.rows.count) + " plans",
-            state: state, tone: tone)
-    }
-
-    static func summary(_ plans: Int, projects: Int, scope: String?, all: Bool) -> String {
-        let p = plans == 1 ? "1 plan" : String(plans) + " plans"
-        if !all, let scope { return p + " in " + scope }
-        let j = projects == 1 ? "1 project" : String(projects) + " projects"
-        return p + " · " + j
-    }
 }
 
-/// Active, In review or Done. Done is PlanFilter's done (signed off, cancelled, superseded, rejected, failed, or every
-/// package integrated); In review is a plan in review or submitted; Active is the rest, drafts included.
-enum PlanShow: CaseIterable, Hashable {
-    case active, review, done
-
-    var title: String {
-        switch self {
-        case .active: return "Active"
-        case .review: return "In review"
-        case .done: return "Done"
-        }
-    }
-
-    static func of(_ row: PlanRow) -> PlanShow {
-        if PlanFilter.filter(of: row) == .done { return .done }
-        return row.isInReview ? .review : .active
-    }
-}
-
-/// A plan with its project and how many integration items of it wait for you.
-struct PlanItem: Identifiable {
-    let group: PlanGroup
-    let row: PlanRow
-    let waiting: Int
-    var id: String { group.id + "/" + row.planId }
+extension PlanItem {
     var route: PhoneRoute {
         PhoneRoute.plan(PlanRef(hostId: group.hostId, projectId: group.projectId, planId: row.planId))
     }
-}
-
-/// A group of plans in the list.
-struct PlanSection: Identifiable {
-    let id: String
-    let title: String
-    let subtitle: String?
-    let tone: Tone?
-    let items: [PlanItem]
-    let openByDefault: Bool
-
-    var total: Int64 { items.reduce(0) { $0 + $1.row.total } }
-    var integrated: Int64 { items.reduce(0) { $0 + $1.row.integrated } }
 }
 
 /// The summary row of a group: a chevron, its title, host and plan count, then a bar and how many packages are
@@ -448,41 +334,10 @@ struct NeedsYouPlanRow: View {
     }
 }
 
-/// The plans of one project.
-struct PlanGroup: Identifiable {
-    let hostId: UUID
-    let projectId: String
-    let projectName: String
-    let hostName: String
-    let rows: [PlanRow]
-    let project: ProjectModel
-    var id: String { hostId.uuidString + "/" + projectId }
-
-    /// How many integration items of the plan wait for you.
-    func waiting(_ row: PlanRow) -> Int {
-        IntegrationLink.waiting(for: PlanRow.plan(for: row, in: project), in: project).count
-    }
-}
-
 extension AppModel {
     /// The plans of every ready project, by host name and then project name.
     func planGroups() -> [PlanGroup] {
-        var groups: [PlanGroup] = []
-        for host in hosts {
-            guard let projects = hostModels[host.id]?.projects.values else { continue }
-            for project in projects where project.availability == .ready && !project.plans.isEmpty {
-                groups.append(PlanGroup(
-                    hostId: host.id, projectId: project.projectId,
-                    projectName: TextBudget.displayPrefix(project.displayName, maxBytes: 64).text,
-                    hostName: host.displayName, rows: PlanRow.rows(project), project: project))
-            }
-        }
-        return groups.sorted { left, right in
-            if left.hostName != right.hostName {
-                return left.hostName.localizedStandardCompare(right.hostName) == .orderedAscending
-            }
-            return left.projectName.localizedStandardCompare(right.projectName) == .orderedAscending
-        }
+        PlanGroup.make(hosts: hosts, hostModels: hostModels)
     }
 }
 

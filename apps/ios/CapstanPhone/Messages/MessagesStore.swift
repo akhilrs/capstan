@@ -1,5 +1,5 @@
+import CapstanAppCore
 import CapstanKit
-import CapstanPhoneCore
 import Foundation
 import Observation
 
@@ -31,19 +31,7 @@ final class MessagesStore {
 
     /// Applies the host's message events to the messages this phone sent (Queued, Delivered, Read).
     func noteEvents(_ events: [FeedEvent]) {
-        var changed = false
-        for event in events where event.type == "message.action_needed" || event.type == "message.state" {
-            func text(_ key: String) -> String? {
-                if case .string(let value)? = event.body.raw[key] { return value }
-                return nil
-            }
-            guard let id = text("messageId"), let state = text("state") else { continue }
-            let before = log
-            let from = text("requeuedFrom")
-            log.noteDelivery(messageId: id, hostState: state, at: DetailTime.parse(event.ts) ?? Date(), requeuedFrom: from)
-            changed = changed || log != before
-        }
-        if changed { save() }
+        if log.noteEvents(events) { save() }
     }
 
     func removeHost(_ hostId: UUID) {

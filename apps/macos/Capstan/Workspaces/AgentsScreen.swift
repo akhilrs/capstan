@@ -8,6 +8,10 @@ struct AgentsScreen: View {
     let model: AppModel
     let hostId: UUID
     let projectId: String
+    var show: AgentShow = .all
+    var query = ""
+    var onShow: (AgentShow) -> Void = { _ in }
+    var onClearSearch: () -> Void = {}
 
     @State private var outcome: DecideOutcome?
     @State private var askingProjectPause = false
@@ -23,12 +27,21 @@ struct AgentsScreen: View {
     var body: some View {
         if let project {
             let all = AgentRow.rows(project)
-            let rows = all.filter(model.agentFilter.matches)
+            let needle = query.trimmingCharacters(in: .whitespaces)
+            let group = AgentGroup(
+                hostId: hostId, projectId: projectId, projectName: HostLabel.projectName(project), hostName: hostName,
+                rows: all)
+            let rows = AgentShow.matching(group, show: show, needle: needle)
             ScrollView {
                 VStack(alignment: .leading, spacing: Tokens.space[2]) {
                     projectBar(project, all)
-                    if rows.isEmpty {
-                        Text("No agents yet").foregroundStyle(Tokens.color(.label2))
+                    if let empty = AgentShow.emptiness(all: all.count, shown: rows.count, show: show, needle: needle) {
+                        ListEmptyState(
+                            symbol: "person.2", title: empty.title, detail: empty.detail,
+                            actionTitle: needle.isEmpty ? (show == .all ? nil : "Show all agents") : "Clear search"
+                        ) {
+                            if needle.isEmpty { onShow(.all) } else { onClearSearch() }
+                        }
                     } else {
                         table(rows)
                     }
@@ -184,6 +197,8 @@ struct AgentInspector: View {
     let model: AppModel
     let hostId: UUID
     let projectId: String
+    /// In the all-projects list the inspector does not pause: it opens the project and the waiting item.
+    var allProjects = false
 
     @State private var reason = ""
     @State private var outcome: DecideOutcome?
@@ -241,7 +256,9 @@ struct AgentInspector: View {
                     }
                 }
             }
-            if model.capabilities[hostId]?.decide == true {
+            if allProjects {
+                allProjectsActions(row, project)
+            } else if model.capabilities[hostId]?.decide == true {
             VStack(alignment: .leading, spacing: Tokens.space[0]) {
                 Text("Reason for the pause").font(.system(size: 12, weight: .semibold))
                 TextField("Optional", text: $reason)
@@ -271,6 +288,26 @@ struct AgentInspector: View {
 
     private var hostName: String {
         model.hosts.first { $0.id == hostId }.map(HostLabel.hostName) ?? "the host"
+    }
+
+    private func allProjectsActions(_ row: AgentRow, _ project: ProjectModel) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            Text("Answering happens on the waiting item. Pausing the whole project is on the project's own view.")
+                .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+            HStack {
+                Spacer()
+                Button {
+                    model.selection = .agents(hostId: hostId, projectId: projectId)
+                } label: { Text(verbatim: "Show " + HostLabel.projectName(project)) }
+                .buttonStyle(.capstanQuiet)
+                if row.health == .needsYou {
+                    Button {
+                        model.showProject(hostId: hostId, projectId: projectId, kind: nil)
+                    } label: { Text("Open the waiting item") }
+                    .buttonStyle(.capstanPrimary)
+                }
+            }
+        }
     }
 
     private func plain(_ s: String) -> UntrustedText {

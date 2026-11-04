@@ -104,10 +104,12 @@ public struct IntegrationDetailRows: Sendable, Equatable {
     public static let builtWord = "Built · not in main"
     public static let conflictedWord = "Conflicted · nothing to merge"
 
-    /// `mergeAvailable` is true when the inspector offers the app's own Merge for this item; without it, and always
-    /// when the app has no Merge, the next steps are the terminal commands.
+    /// `mergeAvailable` is true when the inspector offers the app's own Merge for this item: the next steps are then
+    /// the app's Merge, with the terminal command after it as the fallback; without it they are the terminal commands
+    /// alone. `into` names the branch the merge goes into when the host listed it (`cstan merge-targets`); nil reads
+    /// as "main".
     public static func make(
-        _ item: StoredWaiting, hostName: String, now: Date, mergeAvailable: Bool = false,
+        _ item: StoredWaiting, hostName: String, now: Date, mergeAvailable: Bool = false, into: String? = nil,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> IntegrationDetailRows {
         let words = item.summary.displayPlain.split(separator: " ", maxSplits: 1).map(String.init)
@@ -159,7 +161,8 @@ public struct IntegrationDetailRows: Sendable, Equatable {
             lead: lead(state: state, reportCount: reportCount), meta: metaRows(branch: branch, headSha: item.headSha),
             banners: banners, sections: sections,
             steps: steps(
-                state: state, branch: branch, hostName: hostName, details: details, mergeAvailable: mergeAvailable))
+                state: state, branch: branch, hostName: hostName, details: details, mergeAvailable: mergeAvailable,
+                into: into))
     }
 
     // MARK: State
@@ -443,7 +446,8 @@ public struct IntegrationDetailRows: Sendable, Equatable {
     // MARK: Next steps
 
     private static func steps(
-        state: String, branch: UntrustedText, hostName: String, details: IntegrationDetails?, mergeAvailable: Bool
+        state: String, branch: UntrustedText, hostName: String, details: IntegrationDetails?, mergeAvailable: Bool,
+        into: String?
     ) -> [DetailStep] {
         if state == "conflicted" {
             return [
@@ -459,20 +463,22 @@ public struct IntegrationDetailRows: Sendable, Equatable {
         }
         guard state == "merged" else { return [] }
         var result: [DetailStep] = []
+        let target = targetName(into)
         if mergeAvailable {
             result.append(
                 DetailStep(
-                    title: "Merge it into main",
-                    note: "Opens the confirmation sheet. After the merge Capstan confirms the integration itself and "
-                        + "tells the project manager; no confirm step is left.", command: nil, action: .merge,
-                    hostText: nil))
+                    title: "Merge it into " + target,
+                    note: "Opens the merge sheet, where you choose the branch it goes into. After the merge Capstan "
+                        + "confirms the integration itself and tells the project manager; no confirm step is left.",
+                    command: nil, action: .merge, hostText: nil))
+            result.append(terminalMergeStep(branch: branch, hostName: hostName, into: into, fallback: true))
         } else {
-            result.append(terminalMergeStep(branch: branch, hostName: hostName))
+            result.append(terminalMergeStep(branch: branch, hostName: hostName, into: into))
             result.append(
                 DetailStep(
                     title: "The project manager confirms the merge",
-                    note: "Tell the project manager it is in main. They run cstan integrate confirm, which removes "
-                        + "the branch.", command: nil, action: nil, hostText: nil))
+                    note: "Tell the project manager it is in " + target + ". They run cstan integrate confirm, which "
+                        + "removes the branch.", command: nil, action: nil, hostText: nil))
         }
         if let details, details.recorded, let impact = details.impact {
             for step in impact.nextSteps {
@@ -483,13 +489,26 @@ public struct IntegrationDetailRows: Sendable, Equatable {
         return result
     }
 
-    /// The terminal commands that merge the branch, shown as a step of their own.
-    static func terminalMergeStep(branch: UntrustedText, hostName: String) -> DetailStep {
+    /// The branch a step names as the merge target: the host's own name when it is plain text, else "main".
+    static func targetName(_ into: String?) -> String {
+        guard let into, !into.isEmpty, !into.hasPrefix("-"), into == UntrustedText(raw: into, verified: true, truncated: false).displayPlain
+        else { return "main" }
+        return into
+    }
+
+    /// The terminal commands that merge the branch, shown as a step of their own; `fallback` marks the step that
+    /// follows the app's own Merge.
+    static func terminalMergeStep(
+        branch: UntrustedText, hostName: String, into: String? = nil, fallback: Bool = false
+    ) -> DetailStep {
         let command = mergeCommand(branch)
+        let target = targetName(into)
         let note = command == nil
             ? "The branch name cannot be shown safely here. Read it on " + hostName + " and merge it from the terminal."
-            : "In the project's checkout on " + hostName + ", with the branch to merge into checked out:"
-        return DetailStep(title: "Merge it into main", note: note, command: command, action: nil, hostText: nil)
+            : "In the project's checkout on " + hostName + ", with " + (into == nil ? "the branch to merge into" : target)
+                + " checked out:"
+        let title = fallback ? "Or merge it from the terminal into " + target : "Merge it into " + target
+        return DetailStep(title: title, note: note, command: command, action: nil, hostText: nil)
     }
 
     /// The command for a branch the host vouched for and that holds no control or look-alike character; nil otherwise,

@@ -9,6 +9,12 @@ struct MainWindow: View {
     @State private var narrow = false
     @State private var windowWidth: CGFloat = 1400
     @State private var inspectorSheet = false
+    /// What the Agents and Plans lists show and search; kept while the person moves between all projects and one.
+    @State private var agentShow = AgentShow.all
+    @State private var planShow = PlanShow.active
+    @State private var listQuery = ""
+    @State private var agentPick: AgentPick?
+    @FocusState private var searchFocused: Bool
 
     private static let foldWidth: CGFloat = 900
     /// The widths the toolbar needs beside the title: the whole filter, the search field and the gaps.
@@ -100,7 +106,7 @@ struct MainWindow: View {
                     } label: {
                         Label { Text("Add host…") } icon: { Image(systemName: "square.and.pencil") }
                     }
-                case .plans:
+                case .plans, .allPlans:
                     // A new plan starts as a message to the PM.
                     Button {
                         model.selection = .messages
@@ -110,6 +116,15 @@ struct MainWindow: View {
                 default:
                     EmptyView()
                 }
+            }
+            if showsListSearch {
+                ToolbarItem(placement: .primaryAction) {
+                    ListSearchField(
+                        text: $listQuery, prompt: listSearchPrompt, focus: $searchFocused)
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                MessagePMButton(model: model)
             }
         }
         .tint(Tokens.color(.accent))
@@ -132,6 +147,21 @@ struct MainWindow: View {
                 if !isNarrow { inspectorSheet = false }
             }
         }
+        .onChange(of: model.selection) { _, selection in
+            agentPick = nil
+            switch selection {
+            case .agents, .allAgents, .plans, .allPlans: break
+            default: listQuery = ""
+            }
+        }
+        .background {
+            // Command-F reaches the search field of Agents and Plans.
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .disabled(!showsListSearch)
+                .accessibilityHidden(true)
+        }
         .onChange(of: model.selectedRow) { _, row in
             if narrow && hasInspector && row != nil { inspectorSheet = true }
         }
@@ -143,14 +173,26 @@ struct MainWindow: View {
         switch model.selection {
         case .inbox, .project:
             InboxScreen(model: model)
+        case .allAgents:
+            AllAgentsView(
+                model: model, show: agentShow, query: listQuery, pick: $agentPick,
+                onShow: { agentShow = $0 }, onClearSearch: { listQuery = "" })
         case .agents(let hostId, let projectId):
-            AgentsScreen(model: model, hostId: hostId, projectId: projectId)
-        case .plans:
-            PlansScreen(model: model)
+            AgentsScreen(
+                model: model, hostId: hostId, projectId: projectId, show: agentShow, query: listQuery,
+                onShow: { agentShow = $0 }, onClearSearch: { listQuery = "" })
+        case .allPlans:
+            PlansScreen(
+                model: model, scope: nil, show: planShow, query: listQuery,
+                onShow: { planShow = $0 }, onClearSearch: { listQuery = "" })
+        case .plans(let hostId, let projectId):
+            PlansScreen(
+                model: model, scope: ProjectKey(hostId: hostId, projectId: projectId), show: planShow, query: listQuery,
+                onShow: { planShow = $0 }, onClearSearch: { listQuery = "" })
         case .hosts:
             HostsScreen(model: model)
         case .messages:
-            MessagesScreen()
+            MessagesScreen(model: model)
         }
     }
 
@@ -161,9 +203,21 @@ struct MainWindow: View {
             InspectorScreen(model: model, row: model.selectedRow)
         case .hosts:
             HostsInspector(model: model)
+        case .allAgents:
+            if let pick = agentPick {
+                if pick.agentId != nil {
+                    AgentInspector(model: model, hostId: pick.hostId, projectId: pick.projectId, allProjects: true)
+                } else {
+                    ProjectGroupInspector(model: model, hostId: pick.hostId, projectId: pick.projectId)
+                }
+            } else {
+                Text("Select an agent to see what it is doing")
+                    .font(.system(size: 13)).foregroundStyle(Tokens.color(.label2))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         case .agents(let hostId, let projectId):
             AgentInspector(model: model, hostId: hostId, projectId: projectId)
-        case .plans:
+        case .plans, .allPlans:
             PlanInspector(model: model)
         case .messages:
             EmptyView()
@@ -172,7 +226,7 @@ struct MainWindow: View {
 
     private var hasInspector: Bool {
         switch model.selection {
-        case .inbox, .project, .hosts, .agents, .plans: return true
+        case .inbox, .project, .hosts, .agents, .plans, .allAgents, .allPlans: return true
         case .messages: return false
         }
     }
@@ -190,13 +244,18 @@ struct MainWindow: View {
         switch model.selection {
         case .inbox, .project:
             KindFilter(model: model, compact: compactToolbar || narrow).padding(3).glassEffect(.regular, in: Capsule())
-        case .agents:
+        case .agents, .allAgents:
             HStack(spacing: Tokens.space[1]) {
-                AgentFilterBar(model: model).padding(3).glassEffect(.regular, in: Capsule())
-                ProjectMenu(model: model)
+                ProjectMenu(model: model).padding(.horizontal, 4).glassEffect(.regular, in: Capsule())
+                AgentFilterBar(model: model, show: $agentShow, query: listQuery).padding(3)
+                    .glassEffect(.regular, in: Capsule())
             }
-        case .plans:
-            PlanFilterBar(model: model).padding(3).glassEffect(.regular, in: Capsule())
+        case .plans, .allPlans:
+            HStack(spacing: Tokens.space[1]) {
+                ProjectMenu(model: model).padding(.horizontal, 4).glassEffect(.regular, in: Capsule())
+                PlanFilterBar(model: model, show: $planShow, query: listQuery).padding(3)
+                    .glassEffect(.regular, in: Capsule())
+            }
         case .hosts, .messages:
             EmptyView()
         }
@@ -212,19 +271,30 @@ struct MainWindow: View {
         case .project(let hostId, let projectId):
             // The count is of the rows below, so the title says which project filters them.
             return (projectName(hostId, projectId) ?? "Waiting for you") + " · " + String(model.inboxTotal())
-        case .agents(let hostId, let projectId): return "Agents" + projectSuffix(hostId, projectId)
-        case .plans: return "Plans"
+        case .allAgents: return "Agents"
+        case .agents: return "Agents"
+        case .allPlans, .plans: return "Plans"
         case .hosts: return "Hosts"
         case .messages: return "Messages to PM"
         }
     }
 
-    private func projectName(_ hostId: UUID, _ projectId: String) -> String? {
-        model.project(hostId, projectId).map(HostLabel.projectName)
+    private var showsListSearch: Bool {
+        switch model.selection {
+        case .agents, .allAgents, .plans, .allPlans: return true
+        default: return false
+        }
     }
 
-    private func projectSuffix(_ hostId: UUID, _ projectId: String) -> String {
-        projectName(hostId, projectId).map { " · " + $0 } ?? ""
+    private var listSearchPrompt: String {
+        switch model.selection {
+        case .plans, .allPlans: return "Plan titles and ids"
+        default: return "Agents, roles, projects"
+        }
+    }
+
+    private func projectName(_ hostId: UUID, _ projectId: String) -> String? {
+        model.project(hostId, projectId).map(HostLabel.projectName)
     }
 }
 
@@ -312,64 +382,104 @@ private struct SegmentBar<T: Hashable>: View {
     }
 }
 
-/// All N, Need attention N, Paused N for the agents of the project in view.
+/// All, Attention, Working and Paused with their counts for the agents in view; the counts follow the search.
 private struct AgentFilterBar: View {
     let model: AppModel
+    @Binding var show: AgentShow
+    let query: String
 
     var body: some View {
-        let rows: [AgentRow]
-        if case .agents(let hostId, let projectId) = model.selection, let project = model.project(hostId, projectId) {
-            rows = AgentRow.rows(project)
-        } else {
-            rows = []
-        }
+        let scope = currentScope(model)
+        let counts = AgentShow.counts(
+            ListData.agentGroups(model, scope: scope), needle: query.trimmingCharacters(in: .whitespaces))
         return SegmentBar(
-            items: AgentFilter.allCases.map { Segment(value: $0, title: $0.title + " " + String($0.count(rows))) },
-            selected: model.agentFilter, onSelect: { model.agentFilter = $0 })
+            items: AgentShow.allCases.map { Segment(value: $0, title: $0.title + " " + String(counts[$0] ?? 0)) },
+            selected: show, onSelect: { show = $0 })
     }
 }
 
-/// Active N and Done for the plans of every project.
+/// Active, In review and Done with their counts for the plans in view; the counts follow the search.
 private struct PlanFilterBar: View {
     let model: AppModel
+    @Binding var show: PlanShow
+    let query: String
 
     var body: some View {
-        let rows = model.hostModels.values.flatMap { $0.projects.values.flatMap { PlanRow.rows($0) } }
-        let counts = PlanFilter.counts(rows)
+        let scope = currentScope(model)
+        let groups = ListData.planGroups(model, scope: scope, pinned: [])
+        let counts = PlanShow.counts(ListData.planItems(groups), needle: query.trimmingCharacters(in: .whitespaces))
         return SegmentBar(
-            items: [
-                Segment(value: PlanFilter.active, title: "Active \(counts.active)"),
-                Segment(value: PlanFilter.done, title: "Done"),
-            ],
-            selected: model.planFilter, onSelect: { model.planFilter = $0 })
+            items: PlanShow.allCases.map { Segment(value: $0, title: $0.title + " " + String(counts[$0] ?? 0)) },
+            selected: show, onSelect: { show = $0 })
     }
 }
 
-/// Agents and Plans show one project at a time; this menu picks it.
+/// The project the Agents or Plans list is narrowed to, or nil for all projects.
+@MainActor
+private func currentScope(_ model: AppModel) -> ProjectKey? {
+    switch model.selection {
+    case .agents(let hostId, let projectId), .plans(let hostId, let projectId):
+        return ProjectKey(hostId: hostId, projectId: projectId)
+    default: return nil
+    }
+}
+
+/// Agents and Plans show every project or one; this menu picks which, and keeps the person on the same list.
 private struct ProjectMenu: View {
     let model: AppModel
+    @AppStorage(ProjectPins.pinnedKey) private var pinnedRaw = ""
 
     var body: some View {
+        let scope = currentScope(model)
+        let pinned = ProjectPins.list(pinnedRaw)
         Menu {
+            Button { open(nil) } label: {
+                Text(verbatim: (scope == nil ? "✓ " : "") + "All projects")
+            }
             ForEach(model.hosts) { host in
                 Section {
-                    ForEach(HostLabel.projects(model.hostModels[host.id]), id: \.projectId) { project in
-                        Button { open(host.id, project.projectId) } label: { Text(verbatim: HostLabel.projectName(project)) }
+                    ForEach(pinnedFirst(host, pinned), id: \.projectId) { project in
+                        let current = scope == ProjectKey(hostId: host.id, projectId: project.projectId)
+                        Button { open(ProjectKey(hostId: host.id, projectId: project.projectId)) } label: {
+                            Text(verbatim: (current ? "✓ " : "") + HostLabel.projectName(project))
+                        }
                     }
                 } header: {
                     Text(verbatim: model.hosts.count > 1 ? HostLabel.hostName(host) : "Projects")
                 }
             }
         } label: {
-            Label("Project", systemImage: "folder")
+            Text(verbatim: label(scope))
         }
+        .menuStyle(.borderlessButton)
         .menuIndicator(.visible)
+        .fixedSize()
+        .accessibilityLabel("Project")
     }
 
-    private func open(_ hostId: UUID, _ projectId: String) {
+    /// The host's projects with the pinned ones first.
+    private func pinnedFirst(_ host: HostConfig, _ pinned: [String]) -> [ProjectModel] {
+        let all = HostLabel.projects(model.hostModels[host.id])
+        let isPinned = { (project: ProjectModel) in pinned.contains(host.id.uuidString + "/" + project.projectId) }
+        return all.filter(isPinned) + all.filter { !isPinned($0) }
+    }
+
+    private func label(_ scope: ProjectKey?) -> String {
+        guard let scope, let project = model.project(scope.hostId, scope.projectId) else { return "All projects" }
+        return HostLabel.projectName(project)
+    }
+
+    private func open(_ key: ProjectKey?) {
+        let plans: Bool
         switch model.selection {
-        case .plans: model.selection = .plans(hostId: hostId, projectId: projectId)
-        default: model.selection = .agents(hostId: hostId, projectId: projectId)
+        case .plans, .allPlans: plans = true
+        default: plans = false
+        }
+        switch (plans, key) {
+        case (true, let key?): model.selection = .plans(hostId: key.hostId, projectId: key.projectId)
+        case (true, nil): model.selection = .allPlans
+        case (false, let key?): model.selection = .agents(hostId: key.hostId, projectId: key.projectId)
+        case (false, nil): model.selection = .allAgents
         }
     }
 }

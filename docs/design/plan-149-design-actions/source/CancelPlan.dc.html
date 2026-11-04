@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>18 Cancel plan or draft</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p149.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}
+.pl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.pl li{display:grid;grid-template-columns:1fr auto;gap:6px 12px;padding:10px 12px;border-radius:10px}
+.pl li.sel{background:var(--accent-tint);box-shadow:inset 0 0 0 1px var(--accent)}
+.pl .pt{font-weight:600}
+.pl .ps{font-size:12px;color:var(--label2)}
+</style>
+</helmet>
+<div class="board">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">18 Cancel plan… and Cancel draft… — plan inspector, confirm sheet, cancelled state — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="win">
+  <nav class="side glass" aria-hidden="true">
+    <div class="lights"><span></span><span></span><span></span></div>
+    <ul class="nav">
+      <li><a href="#inbox" tabindex="-1">Waiting for you<span class="badge">7</span></a></li>
+      <li><a href="#agents" tabindex="-1">Agents<span class="badge">12</span></a></li>
+      <li><a class="on" href="#plans" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="2.5" width="10" height="11.5" rx="2"/><path d="M6 6h4M6 8.5h4M6 11h2.5"/></svg>Plans<span class="badge">4</span></a></li>
+      <li><a href="#messages" tabindex="-1">Messages to PM<span class="badge">2</span></a></li>
+    </ul>
+  </nav>
+  <section class="mid" aria-hidden="true">
+    <div class="scroll">
+      <h2 class="grp" style="margin:0">payments-api</h2>
+      <ul class="pl">
+        <li><span><span class="pt">plan-14 · Retry and timeout policy</span><br><span class="ps">approved · 5 packages · 2 integrated</span></span><span class="pill p-accent">1 waits for you</span></li>
+        <li class="sel"><span><span class="pt">plan-15 · Refund ledger</span><br><span class="ps">approved · 3 packages · 2 assigned</span></span><span class="pill p-blue">In progress</span></li>
+        <li><span><span class="pt">plan-16 · Export receipts as PDF</span><br><span class="ps">draft · 2 packages</span></span><span class="pill p-grey">Draft</span></li>
+      </ul>
+    </div>
+  </section>
+  <aside class="insp" aria-hidden="true">
+    <div class="eyebrow">Plan · payments-api · approved</div>
+    <div class="h2">plan-15 · Refund ledger</div>
+    <p class="note">0 of 3 integrated · 2 assigned · 1 not started</p>
+  </aside>
+  <div class="scrim"></div>
+  <section class="sheet glass" role="dialog" aria-modal="true" aria-labelledby="cp-t">
+    <div class="shead">
+      <svg class="big" style="color:var(--red)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.1" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></svg>
+      <div class="tx">
+        <h2 class="h3" id="cp-t">Cancel this plan?</h2>
+        <p class="lead">Its open packages stop and their developers and the PM are told. A cancelled plan cannot be taken back from here.</p>
+      </div>
+    </div>
+    <dl class="kv">
+      <dt>Plan</dt><dd>payments-api · <span class="mono">plan-15</span></dd>
+      <dt>State</dt><dd>approved · 3 packages</dd>
+      <dt>Stops</dt><dd><span class="mono">ledger-core</span> (dev-1), <span class="mono">refund-api</span> (dev-3)</dd>
+    </dl>
+    <div class="ut"><div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Title · untrusted text</div><pre class="ut-b">Refund ledger</pre></div>
+    <div class="btnrow"><span class="hint" style="margin-right:auto"><span class="kbd">esc</span> or <span class="kbd">return</span> keeps it</span><button class="btn is-focus" type="button">Keep plan</button><button class="btn desfill" type="button">Cancel plan</button></div>
+  </section>
+</div>
+
+<div class="strip">
+  <div class="col">
+    <p class="plabel on-wall">The action: the plan inspector's More menu (and Plan in the menu bar)</p>
+    <div class="panel" style="flex-direction:row;gap:16px;align-items:flex-start">
+      <div class="menu glass" role="menu" aria-label="More actions, approved plan" style="width:240px">
+        <button class="mi" type="button" role="menuitem">Show agents</button>
+        <div class="msep"></div>
+        <button class="mi des" type="button" role="menuitem">Cancel plan…<span class="sc">⌘⌫</span></button>
+      </div>
+      <div class="menu glass" role="menu" aria-label="More actions, draft" style="width:240px">
+        <div class="mhead">plan-16 is a draft</div>
+        <button class="mi hl" type="button" role="menuitem">Cancel draft…<span class="sc">⌘⌫</span></button>
+      </div>
+    </div>
+    <p class="plabel on-wall">A draft gets the same sheet with its own words</p>
+    <section class="sheetp glass" aria-label="Cancel a draft">
+      <div class="shead"><div class="tx"><h3 class="h3">Cancel this draft?</h3><p class="lead">The draft is withdrawn and the PM is told. No package has started. This cannot be taken back from here.</p></div></div>
+      <div class="btnrow"><button class="btn is-focus" type="button">Keep draft</button><button class="btn desfill" type="button">Cancel draft</button></div>
+      <div class="btnrow"><span class="hint" style="margin-right:auto">Sending:</span><button class="btn dis" type="button" disabled>Keep draft</button><button class="btn desfill" type="button" aria-busy="true"><svg class="spin" style="color:currentColor" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2a6 6 0 1 1-6 6"/></svg>Cancelling…</button></div>
+    </section>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Cancelled: the inspector, then the plan moves to Done</p>
+    <div class="panel">
+      <div class="empty"><svg class="ico" style="color:var(--label2)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></svg><h3 class="h3">Plan cancelled</h3><p class="note">Its open packages were stopped and the PM was told.</p></div>
+      <div class="tbl"><div class="tr" style="grid-template-columns:1fr auto"><span><b>plan-15 · Refund ledger</b> <span class="note">· Done filter</span></span><span class="pill p-grey"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4.5 4.5 7 7M11.5 4.5l-7 7"/></svg>Cancelled</span></div></div>
+    </div>
+    <p class="plabel on-wall">Other answers</p>
+    <div class="panel" style="gap:10px">
+      <div class="banner b-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>Not waiting</b><span class="bt">The plan is already cancelled, superseded or gone. Nothing changed.</span></div>
+      <div class="banner b-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>This changed since you opened it</b><span class="bt">The plan changed on the host. Read it again before cancelling.</span></div>
+      <div class="banner b-red"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 6.5a9 9 0 0 1 12 0M4.3 9a5.5 5.5 0 0 1 7.4 0"/><path d="m2 2 12 12"/></svg><b>Could not reach build-host</b><span class="bt">The plan was not cancelled. Retry asks again.</span><span class="ba"><button class="btn" type="button">Retry</button></span></div>
+      <p class="note">No More menu when the host cannot decide or sent no binding for the plan.</p>
+    </div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":3000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

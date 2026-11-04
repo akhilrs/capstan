@@ -14,24 +14,45 @@ private enum NavItem: Hashable {
 struct SidebarView: View {
     let model: AppModel
 
+    /// The hosts whose projects are folded away.
+    @State private var folded: Set<UUID> = []
+
+    /// Agents that need attention, in every project.
+    private var attentionCount: Int {
+        AgentShow.attention(AgentGroup.make(hosts: model.hosts, hostModels: model.hostModels)).count
+    }
+
+    /// Plans with an integration item that waits for the person.
+    private var needsYouPlans: Int {
+        PlanGroup.make(hosts: model.hosts, hostModels: model.hostModels)
+            .reduce(0) { total, group in total + group.rows.filter { $0.hasUnintegratedWork && group.waiting($0) > 0 }.count }
+    }
+
+    /// Questions from agents that wait for an answer.
+    private var openQuestions: Int {
+        model.conversations().reduce(0) { $0 + $1.waiting }
+    }
+
     var body: some View {
         let counts = model.sidebarCounts
         let current = item(for: model.selection)
         List {
             nav("Waiting for you", symbol: "tray", count: counts.waiting, item: .waiting, current: current)
-            nav("Agents", symbol: "person.2", count: counts.agents, item: .agents, current: current)
-            nav("Plans", symbol: "doc.text", count: counts.plans, item: .plans, current: current)
-            nav("Messages to PM", symbol: "bubble.left", count: 0, item: .messages, current: current)
+            nav("Agents", symbol: "person.2", count: attentionCount, item: .agents, current: current)
+            nav("Plans", symbol: "doc.text", count: needsYouPlans, item: .plans, current: current)
+            nav("Messages to PM", symbol: "bubble.left", count: openQuestions, item: .messages, current: current)
             nav("Hosts", symbol: "server.rack", count: model.hosts.count, item: .hosts, current: current)
             Section {
                 ForEach(model.hosts) { host in
                     hostRow(host, current: current)
-                    let shown = HostLabel.projects(model.hostModels[host.id])
-                    ForEach(shown.filter { $0.availability != .gone }, id: \.projectId) { project in
-                        projectRow(host: host, project: project, counts: counts, current: current)
+                    if !folded.contains(host.id) {
+                        let shown = HostLabel.projects(model.hostModels[host.id])
+                        ForEach(shown.filter { $0.availability != .gone }, id: \.projectId) { project in
+                            projectRow(host: host, project: project, counts: counts, current: current)
+                        }
+                        let gone = shown.filter { $0.availability == .gone }.count
+                        if gone > 0 { goneRow(host: host, count: gone, current: current) }
                     }
-                    let gone = shown.filter { $0.availability == .gone }.count
-                    if gone > 0 { goneRow(host: host, count: gone, current: current) }
                 }
             } header: {
                 Text("Hosts")
@@ -82,8 +103,20 @@ struct SidebarView: View {
     private func hostRow(_ host: HostConfig, current: NavItem) -> some View {
         let projects: [ProjectModel] = model.hostModels[host.id].map { Array($0.projects.values) } ?? []
         let status = SidebarText.hostStatus(state: model.connection[host.id], projects: projects)
+        let isFolded = folded.contains(host.id)
         return row(.host(host.id), current: current) {
             HStack(spacing: Tokens.space[1]) {
+                Button {
+                    if isFolded { folded.remove(host.id) } else { folded.insert(host.id) }
+                } label: {
+                    Image(systemName: isFolded ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Tokens.color(.label2))
+                        .frame(width: 12, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: isFolded ? "Show projects" : "Hide projects")) // static-text
                 Circle()
                     .fill(status.tone == .green ? status.tone.color : Color.clear)
                     .overlay(Circle().strokeBorder(status.tone.color, lineWidth: status.tone == .green ? 0 : 1.5))
@@ -136,8 +169,8 @@ struct SidebarView: View {
         case .inbox: return .waiting
         case .messages: return .messages
         case .project(let hostId, let projectId): return .project(hostId: hostId, projectId: projectId)
-        case .agents: return .agents
-        case .plans: return .plans
+        case .agents, .allAgents: return .agents
+        case .plans, .allPlans: return .plans
         case .hosts: return model.hostsFocus.map { NavItem.host($0.hostId) } ?? NavItem.hosts
         }
     }
@@ -150,9 +183,9 @@ struct SidebarView: View {
         case .messages:
             model.selection = .messages
         case .agents:
-            if let key = workProject() { model.selection = .agents(hostId: key.hostId, projectId: key.projectId) }
+            model.selection = .allAgents
         case .plans:
-            if let key = workProject() { model.selection = .plans(hostId: key.hostId, projectId: key.projectId) }
+            model.selection = .allPlans
         case .hosts:
             model.hostsFocus = nil
             model.selection = .hosts
@@ -170,7 +203,7 @@ struct SidebarView: View {
         switch model.selection {
         case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
             return ProjectKey(hostId: hostId, projectId: projectId)
-        case .inbox, .hosts, .messages:
+        case .inbox, .hosts, .messages, .allAgents, .allPlans:
             let keys = model.hosts.flatMap { host in
                 HostLabel.projects(model.hostModels[host.id]).map { ProjectKey(hostId: host.id, projectId: $0.projectId) }
             }

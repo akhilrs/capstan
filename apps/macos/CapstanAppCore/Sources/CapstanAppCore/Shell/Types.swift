@@ -83,6 +83,10 @@ public enum SidebarSelection: Codable, Hashable, Sendable {
     case project(hostId: UUID, projectId: String)
     case agents(hostId: UUID, projectId: String)
     case plans(hostId: UUID, projectId: String)
+    /// The agents of every project (grouped by project); `agents` is one project's table.
+    case allAgents
+    /// The plans of every project (grouped by project); `plans` is one project's list.
+    case allPlans
     case hosts
     /// The per-project conversation with the PM; it needs a host that supports PM chat.
     case messages
@@ -90,7 +94,7 @@ public enum SidebarSelection: Codable, Hashable, Sendable {
     /// The selection itself while its host and project exist; the inbox when they are gone.
     public func resolved(against hosts: [HostModel]) -> SidebarSelection {
         switch self {
-        case .inbox, .hosts, .messages:
+        case .inbox, .hosts, .messages, .allAgents, .allPlans:
             return self
         case .project(let hostId, let projectId),
             .agents(let hostId, let projectId),

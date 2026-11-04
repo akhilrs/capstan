@@ -1,45 +1,6 @@
 import CapstanAppCore
 import SwiftUI
 
-/// The projects the person pinned and the ones they opened last, kept on this iPhone only (UserDefaults through
-/// `@AppStorage`). A project is named by `hostId/projectId`, the id of `AgentGroup` and `PlanGroup`. Pinned projects
-/// come first on Agents and Plans.
-enum ProjectPins {
-    static let pinnedKey = "projects.pinned"
-    static let recentKey = "projects.recent"
-    /// How many recent projects the jump sheet keeps.
-    static let recentCap = 5
-
-    /// The ids in a stored value, in order.
-    static func list(_ raw: String) -> [String] {
-        raw.split(separator: "\n").map(String.init)
-    }
-
-    /// The stored value with `id` pinned if it was not, unpinned if it was.
-    static func toggled(_ id: String, in raw: String) -> String {
-        var ids = list(raw)
-        if let index = ids.firstIndex(of: id) { ids.remove(at: index) } else { ids.append(id) }
-        return ids.joined(separator: "\n")
-    }
-
-    /// The stored value with `id` first, at most `recentCap` long.
-    static func touched(_ id: String, in raw: String) -> String {
-        var ids = list(raw).filter { $0 != id }
-        ids.insert(id, at: 0)
-        return ids.prefix(recentCap).joined(separator: "\n")
-    }
-}
-
-/// One project in the jump sheet: its name, host, a count ("7 agents", "34 plans") and its state in a word.
-struct JumpEntry: Identifiable {
-    let id: String
-    let name: String
-    let hostName: String
-    let count: String
-    let state: String
-    let tone: Tone
-}
-
 /// The jump sheet: pinned projects, recent ones, then every project A to Z, with a filter field. Choosing one closes
 /// the sheet and hands its id back; touching and holding one pins or unpins it.
 struct ProjectJumpSheet: View {

@@ -1,3 +1,4 @@
+import CapstanKit
 import Foundation
 
 /// A message this phone sent to a project's PM (`pm message`), as the Messages tab shows it. The text is the person's
@@ -61,8 +62,8 @@ public struct SentMessage: Codable, Sendable, Equatable, Identifiable {
 /// The sent messages of every project, oldest first, kept in `messages.json`. A project keeps its last `perProjectCap`.
 public struct SentMessageLog: Codable, Sendable, Equatable {
     public static let perProjectCap = 200
-    /// The longest message, in UTF-8 bytes (board 11's counter).
-    public static let textCap = 500
+    /// The longest message, in UTF-8 bytes: under the protocol's 4096-byte text cap (board 11's counter).
+    public static let textCap = 4000
 
     public private(set) var messages: [SentMessage] = []
 
@@ -111,6 +112,34 @@ public struct SentMessageLog: Codable, Sendable, Equatable {
         // A queued state keeps the time it first queued.
         if case .queued = next, case .queued? = messages[index].delivery { return }
         messages[index].delivery = next
+    }
+
+    /// Applies the host's message events to the messages sent from here (Queued, Delivered, Read). Returns whether any
+    /// message changed, so the caller saves only then.
+    @discardableResult
+    public mutating func noteEvents(_ events: [FeedEvent]) -> Bool {
+        var changed = false
+        for event in events where event.type == "message.action_needed" || event.type == "message.state" {
+            func text(_ key: String) -> String? {
+                if case .string(let value)? = event.body.raw[key] { return value }
+                return nil
+            }
+            guard let id = text("messageId"), let state = text("state") else { continue }
+            let before = self
+            noteDelivery(
+                messageId: id, hostState: state, at: SentMessageLog.parseTime(event.ts) ?? Date(),
+                requeuedFrom: text("requeuedFrom"))
+            changed = changed || self != before
+        }
+        return changed
+    }
+
+    static func parseTime(_ text: String) -> Date? {
+        let plain = ISO8601DateFormatter()
+        if let date = plain.date(from: text) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text)
     }
 
     static func rank(_ delivery: SentMessage.Delivery) -> Int {

@@ -1,28 +1,27 @@
-import CapstanAppCore
 import CapstanKit
 import Foundation
 
 /// The words of a merge's result (board 10). Ids, codes and times only; a refusal's host text (the conflicting files,
 /// git's reason) is shown apart as untrusted text. **There is no push**: the host never pushes a merge (D8), so there is
 /// no push result and no "push failed".
-struct MergeText: Equatable {
-    enum Tone: Equatable { case good, warning, bad }
+public struct MergeText: Equatable, Sendable {
+    public enum Tone: Equatable, Sendable { case good, warning, bad }
 
-    let tone: Tone
-    let title: String
-    let line: String
+    public let tone: Tone
+    public let title: String
+    public let line: String
     /// The screen title after the result.
-    let headline: String
+    public let headline: String
     /// Host text to show under the line, as untrusted (the files of a conflict, git's reason).
-    let hostText: UntrustedText?
+    public let hostText: UntrustedText?
     /// What the phone can do about a refusal: nothing, resume the project, or ask the PM to fix it on the host.
-    var fix: Fix = .none
+    public var fix: Fix = .none
     /// The refusal in a few words, for the message to the PM.
-    var reason: String = ""
+    public var reason: String = ""
 
-    enum Fix: Equatable { case none, resumeProject, askPM }
+    public enum Fix: Equatable, Sendable { case none, resumeProject, askPM }
 
-    static func make(_ outcome: DecideOutcome, branch: String, hostName: String, at: Date) -> MergeText {
+    public static func make(_ outcome: DecideOutcome, branch: String, hostName: String, at: Date) -> MergeText {
         let time = at.formatted(date: .omitted, time: .shortened)
         switch outcome {
         case .applied(let result), .forwarded(let result):

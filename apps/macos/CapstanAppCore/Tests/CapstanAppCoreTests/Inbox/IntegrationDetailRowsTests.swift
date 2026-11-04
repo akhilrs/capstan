@@ -30,8 +30,9 @@ final class IntegrationDetailRowsTests: XCTestCase {
             integrationState: state, branch: name, headSha: head, integrationDetails: details)
     }
 
-    private func rows(_ stored: StoredWaiting, merge: Bool = false) -> IntegrationDetailRows {
-        IntegrationDetailRows.make(stored, hostName: "build-host", now: now, mergeAvailable: merge, calendar: utc)
+    private func rows(_ stored: StoredWaiting, merge: Bool = false, into: String? = nil) -> IntegrationDetailRows {
+        IntegrationDetailRows.make(
+            stored, hostName: "build-host", now: now, mergeAvailable: merge, into: into, calendar: utc)
     }
 
     private func section(_ made: IntegrationDetailRows, _ title: String) throws -> DetailSection {
@@ -447,10 +448,32 @@ final class IntegrationDetailRowsTests: XCTestCase {
             impact: IntegrationImpact(
                 filesChanged: 1, insertions: 1, deletions: 1, nextSteps: [IntegrationNextStep(text: text("Run npm ci"))]))
         let made = rows(item(details: step), merge: true)
-        XCTAssertEqual(made.steps.count, 2, "Merge, then the host step; no confirm step is left")
+        XCTAssertEqual(made.steps.count, 3, "Merge, the terminal fallback, then the host step; no confirm step")
         XCTAssertEqual(made.steps[0].action, .merge)
+        XCTAssertEqual(made.steps[0].title, "Merge it into main")
         XCTAssertNil(made.steps[0].command)
-        XCTAssertEqual(made.steps[1].hostText?.shown, "Run npm ci")
+        XCTAssertNil(made.steps[1].action)
+        XCTAssertEqual(made.steps[1].title, "Or merge it from the terminal into main")
+        XCTAssertEqual(made.steps[1].command, "git merge --no-ff integration/plan-12")
+        XCTAssertEqual(made.steps[2].hostText?.shown, "Run npm ci")
+    }
+
+    func test_Steps_theTargetIsNamedFromTheHostsInto() {
+        let withApp = rows(item(details: nil), merge: true, into: "release/1.2")
+        XCTAssertEqual(withApp.steps[0].title, "Merge it into release/1.2")
+        XCTAssertEqual(withApp.steps[1].title, "Or merge it from the terminal into release/1.2")
+        XCTAssertEqual(
+            withApp.steps[1].note, "In the project's checkout on build-host, with release/1.2 checked out:")
+        let terminalOnly = rows(item(details: nil), merge: false, into: "release/1.2")
+        XCTAssertEqual(terminalOnly.steps[0].title, "Merge it into release/1.2")
+        XCTAssertNil(terminalOnly.steps[0].action)
+        XCTAssertTrue(terminalOnly.steps[1].note?.contains("in release/1.2") == true)
+    }
+
+    func test_Steps_aTargetThatIsNotPlainTextReadsAsMain() {
+        XCTAssertEqual(rows(item(details: nil), merge: true, into: "a\u{202E}b").steps[0].title, "Merge it into main")
+        XCTAssertEqual(rows(item(details: nil), merge: true, into: "-x").steps[0].title, "Merge it into main")
+        XCTAssertEqual(rows(item(details: nil), merge: true, into: "").steps[0].title, "Merge it into main")
     }
 
     func test_Steps_hostStepsOnlyFromRecordedDetails() {
