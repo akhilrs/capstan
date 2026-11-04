@@ -1,0 +1,5 @@
+{
+  "ok": {"ok": true, "httpStatus": 200, "reason": null, "error": null, "secretSource": null},
+  "failed": {"ok": false, "httpStatus": 401, "reason": "unauthorized", "error": "HTTP 401 unauthorized", "secretSource": null},
+  "secret_missing": {"ok": false, "httpStatus": null, "reason": "secret_missing", "error": null, "secretSource": "NTFY_TOKEN"}
+}

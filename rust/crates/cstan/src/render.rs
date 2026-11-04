@@ -934,3 +934,114 @@ pub fn verify_status_lines(status: Option<&Value>, now_ms: f64) -> Vec<String> {
     }
     lines
 }
+
+/// Text for one line of output: control characters become spaces, runs of spaces collapse, and the result is cut to
+/// `max` characters with an ellipsis. Whatever a file or a server put in a field cannot break the line or the terminal.
+fn tidy(text: &str, max: usize) -> String {
+    let flat: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > max {
+        let cut: String = flat.chars().take(max.saturating_sub(1)).collect();
+        format!("{cut}…")
+    } else {
+        flat
+    }
+}
+
+fn count_of(value: Option<&Value>) -> String {
+    number_to_string(as_number(value).unwrap_or(0.0).max(0.0).floor())
+}
+
+/// The ntfy line of `cstan status`: `ntfy: on -> notify.example.org, sent 12, failed 1, dropped 0 (last error 10:42
+/// unauthorized)`. `None` when the status has no `ntfy` object. Unknown members are ignored, and a missing or null
+/// `lastError` counts as none, so a newer controller's file does not break an older cstan. A member marked `stale`
+/// (the file of a controller that is not running) ends with `(stale: controller not running)`.
+pub fn ntfy_status_line(status: Option<&Value>) -> Option<String> {
+    let ntfy = status?.get("ntfy")?;
+    if !matches!(ntfy, Value::Object(_)) {
+        return None;
+    }
+    let state = if matches!(ntfy.get("enabled"), Some(Value::Bool(false))) {
+        "off"
+    } else {
+        "on"
+    };
+    let server = text_of(ntfy.get("server")).map(|s| tidy(&s, 60));
+    let mut line = format!("ntfy: {state}");
+    if let Some(server) = server.filter(|s| !s.is_empty()) {
+        line.push_str(&format!(" -> {server}"));
+    }
+    line.push_str(&format!(
+        ", sent {}, failed {}, dropped {}",
+        count_of(ntfy.get("sent")),
+        count_of(ntfy.get("failed")),
+        count_of(ntfy.get("dropped"))
+    ));
+    if let Some(error @ Value::Object(_)) = ntfy.get("lastError") {
+        let at = text_of(error.get("at"))
+            .and_then(|at| at.get(11..16).map(str::to_string))
+            .filter(|hm| hm.chars().all(|c| c.is_ascii_digit() || c == ':'));
+        let reason = tidy(&text_of(error.get("reason")).unwrap_or_default(), 40);
+        let parts: Vec<String> = [at, Some(reason)]
+            .into_iter()
+            .flatten()
+            .filter(|p| !p.is_empty())
+            .collect();
+        if parts.is_empty() {
+            line.push_str(" (last error)");
+        } else {
+            line.push_str(&format!(" (last error {})", parts.join(" ")));
+        }
+    }
+    if matches!(ntfy.get("stale"), Some(Value::Bool(true))) {
+        line.push_str(" (stale: controller not running)");
+    }
+    Some(line)
+}
+
+/// The output of `cstan notify test` and whether the test went through. A failure is `ntfy: <reason>: <error>`, with the
+/// variable or file the secret comes from when the answer names one.
+pub fn ntfy_test_lines(result: Option<&Value>) -> (Vec<String>, bool) {
+    let Some(answer) = result.filter(|r| matches!(r, Value::Object(_))) else {
+        return (vec!["ntfy: no answer".to_string()], false);
+    };
+    if matches!(answer.get("ok"), Some(Value::Bool(true))) {
+        let status = as_number(answer.get("httpStatus"))
+            .map(|n| format!(" (HTTP {})", number_to_string(n)))
+            .unwrap_or_default();
+        return (vec![format!("ntfy: test message sent{status}")], true);
+    }
+    let reason = tidy(
+        &text_of(answer.get("reason")).unwrap_or_else(|| "failed".to_string()),
+        60,
+    );
+    let mut line = format!("ntfy: {reason}");
+    if let Some(error) = text_of(answer.get("error")).map(|e| tidy(&e, 300)) {
+        if !error.is_empty() {
+            line.push_str(&format!(": {error}"));
+        }
+    }
+    if let Some(source) = text_of(answer.get("secretSource")).map(|s| tidy(&s, 300)) {
+        if !source.is_empty() {
+            line.push_str(&format!(" (secret: {source})"));
+        }
+    }
+    (vec![line], false)
+}
+
+/// The status without its `ntfy` member: the text output prints that member as the one `ntfy:` line.
+pub fn without_ntfy(status: &Value) -> Value {
+    match status {
+        Value::Object(members) => Value::Object(
+            members
+                .iter()
+                .filter(|(key, _)| key.to_utf8_lossy() != "ntfy")
+                .cloned()
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}

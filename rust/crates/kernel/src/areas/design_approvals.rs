@@ -122,7 +122,7 @@ fn latest_report(kernel: &Kernel, plan_id: &str, package_id: &str) -> KernelResu
     )
 }
 
-fn approved_body(kernel: &Kernel, plan_id: &str) -> KernelResult<Option<String>> {
+pub(crate) fn approved_body(kernel: &Kernel, plan_id: &str) -> KernelResult<Option<String>> {
     let Some(plan) = plans::plan_row(kernel, plan_id)? else {
         return Ok(None);
     };

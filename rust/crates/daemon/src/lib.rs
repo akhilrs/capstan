@@ -7,6 +7,7 @@ pub mod cli;
 pub mod deps;
 pub mod handlers;
 pub mod loops;
+pub mod ntfy;
 pub mod ports;
 pub mod relay_answer;
 pub mod reviews;

@@ -223,6 +223,7 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     let config = deps.options.capstan.clone();
     let credential = call.credential.to_string();
     let location = pid_and_location(deps);
+    let ntfy = env.deps.ntfy().map(|sender| sender.status());
     let cache =
         super::cache::runtime_of_deps(deps).map(|runtime| super::cache::status_member(&runtime));
     let with_verify = deps.verify.is_some();
@@ -413,6 +414,9 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         }
         if with_verify {
             result.insert("verify".into(), core.verify_status()?);
+        }
+        if let Some(ntfy) = ntfy {
+            result.insert("ntfy".into(), ntfy);
         }
         Ok(Value::Object(result))
     });

@@ -530,6 +530,8 @@ pub struct RoleConfig {
     pub remote: crate::remote::Remote,
     /// The `[impact]` section; the default (first path component, no migrations, no steps) when it is absent.
     pub impact: crate::impact::ImpactConfig,
+    /// The `[ntfy]` section; disabled when it is absent.
+    pub ntfy: crate::ntfy::Ntfy,
     /// The `[cache]` section; `None` when it is absent.
     pub cache: Option<crate::cache::CacheConfig>,
     /// The `[verify]` section; `None` when it is absent.

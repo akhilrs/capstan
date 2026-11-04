@@ -39,6 +39,7 @@ const SUPERVISION: &str = "Supervision";
 const RELAY: &str = "Prompt relay";
 const OPERATOR: &str = "Operator";
 const CACHE: &str = "Tool caches";
+const PUSH: &str = "Push notifications";
 
 /// Every command, in the order `cstan help` lists them. The groups run together.
 pub const ENTRIES: &[Entry] = &[
@@ -121,6 +122,7 @@ pub const ENTRIES: &[Entry] = &[
     e(CACHE, "cache", "cache status [--json]", "List the tool caches of [cache] with state, size, files, last use, root and scope. Measured now; works without the daemon."),
     e(CACHE, "cache", "cache prune [<entry>...] [--dry-run]", "Run the tools' prune commands and the age and size limits; entries are removed only while no agent worktree exists. --dry-run lists what would happen and changes nothing (PM and operator)."),
     e(CACHE, "cache", "cache clear <entry>...|--all [--force]", "Remove cache entries (setup/<key> names one setup snapshot). Refused while agents have worktrees, and for scope user, unless --force (PM and operator)."),
+    e(PUSH, "notify", "notify test [--json]", "Send one test notification through the [ntfy] section and print how it went; exit 1 when it failed. Needs the controller (operator only)."),
 ];
 
 /// What `cstan herdr-config` prints.

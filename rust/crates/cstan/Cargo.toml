@@ -25,12 +25,12 @@ capstan-launcher = { path = "../launcher" }
 capstan-client = { path = "../client" }
 capstan-kernel = { path = "../kernel" }
 capstan-ledger = { path = "../ledger" }
+capstan-process = { path = "../process" }
 libc = "=0.2.190"
 regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode"] }
 unicode-normalization = { version = "=0.1.25", default-features = false }
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 
 [dev-dependencies]
-capstan-process = { path = "../process" }
 capstan-testkit = { path = "../testkit" }
 capstan-parity-overlay = { path = "../parity-overlay" }

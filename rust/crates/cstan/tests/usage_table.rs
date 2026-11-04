@@ -276,6 +276,19 @@ fn cleanup_is_in_the_help_the_command_help_and_the_man_page() {
 }
 
 #[test]
+fn notify_is_in_the_help_the_command_help_and_the_man_page() {
+    let (help, _, _) = run(&["help"]);
+    assert!(collapse(&help).contains("notify test [--json]"));
+    let (one, err, exit) = run(&["help", "notify"]);
+    assert_eq!((err.as_str(), exit), ("", 0));
+    assert_eq!(one.matches("usage: cstan notify").count(), 1, "{one}");
+    let (page, _, _) = run(&["help", "--man"]);
+    assert!(man_commands(&page)
+        .iter()
+        .any(|l| l == "notify test [--json]"));
+}
+
+#[test]
 fn cache_is_in_the_help_the_command_help_and_the_man_page() {
     let (help, _, _) = run(&["help"]);
     for syntax in [

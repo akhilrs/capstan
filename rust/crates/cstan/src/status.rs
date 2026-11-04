@@ -1,5 +1,6 @@
 //! `cstan status` and `cstan inspect` without an agent environment: asked of the running controller over its control
 //! socket, or read from the ledger when it is not running (`inspectController` and the status branch of `runCli`).
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
@@ -15,6 +16,9 @@ use crate::config_cmd::kernel_failure;
 use crate::render;
 use crate::{invalid, output, parse_options, runtime, to_js, Cli, Fail, Flow};
 
+/// The file the controller writes its ntfy status to, in the state directory.
+const NTFY_STATUS_FILE: &str = "ntfy-status.json";
+const NTFY_STATUS_MAX_BYTES: u64 = 64 * 1024;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 
 enum Ask<'a> {
@@ -141,6 +145,35 @@ impl Cli<'_> {
         result.map_err(|e| kernel_failure(&e))
     }
 
+    /// The `ntfy` member of an offline status: the sender's status file, when `[ntfy]` is enabled. Marked stale unless
+    /// the process that wrote it is still the one with that pid (the start time guards against a reused pid). Any load
+    /// or read problem gives `None`: it never fails `cstan status`.
+    fn ntfy_status_member(&self, config: &ProjectConfig) -> Option<Json> {
+        let role = capstan_config::load_role_config(&self.ctx.cwd).ok()?;
+        if !role.ntfy.enabled {
+            return None;
+        }
+        let path = config.state_directory.join(NTFY_STATUS_FILE);
+        let mut text = String::new();
+        std::fs::File::open(path)
+            .ok()?
+            .take(NTFY_STATUS_MAX_BYTES)
+            .read_to_string(&mut text)
+            .ok()?;
+        let mut member: Json = serde_json::from_str(&text).ok()?;
+        let members = member.as_object_mut()?;
+        let alive = members
+            .get("pid")
+            .and_then(Json::as_i64)
+            .and_then(capstan_process::start_time)
+            .zip(members.get("pidStartTime").and_then(Json::as_str))
+            .is_some_and(|(now, then)| now == then);
+        if !alive {
+            members.insert("stale".into(), json!(true));
+        }
+        Some(member)
+    }
+
     /// `cstan status` with no agent environment.
     pub fn status_offline(&mut self, rest: &[String]) -> Result<Flow, Fail> {
         let (config, credential) = self.load_config()?;
@@ -220,6 +253,11 @@ impl Cli<'_> {
         if let Some(cache) = self.cache_status_member() {
             status.insert("cache".into(), cache);
         }
+        if !status.contains_key("ntfy") {
+            if let Some(ntfy) = self.ntfy_status_member(&config) {
+                status.insert("ntfy".into(), ntfy);
+            }
+        }
         let status = to_js(&Json::Object(status));
         if !json {
             let mut lines = render::controller_lines(Some(&status));
@@ -234,6 +272,11 @@ impl Cli<'_> {
                     .iter()
                     .map(|line| JsStr::from(line.as_str())),
             );
+            lines.extend(
+                render::ntfy_status_line(Some(&status))
+                    .iter()
+                    .map(|line| JsStr::from(line.as_str())),
+            );
             for line in &lines {
                 self.io.out_js_line(line);
             }
@@ -241,7 +284,7 @@ impl Cli<'_> {
         if json {
             output(&mut self.io.out, Some(&status), true);
         } else {
-            let compact = crate::compact::status(&status, self.status_all);
+            let compact = crate::compact::status(&render::without_ntfy(&status), self.status_all);
             output(&mut self.io.out, Some(&compact), false);
         }
         Ok(Flow::Code(0))

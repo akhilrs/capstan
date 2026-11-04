@@ -31,7 +31,7 @@ pub const TOP_LEVEL_KEYS: &[&str] = &[
 ];
 /// Accepted at the top level but left out of the refusal text, which the frozen corpus pins.
 pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] = &[
-    "cleanup", "cache", "verify", "review", "design", "remote", "impact",
+    "cleanup", "cache", "verify", "review", "design", "remote", "impact", "ntfy",
 ];
 
 pub const PROJECT_KEYS: &[&str] = &["name"];
@@ -75,6 +75,23 @@ pub const REMOTE_KEYS: &[&str] = &[
     "push_url",
     "messages_per_hour",
 ];
+pub const NTFY_KEYS: &[&str] = &[
+    "enabled",
+    "server",
+    "topic",
+    "token_env",
+    "token_file",
+    "user",
+    "password_env",
+    "password_file",
+    "events",
+    "timeout_seconds",
+    "retries",
+    "ca_file",
+    "title_prefix",
+    "event",
+];
+pub const NTFY_EVENT_KEYS: &[&str] = &["priority", "tags", "click"];
 pub const IMPACT_KEYS: &[&str] = &["areas", "migrations", "next_steps"];
 pub const ENV_KEYS: &[&str] = &["pass"];
 pub const HOST_KEYS: &[&str] = &[
@@ -258,6 +275,8 @@ pub fn accepted_keys() -> Vec<KeyPath> {
     add("cleanup", CLEANUP_KEYS);
     add("remote", REMOTE_KEYS);
     add("impact", IMPACT_KEYS);
+    add("ntfy", NTFY_KEYS);
+    add("ntfy.event.<name>", NTFY_EVENT_KEYS);
     add("env", ENV_KEYS);
     add("hosts.<name>", HOST_KEYS);
     add("roles.<name>", ROLE_KEYS);

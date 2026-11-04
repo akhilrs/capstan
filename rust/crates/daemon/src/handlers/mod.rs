@@ -21,6 +21,7 @@ pub mod findings;
 pub mod id_prefix;
 pub mod links;
 pub mod messages;
+pub mod notify;
 pub mod operator;
 pub mod plans;
 pub mod relay;
@@ -104,7 +105,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 37] = [
+pub const ROUTES: [Route; 38] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -142,10 +143,11 @@ pub const ROUTES: [Route; 37] = [
     route("feed", Access::Operator, "feed"),
     route("decide", Access::Operator, "decide"),
     route("decide-merge", Access::Operator, "decide"),
+    route("notify", Access::Operator, "notify"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 8] = [
+pub const RUST_ONLY_ROUTES: [&str; 9] = [
     "cleanup",
     "cache",
     "verify",
@@ -154,6 +156,7 @@ pub const RUST_ONLY_ROUTES: [&str; 8] = [
     "feed",
     "decide",
     "decide-merge",
+    "notify",
 ];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
@@ -167,9 +170,9 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
 pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
 
 /// The handler modules, in the order their `register` functions run.
-pub const MODULES: [&str; 16] = [
+pub const MODULES: [&str; 17] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
-    "operator", "cleanup", "cache", "verify", "design", "feed", "decide",
+    "operator", "cleanup", "cache", "verify", "design", "feed", "decide", "notify",
 ];
 
 /// The table of handlers by command name.
@@ -202,6 +205,7 @@ static HANDLERS: LazyLock<HandlerMap> = LazyLock::new(|| {
     findings::register(&mut map);
     operator::register(&mut map);
     cleanup::register(&mut map);
+    notify::register(&mut map);
     cache::register(&mut map);
     verify::register(&mut map);
     design::register(&mut map);
@@ -260,6 +264,7 @@ pub fn command_limit_ms(deps: &Deps, command: &str, identity: &Identity) -> Opti
         // A replacement is a release and a spawn, each with its own budget, behind whatever else the launcher runs.
         "replace" => Some(3 * LAUNCHER_LIMIT_MS),
         "decide-merge" => Some(DECIDE_MERGE_LIMIT_MS),
+        "notify" => Some(notify::NOTIFY_LIMIT_MS),
         _ => None,
     }
 }
@@ -739,7 +744,8 @@ mod tests {
                 "about",
                 "feed",
                 "decide",
-                "decide-merge"
+                "decide-merge",
+                "notify"
             ]
         );
         let merge = route_of("decide-merge").expect("the merge route");
@@ -779,7 +785,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(MODULES.len(), 16);
+        assert_eq!(MODULES.len(), 17);
     }
 
     #[test]

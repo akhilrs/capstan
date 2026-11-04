@@ -287,6 +287,7 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
     let env_table = optional_table(root.get("env"), "env")?;
     reject_unknown_keys(env_table, ENV_KEYS, "env")?;
     let env_pass = passed_environment_names(env_table.get("pass"))?;
+    let ntfy = crate::ntfy::parse_ntfy(root.get("ntfy"), &env_pass)?;
     let cache = crate::cache::resolve_cache(root.get("cache"), project_root, &env_pass)?;
 
     let hosts = resolve_hosts(required_table(root.get("hosts"), "hosts")?)?;
@@ -378,6 +379,7 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
         cleanup,
         remote,
         impact,
+        ntfy,
         cache,
         verify,
         design,

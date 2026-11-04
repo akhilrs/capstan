@@ -36,6 +36,7 @@ cstan dash            # watch the team (optional)
 | `[cleanup]`                                                             | `branches`, `worktrees`, `include_unlanded`                                                                                                                                                                                                                                                                                            | Optional. `branches` is `"auto"`, `"ask"` or `"off"` (default `"ask"`). `worktrees` is `"release"` or `"keep"` (default `"release"`). `include_unlanded` is true or false (default false). See [Cleanup](#cleanup).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `[remote]` | `merge`, `merge_branch`, `push`, `push_url`, `messages_per_hour` | Optional. Off by default. See [Remote](#remote). |
 | `[impact]` | `areas`, `migrations`, `next_steps` | Optional. How the details recorded at merge group paths. See [Impact](#impact). |
+| `[ntfy]` | `enabled`, `server`, `topic`, `token_env`, `token_file`, `user`, `password_env`, `password_file`, `events`, `timeout_seconds`, `retries`, `ca_file`, `title_prefix`, `event` | Optional. Off by default. See [Push notifications (ntfy)](#push-notifications-ntfy). |
 | `[supervision]`                                                         | `enabled`, `check_seconds`                                                                                                                                                                                                                                                                                                             | While workers are active the controller keeps one Supervisor running and sends it a routine check (default every 300 s). A Supervisor uses model usage; set `enabled = false` to turn it off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `[liveness]`                                                            | `enabled`, `check_seconds`, `confirm_checks`, `start_grace_seconds`                                                                                                                                                                                                                                                                    | Optional. See [Liveness](#liveness).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `[messages]`                                                            | `wake`, `send_default`, `info_wake_after_seconds`, `auto_ack_info`, `notice_class`                                                                                                                                                                                                                                                     | Optional. How messages are classed and when info wakes the PM. See [Messages](#messages).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -596,6 +597,59 @@ What these checks do not cover.
 ### Re-check
 
 The merge list is re-checked against git's documentation whenever the merge's git command set or minimum version changes.
+
+## Push notifications (ntfy)
+
+The `[ntfy]` section sends a push notification to an [ntfy](https://ntfy.sh) server when something needs a person. An absent section, or `enabled = false`, sends nothing. Unknown keys, values of the wrong type and an `ntfy` that is not a table are refused by `cstan config check`, with a message naming `ntfy.<key>`; a refusal never repeats a rejected value. The syntax rules apply always; the checks that look at the host (`ca_file`, `token_file`, `password_file` must exist) run only while `enabled = true`, so a committed capstan.toml with `enabled = false` loads on any machine.
+
+```toml
+[ntfy]
+enabled = true
+server = "https://ntfy.example.org"
+topic = "my-project"
+token_env = "NTFY_TOKEN"
+events = ["user_question", "agent_lost"]
+
+[ntfy.event.agent_lost]
+priority = "urgent"
+tags = ["warning", "skull"]
+```
+
+- `enabled` (true or false, default false): whether notifications are sent.
+- `server` (string, required when enabled): `scheme://host[:port][/path]`. Trailing slashes are trimmed. `https` always; `http` only for the host `localhost`, `127.0.0.1` or `[::1]` (the bracketed form is the only IPv6 spelling accepted). User information, a query and a fragment are refused.
+- `topic` (string, required when enabled): matches `^[A-Za-z0-9_-]{1,64}$`.
+- Authentication: none (anonymous), or exactly one of `token_env`, `token_file`, `user` with `password_env`, or `user` with `password_file`. An `_env` value names an environment variable (`^[A-Z_][A-Z0-9_]*$`); a `_file` value is an absolute path to a regular file owned by you with mode 0600, not a symlink, holding the secret (1 to 4096 bytes, surrounding whitespace removed). The secret is read again for every send. A key named `token`, `password` or `secret` is refused: capstan.toml must not hold secrets.
+- `user` (string): matches `^[A-Za-z0-9._@-]{1,64}$`; needs a password key, and a password key needs `user`.
+- `events` (array of event names, default all): which events notify.
+- `timeout_seconds` (integer 1 to 60, default 10): the limit for one send.
+- `retries` (integer 0 to 5, default 2): further tries after a failed send.
+- `ca_file` (absolute path, default unset): a PEM bundle of certificate authorities to trust for `server`.
+- `title_prefix` (string, at most 40 characters, no control characters, default unset): the start of every title. Unset means the project name from `[project]` with control characters removed and cut to 40 characters, and `Capstan` when there is none.
+- `[ntfy.event.<name>]` with `priority`, `tags` and `click`, per event. A table overrides only the keys it sets.
+  - `priority`: `min`, `low`, `default`, `high` or `urgent`, or an integer from 1 to 5.
+  - `tags`: at most 5 strings, each matching `^[A-Za-z0-9_+-]{1,32}$`.
+  - `click`: an `https://` URL opened when the notification is tapped.
+
+The events, with the priority and tag each has when no table sets them:
+
+| Event | Sent when | Default priority | Default tag |
+| --- | --- | --- | --- |
+| `user_question` | an agent asks you a question | high | `question` |
+| `operator_proposal` | the operator proposes a command | high | `question` |
+| `prompt_waiting` | an agent waits at a prompt | high | `question` |
+| `design_waiting` | a design waits for approval | default | `art` |
+| `plan_signed_off` | a plan is signed off | default | `white_check_mark` |
+| `agent_blocked` | an agent reports it is blocked | high | `warning` |
+| `agent_stalled` | an agent has made no progress | default | `hourglass` |
+| `agent_lost` | an agent is gone | high | `warning` |
+| `verify_failed` | a verify run failed | default | `x` |
+| `integration_conflicted` | an integration hit a conflict | high | `warning` |
+
+`cstan` also sends a `test` notification (priority low, tag `test`); it cannot be selected in `events`.
+
+Setup, the event table, troubleshooting and limits are in [Push notifications guide](ntfy.md).
+
+The secret is never passed to agents: a variable named by `token_env` or `password_env` may not be listed in `[env]` `pass`, and a configuration that lists it is refused naming `[env] pass`. The `cstan config` JSON shows environment names and file paths only, never a secret.
 
 ## Cache
 

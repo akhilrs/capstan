@@ -28,3 +28,10 @@ the word and printed the usage with exit 0.
 command table, so `cstan help`, `cstan help cleanup` and `cstan help --man` list it. `tests/support/node-usage.txt` stays
 Node's recorded line (the replay turns that line into the current help), so it does not list `cleanup`;
 `tests/usage_table.rs` checks the new entries and the man page.
+
+## `cstan notify`
+
+`notify` is a Rust-only command (the daemon route is in `RUST_ONLY_ROUTES`), so no Node transcript holds it. It is in the
+command table, so `cstan help`, `cstan help notify` and `cstan help --man` list it; `tests/support/node-usage.txt` stays
+Node's recorded line. `cstan status` gains an `ntfy:` line only when `[ntfy]` is enabled and the controller reports one, so
+no recorded transcript changes. `tests/usage_table.rs` and `tests/notify.rs` check the entry, the output and the guide.
