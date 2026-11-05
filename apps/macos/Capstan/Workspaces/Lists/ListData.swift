@@ -98,9 +98,10 @@ struct ListSearchField: View {
             }
         }
         .font(.system(size: 13))
-        .padding(.horizontal, Tokens.space[1] + 2)
-        .frame(width: 200, height: 28)
-        .background(Tokens.color(.fill2), in: Capsule())
+        .padding(.horizontal, Tokens.space[2])
+        .frame(width: 220, height: ToolbarMetrics.capsuleHeight)
+        .contentShape(Capsule())
+        .glassEffect(.regular, in: Capsule())
     }
 }
 

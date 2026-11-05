@@ -92,7 +92,7 @@ struct MainWindow: View {
                         .lineLimit(1)
                         .fixedSize()
                         .padding(.horizontal, Tokens.space[2])
-                        .padding(.vertical, Tokens.space[0] + 2)
+                        .frame(height: ToolbarMetrics.capsuleHeight)
                         .glassEffect(.regular, in: Capsule())
                     filterCapsule
                 }
@@ -118,10 +118,12 @@ struct MainWindow: View {
                 }
             }
             if showsListSearch {
+                // The field draws its own glass capsule; the system's shared background would wrap a second one around it.
                 ToolbarItem(placement: .primaryAction) {
                     ListSearchField(
                         text: $listQuery, prompt: listSearchPrompt, focus: $searchFocused)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             ToolbarItem(placement: .primaryAction) {
                 MessagePMButton(model: model)
@@ -246,14 +248,16 @@ struct MainWindow: View {
             KindFilter(model: model, compact: compactToolbar || narrow).padding(3).glassEffect(.regular, in: Capsule())
         case .agents, .allAgents:
             HStack(spacing: Tokens.space[1]) {
-                ProjectMenu(model: model).padding(.horizontal, 4).glassEffect(.regular, in: Capsule())
-                AgentFilterBar(model: model, show: $agentShow, query: listQuery).padding(3)
+                ProjectMenu(model: model)
+                AgentFilterBar(model: model, show: $agentShow, query: listQuery).padding(.horizontal, 3)
+                    .frame(height: ToolbarMetrics.capsuleHeight)
                     .glassEffect(.regular, in: Capsule())
             }
         case .plans, .allPlans:
             HStack(spacing: Tokens.space[1]) {
-                ProjectMenu(model: model).padding(.horizontal, 4).glassEffect(.regular, in: Capsule())
-                PlanFilterBar(model: model, show: $planShow, query: listQuery).padding(3)
+                ProjectMenu(model: model)
+                PlanFilterBar(model: model, show: $planShow, query: listQuery).padding(.horizontal, 3)
+                    .frame(height: ToolbarMetrics.capsuleHeight)
                     .glassEffect(.regular, in: Capsule())
             }
         case .hosts, .messages:
@@ -349,6 +353,11 @@ private struct KindFilter: View {
             .padding(.vertical, Tokens.space[0])
             .background(selected ? Tokens.color(.fill2) : Color.clear, in: Capsule())
     }
+}
+
+/// One height for every capsule in the toolbar, so the title, project menu, filter and search line up.
+enum ToolbarMetrics {
+    static let capsuleHeight: CGFloat = 30
 }
 
 /// A row of text segments in the toolbar; the selected one is filled and in the accent.
@@ -449,10 +458,25 @@ private struct ProjectMenu: View {
                 }
             }
         } label: {
-            Text(verbatim: label(scope))
+            // Drawn like the title and filter capsules beside it: same height, label colour, its own chevron.
+            HStack(spacing: Tokens.space[0] + 1) {
+                Text(verbatim: label(scope))
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Tokens.color(.label2))
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(Tokens.color(.label))
+            .padding(.horizontal, Tokens.space[2])
+            .frame(height: ToolbarMetrics.capsuleHeight)
+            .contentShape(Capsule())
+            .glassEffect(.regular.interactive(), in: Capsule())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("Project")
     }
