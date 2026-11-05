@@ -785,6 +785,16 @@ message_test!(
     "Conflict",
     "Integration int-3 conflicted (3 files)."
 );
+message_test!(
+    pm_stuck_text,
+    NtfyEvent::PmStuck,
+    "pm-1",
+    Some("pm-1"),
+    None,
+    Some("unread_mail:15"),
+    "PM stuck",
+    "pm-1 looks stuck (unread_mail, 15 min)."
+);
 
 #[test]
 fn the_title_uses_the_cleaned_prefix_and_the_style_of_the_event() {

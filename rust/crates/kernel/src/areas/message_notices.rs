@@ -948,6 +948,15 @@ pub fn queue_supervision_check(
 /// `#evaluateMessaging`: reads the facts and runs the pure evaluation.
 fn evaluate(kernel: &Kernel, timers: &MessagingTimers) -> KernelResult<MessagingEvaluation> {
     let now_ms = kernel.env.now();
+    let (agents, messages) = messaging_facts(kernel, now_ms)?;
+    Ok(evaluate_messaging(&agents, &messages, now_ms, timers))
+}
+
+/// The facts of the messaging timers: every active agent and every open message to one, as of `now_ms`.
+pub(crate) fn messaging_facts(
+    kernel: &Kernel,
+    _now_ms: i64,
+) -> KernelResult<(Vec<AgentFacts>, Vec<MessageFacts>)> {
     let wakes: HashMap<String, (i64, i64)> = query_all(
         &kernel.database,
         "SELECT message_id, COUNT(*) AS n, MAX(sent_at) AS last FROM pm_wakes WHERE project_id = ? GROUP BY message_id",
@@ -1071,7 +1080,7 @@ fn evaluate(kernel: &Kernel, timers: &MessagingTimers) -> KernelResult<Messaging
             waits,
         });
     }
-    Ok(evaluate_messaging(&agents, &messages, now_ms, timers))
+    Ok((agents, messages))
 }
 
 /// The operations of this area, by the `ControllerCore` method name; `None` for a name that is not this area's.

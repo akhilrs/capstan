@@ -231,6 +231,7 @@ impl RoleConfig {
                     ("herdr", Value::Bool(n.herdr)),
                     ("fallback", Value::Bool(n.fallback)),
                     ("pmStaleMinutes", number(n.pm_stale_minutes)),
+                    ("pmStuckMinutes", number(n.pm_stuck_minutes)),
                 ]),
             ),
             (

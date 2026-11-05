@@ -181,7 +181,7 @@ that has just connected can show what happened lately. `--epoch` and `--head` ar
 snapshot`); `--limit` is 1 to 20 and defaults to 20. The answer is `{projectId, epoch, head, events, oldestScanned,
 truncated, rowsRead, rowsScanned}`. `events` are the events of `feed page` (same ids, envelope and body) of the types
 `report.recorded`, `review.verdict`, `verify.result`, `integration.finished`, `plan.approved`, `plan.signed_off`,
-`design.decided`, `agent.lost`, `agent.blocked` and `finding.raised`, ordered by `(seq, k)` descending. The read goes
+`design.decided`, `agent.lost`, `agent.blocked`, `finding.raised` and `pm.stuck`, ordered by `(seq, k)` descending. The read goes
 backwards from `head` one ledger row at a time and takes a row whole: when the limit, the budget of 500 reads
 (`rowsRead`, rows and entity lookups together) or 48 KiB of events would stop inside a row, none of that row's events are
 returned. `oldestScanned` is the lowest sequence taken and `rowsScanned` the rows taken; `truncated` is false only when
@@ -233,6 +233,12 @@ Effects: every event has `body.effects`, a list of `{section, op, key, fields}` 
   `feed item <section> <key>` (a `snapshot_item`): an answer with `item` set replaces it, an answer with `item` null
   removes it. When `key` is a bare kind name the client reads the pages of that kind again.
 
+The `run` item is invalidated by the events of the ledger rows that change what `pm` shows. The effect is the last of the
+event's effects, on the first event of the row, or the only effect of an invalidation event of the item `run` when the
+row has no event of its own. The actions of those rows are `agent.end`, `agent.lost`, `agent.pause`, `agent.register`, `agent.replace`, `agent.replaced`, `agent.restart`, `agent.resume`, `design.decide`, `integration.begin`, `integration.finish`, `integration.settle`, `message.ack`, `message.advance`, `message.defer`, `message.enqueue`, `message.fail`, `message.pull`, `message.requeue`, `message.resolve`, `message.sent`, `message.transition`, `operator.abandon`, `operator.cancel`, `operator.claim`, `operator.decide`, `operator.expire`, `operator.finish`, `operator.propose`, `plan.amend`, `plan.assign`, `plan.cancel`, `plan.open`, `plan.reassign`, `plan.review_abandon`, `plan.signoff`, `plan.submit`, `pm.input_blocked`, `pm.recovered`, `pm.stuck`, `prompt_relay.begin`, `prompt_relay.capture`, `prompt_relay.expire`, `prompt_relay.finish`, `prompt_relay.interrupted`, `prompt_relay.refuse`, `remote.decide`, `report.record`, `review.begin`, `review.complete`, `user_message.close`, `user_message.send`, `verify.cancel`, `verify.claim`, `verify.finish`, `verify.interrupt`, `verify.orphan`, `verify.queue`. Not every row of them counts: a message row only when the person sent the
+message to the active PM, and a verify or prompt row only when it opens or closes what `waitingOn` counts (a claim or a
+process of a verify run does not).
+
 An event never claims a value that can move afterwards: values that can move live only under `body.current`, which also
 holds `readAt`, the head the read was made at, and never decide an event's type or effects.
 
@@ -279,6 +285,8 @@ always present but may be `null`):
 | `agent.ended` | `agentId`, `kind`, `role`, `generation`, `paused`, `state` |
 | `agent.blocked` | `agentId`, `kind`, `role`, `generation`, `paused`, `state`, `blocker` |
 | `agent.activity` | `agentId`, `activity`, `activitySince`, `activitySeq` |
+| `pm.stuck` | `agentId`, `reason`, `since`, `minutes`, `episodeId`, `alert` |
+| `pm.recovered` | `agentId`, `episodeId`, `reason` |
 | `run.changed` | `state`, `paused`, `reason`, `textVerified`, `truncated`, `untrusted` |
 | `integration.finished` | `integrationId`, `state` |
 | `decision.remote` | `requestId`, `outcome`, `verb`, `client`, `contentHash`, `messageId`, `replaces` |
@@ -286,10 +294,10 @@ always present but may be `null`):
 
 A `message.action_needed` event of a message that a PM restart queued again for the new PM also carries `requeuedFrom`, the id of the message it replaces.
 
-Notes: `plan.needs_attention` comes from the controller's attention list, which lists agent episodes, not plans: its
+Notes: `pm.stuck` and `pm.recovered` are about one episode of a stuck PM (see `pm`); their entity is the PM agent, they carry no host text, and their only effect is the `invalidate` of `run`. `reason` of `pm.stuck` is `unread_mail`, `no_progress` or `prompt`; `reason` of `pm.recovered` is `recovered`, `paused`, `replaced` or `ended`. `alert` is false when the same agent id had an alerting episode that opened in the last 30 minutes; the apps notify only for `alert` true, and `pm.recovered` never. `plan.needs_attention` comes from the controller's attention list, which lists agent episodes, not plans: its
 `planId` is `null`, its `state` is the episode kind and its entity is an agent. `decision.remote` is the record of a decision made with `cstan decide` (section 11): `messageId` and `replaces` may be `null`,
-and its one effect is an `invalidate` of the item the decision was made on (a `waiting` key, the agent id in `agents`, or
-`run`). For `agent.blocked` the fields
+and its effects are an `invalidate` of the item the decision was made on (a `waiting` key, the agent id in `agents`, or
+`run`) and, last, one of `run` (not repeated when that is the item). For `agent.blocked` the fields
 `generation` and `paused` may be `null`; for `agent.lost` `paused` may be `null`. `snapshot.invalidated` carries the
 full item key of the snapshot (`integration:3`, an agent id), which is what `feed item` takes.
 
@@ -297,11 +305,12 @@ An event from the kernel's golden fixtures (the placeholders `actorId` and `ts` 
 
 ```json
 {"v":1,"kind":"event","projectId":"prustonly","event":{"actorId":"a1b2c3d4-0000-4000-8000-000000000001","body":{"agentId":"dev-3","current":{"readAt":20},"effects":[{"fields":{"agentId":"dev-3","generation":1,"kind":"Developer","paused":false,"role":"developer","state":"active"},"key":"dev-3","op":"upsert","section":"agents"}],"generation":1,"kind":"Developer","paused":false,"role":"developer","state":"active"},"entity":{"id":"dev-3","type":"agent"},"from":null,"id":"prustonly:daeca3b2245f3519:20","k":0,"seq":20,"to":"active","ts":"2026-10-01T09:30:00.000Z","type":"agent.registered"}}
+{"v":1,"kind":"event","projectId":"prustonly","event":{"actorId":"a1b2c3d4-0000-4000-8000-000000000001","body":{"agentId":"pm-1","alert":false,"effects":[{"fields":{},"key":"run","op":"invalidate","section":"run"}],"episodeId":"stuck-3f0c1d52-8a9e-4b57-9d1a-6c2e7f4b8a10","minutes":15,"reason":"unread_mail","since":"2026-10-01T09:20:00.000Z"},"entity":{"id":"pm-1","type":"agent"},"from":null,"id":"prustonly:daeca3b2245f3519:21","k":0,"seq":21,"to":"open","ts":"2026-10-01T09:35:00.000Z","type":"pm.stuck"}}
 ```
 
 Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line carries the item in `item` and adds
 `projectId`, `section` and `key`. `WaitingItem`: `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`,
-`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`. `integrationState` (`merged` or
+`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`. `designLink` is set for kind `design` and `null` for every other kind: it is the first whole `http://` or `https://` URL in the text of the designer's report (trailing punctuation and closing brackets are not part of it), and `null` when the report names none or the URL is longer than 1024 bytes. It is untrusted text: a client shows it as text and opens it only after the person chooses to, and only when it is an `http` or `https` link. The design item's `contentHash` does not cover it (the report id in the hash fixes the report text). `integrationState` (`merged` or
 `conflicted`), `branch` and `headSha` are set for kind `integration` and `null` for every other kind. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
 `contentHash`, `branch`, `activity`, `activitySince`, `activitySeq`. `branch` is optional (absent or `null` without a
 pane) and untrusted text (section 8). The three activity fields are the agent's latest observed
@@ -310,7 +319,7 @@ activity state, the time it was observed and its sequence; they are `null` while
 integrated}`, `requestId` (`plan:<planId>`) and `contentHash` (the SHA-256 of the canonical
 `{"plan": planId, "state": state, "title": title}`). `state` of a plan is `draft`, `in_review`, `approved` or `signed_off`: a plan with a sign-off stays in
 `plans`, as `signed_off`, while one of its sign-offs is on an integration that is neither confirmed nor discarded, and
-leaves when that integration is confirmed or discarded (a cancelled plan is never listed). `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`; the run item has no key of its own and
+leaves when that integration is confirmed or discarded (a cancelled plan is never listed). `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`, `pm`; the run item has no key of its own and
 its line uses `run`. `Page<T>`: `head`, `items`, `next`.
 
 #### `integrationDetails`
@@ -357,7 +366,7 @@ One page of each section (the values are examples; the hashes are the SHA-256 of
 defined over):
 
 ```json
-{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}}}],"next":null}
+{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null,"designLink":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","designLink":null,"integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}}}],"next":null}
 ```
 
 ```json
@@ -369,8 +378,38 @@ defined over):
 ```
 
 ```json
-{"requestId":"run","state":"active","paused":false,"contentHash":"b47b658cf5dd643526252edbaca2e5ef54b936794d728ddb6193be0f194dcf9a"}
+{"requestId":"run","state":"active","paused":false,"contentHash":"b47b658cf5dd643526252edbaca2e5ef54b936794d728ddb6193be0f194dcf9a","pm":{"agentId":"pm-1","waitingOn":[{"kind":"report","count":2,"since":"2026-10-01T09:00:00.000Z"},{"kind":"review","count":1,"since":"2026-10-01T09:20:00.000Z"},{"kind":"user","count":3,"since":"2026-10-01T09:10:00.000Z"}],"fromUser":{"messageId":"msg-12","client":"phone","createdAt":"2026-10-01T09:25:00.000Z","state":"sent","stateSince":"2026-10-01T09:25:04.000Z","delivery":"delivered","body":{"text":"Which database should the tests use?","textVerified":true,"truncated":false}},"stuck":{"episodeId":"stuck-3f0c1d52-8a9e-4b57-9d1a-6c2e7f4b8a10","reason":"unread_mail","since":"2026-10-01T09:20:00.000Z","alert":false}}}
 ```
+
+#### `pm`
+
+`pm` of the run item is `null` when the project has no active PM (exactly one agent of kind `PM` in state `active`), else
+`{agentId, waitingOn, fromUser, stuck}`:
+
+- `waitingOn` lists `{kind, count, since}` in this fixed order, only the kinds with `count` above 0: `report` (packages
+  of approved plans that are assigned and have no report; `since` is the oldest assignment), `review` (reviews begun
+  and not finished; the oldest start), `verify` (verify runs queued or running; the oldest queue time), `plan_review`
+  (plans in review; the oldest time of the plan's latest submission) and `user` (the items of the `waiting` section, as
+  that section lists them: proposals, prompts, designs, questions and integrations; the oldest `since` among them).
+  `since` is a time in the format of the other times of the snapshot.
+- `fromUser` is `null` or the newest message to the active PM (of its current generation) sent by the person, with
+  `pm message` or from the terminal: `{messageId, client, createdAt, state, stateSince, delivery, body}`. `client` is the
+  name given with `--client`, or `terminal`. `delivery` is `queued` (queued or deferred), `delivered` (typed into the
+  pane: sent or not acknowledged in time), `read` (acknowledged) or `not_delivered` (expired, cancelled or failed).
+  `body` is `{text, textVerified, truncated}`: the person's own text, cleaned and cut at 300 bytes, and untrusted
+  (section 8); it is `null` with `textVerified` false when the stored text no longer matches its hash.
+- `stuck` is `null` or the open episode of the PM: `{episodeId, reason, since, alert}`. `reason` is `unread_mail` (the PM is
+  idle or done and its oldest pending action message has waited the configured minutes), `no_progress` (it is working
+  and has shown no activity, recorded wait or tool process for that long; never under a paused run, and only after the
+  controller has watched for those minutes since it started) or `prompt` (it is blocked, or a prompt relay of it is
+  open, for that long). `since` is when the condition began. An episode with `alert` false is shown with the same banner.
+  The episode ends (`pm.recovered`) after the condition has been clear for 60 seconds, or when the PM is paused, replaced
+  or ended.
+
+The PM's activity is on its `agents` item and its last message to the person is the newest item of `messages` sent by
+its agent id; neither is repeated in `pm`. `contentHash` of the run item does not cover `pm`, so the pause and resume
+bindings of the run do not change with it, and a client must read the run item again on every `invalidate` of `run`,
+whatever its hash says.
 
 ## 6. Errors and resync
 
@@ -421,7 +460,7 @@ Text in events and items comes from agents, messages and commands and is not to 
 - `truncated`: the text was cut to its cap.
 - `clean_text` is a processing step, not a field: the server replaces control, format and line and paragraph separator
   characters by a space in text it shows, before the text is capped.
-- Caps: event text 4096 bytes, a reason or note 1024 bytes, a prompt carries at most 32 options of at most 256 bytes
+- Caps: event text 4096 bytes, a reason or note 1024 bytes, a `pm message` or `message reply` text 4096 bytes (longer is refused, never cut), a prompt carries at most 32 options of at most 256 bytes
   each, a snapshot item's text (`summary`, `task`, `title`) 1024 bytes.
 
 A client renders every such field as plain text: no markup, no links followed, no escape sequences interpreted. It never
@@ -558,7 +597,8 @@ Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1
 `design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
 `message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`; `integration merge`
 (no arguments; see Merge); `integration discard` and `plan cancel` (no arguments); `pm message <text>`. Text is cleaned
-and capped like the text of the feed (section 8).
+and capped like the text of the feed (section 8), except that `pm message` and `message reply` text of more than 4096
+bytes is refused with `invalid`, not cut.
 
 An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
 proposal or answer a prompt of an agent: a tap on a phone is not an approval. The controller sends the active PM a
@@ -649,7 +689,7 @@ action message whose text is marked as untrusted, from the client named by `--cl
 it, and its delivery shows in the feed like any message to the PM. `--expect` binds the message to the PM the person
 saw: it is the SHA-256, in lowercase hex, of the canonical JSON `{"pm":"<agentId>"}` of the one agent of kind `PM` in
 state `active` (for `pm-1`, the SHA-256 of `{"pm":"pm-1"}`). With no active PM the call is refused with `no_active_pm`;
-once another PM has taken over, with `hash_mismatch`. Messages to the PM are not capped per request but count toward
+once another PM has taken over, with `hash_mismatch`. The text is at most 4096 bytes after cleaning; a longer one is refused with `invalid`, never cut. Messages to the PM count toward
 the hourly limit of the project (`[remote] messages_per_hour`, 30 by default), with forwards and replies.
 
 ### Result

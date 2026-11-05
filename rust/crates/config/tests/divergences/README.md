@@ -74,3 +74,9 @@ sentence, so each architect prompt case it changes has an overlay named `prompt-
 `golden-architect`, `captured-prompt-0021`, `captured-prompt-0022`, `captured-prompt-0042` and `captured-prompt-0048`.
 `every_prompt_variant_equals_nodes_text` compares an overlaid case with the overlay text, length and hash, with no
 stripping. The PM section (`pm_plan_section.txt`) is not byte-compared, as above.
+
+## The role `memory` key
+
+`memory` (PM only, default true) lets the PM write its own Claude Code memory folder through the write guard. The
+`roles.<name> has 1 unknown key(s); allowed: ...` messages list it, so each case that prints that list has an overlay
+named `role-key-memory-<case>`.

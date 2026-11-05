@@ -228,7 +228,7 @@ pub struct WaitInterval {
     pub end_ms: Option<i64>,
 }
 
-fn state_at(observations: &[StateObservation], at_ms: i64) -> &str {
+pub(crate) fn state_at(observations: &[StateObservation], at_ms: i64) -> &str {
     let mut state = "unknown";
     for observation in observations {
         if observation.at_ms <= at_ms {
@@ -385,7 +385,7 @@ impl MessagingEvaluation {
 }
 
 /// When the agent's current Herdr state began: the earliest observation of an unbroken run of that state up to `at_ms`.
-fn state_since(observations: &[StateObservation], at_ms: i64) -> Option<i64> {
+pub(crate) fn state_since(observations: &[StateObservation], at_ms: i64) -> Option<i64> {
     let current = state_at(observations, at_ms);
     let mut since: Option<i64> = None;
     for observation in observations {

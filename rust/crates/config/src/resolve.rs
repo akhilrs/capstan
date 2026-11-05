@@ -108,7 +108,17 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
             1440,
             DEFAULT_PM_STALE_MINUTES,
         )?,
+        pm_stuck_minutes: optional_integer(
+            notification_table.get("pm_stuck_minutes"),
+            "notifications.pm_stuck_minutes",
+            0,
+            240,
+            DEFAULT_PM_STUCK_MINUTES,
+        )?,
     };
+    if notifications.pm_stuck_minutes == 1 {
+        return invalid("notifications.pm_stuck_minutes must be 0 (off) or 2 to 240");
+    }
     if !notifications.herdr && !notifications.fallback {
         return invalid("notifications.herdr and notifications.fallback must not both be false");
     }
@@ -805,6 +815,24 @@ fn resolve_roles(
             None => "off",
             some => enum_value(some, &format!("{at}.hooks"), &["off", "inherit"])?,
         };
+        let memory_wanted = match (role.get("memory"), kind) {
+            (Some(_), kind) if kind != "PM" => {
+                return invalid(format!("{at}.memory is only allowed on a PM role"))
+            }
+            (value, kind) => {
+                kind == "PM" && optional_boolean(value, &format!("{at}.memory"), true)?
+            }
+        };
+        // The allowance needs the guard hook and the absence of a Write/Edit deny: hooks = "off" written by the
+        // project turns it off, and so does a deny of the project's own that lists Write or Edit (the user's deny
+        // wins, also over an explicit memory = true).
+        let memory = memory_wanted
+            && host.kind == "claude"
+            && role.get("hooks").is_none_or(|_| hooks != "off")
+            && (role.get("deny").is_none()
+                || !deny
+                    .iter()
+                    .any(|rule| PM_GUARDED_DENY.contains(&rule.as_str())));
         let mcp = resolve_role_mcp(role.get("mcp"), &format!("{at}.mcp"), mcp_servers)?;
         let max_active = match (role.get("max_active"), kind) {
             (Some(_), "PM") => {
@@ -857,6 +885,7 @@ fn resolve_roles(
             allow,
             deny,
             hooks,
+            memory,
             mcp,
             prompt,
             prompt_text,

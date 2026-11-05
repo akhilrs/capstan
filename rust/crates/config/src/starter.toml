@@ -14,6 +14,7 @@ pm_width_percent = 60
 
 [notifications]
 pm_stale_minutes = 10
+pm_stuck_minutes = 15                    # a PM that waits this long is stuck; 0 turns it off, else 2 to 240
 
 [supervision]
 enabled = true                           # a Supervisor session uses usage; false turns it off

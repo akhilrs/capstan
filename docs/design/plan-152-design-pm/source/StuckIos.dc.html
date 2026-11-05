@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stuck · iPhone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p152.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board wide">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="2">
+<p class="cap">stuck · iPhone — banner on the PM card per reason, PM messages and Pause project; the notification carries a title and the project only — {{t.label}}</p>
+<div class="{{t.cls}} desk" data-shot="stuck-ios-{{t.cls}}">
+<div class="row3">
+
+<div class="phwrap">
+<p class="phcap">1 · Unread mail: the banner opens the PM card</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="navb">
+    <button class="gb glass" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg>Hosts</button>
+    <span class="navt"></span>
+    <button class="gb glass" type="button" aria-label="More actions"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button>
+  </div>
+  <div class="pscroll">
+    <div><h1 class="lt">payments-api</h1><p class="lsub">build-host · ~/src/payments-api</p></div>
+    <h2 class="sech">Project manager</h2>
+    <div class="sec">
+      <div class="ibanner" role="alert"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It is idle while your message has waited unread for 17 min, since 12:14.</span>
+        <span class="bb"><button class="ibtn wide" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>PM messages</button><button class="ibtn des wide" type="button"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="3" width="2.6" height="10" rx="1"/><rect x="9.4" y="3" width="2.6" height="10" rx="1"/></svg>Pause project…</button></span></div>
+      <div class="ihead"><span class="id">pm-1</span><span class="act a-idle"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="4.5"/></svg>Idle</span><span class="since">since 12:12 · 19 min</span></div>
+      <button class="imsg" type="button"><span class="ml">You sent · 12:14<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></span><span class="mt">Please hold plan-15 until finance signs off the refund rules.</span><span class="mm"><span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Queued: the PM gets it when it is free</span></span></button>
+      <p class="isub">Waiting on</p>
+      <button class="ir" type="button"><span>Worker reports</span><span class="rv"><b>3</b> · oldest 2 h 10 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>You</span><span class="rv"><b>1</b> · 6 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+    </div>
+  </div>
+  <nav class="tabbar glass" aria-label="Tabs">
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>Waiting</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13c.6-2.3 2.2-3.5 4.2-3.5s3.6 1.2 4.2 3.5"/></svg>Agents</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11.5" rx="2"/><path d="M6 6h4M6 8.5h4M6 11h2.5"/></svg>Plans</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>Messages</button>
+    <button class="tab on" type="button" aria-current="page"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="4" rx="1"/><rect x="2.5" y="9.5" width="11" height="4" rx="1"/></svg>Hosts</button>
+  </nav>
+</div>
+</div>
+
+<div class="phwrap">
+<p class="phcap">2 · Local notification: title and project, no host text</p>
+<div class="ph">
+  <div class="lock"></div>
+  <div class="island" aria-hidden="true"></div>
+  <span class="ldate">Thursday 5 November</span>
+  <span class="ltime">12:31</span>
+  <div class="inotif glass" style="top:240px"><span class="ap" aria-hidden="true"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg></span><span class="nt">PM looks stuck</span><span class="nw">now</span><span class="ns">payments-api</span></div>
+  <div class="inotif glass" style="top:326px"><span class="ap" aria-hidden="true"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="m4.5 6.5 2 1.5-2 1.5M8 10h3"/></svg></span><span class="nt">Command proposal</span><span class="nw">9 min ago</span><span class="ns">payments-api</span></div>
+</div>
+</div>
+
+<div class="phwrap">
+<p class="phcap">3 · Pause project… (the existing sheet; Cancel has focus)</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="pscroll">
+    <div><h1 class="lt">payments-api</h1><p class="lsub">build-host · ~/src/payments-api</p></div>
+  </div>
+  <div class="iscrim"></div>
+  <div class="isheet med" role="dialog" aria-label="Pause payments-api?">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="shbody">
+      <h2 class="h2" style="font-size:22px;font-weight:700">Pause payments-api?</h2>
+      <p style="margin:0;font-size:15px">Every agent of payments-api stops after its current step and keeps its task and branch. Resume the project from here or with <code style="font-size:13px">cstan resume</code> on the host.</p>
+      <div class="field"><label for="pr" style="font-size:15px">Reason (optional)</label><input id="pr" class="input" style="height:44px;font-size:17px;border-radius:12px" value="pm-1 looks stuck"></div>
+      <div style="display:flex;gap:8px;margin-top:auto"><button class="ibtn wide is-focus" type="button">Cancel</button><button class="ibtn desfill wide" type="button">Pause project</button></div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="gal3">
+  <div class="col">
+    <p class="plabel on-wall">No progress</p>
+    <div class="sec">
+      <div class="ibanner"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It shows as working but has made no progress for 22 min, since 12:09.</span>
+        <span class="bb"><button class="ibtn wide" type="button">PM messages</button><button class="ibtn des wide" type="button">Pause project…</button></span></div>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Stopped at a prompt</p>
+    <div class="sec">
+      <div class="ibanner"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It has been stopped at a prompt for 15 min, since 12:16. A prompt it relayed waits in Waiting.</span>
+        <span class="bb"><button class="ibtn wide" type="button">PM messages</button><button class="ibtn des wide" type="button">Pause project…</button></span></div>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall"><span class="tag151">plan-151 · not built in plan-152</span> With Peek</p>
+    <div class="sec">
+      <div class="ibanner"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It shows as working but has made no progress for 22 min, since 12:09.</span>
+        <span class="bb"><button class="ibtn wide" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>Peek</button><button class="ibtn wide" type="button">PM messages</button><button class="ibtn des wide" type="button">Pause project…</button></span></div>
+    </div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1480,"height":2690}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themes: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

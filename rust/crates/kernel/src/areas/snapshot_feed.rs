@@ -10,11 +10,14 @@
 //! # Items (serde, camelCase)
 //! | type | fields |
 //! |---|---|
-//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha` |
+//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `designLink` |
 //! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
-//! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash` |
+//! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash`, `pm` |
 //! | `Page<T>` | `head`, `items`, `next` |
+//!
+//! `pm` of the run item is the active PM's card ([`pm_card`]); `contentHash` of the run does not cover it, so a client re-reads
+//! the run item on every invalidate of it.
 //!
 //! An agent item has no `stalled` field. Text (`summary`, `task`, `branch`, `title`) is cleaned and cut to [`TEXT_CAP`]
 //! bytes. `branch` is the branch of the agent's pane (null without a pane). The `contentHash` of an agent is a decision
@@ -78,6 +81,7 @@
 //! have a `next`.
 
 use super::event_feed::{item_key, parse_item_key, KEY_KINDS};
+use super::pm_card::{self, PmCard};
 use super::{design_approvals, feed_cursor, plan_packages, user_messages};
 use crate::canonical::sha256;
 use crate::core::Core;
@@ -122,6 +126,9 @@ pub struct WaitingItem {
     pub head_sha: Option<String>,
     /// What an integration brought and how it fared (see [`integration_details`]); null for every other kind.
     pub integration_details: Option<Value>,
+    /// The design link of a design item: the first whole http(s) URL in the designer's report; null for every other
+    /// kind and when the report names none.
+    pub design_link: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -189,6 +196,8 @@ pub struct RunItem {
     pub state: String,
     pub paused: bool,
     pub content_hash: String,
+    /// The active PM's card (null without one); not covered by `content_hash` (see [`pm_card`]).
+    pub pm: Option<PmCard>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -240,6 +249,29 @@ pub fn canonical(value: &Value) -> String {
 /// The text a design item is hashed over (canonical JSON of what the user sees).
 pub fn design_hash_input(report_id: &str, commit: &str, link: Option<&str>) -> String {
     canonical(&json!({"reportId": report_id, "commit": commit, "link": link}))
+}
+
+/// The design link of a report: the first whole `http://` or `https://` URL in its summary, or none. The designer's report
+/// states the link in its text (there is no other field for it); trailing sentence punctuation and closing brackets are not
+/// part of it, and a URL that would not fit `TEXT_CAP` bytes is not cut but dropped.
+pub fn design_link_of(summary: &str) -> Option<String> {
+    let cleaned = clean_text(summary);
+    let start = ["https://", "http://"]
+        .iter()
+        .filter_map(|scheme| cleaned.find(scheme))
+        .min()?;
+    let rest = &cleaned[start..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | '"' | '`'))
+        .unwrap_or(rest.len());
+    let url = rest[..end].trim_end_matches(|c: char| {
+        matches!(
+            c,
+            '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '\'' | '*'
+        )
+    });
+    let host = url.split_once("://")?.1;
+    (!host.is_empty() && url.len() <= TEXT_CAP).then(|| url.to_string())
 }
 
 /// The text a message item is hashed over.
@@ -416,7 +448,8 @@ fn run_hash(state: &str, paused: bool, open_pause_id: Option<&str>) -> String {
     })))
 }
 
-fn run_item(core: &Core) -> KernelResult<RunItem> {
+/// The run's state, whether it is paused and its binding hash (everything but `pm`).
+fn run_core(core: &Core) -> KernelResult<(String, bool, String)> {
     let kernel = core.kernel();
     let state = query_opt(
         &kernel.database,
@@ -427,11 +460,20 @@ fn run_item(core: &Core) -> KernelResult<RunItem> {
     .ok_or_else(|| KernelError::controller("run control record is missing"))?;
     let pause = open_pause(core, "run", "")?;
     let paused = state == "paused";
+    let hash = run_hash(&state, paused, pause.as_deref());
+    Ok((state, paused, hash))
+}
+
+fn run_item(core: &Core) -> KernelResult<RunItem> {
+    let (state, paused, content_hash) = run_core(core)?;
+    // The card's statements and the rows they return, at their most.
+    tick(2 * pm_card::MAX_STATEMENTS);
     Ok(RunItem {
         request_id: "run".to_string(),
-        content_hash: run_hash(&state, paused, pause.as_deref()),
+        content_hash,
         state,
         paused,
+        pm: pm_card::pm_card(core)?,
     })
 }
 
@@ -1364,6 +1406,7 @@ fn build(
         branch: None,
         head_sha: None,
         integration_details: None,
+        design_link: None,
     };
     Ok(Built::Done(
         match kind {
@@ -1424,7 +1467,11 @@ fn build(
             "design" => match build_design(core, candidate, scan, reads, force)? {
                 Designed::Defer => return Ok(Built::Defer),
                 Designed::Skip => None,
-                Designed::Item(since, summary, hash) => Some(item(since, summary, hash, false)),
+                Designed::Item(since, summary, hash, link) => {
+                    let mut found = item(since, summary, hash, false);
+                    found.design_link = link;
+                    Some(found)
+                }
             },
             _ => None,
         }
@@ -1433,7 +1480,7 @@ fn build(
 }
 
 /// The packages of `pp` whose accepted report `r` is in an integration, as in `plan_packages` (`PACKAGE_REPORT_PREDICATE`).
-const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
+pub(crate) const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
   AND EXISTS (SELECT 1 FROM agents a WHERE a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation)
   AND NOT EXISTS (
     SELECT 1 FROM plan_packages other
@@ -1755,7 +1802,7 @@ enum Built {
 enum Designed {
     Skip,
     Defer,
-    Item(String, String, String),
+    Item(String, String, String, Option<String>),
 }
 
 /// `(since, summary, hash)` of a design package that has a report with no decision on it.
@@ -1829,6 +1876,7 @@ fn build_design(
         created_at,
         shown(&summary),
         sha256(&design_hash_input(&report_id, &commit, link)),
+        design_link_of(&summary),
     ))
 }
 
@@ -2260,7 +2308,7 @@ pub fn content_hash_counted(
     request_id: &str,
 ) -> KernelResult<(Option<String>, usize)> {
     if request_id == "run" {
-        return Ok((Some(run_item(core)?.content_hash), 2));
+        return Ok((Some(run_core(core)?.2), 2));
     }
     if request_id == "pm" {
         return Ok((pm_hash(core)?, 1));

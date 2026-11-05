@@ -215,3 +215,54 @@ fn host_model_and_mode_reach_the_json_only_when_written() {
     assert!(json.contains("\"model\": \"p/m\""));
     assert!(!json.contains("model_source") && !json.contains("modelSource"));
 }
+
+#[test]
+fn the_pm_memory_allowance_follows_the_role() {
+    let memory = |text: &str| {
+        let config = load(text).unwrap();
+        role(&config, "pm").memory
+    };
+    assert!(memory(HOSTS), "a PM on a claude host gets it by default");
+    assert!(!memory(&HOSTS.replace(
+        "host = \"claude\"",
+        "host = \"claude\"\nmemory = false"
+    )));
+    assert!(!memory(&HOSTS.replace(
+        "host = \"claude\"",
+        "host = \"claude\"\ndeny = [\"Write\", \"Edit\"]"
+    )));
+    assert!(memory(&HOSTS.replace(
+        "host = \"claude\"",
+        "host = \"claude\"\ndeny = [\"Agent\"]"
+    )));
+    // The user's own deny wins over an explicit memory = true.
+    assert!(!memory(&HOSTS.replace(
+        "host = \"claude\"",
+        "host = \"claude\"\nmemory = true\ndeny = [\"Write\"]"
+    )));
+    // hooks = "off" turns the allowance off, because it needs a hook; unset and inherit keep it.
+    assert!(!memory(&HOSTS.replace(
+        "host = \"claude\"",
+        "host = \"claude\"\nhooks = \"off\""
+    )));
+    assert!(memory(&HOSTS.replace(
+        "host = \"claude\"",
+        "host = \"claude\"\nhooks = \"inherit\""
+    )));
+    let error = load(&format!(
+        "{HOSTS}[roles.dev]\nkind = \"Developer\"\nhost = \"claude\"\nmemory = true\n"
+    ))
+    .unwrap_err();
+    assert!(error.contains("roles.dev.memory"), "{error}");
+    let mut with_codex = HOSTS.replace(
+        "[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n",
+        "[roles.pm]\nkind = \"PM\"\nhost = \"codex\"\npermission_mode = \"auto\"\n",
+    );
+    with_codex.push_str("memory = true\n");
+    if let Ok(config) = load(&with_codex) {
+        assert!(
+            !role(&config, "pm").memory,
+            "no guard on a host that ignores hooks"
+        );
+    }
+}

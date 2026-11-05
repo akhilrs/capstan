@@ -104,6 +104,18 @@ fn required(ty: &str) -> Vec<&'static str> {
             &[],
             &["agentId", "activity", "activitySince", "activitySeq"],
         ),
+        "pm.stuck" => (
+            &[],
+            &[
+                "agentId",
+                "reason",
+                "since",
+                "minutes",
+                "episodeId",
+                "alert",
+            ],
+        ),
+        "pm.recovered" => (&[], &["agentId", "episodeId", "reason"]),
         "run.changed" => (&[TEXT], &["state", "paused", "reason"]),
         "integration.finished" => (&[], &["integrationId", "state"]),
         "decision.remote" => (
@@ -370,6 +382,7 @@ fn example_pages_have_the_shape_of_each_section() {
         "branch",
         "headSha",
         "integrationDetails",
+        "designLink",
     ];
     let agents = [
         "key",
@@ -387,7 +400,7 @@ fn example_pages_have_the_shape_of_each_section() {
         "activitySeq",
     ];
     let plans = ["key", "planId", "sequence", "title", "state", "packages"];
-    let run = ["requestId", "state", "paused", "contentHash"];
+    let run = ["requestId", "state", "paused", "contentHash", "pm"];
     let expected: [&[&str]; 4] = [&waiting, &agents, &plans, &run];
     assert_eq!(items.len(), 4, "one example per section");
     for (value, fields) in items.iter().zip(expected) {
@@ -561,6 +574,7 @@ fn the_head_snapshot_and_page_answers_list_the_fields_the_code_serializes() {
             state: "active".into(),
             paused: false,
             content_hash: "h".into(),
+            pm: None,
         },
     };
     assert_eq!(
@@ -747,4 +761,70 @@ fn the_code_and_example_checks_fail_on_a_changed_copy() {
         1,
     );
     assert!(check_examples(&renamed).is_err());
+}
+
+/// The names in backticks of the paragraph that starts with `marker`.
+fn names_in_paragraph(marker: &str) -> Vec<String> {
+    let paragraph = DOC
+        .split("\n\n")
+        .find(|p| p.starts_with(marker))
+        .unwrap_or_else(|| panic!("no paragraph starts with {marker}"));
+    paragraph
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_string)
+        .filter(|name| name.contains('.'))
+        .collect()
+}
+
+#[test]
+fn the_documented_run_invalidating_actions_are_the_ones_the_code_lists() {
+    use capstan_kernel::areas::pm_card::PM_CARD_ACTIONS;
+    let documented = names_in_paragraph("The `run` item is invalidated by the events");
+    let code: Vec<String> = PM_CARD_ACTIONS.iter().map(|a| a.to_string()).collect();
+    assert_eq!(documented, code);
+}
+
+#[test]
+fn the_example_run_item_has_the_members_of_pm_in_order() {
+    use capstan_kernel::areas::pm_card::{FromUser, PmCard};
+    let run = json_values()
+        .into_iter()
+        .find(|v| v.get("requestId") == Some(&Value::from("run")))
+        .expect("a run example");
+    let pm = run["pm"].as_object().expect("the example has a pm");
+    let keys: Vec<&str> = pm.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["agentId", "waitingOn", "fromUser", "stuck"]);
+    // It is what the code would serialize: the example parses into the code's own types.
+    let card: PmCard = serde_json::from_value(run["pm"].clone()).expect("pm parses");
+    assert_eq!(serde_json::to_value(&card).unwrap(), run["pm"]);
+    let order = ["report", "review", "verify", "plan_review", "user"];
+    let mut last = None;
+    for item in &card.waiting_on {
+        assert!(item.count > 0);
+        let at = order.iter().position(|k| *k == item.kind.as_str()).unwrap();
+        assert!(
+            last.is_none_or(|l| l < at),
+            "the kinds are in the fixed order"
+        );
+        last = Some(at);
+    }
+    let from: &FromUser = card.from_user.as_ref().expect("the example has a message");
+    assert!(["queued", "delivered", "read", "not_delivered"].contains(&from.delivery.as_str()));
+    let stuck = card
+        .stuck
+        .as_ref()
+        .expect("the example shows an alert-false episode");
+    let keys: Vec<&str> = stuck
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, ["episodeId", "reason", "since", "alert"]);
+    assert_eq!(stuck["alert"], false);
+    for kind in order {
+        assert!(DOC.contains(&format!("`{kind}`")), "waitingOn kind {kind}");
+    }
 }

@@ -51,6 +51,7 @@ pub const ENTRIES: &[Entry] = &[
     e(SETUP, "ping", "ping", "Check that the controller answers."),
     e(SETUP, "config", "config check", "Validate capstan.toml."),
     e(SETUP, "config", "config sync", "Write the role definitions of capstan.toml into the ledger."),
+    e(SETUP, "guard-write", "guard-write <memory-dir>", "A PreToolUse hook for the PM: allow a Write or Edit only under <memory-dir>, refuse (exit 2) anything else."),
     e(SETUP, "herdr-config", "herdr-config", "Print an optional Herdr config.toml snippet for the sidebar."),
     e(SETUP, "pm", "pm restart", "Replace the PM session, seeded from the ledger."),
     e(RUN, "pause", "pause [<agent-id>] --reason <text> [--interrupt]", "Hold one agent, or the whole run when no agent is named. --interrupt also stops the agent's current turn."),

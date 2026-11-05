@@ -22,6 +22,8 @@ pub mod pauses;
 pub mod plan_handover;
 pub mod plan_packages;
 pub mod plans;
+pub mod pm_card;
+pub mod pm_stuck;
 pub mod prompt_relay;
 pub mod push_events;
 pub mod reconcile;

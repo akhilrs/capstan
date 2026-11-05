@@ -286,6 +286,7 @@ impl Loops for RustLoops {
                 tick_ms: deps.options.tick_ms,
                 process_probe: self.probe.clone().or_else(|| default_probe(&config)),
                 pm_stale_seconds: config.notifications.pm_stale_minutes * 60,
+                pm_stuck_minutes: config.notifications.pm_stuck_minutes,
                 liveness: config.liveness.enabled.then_some(LivenessOptions {
                     check_seconds: config.liveness.check_seconds,
                     confirm_checks: config.liveness.confirm_checks,

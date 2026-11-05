@@ -140,6 +140,7 @@ fn the_adapter_drives_a_real_isolated_session_with_a_stand_in_agent() {
             deny: vec!["Bash(rm *)".into()],
             hooks: "off".into(),
             mcp: vec![],
+            write_guard: None,
         },
         None,
     )

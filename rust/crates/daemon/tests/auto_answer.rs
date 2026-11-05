@@ -1108,6 +1108,7 @@ fn blocked_notices_after_a_tick(answering: bool) -> usize {
         tick_ms: None,
         process_probe: None,
         pm_stale_seconds: 1200,
+        pm_stuck_minutes: 0,
         liveness: None,
         stall_child_max_seconds: 3600,
         snapshot: None,

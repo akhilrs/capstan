@@ -59,6 +59,18 @@ final class DetailsTests: XCTestCase {
         XCTAssertNil(try waiting("").integrationState)
     }
 
+    func testDesignLinkIsKeptAsUntrustedTextAndRoundTrips() throws {
+        let item = try waiting(",\"designLink\":\"https://claude.ai/artifact/FDX39U5s95ABpDmHhX5KRK\"")
+        XCTAssertEqual(item.designLink?.raw, "https://claude.ai/artifact/FDX39U5s95ABpDmHhX5KRK")
+        let back = StoredWaiting(item)
+        XCTAssertEqual(back.designLink?.raw, item.designLink?.raw)
+        let again = try WaitingItem(json: back.json)
+        XCTAssertEqual(again.designLink?.raw, item.designLink?.raw)
+        XCTAssertNil(try waiting(",\"designLink\":null").designLink)
+        XCTAssertNil(try waiting(",\"designLink\":\"\"").designLink)
+        XCTAssertNil(try waiting("").designLink)
+    }
+
     func testStoredPlanFromBeforeDecodes() throws {
         let old = "{\"key\":\"plan:1\",\"planId\":\"p\",\"sequence\":1,\"title\":{\"raw\":\"T\",\"verified\":true,"
             + "\"truncated\":false},\"state\":\"approved\",\"packages\":{\"total\":1,\"assigned\":0,\"reported\":0,"

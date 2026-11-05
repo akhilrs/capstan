@@ -39,6 +39,7 @@ fn is_high(event: NtfyEvent) -> bool {
             | NtfyEvent::OperatorProposal
             | NtfyEvent::PromptWaiting
             | NtfyEvent::DesignWaiting
+            | NtfyEvent::PmStuck
     )
 }
 

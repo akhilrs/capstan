@@ -39,6 +39,7 @@ pub enum NtfyEvent {
     AgentLost,
     VerifyFailed,
     IntegrationConflicted,
+    PmStuck,
     /// The test notification; never selectable in a configuration.
     Test,
 }
@@ -55,6 +56,7 @@ pub const NTFY_EVENTS: &[&str] = &[
     "agent_lost",
     "verify_failed",
     "integration_conflicted",
+    "pm_stuck",
 ];
 
 impl NtfyEvent {
@@ -70,12 +72,13 @@ impl NtfyEvent {
             NtfyEvent::AgentLost => "agent_lost",
             NtfyEvent::VerifyFailed => "verify_failed",
             NtfyEvent::IntegrationConflicted => "integration_conflicted",
+            NtfyEvent::PmStuck => "pm_stuck",
             NtfyEvent::Test => "test",
         }
     }
 
     fn lookup(name: &str) -> Option<NtfyEvent> {
-        const SELECTABLE: [NtfyEvent; 10] = [
+        const SELECTABLE: [NtfyEvent; 11] = [
             NtfyEvent::UserQuestion,
             NtfyEvent::OperatorProposal,
             NtfyEvent::PromptWaiting,
@@ -86,6 +89,7 @@ impl NtfyEvent {
             NtfyEvent::AgentLost,
             NtfyEvent::VerifyFailed,
             NtfyEvent::IntegrationConflicted,
+            NtfyEvent::PmStuck,
         ];
         if name == "test" {
             return Some(NtfyEvent::Test);
@@ -125,9 +129,10 @@ impl NtfyEventStyle {
             NtfyEvent::UserQuestion | NtfyEvent::OperatorProposal | NtfyEvent::PromptWaiting => {
                 (4, "question")
             }
-            NtfyEvent::AgentBlocked | NtfyEvent::AgentLost | NtfyEvent::IntegrationConflicted => {
-                (4, "warning")
-            }
+            NtfyEvent::AgentBlocked
+            | NtfyEvent::AgentLost
+            | NtfyEvent::IntegrationConflicted
+            | NtfyEvent::PmStuck => (4, "warning"),
             NtfyEvent::DesignWaiting => (3, "art"),
             NtfyEvent::PlanSignedOff => (3, "white_check_mark"),
             NtfyEvent::AgentStalled => (3, "hourglass"),

@@ -19,6 +19,7 @@ pub fn label(event: NtfyEvent) -> &'static str {
         NtfyEvent::AgentLost => "Agent lost",
         NtfyEvent::VerifyFailed => "Verify failed",
         NtfyEvent::IntegrationConflicted => "Conflict",
+        NtfyEvent::PmStuck => "PM stuck",
         NtfyEvent::Test => "Test",
     }
 }
@@ -53,6 +54,13 @@ pub fn text(event: &PushEvent) -> String {
                 "Integration {subject} conflicted ({} files).",
                 detail.unwrap_or("0")
             )
+        }
+        NtfyEvent::PmStuck => {
+            let (reason, minutes) = detail
+                .unwrap_or("?:?")
+                .split_once(':')
+                .unwrap_or(("?", "?"));
+            format!("{agent} looks stuck ({reason}, {minutes} min).")
         }
         NtfyEvent::Test => "Test message from Capstan.".to_string(),
     };

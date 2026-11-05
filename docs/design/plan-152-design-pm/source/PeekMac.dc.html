@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Peek · Mac</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p152.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="2">
+<p class="cap">peek · Mac (built by plan-151) — a sheet over the overview: the last 40 lines, untrusted, Not verified, masked; off, loading and every refusal — {{t.label}}</p>
+<div class="{{t.cls}} desk" data-shot="peek-mac-{{t.cls}}">
+<div class="win two">
+  <nav class="side glass" aria-label="Sidebar" inert="">
+    <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+    <ul class="nav">
+      <li><a href="#inbox"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>Waiting for you<span class="badge">7</span></a></li>
+      <li><a href="#agents"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13c.6-2.3 2.2-3.5 4.2-3.5s3.6 1.2 4.2 3.5"/></svg>Agents<span class="badge">12</span></a></li>
+    </ul>
+    <div class="sh">build-host</div>
+    <ul class="nav">
+      <li><a class="in on" href="#p1" aria-current="page"><span class="dot s-live" aria-hidden="true"></span>payments-api</a></li>
+      <li><a class="in" href="#p2"><span class="dot s-live" aria-hidden="true"></span>docs-site</a></li>
+    </ul>
+  </nav>
+  <section class="mid" aria-label="Overview of payments-api" inert="">
+    <div class="tb"><div class="capg glass"><span class="title">payments-api</span></div></div>
+    <div class="ovw">
+      <div class="ovh"><h1 class="h2" style="margin:0">payments-api</h1><span class="path">build-host · ~/src/payments-api</span></div>
+    </div>
+  </section>
+  <div class="scrim"></div>
+  <div class="msheet" role="dialog" aria-label="pm-1 screen">
+    <div style="display:flex;align-items:center;gap:12px"><h2 class="h3">pm-1 screen · payments-api</h2><span class="nv"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Not verified</span><span class="note" style="margin-left:auto">Captured 12:31:07 · 40 lines · 3 values masked</span></div>
+    <div class="term">
+      <div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="m4.5 6.5 2 1.5-2 1.5M8 10h3"/></svg>Terminal of pm-1 · untrusted text · scrolls</div>
+<pre style="height:470px">● Bash(cstan status)
+  plan-15  in review     round 2
+  plan-14  integrating   3 of 4 packages merged
+● Bash(cstan inbox)
+  1 message waits for you (operator, 12:14)
+● I'll merge refunds-api first, then read the inbox.
+● Bash(cat .env.integration)
+  DATABASE_URL=postgres://ci@db.internal:5432/payments
+  STRIPE_SECRET_KEY=<span class="mask">[masked]</span>
+  GITHUB_TOKEN=<span class="mask">[masked]</span>
+● Bash(curl -s -H "Authorization: <span class="mask">[masked]</span>" https://ci.internal/api/runs/4412)
+  {"state":"failed","job":"integration","attempt":2}
+● Bash(npm run test:integration -- --filter refunds)
+  &gt; payments-api@3.4.0 test:integration
+  &gt; vitest run --config vitest.integration.ts --filter refunds
+  ✓ refunds/rules.test.ts (14 tests) 2.31s
+  ✓ refunds/partial.test.ts (9 tests) 1.08s
+  × refunds/webhook.test.ts (6 tests | 1 failed) 31.2s
+    × replays the webhook after a timeout
+      → Test timed out in 30000ms.
+  Test Files  1 failed | 2 passed (3)
+  Tests  1 failed | 28 passed (29)
+● The webhook test timed out again. Retrying it once on its own.
+● Bash(npm run test:integration -- --filter webhook)
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. Yes, and don't ask again for npm run commands
+    3. No, and say what to do instead</pre>
+    </div>
+    <p class="note">Masking is best effort. The text is not kept: it goes when you close this sheet.</p>
+    <div class="btnrow"><button class="btn" type="button" style="margin-right:auto"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2.5V5h-2.5"/></svg>Refresh <span class="kbd">⌘R</span></button><button class="btn pri is-focus" type="button">Done</button></div>
+  </div>
+</div>
+
+<div class="gal3">
+  <div class="col">
+    <p class="plabel on-wall">Entry: Peek in the PM card header (plan-151)</p>
+    <div class="pmc" style="background:var(--win)"><div class="pmc-h"><span class="id">pm-1</span><span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span><span class="since">since 11:58 · 33 min</span><button class="btn" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>Peek</button></div></div>
+    <p class="plabel on-wall">Off</p>
+    <div class="panel">
+      <b class="h3">Screen peek is off for payments-api</b>
+      <p class="note" style="color:var(--label)">Peek shows the last lines of the PM's terminal, with secrets masked as best it can. Each host keeps it off until its operator adds this to the project's Capstan config on build-host:</p>
+      <div class="term"><pre>[remote]
+peek = true</pre></div>
+      <p class="note" style="color:var(--label)">Then choose Try again. <code>peek_patterns</code> masks more of your own secrets.</p>
+      <div class="btnrow"><button class="btn" type="button">Try again</button><button class="btn pri" type="button">Done</button></div>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Loading</p>
+    <div class="panel" aria-label="Reading the screen"><span class="spinrow" style="color:var(--label)"><svg class="spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2a6 6 0 1 1-6 6"/></svg>Reading pm-1's screen on build-host…</span><span class="skel" style="width:320px"></span><span class="skel" style="width:260px"></span></div>
+    <p class="plabel on-wall">Rate limited: the old text stays</p>
+    <div class="panel"><div class="banner b-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg><b>Too many peeks</b><span class="bt">build-host allows 6 a minute and one every 5 s. Refresh works again in 4 s.</span></div>
+      <div class="btnrow"><button class="btn dis" type="button" style="margin-right:auto" disabled>Refresh in 4 s</button><button class="btn pri" type="button">Done</button></div></div>
+    <p class="plabel on-wall">No PM · no pane</p>
+    <div class="panel"><b class="h3">No PM to peek at</b><p class="note" style="color:var(--label)">payments-api has no active PM right now.</p><b class="h3">pm-1 has no terminal pane</b><p class="note" style="color:var(--label)">The host cannot read a screen for this PM, so there is nothing to show.</p></div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Refused (forbidden, unauthorized)</p>
+    <div class="panel"><b class="h3" style="color:var(--red)">build-host refused the peek</b><p class="note" style="color:var(--label)">Only the host's operator may peek, and this Mac's key is not allowed (forbidden).</p></div>
+    <p class="plabel on-wall">Older host</p>
+    <div class="panel"><b class="h3">build-host cannot peek yet</b><p class="note" style="color:var(--label)">Its Capstan has no peek command. Update Capstan on build-host to use it.</p></div>
+    <p class="plabel on-wall">No answer</p>
+    <div class="panel"><b class="h3">build-host did not answer</b><p class="note" style="color:var(--label)">Nothing was read. Check the connection and try again.</p><div class="btnrow"><button class="btn" type="button">Retry</button></div></div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":2970}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themes: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

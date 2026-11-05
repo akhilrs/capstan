@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Peek · iPhone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p152.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board wide">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="2">
+<p class="cap">peek · iPhone (built by plan-151) — the PM's screen on request: untrusted, Not verified, masked, dropped when closed; off, loading and every refusal — {{t.label}}</p>
+<div class="{{t.cls}} desk" data-shot="peek-ios-{{t.cls}}">
+<div class="row3">
+
+<div class="phwrap">
+<p class="phcap">1 · Peek sheet (large detent): the last 40 lines</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="pscroll" inert=""><div><h1 class="lt">payments-api</h1></div></div>
+  <div class="iscrim"></div>
+  <div class="isheet" role="dialog" aria-label="pm-1 screen">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="shbar"><span style="width:76px"></span><h2 class="navt">pm-1 screen</h2><button class="gb" type="button" style="font-weight:600;color:var(--accent);width:76px">Done</button></div>
+    <div class="shbody">
+      <div class="metal"><span class="nv"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Not verified</span><span>Captured <b>12:31:07</b></span><span>3 values masked</span></div>
+      <div class="term" style="flex:1">
+        <div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="m4.5 6.5 2 1.5-2 1.5M8 10h3"/></svg>Terminal of pm-1 · untrusted text · scrolls</div>
+<pre>● Bash(cstan inbox)
+  1 message waits for you (operator, 12:14)
+● I'll merge refunds-api first, then read it.
+● Bash(cat .env.integration)
+  DATABASE_URL=postgres://ci@db.internal/pay
+  STRIPE_SECRET_KEY=<span class="mask">[masked]</span>
+  GITHUB_TOKEN=<span class="mask">[masked]</span>
+● Bash(curl -s -H "Authorization: <span class="mask">[masked]</span>" \
+    https://ci.internal/api/runs/4412)
+  {"state":"failed","job":"integration"}
+● Bash(npm run test:integration -- --filter refunds)
+  ✓ refunds/rules.test.ts (14 tests) 2.31s
+  ✓ refunds/partial.test.ts (9 tests) 1.08s
+  × refunds/webhook.test.ts (1 failed) 31.2s
+    × replays the webhook after a timeout
+      → Test timed out in 30000ms.
+  Tests  1 failed | 28 passed (29)
+● The webhook test timed out again.
+● Bash(npm run test:integration -- --filter webhook)
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. Yes, and don't ask again for npm run
+    3. No, and say what to do instead</pre>
+      </div>
+      <p class="ifoot" style="margin:0">Masking is best effort. This text is not kept: it goes when you close the sheet or leave the app.</p>
+    </div>
+    <div class="isfoot"><button class="ibtn wide" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2.5V5h-2.5"/></svg>Refresh</button></div>
+  </div>
+</div>
+</div>
+
+<div class="phwrap">
+<p class="phcap">2 · Off: how to turn on [remote] peek</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="pscroll" inert=""><div><h1 class="lt">payments-api</h1></div></div>
+  <div class="iscrim"></div>
+  <div class="isheet" role="dialog" aria-label="pm-1 screen">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="shbar"><span style="width:76px"></span><h2 class="navt">pm-1 screen</h2><button class="gb" type="button" style="font-weight:600;color:var(--accent);width:76px">Done</button></div>
+    <div class="shbody">
+      <div class="istate"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><path d="M2.5 13.5l11-11"/></svg><b>Screen peek is off for payments-api</b>
+        <p>Peek shows the last lines of the PM's terminal, with secrets masked as best it can. Each host keeps it off until its operator turns it on in the project's Capstan config on build-host:</p>
+        <div class="term" style="align-self:stretch"><pre>[remote]
+peek = true</pre></div>
+        <p>Then tap Try again. Optional <code>peek_patterns</code> mask more of your own secrets.</p>
+      </div>
+    </div>
+    <div class="isfoot"><button class="ibtn wide" type="button">Try again</button></div>
+  </div>
+</div>
+</div>
+
+<div class="phwrap">
+<p class="phcap">3 · Rate limited: the old text stays; Refresh waits</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="pscroll" inert=""><div><h1 class="lt">payments-api</h1></div></div>
+  <div class="iscrim"></div>
+  <div class="isheet" role="dialog" aria-label="pm-1 screen">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="shbar"><span style="width:76px"></span><h2 class="navt">pm-1 screen</h2><button class="gb" type="button" style="font-weight:600;color:var(--accent);width:76px">Done</button></div>
+    <div class="shbody">
+      <div class="metal"><span class="nv"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Not verified</span><span>Captured <b>12:31:07</b> · 9 s ago</span></div>
+      <div class="sec ibanner" style="border-radius:12px;padding:12px"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg><b style="font-size:15px">Too many peeks</b><span class="bt">build-host allows 6 a minute and one every 5 s. Refresh works again in 4 s.</span></div>
+      <div class="term" style="flex:1">
+        <div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="m4.5 6.5 2 1.5-2 1.5M8 10h3"/></svg>Terminal of pm-1 · untrusted text · scrolls</div>
+<pre>● Bash(npm run test:integration -- --filter webhook)
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. Yes, and don't ask again for npm run
+    3. No, and say what to do instead</pre>
+      </div>
+    </div>
+    <div class="isfoot"><button class="ibtn wide dis" type="button" disabled>Refresh in 4 s</button></div>
+  </div>
+</div>
+</div>
+</div>
+
+<div class="gal3">
+  <div class="col">
+    <p class="plabel on-wall">Entry: Peek on the PM card (plan-151 adds it)</p>
+    <div class="sec">
+      <div class="ihead"><span class="id">pm-1</span><span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span><span class="since">since 11:58 · 33 min</span></div>
+      <button class="ir" type="button"><span style="display:inline-flex;gap:8px;align-items:center"><svg class="chev" style="width:18px;height:18px;color:var(--label)" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>Peek at the screen</span><span class="rv">on request</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+    </div>
+    <p class="plabel on-wall">Loading: one read, nothing streams</p>
+    <div class="sec" style="padding:16px;display:flex;flex-direction:column;gap:10px" aria-label="Reading the screen">
+      <span class="spinrow" style="font-size:15px;color:var(--label)"><svg class="spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2a6 6 0 1 1-6 6"/></svg>Reading pm-1's screen on build-host…</span>
+      <span class="skel" style="width:300px"></span><span class="skel" style="width:240px"></span><span class="skel" style="width:280px"></span>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">No PM</p>
+    <div class="istate" style="background:var(--cell)"><b>No PM to peek at</b><p>payments-api has no active PM right now.</p></div>
+    <p class="plabel on-wall">No pane</p>
+    <div class="istate" style="background:var(--cell)"><b>pm-1 has no terminal pane</b><p>The host cannot read a screen for this PM, so there is nothing to show.</p></div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Refused (forbidden, unauthorized)</p>
+    <div class="istate" style="background:var(--cell)"><b style="color:var(--red)">build-host refused the peek</b><p>Only the host's operator may peek, and this iPhone's key is not allowed (forbidden).</p></div>
+    <p class="plabel on-wall">Older host</p>
+    <div class="istate" style="background:var(--cell)"><b>build-host cannot peek yet</b><p>Its Capstan has no peek command. Update Capstan on build-host to use it.</p></div>
+    <p class="plabel on-wall">No answer</p>
+    <div class="istate" style="background:var(--cell)"><b>build-host did not answer</b><p>Nothing was read. Check the connection and try again.</p><button class="ibtn" type="button">Retry</button></div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1480,"height":3110}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themes: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

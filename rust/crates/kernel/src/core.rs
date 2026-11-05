@@ -8,8 +8,8 @@
 use crate::areas::{
     actors, agents, approval_windows, design_approvals, findings, integrations, links,
     message_notices, messages, operator_grants, operator_proposals, operator_runs, panes, pauses,
-    plan_packages, plans, prompt_relay, remote_decisions, reports, reviews, status, user_messages,
-    verify_runs, warm_reviewers,
+    plan_packages, plans, pm_stuck, prompt_relay, remote_decisions, reports, reviews, status,
+    user_messages, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -22,6 +22,8 @@ use std::path::Path;
 /// `ControllerCore`.
 pub struct Core {
     kernel: Kernel,
+    /// When this core first ran the stuck-PM tick: `no_progress` is judged from `N` minutes after it.
+    pm_stuck_watch_start: std::cell::Cell<Option<i64>>,
 }
 
 impl Core {
@@ -33,6 +35,7 @@ impl Core {
     ) -> KernelResult<Core> {
         Ok(Core {
             kernel: Kernel::open(state_dir, project, options, env)?,
+            pm_stuck_watch_start: std::cell::Cell::new(None),
         })
     }
 
@@ -46,6 +49,7 @@ impl Core {
     ) -> KernelResult<Core> {
         Ok(Core {
             kernel: Kernel::open_shared(state_dir, project, options, env)?,
+            pm_stuck_watch_start: std::cell::Cell::new(None),
         })
     }
 
@@ -57,6 +61,7 @@ impl Core {
     ) -> KernelResult<Core> {
         Ok(Core {
             kernel: Kernel::open_read_only(state_dir, project, options, env)?,
+            pm_stuck_watch_start: std::cell::Cell::new(None),
         })
     }
 
@@ -1116,6 +1121,32 @@ impl Core {
         interval_seconds: f64,
     ) -> KernelResult<Value> {
         message_notices::queue_supervision_check(&self.kernel, context, interval_seconds)
+    }
+
+    /// The stuck-PM tick (`controller:reconcile`): raises or closes at most one pass of episodes (see `pm_stuck`).
+    /// `child_activity` is the last tool-process activity per agent id in milliseconds.
+    pub fn pm_stuck_tick(
+        &self,
+        context: &MutationContext,
+        child_activity: &std::collections::HashMap<String, u64>,
+        now_ms: i64,
+        minutes: i64,
+    ) -> KernelResult<Value> {
+        let watch_start = match self.pm_stuck_watch_start.get() {
+            Some(start) => start,
+            None => {
+                self.pm_stuck_watch_start.set(Some(now_ms));
+                now_ms
+            }
+        };
+        pm_stuck::pm_stuck_tick(
+            &self.kernel,
+            context,
+            child_activity,
+            now_ms,
+            minutes,
+            watch_start,
+        )
     }
 
     /// `ControllerCore.readiness`.

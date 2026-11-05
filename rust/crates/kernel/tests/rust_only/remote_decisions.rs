@@ -1260,13 +1260,60 @@ fn a_failed_check_writes_nothing_and_the_feed_shows_the_decision() {
         None,
     )
     .unwrap();
+    // The decision is one event of its own; the proposal's own row only asks for the run item (the PM card counted it).
     let types: Vec<&Value> = page.events.iter().map(|event| &event["type"]).collect();
-    assert_eq!(types, ["decision.remote"], "{:#?}", page.events);
+    assert_eq!(
+        types,
+        ["snapshot.invalidated", "decision.remote"],
+        "{:#?}",
+        page.events
+    );
+    assert_eq!(page.events[0]["body"]["section"], "run");
     assert_eq!(page.scanned.seq, feed_head(&rig.core).unwrap().head);
     assert!(page.scanned.seq > head);
 }
 
 // ------------------------------------------------------------------------------------------------------- message the PM
+
+#[test]
+fn a_long_message_to_the_pm_arrives_whole_and_one_over_the_cap_is_refused() {
+    let rig = Rig::new();
+    let hash = hash_of(&rig, "pm");
+    let before = pm_messages(&rig).len();
+    let long = "a".repeat(4000);
+    let sent = decide_as(
+        &rig,
+        "pm",
+        h12(&hash),
+        "nonce-long1",
+        Some("iPhone"),
+        &["message", &long],
+    )
+    .unwrap();
+    assert_eq!(sent["outcome"], "applied");
+    let messages = pm_messages(&rig);
+    assert_eq!(messages.len(), before + 1);
+    assert!(messages.last().unwrap().2.contains(&long));
+
+    let too_long = "a".repeat(5000);
+    let words = argv(&[
+        "pm",
+        "--expect",
+        h12(&hash),
+        "--nonce",
+        "nonce-long2",
+        "--client",
+        "iPhone",
+        "message",
+        &too_long,
+    ]);
+    let refusal = parse(&words).expect_err("a message over the cap is refused, not cut");
+    assert!(
+        refusal.to_string().contains("at most 4096 bytes"),
+        "{refusal}"
+    );
+    assert_eq!(pm_messages(&rig).len(), before + 1);
+}
 
 #[test]
 fn a_message_to_the_pm_goes_to_the_active_pm_it_was_bound_to() {
