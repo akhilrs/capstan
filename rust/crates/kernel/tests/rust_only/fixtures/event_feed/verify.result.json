@@ -7,6 +7,12 @@
         "key": "message",
         "op": "invalidate",
         "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "run",
+        "op": "invalidate",
+        "section": "run"
       }
     ],
     "result": "passed",

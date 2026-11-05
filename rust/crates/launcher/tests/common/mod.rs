@@ -330,6 +330,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             herdr: true,
             fallback: true,
             pm_stale_minutes: 10,
+            pm_stuck_minutes: 15,
         },
         timers: Timers {
             max_deferral_seconds: 120,

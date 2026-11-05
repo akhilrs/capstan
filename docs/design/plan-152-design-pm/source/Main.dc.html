@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Card · iPhone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p152.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board wide">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="2">
+<p class="cap">card · iPhone — PM card on the project overview: activity, last message each way, waiting on; large text and focus; host offline; every other state — {{t.label}}</p>
+<div class="{{t.cls}} desk" data-shot="card-ios-{{t.cls}}">
+<div class="row3">
+
+<div class="phwrap">
+<p class="phcap">1 · Overview with the PM card (Worker reports pressed)</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="navb">
+    <button class="gb glass" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg>Hosts</button>
+    <span class="navt"></span>
+    <button class="gb glass" type="button" aria-label="More actions"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button>
+  </div>
+  <div class="pscroll">
+    <div><h1 class="lt">payments-api</h1><p class="lsub">build-host · ~/src/payments-api</p></div>
+    <div class="sec istat"><div class="r1"><span class="ipill p-green"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 8h3l2-4 2 8 2-4h3"/></svg>Moving</span>3 agents working · 2 wait for you</div><span class="r2">Live · updated 3 s ago</span></div>
+    <h2 class="sech">Project manager</h2>
+    <div class="sec">
+      <div class="ihead"><span class="id">pm-1</span><span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span><span class="since">since 11:58 · 23 min</span></div>
+      <button class="imsg" type="button"><span class="ml">From the PM · 12:14<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></span><span class="mt">Plan-15 is in review. I asked architect-3 to split the refunds package; the new plan comes after lunch.</span></button>
+      <button class="imsg" type="button"><span class="ml">You sent · 12:02<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></span><span class="mt">Please hold plan-15 until finance signs off the refund rules.</span><span class="mm"><span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4" stroke="var(--cell)" stroke-width="1.6" fill="none"/></svg>Read by the PM · 12:03</span></span></button>
+      <p class="isub">Waiting on</p>
+      <button class="ir press" type="button"><span>Worker reports</span><span class="rv"><b>3</b> · oldest 2 h 10 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>Reviews</span><span class="rv"><b>1</b> · 25 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>Verify runs</span><span class="rv"><b>1</b> · 4 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>You</span><span class="rv"><b>2</b> · oldest 12 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+    </div>
+  </div>
+  <nav class="tabbar glass" aria-label="Tabs">
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>Waiting</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13c.6-2.3 2.2-3.5 4.2-3.5s3.6 1.2 4.2 3.5"/></svg>Agents</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11.5" rx="2"/><path d="M6 6h4M6 8.5h4M6 11h2.5"/></svg>Plans</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>Messages</button>
+    <button class="tab on" type="button" aria-current="page"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="4" rx="1"/><rect x="2.5" y="9.5" width="11" height="4" rx="1"/></svg>Hosts</button>
+  </nav>
+</div>
+</div>
+
+<div class="phwrap">
+<p class="phcap">2 · Largest text (AX3): rows stack; Full Keyboard Access focus</p>
+<div class="ph ax">
+  <div class="island" aria-hidden="true"></div>
+  <div class="navb">
+    <button class="gb glass" type="button" aria-label="Back to Hosts"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg></button>
+    <span class="navt"></span>
+    <button class="gb glass" type="button" aria-label="More actions"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button>
+  </div>
+  <div class="pscroll">
+    <h2 class="sech">Project manager</h2>
+    <div class="sec">
+      <div class="ihead"><span class="id">pm-1</span><span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span><span class="since">since 11:58 · 23 min</span></div>
+      <button class="imsg is-focus" type="button"><span class="ml">From the PM · 12:14</span><span class="mt">Plan-15 is in review. I asked architect-3 to split the refunds package; the new plan comes after lunch.</span></button>
+      <button class="imsg" type="button"><span class="ml">You sent · 12:02</span><span class="mt">Please hold plan-15 until finance signs off the refund rules.</span><span class="mm"><span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4" stroke="var(--cell)" stroke-width="1.6" fill="none"/></svg>Read by the PM · 12:03</span></span></button>
+      <p class="isub" style="font-size:20px">Waiting on</p>
+      <button class="ir" type="button"><span>Worker reports</span><span class="rv"><b>3</b> · oldest 2 h 10 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>Reviews</span><span class="rv"><b>1</b> · 25 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="phwrap">
+<p class="phcap">3 · Host offline: last known values with their time</p>
+<div class="ph">
+  <div class="island" aria-hidden="true"></div>
+  <div class="navb">
+    <button class="gb glass" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg>Hosts</button>
+    <span class="navt"></span>
+    <button class="gb glass" type="button" aria-label="More actions"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button>
+  </div>
+  <div class="pscroll">
+    <div><h1 class="lt">payments-api</h1><p class="lsub">build-host · ~/src/payments-api</p></div>
+    <div class="sec ibanner" style="background:var(--yellow-tint);border-radius:22px"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2.5V5h-2.5"/></svg><b>build-host is offline</b><span class="bt">Reconnecting in 8 s. Nothing here can change until it answers.</span></div>
+    <h2 class="sech">Project manager<span class="cnt">as of 12:31</span></h2>
+    <div class="sec">
+      <div class="ihead"><span class="id">pm-1</span><span class="ipill p-grey"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Last known · 12:31</span><span class="since">Working at 12:31 · since 11:58</span></div>
+      <button class="imsg" type="button"><span class="ml">From the PM · 12:14<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></span><span class="mt">Plan-15 is in review. I asked architect-3 to split the refunds package; the new plan comes after lunch.</span></button>
+      <button class="imsg" type="button"><span class="ml">You sent · 12:29<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></span><span class="mt">Skip the nightly load test this week.</span><span class="mm"><span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Queued at 12:31: the PM gets it when it is free</span></span></button>
+      <p class="isub">Waiting on, at 12:31</p>
+      <button class="ir" type="button"><span>Worker reports</span><span class="rv"><b>3</b> · oldest 2 h 10 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>Plan reviews</span><span class="rv"><b>1</b> · 1 h 5 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+      <button class="ir" type="button"><span>You</span><span class="rv"><b>2</b> · oldest 12 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+    </div>
+  </div>
+  <nav class="tabbar glass" aria-label="Tabs">
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>Waiting</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13c.6-2.3 2.2-3.5 4.2-3.5s3.6 1.2 4.2 3.5"/></svg>Agents</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11.5" rx="2"/><path d="M6 6h4M6 8.5h4M6 11h2.5"/></svg>Plans</button>
+    <button class="tab" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>Messages</button>
+    <button class="tab on" type="button" aria-current="page"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="4" rx="1"/><rect x="2.5" y="9.5" width="11" height="4" rx="1"/></svg>Hosts</button>
+  </nav>
+</div>
+</div>
+</div>
+
+<div class="gal3">
+  <div class="col">
+    <p class="plabel on-wall">No PM on this project</p>
+    <div class="sec">
+      <div class="istat"><span class="r1"><span class="act a-unk"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M4.5 11.5l7-7"/></svg>No PM</span></span><span class="r2" style="font-size:15px;color:var(--label)">No PM is active on payments-api, so nobody routes work. The card fills in when a PM registers.</span></div>
+      <button class="ir" type="button"><span>Messages to PM</span><span class="rv">kept until a PM runs</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+    </div>
+    <p class="plabel on-wall">Stale: the host is live but the card did not refresh</p>
+    <div class="sec">
+      <div class="ihead"><span class="id">pm-1</span><span class="ipill p-yellow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Stale · as of 12:38</span><span class="since">Idle at 12:38 · since 12:20</span></div>
+      <p class="ifoot" style="margin:0 16px 14px">The last refresh of this card failed 3 min ago. Pull down to try again.</p>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">First snapshot: skeleton shaped like the card</p>
+    <div class="sec" aria-label="Loading the PM card">
+      <div class="ihead"><span class="skel" style="width:64px"></span><span class="skel" style="width:88px"></span><span class="since">Reading build-host…</span></div>
+      <div class="imsg"><span class="skel" style="width:120px"></span><span class="skel" style="width:300px"></span><span class="skel" style="width:220px"></span></div>
+      <div class="imsg"><span class="skel" style="width:100px"></span><span class="skel" style="width:260px"></span></div>
+    </div>
+    <p class="plabel on-wall">Nothing yet: no messages, nobody waits</p>
+    <div class="sec">
+      <div class="ihead"><span class="id">pm-1</span><span class="act a-idle"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="4.5"/></svg>Idle</span><span class="since">since 09:05 · 3 h 26 min</span></div>
+      <div class="imsg"><span class="ml">From the PM</span><span class="mm">No message to you yet.</span></div>
+      <button class="imsg" type="button"><span class="ml">You sent<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></span><span class="mm">Nothing yet. Write to pm-1 in Messages.</span></button>
+      <p class="isub">Waiting on</p>
+      <p class="ifoot" style="margin:0 16px 14px">Nobody waits on anything.</p>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Activity: a word and a glyph each</p>
+    <div class="sec" style="padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+      <span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span>
+      <span class="act a-idle"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="4.5"/></svg>Idle</span>
+      <span class="act a-block"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5.5 2h5L14 5.5v5L10.5 14h-5L2 10.5v-5z"/><path d="M5.5 8h5"/></svg>Blocked</span>
+      <span class="act a-done"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4"/></svg>Done</span>
+      <span class="act a-unk"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.3 6.3a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.4M8 11.4v.4"/></svg>Unknown</span>
+    </div>
+    <p class="plabel on-wall">Delivery of your last message</p>
+    <div class="sec" style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;font-size:15px">
+      <span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3h2.5"/></svg>Queued: the PM gets it when it is free</span>
+      <span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>Delivered to the PM · 12:03</span>
+      <span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4" stroke="var(--cell)" stroke-width="1.6" fill="none"/></svg>Read by the PM · 12:05</span>
+      <span class="dl bad"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Not delivered (expired)</span>
+    </div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1480,"height":3210}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themes: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

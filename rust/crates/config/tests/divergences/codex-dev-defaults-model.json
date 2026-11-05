@@ -4,7 +4,7 @@
   "reason": "a codex role with no permission_mode takes auto; Node refused it (the model comes from [defaults.Developer])",
   "expected": {
     "kind": "ok",
-    "sha256": "c05f448e1ab27087ecfc395c88dbc7574328474713ad9803c199e01d837a0dd3",
-    "bytes": 3908
+    "sha256": "93b78aa6d8e59e30fb827e2b75d5de48beaa6ed8ba424c0c59a0a99967764872",
+    "bytes": 3934
   }
 }

@@ -17,6 +17,12 @@
         "key": "op",
         "op": "invalidate",
         "section": "waiting"
+      },
+      {
+        "fields": {},
+        "key": "run",
+        "op": "invalidate",
+        "section": "run"
       }
     ],
     "generation": 1,

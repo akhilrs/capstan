@@ -15,6 +15,8 @@ mod message_classes;
 mod plan_amend;
 mod plan_reassign;
 mod plan_show_cost;
+mod pm_card;
+mod pm_stuck;
 mod prompt_relay_backfill;
 mod push_events;
 mod remote_decisions;

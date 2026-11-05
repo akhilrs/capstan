@@ -249,6 +249,19 @@ fn handle(ctx: &mut Ctx<'_>, row: &Row) -> KernelResult<Outcome> {
                 ));
             }
         }
+        ("pm.stuck", _, Some("open")) => {
+            // Only an alerting episode is pushed; the reason is one of a fixed set and the minutes a number.
+            if row.details["alert"].as_bool() == Some(true) {
+                let reason = row.details["reason"]
+                    .as_str()
+                    .filter(|r| matches!(*r, "unread_mail" | "no_progress" | "prompt"))
+                    .unwrap_or("?");
+                let minutes = row.details["minutes"].as_i64().unwrap_or(0).clamp(0, 1440);
+                let mut e = agent_event(row, NtfyEvent::PmStuck, id_of(&row.details["agentId"]));
+                e.detail = Some(format!("{reason}:{minutes}"));
+                events.push(e);
+            }
+        }
         ("agent.lost", Some("active"), Some("lost")) => {
             events.push(agent_event(row, NtfyEvent::AgentLost, id(&row.entity_id)));
         }

@@ -79,6 +79,8 @@ pub struct DriverOptions {
     pub process_probe: Option<Arc<dyn ProcessActivityProbe>>,
     /// A PM message pending this long raises one stale notification per episode.
     pub pm_stale_seconds: i64,
+    /// A PM that waits this many minutes is stuck (one episode, one event); 0 turns the check off.
+    pub pm_stuck_minutes: i64,
     /// Finds agents whose CLI has exited while their pane stays; None turns that check off.
     pub liveness: Option<LivenessOptions>,
     /// How long a live tool process of a silent agent keeps the stall notice away (`liveness.stall_child_max_seconds`).
@@ -213,6 +215,7 @@ pub struct Driver {
     tick_ms: u64,
     process_probe: Option<Arc<dyn ProcessActivityProbe>>,
     pm_stale_seconds: i64,
+    pm_stuck_minutes: i64,
     liveness: Option<LivenessOptions>,
     stall_child_max_ms: u64,
     exit_watch: HashMap<String, ExitWatch>,
@@ -264,6 +267,7 @@ impl Driver {
             tick_ms: options.tick_ms.unwrap_or(DEFAULT_TICK_MS).max(MIN_TICK_MS),
             process_probe: options.process_probe,
             pm_stale_seconds: options.pm_stale_seconds,
+            pm_stuck_minutes: options.pm_stuck_minutes,
             liveness: options.liveness,
             stall_child_max_ms: options.stall_child_max_seconds.max(0) as u64 * 1000,
             exit_watch: HashMap::new(),
@@ -435,6 +439,7 @@ impl Driver {
         self.judge_wakes(&agents);
         self.advance();
         self.judge_stale(&agents);
+        self.judge_stuck();
         for agent in &agents {
             if str_of(agent, "kind") != "PM"
                 && !self.skipped_agents.contains(str_of(agent, "agentId"))
@@ -1123,6 +1128,24 @@ impl Driver {
         };
         self.mail_digest.insert(agent_id, (version, digest.clone()));
         digest
+    }
+
+    /// The stuck-PM pass: the kernel keeps the episodes; the driver gives it the last tool-process activity it saw and
+    /// writes only when the kernel opens or closes one.
+    fn judge_stuck(&mut self) {
+        if self.pm_stuck_minutes <= 0 {
+            return;
+        }
+        let now = (self.now)();
+        let activity = self
+            .activity
+            .work_signs(now.max(0) as u64, self.stall_child_max_ms);
+        let minutes = self.pm_stuck_minutes;
+        if let Err(error) = self.mutate("pmStuckTick", move |core, context| {
+            core.pm_stuck_tick(context, &activity, now, minutes)
+        }) {
+            self.log("pm_stuck_failed", json!({"error": kernel_text(&error)}));
+        }
     }
 
     /// One stale notification per episode; an episode is keyed by the oldest pending message and ends when that message

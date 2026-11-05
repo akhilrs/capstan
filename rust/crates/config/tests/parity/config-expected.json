@@ -93,7 +93,7 @@
   "name": "captured-0013",
   "outcome": {
    "kind": "error",
-   "message": "notifications has 1 unknown key(s); allowed: herdr, fallback, pm_stale_minutes"
+   "message": "notifications has 1 unknown key(s); allowed: herdr, fallback, pm_stale_minutes, pm_stuck_minutes"
   }
  },
  {
@@ -717,7 +717,7 @@
   "name": "captured-0100",
   "outcome": {
    "kind": "error",
-   "message": "notifications has 1 unknown key(s); allowed: herdr, fallback, pm_stale_minutes"
+   "message": "notifications has 1 unknown key(s); allowed: herdr, fallback, pm_stale_minutes, pm_stuck_minutes"
   }
  },
  {

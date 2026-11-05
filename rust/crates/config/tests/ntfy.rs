@@ -183,6 +183,7 @@ fn defaults_and_partial_tables() {
         (PromptWaiting, high("question")),
         (AgentBlocked, high("warning")),
         (AgentLost, high("warning")),
+        (PmStuck, high("warning")),
         (IntegrationConflicted, high("warning")),
         (DesignWaiting, default("art")),
         (PlanSignedOff, default("white_check_mark")),
@@ -199,7 +200,9 @@ fn defaults_and_partial_tables() {
     ] {
         assert_eq!(NtfyEventStyle::default_for(e), want, "{e:?}");
     }
-    assert_eq!(NTFY_EVENTS.len(), 10);
+    assert_eq!(NTFY_EVENTS.len(), 11);
+    assert_eq!(NTFY_EVENTS.last(), Some(&"pm_stuck"));
+    assert!(Ntfy::default().events.contains(&PmStuck));
     for name in NTFY_EVENTS {
         assert_eq!(NtfyEvent::from_str(name).unwrap().as_str(), *name);
     }
@@ -340,4 +343,18 @@ fn read_secret_from_env() {
         read_secret(&NtfyAuth::TokenEnv("A".into()), &long),
         Err(SecretError::Empty)
     );
+}
+
+#[test]
+fn pm_stuck_minutes_is_off_or_two_to_two_hundred_forty() {
+    assert_eq!(load("").unwrap().notifications.pm_stuck_minutes, 15);
+    for bad in ["1", "241", "-1", "\"15\"", "1.5"] {
+        let text = refused(&format!("[notifications]\npm_stuck_minutes = {bad}\n"));
+        assert!(text.contains("pm_stuck_minutes"), "{bad}: {text}");
+    }
+    for good in [0i64, 2, 15, 240] {
+        let c = load(&format!("[notifications]\npm_stuck_minutes = {good}\n")).unwrap();
+        assert_eq!(c.notifications.pm_stuck_minutes, good);
+        assert!(c.to_json().contains(&format!("\"pmStuckMinutes\": {good}")));
+    }
 }

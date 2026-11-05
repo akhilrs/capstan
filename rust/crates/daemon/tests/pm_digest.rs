@@ -167,6 +167,7 @@ fn world() -> World {
         tick_ms: None,
         process_probe: None,
         pm_stale_seconds: 1200,
+        pm_stuck_minutes: 0,
         liveness: None,
         stall_child_max_seconds: 3600,
         snapshot: None,

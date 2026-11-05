@@ -35,7 +35,8 @@ pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] = &[
 ];
 
 pub const PROJECT_KEYS: &[&str] = &["name"];
-pub const NOTIFICATION_KEYS: &[&str] = &["herdr", "fallback", "pm_stale_minutes"];
+pub const NOTIFICATION_KEYS: &[&str] =
+    &["herdr", "fallback", "pm_stale_minutes", "pm_stuck_minutes"];
 pub const SUPERVISION_KEYS: &[&str] = &["enabled", "check_seconds"];
 pub const LIVENESS_KEYS: &[&str] = &[
     "enabled",

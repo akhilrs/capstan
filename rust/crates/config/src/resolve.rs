@@ -108,7 +108,17 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
             1440,
             DEFAULT_PM_STALE_MINUTES,
         )?,
+        pm_stuck_minutes: optional_integer(
+            notification_table.get("pm_stuck_minutes"),
+            "notifications.pm_stuck_minutes",
+            0,
+            240,
+            DEFAULT_PM_STUCK_MINUTES,
+        )?,
     };
+    if notifications.pm_stuck_minutes == 1 {
+        return invalid("notifications.pm_stuck_minutes must be 0 (off) or 2 to 240");
+    }
     if !notifications.herdr && !notifications.fallback {
         return invalid("notifications.herdr and notifications.fallback must not both be false");
     }

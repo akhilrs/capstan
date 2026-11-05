@@ -4,7 +4,7 @@
   "reason": "a pi role with deny now loads: the rule is ignored with a warning",
   "expected": {
     "kind": "ok",
-    "sha256": "6c96bdf815531a3423031d44f43c2031043ba07459d52ce76919abd7f07f6f2c",
-    "bytes": 4014
+    "sha256": "02197e51b106a570cf5c1ac348c9bc97be9070008326f6da6f59d2b07ae2b87f",
+    "bytes": 4040
   }
 }

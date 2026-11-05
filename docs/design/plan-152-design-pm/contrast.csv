@@ -1,0 +1,919 @@
+png,element,fg_x,fg_y,bg_x,bg_y
+card-ios-light.png,"p.phcap ""1 · Overview with the PM card (Worker reports…""",104,44,272,48
+card-ios-light.png,"button.gb ""Hosts""",127,139,148,146
+card-ios-light.png,"h1.lt ""payments-api""",315,182,202,195
+card-ios-light.png,"p.lsub ""build-host · ~/src/payments-api""",114,218,210,223
+card-ios-light.png,"span.ipill ""Moving""",138,266,160,269
+card-ios-light.png,"div.r1 ""3 agents working · 2 wait for you""",252,266,318,270
+card-ios-light.png,"span.r2 ""Live · updated 3 s ago""",150,293,172,294
+card-ios-light.png,"h2.sech ""Project manager""",106,338,156,342
+card-ios-light.png,"span.id ""pm-1""",136,378,123,383
+card-ios-light.png,"span.act ""Working""",440,381,412,383
+card-ios-light.png,"span.since ""since 11:58 · 23 min""",151,400,178,404
+card-ios-light.png,"button.imsg span.ml ""From the PM · 12:14""",106,444,167,448
+card-ios-light.png,"button.imsg span.mt ""Plan-15 is in review. I asked architect-3 to …""",114,466,265,471
+card-ios-light.png,"button.imsg span.ml ""You sent · 12:02""",106,527,155,531
+card-ios-light.png,"button.imsg span.mt ""Please hold plan-15 until finance signs off t…""",438,548,272,553
+card-ios-light.png,"button.imsg span.dl ""Read by the PM · 12:03""",123,591,193,595
+card-ios-light.png,"p.isub ""Waiting on""",106,633,140,637
+card-ios-light.png,"button.ir span ""Worker reports""",106,663,165,669
+card-ios-light.png,"button.ir b ""3""",278,665,280,671
+card-ios-light.png,"button.ir span.rv ""· oldest 2 h 10 min""",308,664,353,669
+card-ios-light.png,"button.ir span ""Reviews""",107,707,138,713
+card-ios-light.png,"button.ir b ""1""",354,708,353,713
+card-ios-light.png,"button.ir span.rv ""· 25 min""",384,708,390,713
+card-ios-light.png,"button.ir span ""Verify runs""",106,751,148,756
+card-ios-light.png,"button.ir b ""1"" (2)",364,752,362,757
+card-ios-light.png,"button.ir span.rv ""· 4 min""",406,757,395,757
+card-ios-light.png,"button.ir span ""You""",106,795,120,801
+card-ios-light.png,"button.ir b ""2""",305,797,306,801
+card-ios-light.png,"button.ir span.rv ""· oldest 12 min""",344,796,366,801
+card-ios-light.png,"button.tab ""Waiting""",116,895,130,899
+card-ios-light.png,"button.tab ""Agents""",187,895,202,900
+card-ios-light.png,"button.tab ""Plans""",261,895,275,899
+card-ios-light.png,"button.tab ""Messages""",320,895,346,899
+card-ios-light.png,"button.tab ""Hosts""",403,895,417,900
+card-ios-light.png,"p.phcap ""2 · Largest text (AX3): rows stack; Full Keyb…""",604,43,698,48
+card-ios-light.png,"h2.sech ""Project manager"" (2)",533,186,610,193
+card-ios-light.png,"span.id ""pm-1"" (2)",580,237,560,245
+card-ios-light.png,"span.act ""Working"" (2)",865,240,819,244
+card-ios-light.png,"span.since ""since 11:58 · 23 min"" (2)",546,270,649,278
+card-ios-light.png,"button.imsg span.ml ""From the PM · 12:14"" (2)",533,326,626,332
+card-ios-light.png,"button.imsg span.mt ""Plan-15 is in review. I asked architect-3 to …"" (2)",533,358,667,365
+card-ios-light.png,"button.imsg span.ml ""You sent · 12:02"" (2)",532,439,607,445
+card-ios-light.png,"button.imsg span.mt ""Please hold plan-15 until finance signs off t…"" (2)",533,471,681,478
+card-ios-light.png,"button.imsg span.dl ""Read by the PM · 12:03"" (2)",549,534,658,540
+card-ios-light.png,"p.isub ""Waiting on"" (2)",532,585,584,591
+card-ios-light.png,"button.ir span ""Worker reports"" (2)",532,629,616,637
+card-ios-light.png,"button.ir b ""3"" (2)",535,666,539,675
+card-ios-light.png,"button.ir span.rv ""· oldest 2 h 10 min"" (2)",583,665,655,673
+card-ios-light.png,"button.ir span ""Reviews"" (2)",534,726,578,734
+card-ios-light.png,"button.ir b ""1"" (3)",538,762,541,770
+card-ios-light.png,"button.ir span.rv ""· 25 min"" (2)",586,762,595,770
+card-ios-light.png,"p.phcap ""3 · Host offline: last known values with thei…""",994,44,1125,46
+card-ios-light.png,"button.gb ""Hosts"" (2)",979,139,1000,146
+card-ios-light.png,"h1.lt ""payments-api"" (2)",1167,182,1054,195
+card-ios-light.png,"p.lsub ""build-host · ~/src/payments-api"" (2)",966,218,1062,223
+card-ios-light.png,"b ""build-host is offline""",987,263,1063,269
+card-ios-light.png,"span.bt ""Reconnecting in 8 s. Nothing here can change …""",987,290,1120,295
+card-ios-light.png,"h2.sech ""Project manager"" (3)",958,360,1008,364
+card-ios-light.png,"span.cnt ""as of 12:31""",1250,362,1259,364
+card-ios-light.png,"span.id ""pm-1"" (3)",988,402,975,407
+card-ios-light.png,"span.ipill ""Last known · 12:31""",1172,403,1227,406
+card-ios-light.png,"span.since ""Working at 12:31 · since 11:58""",964,426,1069,431
+card-ios-light.png,"button.imsg span.ml ""From the PM · 12:14"" (3)",958,470,1019,473
+card-ios-light.png,"button.imsg span.mt ""Plan-15 is in review. I asked architect-3 to …"" (3)",966,491,1117,496
+card-ios-light.png,"button.imsg span.ml ""You sent · 12:29""",958,552,1007,556
+card-ios-light.png,"button.imsg span.mt ""Skip the nightly load test this week.""",1068,574,1101,579
+card-ios-light.png,"button.imsg span.dl ""Queued at 12:31: the PM gets it when it is fr…""",1044,597,1115,601
+card-ios-light.png,"p.isub ""Waiting on, at 12:31""",958,639,1019,643
+card-ios-light.png,"button.ir span ""Worker reports"" (3)",958,669,1017,676
+card-ios-light.png,"button.ir b ""3"" (3)",1130,671,1132,677
+card-ios-light.png,"button.ir span.rv ""· oldest 2 h 10 min"" (3)",1160,670,1205,675
+card-ios-light.png,"button.ir span ""Plan reviews""",959,713,1007,719
+card-ios-light.png,"button.ir b ""1"" (4)",1189,714,1188,719
+card-ios-light.png,"button.ir span.rv ""· 1 h 5 min""",1222,714,1233,719
+card-ios-light.png,"button.ir span ""You"" (2)",958,757,972,764
+card-ios-light.png,"button.ir b ""2"" (2)",1157,759,1158,763
+card-ios-light.png,"button.ir span.rv ""· oldest 12 min"" (2)",1196,758,1218,763
+card-ios-light.png,"button.tab ""Waiting"" (2)",968,895,982,899
+card-ios-light.png,"button.tab ""Agents"" (2)",1039,895,1054,900
+card-ios-light.png,"button.tab ""Plans"" (2)",1113,895,1127,899
+card-ios-light.png,"button.tab ""Messages"" (2)",1172,895,1198,899
+card-ios-light.png,"button.tab ""Hosts"" (2)",1255,895,1268,897
+card-ios-light.png,"p.plabel ""No PM on this project""",132,980,77,988
+card-ios-light.png,"span.act ""No PM""",98,1019,96,1023
+card-ios-light.png,"span.r2 ""No PM is active on payments-api, so nobody ro…""",58,1039,240,1044
+card-ios-light.png,"button.ir span ""Messages to PM""",58,1103,119,1109
+card-ios-light.png,"button.ir span.rv ""kept until a PM runs""",369,1104,355,1109
+card-ios-light.png,"p.plabel ""Stale: the host is live but the card did not …""",60,1150,180,1154
+card-ios-light.png,"span.id ""pm-1"" (4)",87,1195,74,1200
+card-ios-light.png,"span.ipill ""Stale · as of 12:38""",349,1196,382,1200
+card-ios-light.png,"span.since ""Idle at 12:38 · since 12:20""",67,1218,149,1223
+card-ios-light.png,"p.ifoot ""The last refresh of this card failed 3 min ag…""",57,1251,244,1255
+card-ios-light.png,"p.plabel ""First snapshot: skeleton shaped like the card""",510,979,617,987
+card-ios-light.png,"span.since ""Reading build-host…""",506,1033,579,1038
+card-ios-light.png,"p.plabel ""Nothing yet: no messages, nobody waits""",489,1197,604,1202
+card-ios-light.png,"span.id ""pm-1"" (5)",535,1239,522,1244
+card-ios-light.png,"span.act ""Idle""",871,1239,883,1244
+card-ios-light.png,"span.since ""since 09:05 · 3 h 26 min""",582,1260,590,1265
+card-ios-light.png,"span.ml ""From the PM""",505,1303,543,1307
+card-ios-light.png,"span.mm ""No message to you yet.""",526,1325,576,1327
+card-ios-light.png,"button.imsg span.ml ""You sent""",505,1361,531,1365
+card-ios-light.png,"button.imsg span.mm ""Nothing yet. Write to pm-1 in Messages.""",593,1381,629,1385
+card-ios-light.png,"p.isub ""Waiting on"" (3)",505,1421,539,1425
+card-ios-light.png,"p.ifoot ""Nobody waits on anything.""",561,1441,586,1443
+card-ios-light.png,"p.plabel ""Activity: a word and a glyph each""",939,978,1032,987
+card-ios-light.png,"span.act ""Working"" (3)",978,1017,1001,1019
+card-ios-light.png,"span.act ""Idle"" (2)",973,1043,983,1047
+card-ios-light.png,"span.act ""Blocked""",973,1069,996,1073
+card-ios-light.png,"span.act ""Done""",973,1095,989,1099
+card-ios-light.png,"span.act ""Unknown""",973,1121,1001,1125
+card-ios-light.png,"p.plabel ""Delivery of your last message""",937,1164,1023,1168
+card-ios-light.png,"span.dl ""Queued: the PM gets it when it is free""",1061,1204,1101,1209
+card-ios-light.png,"span.dl ""Delivered to the PM · 12:03""",970,1233,1062,1238
+card-ios-light.png,"span.dl ""Read by the PM · 12:05""",970,1262,1048,1267
+card-ios-light.png,"span.dl ""Not delivered (expired)""",970,1291,1049,1296
+card-ios-dark.png,"p.phcap ""1 · Overview with the PM card (Worker reports…""",104,44,272,47
+card-ios-dark.png,"button.gb ""Hosts""",127,139,148,146
+card-ios-dark.png,"h1.lt ""payments-api""",315,182,202,195
+card-ios-dark.png,"p.lsub ""build-host · ~/src/payments-api""",114,218,210,223
+card-ios-dark.png,"span.ipill ""Moving""",138,266,160,269
+card-ios-dark.png,"div.r1 ""3 agents working · 2 wait for you""",252,266,318,270
+card-ios-dark.png,"span.r2 ""Live · updated 3 s ago""",150,293,172,294
+card-ios-dark.png,"h2.sech ""Project manager""",106,338,156,342
+card-ios-dark.png,"span.id ""pm-1""",136,378,123,383
+card-ios-dark.png,"span.act ""Working""",383,378,412,383
+card-ios-dark.png,"span.since ""since 11:58 · 23 min""",151,400,178,404
+card-ios-dark.png,"button.imsg span.ml ""From the PM · 12:14""",106,444,167,448
+card-ios-dark.png,"button.imsg span.mt ""Plan-15 is in review. I asked architect-3 to …""",114,466,265,471
+card-ios-dark.png,"button.imsg span.ml ""You sent · 12:02""",106,527,155,531
+card-ios-dark.png,"button.imsg span.mt ""Please hold plan-15 until finance signs off t…""",114,548,272,553
+card-ios-dark.png,"button.imsg span.dl ""Read by the PM · 12:03""",123,591,193,595
+card-ios-dark.png,"p.isub ""Waiting on""",106,633,140,637
+card-ios-dark.png,"button.ir span ""Worker reports""",106,663,165,669
+card-ios-dark.png,"button.ir b ""3""",278,665,280,671
+card-ios-dark.png,"button.ir span.rv ""· oldest 2 h 10 min""",308,664,353,669
+card-ios-dark.png,"button.ir span ""Reviews""",107,707,138,713
+card-ios-dark.png,"button.ir b ""1""",354,708,353,713
+card-ios-dark.png,"button.ir span.rv ""· 25 min""",384,708,390,713
+card-ios-dark.png,"button.ir span ""Verify runs""",106,751,148,756
+card-ios-dark.png,"button.ir b ""1"" (2)",364,752,362,757
+card-ios-dark.png,"button.ir span.rv ""· 4 min""",406,757,395,757
+card-ios-dark.png,"button.ir span ""You""",106,795,120,801
+card-ios-dark.png,"button.ir b ""2""",305,797,306,801
+card-ios-dark.png,"button.ir span.rv ""· oldest 12 min""",344,796,366,801
+card-ios-dark.png,"button.tab ""Waiting""",116,895,130,899
+card-ios-dark.png,"button.tab ""Agents""",187,895,202,900
+card-ios-dark.png,"button.tab ""Plans""",261,895,275,899
+card-ios-dark.png,"button.tab ""Messages""",320,895,346,899
+card-ios-dark.png,"button.tab ""Hosts""",403,895,417,900
+card-ios-dark.png,"p.phcap ""2 · Largest text (AX3): rows stack; Full Keyb…""",525,44,698,47
+card-ios-dark.png,"h2.sech ""Project manager"" (2)",533,186,610,193
+card-ios-dark.png,"span.id ""pm-1"" (2)",580,237,560,245
+card-ios-dark.png,"span.act ""Working"" (2)",773,236,819,244
+card-ios-dark.png,"span.since ""since 11:58 · 23 min"" (2)",546,270,649,278
+card-ios-dark.png,"button.imsg span.ml ""From the PM · 12:14"" (2)",533,326,626,332
+card-ios-dark.png,"button.imsg span.mt ""Plan-15 is in review. I asked architect-3 to …"" (2)",533,358,667,365
+card-ios-dark.png,"button.imsg span.ml ""You sent · 12:02"" (2)",533,439,607,445
+card-ios-dark.png,"button.imsg span.mt ""Please hold plan-15 until finance signs off t…"" (2)",533,471,681,478
+card-ios-dark.png,"button.imsg span.dl ""Read by the PM · 12:03"" (2)",549,534,658,540
+card-ios-dark.png,"p.isub ""Waiting on"" (2)",532,585,584,591
+card-ios-dark.png,"button.ir span ""Worker reports"" (2)",532,629,616,637
+card-ios-dark.png,"button.ir b ""3"" (2)",535,666,539,675
+card-ios-dark.png,"button.ir span.rv ""· oldest 2 h 10 min"" (2)",583,665,654,673
+card-ios-dark.png,"button.ir span ""Reviews"" (2)",534,726,578,734
+card-ios-dark.png,"button.ir b ""1"" (3)",538,762,541,770
+card-ios-dark.png,"button.ir span.rv ""· 25 min"" (2)",586,762,595,770
+card-ios-dark.png,"p.phcap ""3 · Host offline: last known values with thei…""",994,44,1125,46
+card-ios-dark.png,"button.gb ""Hosts"" (2)",979,139,1000,146
+card-ios-dark.png,"h1.lt ""payments-api"" (2)",1167,182,1054,195
+card-ios-dark.png,"p.lsub ""build-host · ~/src/payments-api"" (2)",966,218,1062,223
+card-ios-dark.png,"b ""build-host is offline""",987,263,1063,269
+card-ios-dark.png,"span.bt ""Reconnecting in 8 s. Nothing here can change …""",987,290,1120,295
+card-ios-dark.png,"h2.sech ""Project manager"" (3)",958,360,1008,364
+card-ios-dark.png,"span.cnt ""as of 12:31""",1250,362,1259,364
+card-ios-dark.png,"span.id ""pm-1"" (3)",988,402,975,407
+card-ios-dark.png,"span.ipill ""Last known · 12:31""",1172,403,1227,406
+card-ios-dark.png,"span.since ""Working at 12:31 · since 11:58""",964,426,1069,431
+card-ios-dark.png,"button.imsg span.ml ""From the PM · 12:14"" (3)",958,470,1019,473
+card-ios-dark.png,"button.imsg span.mt ""Plan-15 is in review. I asked architect-3 to …"" (3)",966,491,1117,496
+card-ios-dark.png,"button.imsg span.ml ""You sent · 12:29""",958,552,1007,556
+card-ios-dark.png,"button.imsg span.mt ""Skip the nightly load test this week.""",1068,574,1101,579
+card-ios-dark.png,"button.imsg span.dl ""Queued at 12:31: the PM gets it when it is fr…""",1044,597,1115,601
+card-ios-dark.png,"p.isub ""Waiting on, at 12:31""",958,639,1019,643
+card-ios-dark.png,"button.ir span ""Worker reports"" (3)",958,669,1017,676
+card-ios-dark.png,"button.ir b ""3"" (3)",1130,671,1132,677
+card-ios-dark.png,"button.ir span.rv ""· oldest 2 h 10 min"" (3)",1160,670,1205,675
+card-ios-dark.png,"button.ir span ""Plan reviews""",959,713,1007,719
+card-ios-dark.png,"button.ir b ""1"" (4)",1189,714,1188,719
+card-ios-dark.png,"button.ir span.rv ""· 1 h 5 min""",1222,714,1233,719
+card-ios-dark.png,"button.ir span ""You"" (2)",958,757,972,764
+card-ios-dark.png,"button.ir b ""2"" (2)",1157,759,1158,763
+card-ios-dark.png,"button.ir span.rv ""· oldest 12 min"" (2)",1196,758,1218,763
+card-ios-dark.png,"button.tab ""Waiting"" (2)",968,895,982,899
+card-ios-dark.png,"button.tab ""Agents"" (2)",1039,895,1054,900
+card-ios-dark.png,"button.tab ""Plans"" (2)",1113,895,1127,899
+card-ios-dark.png,"button.tab ""Messages"" (2)",1172,895,1198,899
+card-ios-dark.png,"button.tab ""Hosts"" (2)",1255,895,1269,900
+card-ios-dark.png,"p.plabel ""No PM on this project""",41,979,74,988
+card-ios-dark.png,"span.act ""No PM""",77,1019,96,1023
+card-ios-dark.png,"span.r2 ""No PM is active on payments-api, so nobody ro…""",58,1039,240,1044
+card-ios-dark.png,"button.ir span ""Messages to PM""",58,1103,119,1109
+card-ios-dark.png,"button.ir span.rv ""kept until a PM runs""",369,1104,355,1109
+card-ios-dark.png,"p.plabel ""Stale: the host is live but the card did not …""",60,1150,180,1154
+card-ios-dark.png,"span.id ""pm-1"" (4)",87,1195,74,1200
+card-ios-dark.png,"span.ipill ""Stale · as of 12:38""",349,1196,382,1200
+card-ios-dark.png,"span.since ""Idle at 12:38 · since 12:20""",67,1218,149,1223
+card-ios-dark.png,"p.ifoot ""The last refresh of this card failed 3 min ag…""",57,1251,244,1255
+card-ios-dark.png,"p.plabel ""First snapshot: skeleton shaped like the card""",489,985,617,987
+card-ios-dark.png,"span.since ""Reading build-host…""",506,1033,579,1038
+card-ios-dark.png,"p.plabel ""Nothing yet: no messages, nobody waits""",489,1197,604,1202
+card-ios-dark.png,"span.id ""pm-1"" (5)",535,1239,522,1244
+card-ios-dark.png,"span.act ""Idle""",871,1239,883,1244
+card-ios-dark.png,"span.since ""since 09:05 · 3 h 26 min""",582,1260,590,1265
+card-ios-dark.png,"span.ml ""From the PM""",505,1303,543,1307
+card-ios-dark.png,"span.mm ""No message to you yet.""",526,1325,576,1327
+card-ios-dark.png,"button.imsg span.ml ""You sent""",505,1361,531,1365
+card-ios-dark.png,"button.imsg span.mm ""Nothing yet. Write to pm-1 in Messages.""",593,1381,629,1385
+card-ios-dark.png,"p.isub ""Waiting on"" (3)",505,1421,539,1425
+card-ios-dark.png,"p.ifoot ""Nobody waits on anything.""",561,1441,586,1443
+card-ios-dark.png,"p.plabel ""Activity: a word and a glyph each""",937,985,1032,987
+card-ios-dark.png,"span.act ""Working"" (3)",1020,1028,997,1021
+card-ios-dark.png,"span.act ""Idle"" (2)",973,1043,983,1047
+card-ios-dark.png,"span.act ""Blocked""",973,1069,996,1073
+card-ios-dark.png,"span.act ""Done""",973,1095,989,1099
+card-ios-dark.png,"span.act ""Unknown""",973,1121,1001,1125
+card-ios-dark.png,"p.plabel ""Delivery of your last message""",937,1164,1023,1168
+card-ios-dark.png,"span.dl ""Queued: the PM gets it when it is free""",1061,1204,1101,1209
+card-ios-dark.png,"span.dl ""Delivered to the PM · 12:03""",970,1233,1062,1238
+card-ios-dark.png,"span.dl ""Read by the PM · 12:05""",970,1262,1048,1267
+card-ios-dark.png,"span.dl ""Not delivered (expired)""",970,1291,1049,1296
+card-mac-light.png,"a ""Waiting for you""",94,108,134,111
+card-mac-light.png,"a span.badge ""7""",258,107,259,110
+card-mac-light.png,"a ""Agents""",92,142,109,146
+card-mac-light.png,"a span.badge ""12""",252,141,256,145
+card-mac-light.png,"a ""Plans""",90,176,106,179
+card-mac-light.png,"a span.badge ""4""",261,175,259,180
+card-mac-light.png,"a ""Messages to PM""",97,210,139,214
+card-mac-light.png,"a span.badge ""3""",260,213,259,212
+card-mac-light.png,"div.sh ""build-host""",65,249,94,252
+card-mac-light.png,"a ""payments-api""",97,285,137,286
+card-mac-light.png,"a ""docs-site""",140,319,125,321
+card-mac-light.png,"a ""mobile-app""",97,353,132,355
+card-mac-light.png,"a span.sub ""paused""",223,352,243,353
+card-mac-light.png,"span.title ""payments-api""",411,65,362,70
+card-mac-light.png,"h1.h2 ""payments-api""",444,109,378,116
+card-mac-light.png,"span.path ""build-host · ~/src/payments-api""",331,144,424,140
+card-mac-light.png,"span.pill ""Moving""",340,158,360,162
+card-mac-light.png,"div.ovstat ""3 agents working · 2 wait for you""",404,162,499,164
+card-mac-light.png,"span.muted ""Live · updated 3 s ago""",670,160,669,162
+card-mac-light.png,"h2.grp ""Project manager""",314,193,360,197
+card-mac-light.png,"span.id ""pm-1""",356,231,345,235
+card-mac-light.png,"span.act ""Working""",389,232,413,236
+card-mac-light.png,"span.since ""since 11:58 · 23 min""",1120,230,1142,234
+card-mac-light.png,"p.lbl ""From the PM · 12:14""",330,273,386,277
+card-mac-light.png,"button.mrow span.mt ""Plan-15 is in review. I asked architect-3 to …""",620,303,552,303
+card-mac-light.png,"button.mrow span.go ""Open conversation ›""",810,340,781,341
+card-mac-light.png,"p.lbl ""You sent · 12:02""",330,378,375,382
+card-mac-light.png,"button.mrow span.mt ""Please hold plan-15 until finance signs off t…""",331,409,548,408
+card-mac-light.png,"button.mrow span.dl ""Read by the PM · 12:03""",347,425,412,429
+card-mac-light.png,"button.mrow span.go ""Open conversation ›"" (2)",810,427,782,429
+card-mac-light.png,"p.lbl ""Waiting on""",877,273,904,277
+card-mac-light.png,"button.wrow span ""Worker reports""",883,300,917,304
+card-mac-light.png,"button.wrow b ""3""",1069,300,1067,305
+card-mac-light.png,"button.wrow span.wc ""· oldest 2 h 10 min""",1144,299,1126,303
+card-mac-light.png,"button.wrow span ""Reviews""",873,328,897,332
+card-mac-light.png,"button.wrow b ""1""",1127,327,1128,331
+card-mac-light.png,"button.wrow span.wc ""· 25 min""",1151,327,1156,331
+card-mac-light.png,"button.wrow span ""Verify runs""",896,358,904,360
+card-mac-light.png,"button.wrow b ""1"" (2)",1134,355,1133,359
+card-mac-light.png,"button.wrow span.wc ""· 4 min""",1153,355,1159,359
+card-mac-light.png,"button.wrow span ""Plan reviews""",873,384,910,388
+card-mac-light.png,"button.wrow b ""1"" (3)",1113,383,1111,387
+card-mac-light.png,"button.wrow span.wc ""· 1 h 5 min""",1131,383,1148,387
+card-mac-light.png,"button.wrow span ""You""",890,420,883,416
+card-mac-light.png,"button.wrow b ""2""",1090,412,1088,414
+card-mac-light.png,"button.wrow span.wc ""· oldest 12 min""",1144,411,1136,415
+card-mac-light.png,"h2.grp ""Waiting for you · 2""",314,470,367,474
+card-mac-light.png,"span.k ""Command proposal · dev-3""",419,505,442,509
+card-mac-light.png,"span.t ""12 min""",1168,503,1183,507
+card-mac-light.png,"code ""npm run db:migrate -- --env staging""",456,529,483,531
+card-mac-light.png,"span.k ""Design approval · designer-2""",358,562,447,566
+card-mac-light.png,"span.t ""3 min""",1178,562,1187,564
+card-mac-light.png,"span.m ""Refund screens, light and dark""",359,584,451,588
+card-mac-light.png,"p.plabel ""No PM on this project""",69,835,99,844
+card-mac-light.png,"span.act ""No PM""",77,875,96,879
+card-mac-light.png,"p.note ""No PM is active on payments-api, so nobody ro…""",77,902,220,906
+card-mac-light.png,"p.plabel ""Host offline: last known values""",41,975,128,979
+card-mac-light.png,"span.id ""pm-1"" (2)",83,1017,72,1021
+card-mac-light.png,"span.pill ""Last known · 12:31""",150,1017,173,1019
+card-mac-light.png,"span.since ""Working at 12:31""",315,1017,358,1021
+card-mac-light.png,"p.note ""build-host is offline; reconnecting in 8 s. T…""",289,1046,217,1052
+card-mac-light.png,"p.plabel ""Stale: the card did not refresh""",60,1104,126,1108
+card-mac-light.png,"span.id ""pm-1"" (3)",83,1150,72,1154
+card-mac-light.png,"span.pill ""Stale · as of 12:38""",202,1151,172,1154
+card-mac-light.png,"button.btn ""Refresh""",348,1150,370,1154
+card-mac-light.png,"p.note ""The last refresh failed 3 min ago.""",57,1183,151,1187
+card-mac-light.png,"span.kbd ""⌘R""",265,1188,261,1187
+card-mac-light.png,"p.plabel ""First snapshot: skeleton shaped like the card""",449,841,577,845
+card-mac-light.png,"span.since ""Reading build-host…""",698,874,756,878
+card-mac-light.png,"p.plabel ""Nothing yet""",449,998,482,1002
+card-mac-light.png,"span.id ""pm-1"" (4)",491,1038,480,1042
+card-mac-light.png,"span.act ""Idle""",533,1039,534,1042
+card-mac-light.png,"span.since ""since 09:05 · 3 h 26 min""",740,1038,746,1042
+card-mac-light.png,"p.lbl ""From the PM""",465,1079,500,1083
+card-mac-light.png,"p.none ""No message to you yet.""",517,1104,531,1106
+card-mac-light.png,"p.lbl ""You sent""",465,1141,489,1146
+card-mac-light.png,"p.none ""Nothing yet.""",481,1166,501,1167
+card-mac-light.png,"span.kbd ""⇧⌘N""",569,1172,558,1168
+card-mac-light.png,"p.lbl ""Waiting on"" (2)",465,1203,496,1207
+card-mac-light.png,"p.none ""Nobody waits on anything.""",532,1228,539,1230
+card-mac-light.png,"p.plabel ""Words: activity and delivery""",449,1269,528,1273
+card-mac-light.png,"span.act ""Working"" (2)",489,1314,513,1318
+card-mac-light.png,"span.act ""Idle"" (2)",578,1314,588,1318
+card-mac-light.png,"span.act ""Blocked""",637,1314,660,1319
+card-mac-light.png,"span.act ""Done""",723,1314,739,1318
+card-mac-light.png,"span.act ""Unknown""",489,1340,517,1344
+card-mac-light.png,"span.dl ""Queued: the PM gets it when it is free""",559,1368,590,1372
+card-mac-light.png,"span.dl ""Delivered to the PM · 12:03""",486,1391,559,1395
+card-mac-light.png,"span.dl ""Read by the PM · 12:05""",486,1414,548,1418
+card-mac-light.png,"span.dl ""Not delivered (expired)""",501,1439,549,1441
+card-mac-light.png,"p.plabel ""Compact window (overview under 640 px): one c…""",863,841,1016,845
+card-mac-light.png,"span.id ""pm-1"" (5)",899,875,888,879
+card-mac-light.png,"span.act ""Blocked"" (2)",933,876,958,879
+card-mac-light.png,"span.since ""since 12:20 · 11 min""",1144,875,1166,879
+card-mac-light.png,"p.lbl ""From the PM · 12:14"" (2)",873,916,929,920
+card-mac-light.png,"button.mrow span.mt ""Plan-15 is in review. I asked architect-3 to …"" (2)",1163,944,1030,944
+card-mac-light.png,"p.lbl ""You sent · 12:29""",873,999,918,1003
+card-mac-light.png,"button.mrow span.mt ""Use the new seed data too.""",1055,1031,965,1027
+card-mac-light.png,"button.mrow span.dl ""Not delivered (cancelled)""",905,1046,959,1048
+card-mac-light.png,"p.lbl ""Waiting on"" (3)",873,1083,904,1087
+card-mac-light.png,"button.wrow span ""Worker reports"" (2)",878,1109,918,1113
+card-mac-light.png,"button.wrow b ""3"" (2)",1093,1110,1090,1112
+card-mac-light.png,"button.wrow span.wc ""· oldest 2 h 10 min"" (2)",1168,1109,1150,1113
+card-mac-light.png,"button.wrow span ""You"" (2)",876,1142,883,1141
+card-mac-light.png,"button.wrow b ""2"" (2)",1114,1138,1112,1140
+card-mac-light.png,"button.wrow span.wc ""· oldest 12 min"" (2)",1168,1137,1160,1141
+card-mac-dark.png,"a ""Waiting for you""",94,108,134,111
+card-mac-dark.png,"a span.badge ""7""",258,107,259,110
+card-mac-dark.png,"a ""Agents""",92,142,109,146
+card-mac-dark.png,"a span.badge ""12""",252,141,256,145
+card-mac-dark.png,"a ""Plans""",90,176,106,179
+card-mac-dark.png,"a span.badge ""4""",261,175,259,180
+card-mac-dark.png,"a ""Messages to PM""",97,210,139,214
+card-mac-dark.png,"a span.badge ""3""",260,213,259,212
+card-mac-dark.png,"div.sh ""build-host""",65,250,94,253
+card-mac-dark.png,"a ""payments-api""",97,285,137,286
+card-mac-dark.png,"a ""docs-site""",140,319,125,321
+card-mac-dark.png,"a ""mobile-app""",97,353,132,355
+card-mac-dark.png,"a span.sub ""paused""",223,353,243,353
+card-mac-dark.png,"span.title ""payments-api""",411,65,362,70
+card-mac-dark.png,"h1.h2 ""payments-api""",444,110,378,116
+card-mac-dark.png,"span.path ""build-host · ~/src/payments-api""",331,145,424,141
+card-mac-dark.png,"span.pill ""Moving""",340,159,360,162
+card-mac-dark.png,"div.ovstat ""3 agents working · 2 wait for you""",404,162,499,164
+card-mac-dark.png,"span.muted ""Live · updated 3 s ago""",670,161,669,162
+card-mac-dark.png,"h2.grp ""Project manager""",314,193,360,197
+card-mac-dark.png,"span.id ""pm-1""",356,231,345,235
+card-mac-dark.png,"span.act ""Working""",389,232,413,236
+card-mac-dark.png,"span.since ""since 11:58 · 23 min""",1120,231,1142,234
+card-mac-dark.png,"p.lbl ""From the PM · 12:14""",330,273,386,277
+card-mac-dark.png,"button.mrow span.mt ""Plan-15 is in review. I asked architect-3 to …""",620,303,552,303
+card-mac-dark.png,"button.mrow span.go ""Open conversation ›""",810,340,781,341
+card-mac-dark.png,"p.lbl ""You sent · 12:02""",330,379,375,383
+card-mac-dark.png,"button.mrow span.mt ""Please hold plan-15 until finance signs off t…""",331,410,548,409
+card-mac-dark.png,"button.mrow span.dl ""Read by the PM · 12:03""",347,426,412,429
+card-mac-dark.png,"button.mrow span.go ""Open conversation ›"" (2)",810,428,781,429
+card-mac-dark.png,"p.lbl ""Waiting on""",877,273,904,277
+card-mac-dark.png,"button.wrow span ""Worker reports""",883,301,917,304
+card-mac-dark.png,"button.wrow b ""3""",1069,301,1067,302
+card-mac-dark.png,"button.wrow span.wc ""· oldest 2 h 10 min""",1113,302,1126,303
+card-mac-dark.png,"button.wrow span ""Reviews""",873,329,897,332
+card-mac-dark.png,"button.wrow b ""1""",1127,328,1128,331
+card-mac-dark.png,"button.wrow span.wc ""· 25 min""",1151,328,1155,331
+card-mac-dark.png,"button.wrow span ""Verify runs""",896,359,905,359
+card-mac-dark.png,"button.wrow b ""1"" (2)",1134,356,1133,359
+card-mac-dark.png,"button.wrow span.wc ""· 4 min""",1153,356,1159,359
+card-mac-dark.png,"button.wrow span ""Plan reviews""",873,385,910,389
+card-mac-dark.png,"button.wrow b ""1"" (3)",1113,384,1111,387
+card-mac-dark.png,"button.wrow span.wc ""· 1 h 5 min""",1131,384,1148,387
+card-mac-dark.png,"button.wrow span ""You""",890,421,883,417
+card-mac-dark.png,"button.wrow b ""2""",1090,413,1088,415
+card-mac-dark.png,"button.wrow span.wc ""· oldest 12 min""",1134,414,1136,415
+card-mac-dark.png,"h2.grp ""Waiting for you · 2""",314,471,364,474
+card-mac-dark.png,"span.k ""Command proposal · dev-3""",419,505,442,509
+card-mac-dark.png,"span.t ""12 min""",1198,507,1183,507
+card-mac-dark.png,"code ""npm run db:migrate -- --env staging""",456,530,483,530
+card-mac-dark.png,"span.k ""Design approval · designer-2""",358,562,447,566
+card-mac-dark.png,"span.t ""3 min""",1178,562,1187,564
+card-mac-dark.png,"span.m ""Refund screens, light and dark""",359,585,452,587
+card-mac-dark.png,"p.plabel ""No PM on this project""",41,844,103,838
+card-mac-dark.png,"span.act ""No PM""",77,881,96,879
+card-mac-dark.png,"p.note ""No PM is active on payments-api, so nobody ro…""",77,903,220,906
+card-mac-dark.png,"p.plabel ""Host offline: last known values""",41,976,128,980
+card-mac-dark.png,"span.id ""pm-1"" (2)",83,1017,72,1021
+card-mac-dark.png,"span.pill ""Last known · 12:31""",150,1017,173,1019
+card-mac-dark.png,"span.since ""Working at 12:31""",315,1017,358,1021
+card-mac-dark.png,"p.note ""build-host is offline; reconnecting in 8 s. T…""",289,1047,218,1050
+card-mac-dark.png,"p.plabel ""Stale: the card did not refresh""",60,1105,126,1108
+card-mac-dark.png,"span.id ""pm-1"" (3)",83,1150,72,1154
+card-mac-dark.png,"span.pill ""Stale · as of 12:38""",202,1151,172,1154
+card-mac-dark.png,"button.btn ""Refresh""",348,1150,370,1154
+card-mac-dark.png,"p.note ""The last refresh failed 3 min ago.""",57,1184,151,1187
+card-mac-dark.png,"span.kbd ""⌘R""",265,1189,261,1188
+card-mac-dark.png,"p.plabel ""First snapshot: skeleton shaped like the card""",499,846,578,838
+card-mac-dark.png,"span.since ""Reading build-host…""",713,883,756,878
+card-mac-dark.png,"p.plabel ""Nothing yet""",449,999,482,1003
+card-mac-dark.png,"span.id ""pm-1"" (4)",491,1039,480,1042
+card-mac-dark.png,"span.act ""Idle""",533,1039,534,1042
+card-mac-dark.png,"span.since ""since 09:05 · 3 h 26 min""",740,1039,746,1042
+card-mac-dark.png,"p.lbl ""From the PM""",465,1080,500,1084
+card-mac-dark.png,"p.none ""No message to you yet.""",517,1105,531,1107
+card-mac-dark.png,"p.lbl ""You sent""",465,1142,488,1145
+card-mac-dark.png,"p.none ""Nothing yet.""",481,1167,501,1168
+card-mac-dark.png,"span.kbd ""⇧⌘N""",569,1173,558,1169
+card-mac-dark.png,"p.lbl ""Waiting on"" (2)",465,1204,496,1208
+card-mac-dark.png,"p.none ""Nobody waits on anything.""",532,1229,539,1231
+card-mac-dark.png,"p.plabel ""Words: activity and delivery""",449,1270,531,1273
+card-mac-dark.png,"span.act ""Working"" (2)",489,1315,513,1319
+card-mac-dark.png,"span.act ""Idle"" (2)",578,1315,588,1318
+card-mac-dark.png,"span.act ""Blocked""",637,1315,662,1317
+card-mac-dark.png,"span.act ""Done""",723,1315,738,1317
+card-mac-dark.png,"span.act ""Unknown""",489,1341,517,1345
+card-mac-dark.png,"span.dl ""Queued: the PM gets it when it is free""",559,1369,590,1373
+card-mac-dark.png,"span.dl ""Delivered to the PM · 12:03""",486,1392,559,1395
+card-mac-dark.png,"span.dl ""Read by the PM · 12:05""",486,1415,548,1419
+card-mac-dark.png,"span.dl ""Not delivered (expired)""",501,1439,549,1441
+card-mac-dark.png,"p.plabel ""Compact window (overview under 640 px): one c…""",884,846,1018,838
+card-mac-dark.png,"span.id ""pm-1"" (5)",873,883,888,879
+card-mac-dark.png,"span.act ""Blocked"" (2)",941,883,958,879
+card-mac-dark.png,"span.since ""since 12:20 · 11 min""",1218,880,1166,879
+card-mac-dark.png,"p.lbl ""From the PM · 12:14"" (2)",873,917,929,920
+card-mac-dark.png,"button.mrow span.mt ""Plan-15 is in review. I asked architect-3 to …"" (2)",1163,945,1030,944
+card-mac-dark.png,"p.lbl ""You sent · 12:29""",873,1000,918,1004
+card-mac-dark.png,"button.mrow span.mt ""Use the new seed data too.""",1055,1032,965,1027
+card-mac-dark.png,"button.mrow span.dl ""Not delivered (cancelled)""",905,1047,959,1049
+card-mac-dark.png,"p.lbl ""Waiting on"" (3)",873,1084,904,1088
+card-mac-dark.png,"button.wrow span ""Worker reports"" (2)",878,1110,918,1113
+card-mac-dark.png,"button.wrow b ""3"" (2)",1093,1110,1090,1112
+card-mac-dark.png,"button.wrow span.wc ""· oldest 2 h 10 min"" (2)",1137,1111,1150,1113
+card-mac-dark.png,"button.wrow span ""You"" (2)",876,1143,883,1142
+card-mac-dark.png,"button.wrow b ""2"" (2)",1114,1138,1112,1140
+card-mac-dark.png,"button.wrow span.wc ""· oldest 12 min"" (2)",1158,1139,1160,1141
+stuck-ios-light.png,"p.phcap ""1 · Unread mail: the banner opens the PM card""",133,44,272,48
+stuck-ios-light.png,"button.gb ""Hosts""",127,139,148,146
+stuck-ios-light.png,"h1.lt ""payments-api""",315,182,202,195
+stuck-ios-light.png,"p.lsub ""build-host · ~/src/payments-api""",114,218,210,223
+stuck-ios-light.png,"h2.sech ""Project manager""",106,253,156,257
+stuck-ios-light.png,"b ""pm-1 looks stuck""",171,292,203,299
+stuck-ios-light.png,"span.bt ""It is idle while your message has waited unre…""",205,319,273,324
+stuck-ios-light.png,"button.ibtn ""PM messages""",230,382,285,389
+stuck-ios-light.png,"button.ibtn ""Pause project…""",223,434,286,440
+stuck-ios-light.png,"span.id ""pm-1""",136,496,123,501
+stuck-ios-light.png,"span.act ""Idle""",436,500,430,501
+stuck-ios-light.png,"span.since ""since 12:12 · 19 min""",151,518,178,523
+stuck-ios-light.png,"button.imsg span.ml ""You sent · 12:14""",106,562,154,565
+stuck-ios-light.png,"button.imsg span.mt ""Please hold plan-15 until finance signs off t…""",438,584,272,589
+stuck-ios-light.png,"button.imsg span.dl ""Queued: the PM gets it when it is free""",201,627,235,631
+stuck-ios-light.png,"p.isub ""Waiting on""",106,668,140,672
+stuck-ios-light.png,"button.ir span ""Worker reports""",106,698,165,705
+stuck-ios-light.png,"button.ir b ""3""",278,701,280,703
+stuck-ios-light.png,"button.ir span.rv ""· oldest 2 h 10 min""",308,700,353,705
+stuck-ios-light.png,"button.ir span ""You""",106,742,120,749
+stuck-ios-light.png,"button.ir b ""1""",364,744,362,749
+stuck-ios-light.png,"button.ir span.rv ""· 6 min""",383,747,395,749
+stuck-ios-light.png,"button.tab ""Waiting""",116,895,130,899
+stuck-ios-light.png,"button.tab ""Agents""",187,895,202,900
+stuck-ios-light.png,"button.tab ""Plans""",261,895,275,899
+stuck-ios-light.png,"button.tab ""Messages""",320,895,346,899
+stuck-ios-light.png,"button.tab ""Hosts""",403,895,417,900
+stuck-ios-light.png,"p.phcap ""2 · Local notification: title and project, no…""",563,44,701,48
+stuck-ios-light.png,"span.ldate ""Thursday 5 November""",594,142,701,149
+stuck-ios-light.png,"span.ltime ""12:31""",598,155,700,205
+stuck-ios-light.png,"span.nt ""PM looks stuck""",575,324,628,330
+stuck-ios-light.png,"span.nw ""now""",869,326,861,328
+stuck-ios-light.png,"span.ns ""payments-api""",622,347,620,349
+stuck-ios-light.png,"span.nt ""Command proposal""",645,410,643,416
+stuck-ios-light.png,"span.nw ""9 min ago""",868,415,844,414
+stuck-ios-light.png,"span.ns ""payments-api"" (2)",622,433,620,435
+stuck-ios-light.png,"p.phcap ""3 · Pause project… (the existing sheet; Cance…""",968,44,1126,48
+stuck-ios-light.png,"h2.h2 ""Pause payments-api?""",951,490,1065,498
+stuck-ios-light.png,"p ""Every agent of payments-api stops after its c…""",951,529,1101,534
+stuck-ios-light.png,"code ""cstan resume""",1233,573,1236,575
+stuck-ios-light.png,"label ""Reason (optional)""",951,622,1012,626
+stuck-ios-light.png,"button.ibtn ""Cancel""",1061,889,1035,895
+stuck-ios-light.png,"button.ibtn ""Pause project""",1162,889,1215,895
+stuck-ios-light.png,"p.plabel ""No progress""",84,979,74,986
+stuck-ios-light.png,"b ""pm-1 looks stuck"" (2)",122,1018,154,1028
+stuck-ios-light.png,"span.bt ""It shows as working but has made no progress …""",196,1043,261,1048
+stuck-ios-light.png,"button.ibtn ""PM messages"" (2)",96,1104,151,1111
+stuck-ios-light.png,"button.ibtn ""Pause project…"" (2)",289,1104,352,1110
+stuck-ios-light.png,"p.plabel ""Stopped at a prompt""",505,980,546,982
+stuck-ios-light.png,"b ""pm-1 looks stuck"" (3)",570,1018,601,1029
+stuck-ios-light.png,"span.bt ""It has been stopped at a prompt for 15 min, s…""",576,1043,704,1048
+stuck-ios-light.png,"button.ibtn ""PM messages"" (3)",544,1104,599,1111
+stuck-ios-light.png,"button.ibtn ""Pause project…"" (3)",737,1104,800,1110
+stuck-ios-light.png,"span.tag151 ""plan-151 · not built in plan-152""",977,980,1030,978
+stuck-ios-light.png,"p.plabel ""With Peek""",1132,983,1155,978
+stuck-ios-light.png,"b ""pm-1 looks stuck"" (4)",1018,1023,1050,1030
+stuck-ios-light.png,"span.bt ""It shows as working but has made no progress …"" (2)",1092,1048,1157,1053
+stuck-ios-light.png,"button.ibtn ""Peek""",1041,1109,1060,1116
+stuck-ios-light.png,"button.ibtn ""PM messages"" (4)",1192,1109,1247,1116
+stuck-ios-light.png,"button.ibtn ""Pause project…"" (4)",1085,1161,1148,1167
+stuck-ios-light.png,"input ""pm-1 looks stuck""",996,657,1028,663
+stuck-ios-dark.png,"p.phcap ""1 · Unread mail: the banner opens the PM card""",133,44,275,46
+stuck-ios-dark.png,"button.gb ""Hosts""",127,139,148,146
+stuck-ios-dark.png,"h1.lt ""payments-api""",315,182,202,195
+stuck-ios-dark.png,"p.lsub ""build-host · ~/src/payments-api""",114,218,210,223
+stuck-ios-dark.png,"h2.sech ""Project manager""",106,253,156,257
+stuck-ios-dark.png,"b ""pm-1 looks stuck""",171,292,203,299
+stuck-ios-dark.png,"span.bt ""It is idle while your message has waited unre…""",205,319,273,324
+stuck-ios-dark.png,"button.ibtn ""PM messages""",230,382,285,389
+stuck-ios-dark.png,"button.ibtn ""Pause project…""",223,434,286,440
+stuck-ios-dark.png,"span.id ""pm-1""",136,496,123,501
+stuck-ios-dark.png,"span.act ""Idle""",418,496,430,501
+stuck-ios-dark.png,"span.since ""since 12:12 · 19 min""",151,518,178,523
+stuck-ios-dark.png,"button.imsg span.ml ""You sent · 12:14""",106,562,154,565
+stuck-ios-dark.png,"button.imsg span.mt ""Please hold plan-15 until finance signs off t…""",114,584,272,589
+stuck-ios-dark.png,"button.imsg span.dl ""Queued: the PM gets it when it is free""",201,627,235,631
+stuck-ios-dark.png,"p.isub ""Waiting on""",106,668,140,672
+stuck-ios-dark.png,"button.ir span ""Worker reports""",106,698,165,705
+stuck-ios-dark.png,"button.ir b ""3""",278,701,280,703
+stuck-ios-dark.png,"button.ir span.rv ""· oldest 2 h 10 min""",308,700,353,705
+stuck-ios-dark.png,"button.ir span ""You""",106,742,120,749
+stuck-ios-dark.png,"button.ir b ""1""",364,744,362,749
+stuck-ios-dark.png,"button.ir span.rv ""· 6 min""",383,747,395,749
+stuck-ios-dark.png,"button.tab ""Waiting""",116,895,130,899
+stuck-ios-dark.png,"button.tab ""Agents""",187,895,202,900
+stuck-ios-dark.png,"button.tab ""Plans""",261,895,275,899
+stuck-ios-dark.png,"button.tab ""Messages""",320,895,346,899
+stuck-ios-dark.png,"button.tab ""Hosts""",403,895,417,900
+stuck-ios-dark.png,"p.phcap ""2 · Local notification: title and project, no…""",563,44,701,47
+stuck-ios-dark.png,"span.ldate ""Thursday 5 November""",594,142,701,149
+stuck-ios-dark.png,"span.ltime ""12:31""",598,155,700,205
+stuck-ios-dark.png,"span.nt ""PM looks stuck""",575,324,628,330
+stuck-ios-dark.png,"span.nw ""now""",850,326,861,328
+stuck-ios-dark.png,"span.ns ""payments-api""",622,347,620,349
+stuck-ios-dark.png,"span.nt ""Command proposal""",645,410,643,416
+stuck-ios-dark.png,"span.nw ""9 min ago""",820,414,844,414
+stuck-ios-dark.png,"span.ns ""payments-api"" (2)",622,433,620,435
+stuck-ios-dark.png,"p.phcap ""3 · Pause project… (the existing sheet; Cance…""",1301,44,1126,47
+stuck-ios-dark.png,"h2.h2 ""Pause payments-api?""",951,490,1065,498
+stuck-ios-dark.png,"p ""Every agent of payments-api stops after its c…""",951,529,1101,534
+stuck-ios-dark.png,"code ""cstan resume""",1233,573,1236,575
+stuck-ios-dark.png,"label ""Reason (optional)""",951,622,1012,626
+stuck-ios-dark.png,"button.ibtn ""Cancel""",1061,889,1035,895
+stuck-ios-dark.png,"button.ibtn ""Pause project""",1162,889,1215,895
+stuck-ios-dark.png,"p.plabel ""No progress""",41,979,62,981
+stuck-ios-dark.png,"b ""pm-1 looks stuck"" (2)",86,1030,154,1025
+stuck-ios-dark.png,"span.bt ""It shows as working but has made no progress …""",196,1043,261,1048
+stuck-ios-dark.png,"button.ibtn ""PM messages"" (2)",96,1104,151,1111
+stuck-ios-dark.png,"button.ibtn ""Pause project…"" (2)",289,1104,352,1110
+stuck-ios-dark.png,"p.plabel ""Stopped at a prompt""",491,985,550,975
+stuck-ios-dark.png,"b ""pm-1 looks stuck"" (3)",534,1034,602,1025
+stuck-ios-dark.png,"span.bt ""It has been stopped at a prompt for 15 min, s…""",576,1043,704,1048
+stuck-ios-dark.png,"button.ibtn ""PM messages"" (3)",544,1104,599,1111
+stuck-ios-dark.png,"button.ibtn ""Pause project…"" (3)",737,1104,800,1110
+stuck-ios-dark.png,"span.tag151 ""plan-151 · not built in plan-152""",945,991,1031,987
+stuck-ios-dark.png,"p.plabel ""With Peek""",1130,988,1155,979
+stuck-ios-dark.png,"b ""pm-1 looks stuck"" (4)",982,1036,1050,1030
+stuck-ios-dark.png,"span.bt ""It shows as working but has made no progress …"" (2)",1092,1048,1157,1053
+stuck-ios-dark.png,"button.ibtn ""Peek""",1041,1109,1060,1116
+stuck-ios-dark.png,"button.ibtn ""PM messages"" (4)",1192,1109,1247,1116
+stuck-ios-dark.png,"button.ibtn ""Pause project…"" (4)",1085,1161,1148,1167
+stuck-ios-dark.png,"input ""pm-1 looks stuck""",996,657,1028,663
+stuck-mac-light.png,"a ""Waiting for you""",94,108,134,111
+stuck-mac-light.png,"a span.badge ""7""",258,107,259,110
+stuck-mac-light.png,"a ""Agents""",92,142,109,146
+stuck-mac-light.png,"a span.badge ""12""",252,141,256,145
+stuck-mac-light.png,"a ""Plans""",90,176,106,179
+stuck-mac-light.png,"a span.badge ""4""",261,175,259,180
+stuck-mac-light.png,"a ""Messages to PM""",97,210,139,214
+stuck-mac-light.png,"a span.badge ""3""",260,213,259,212
+stuck-mac-light.png,"div.sh ""build-host""",65,249,94,252
+stuck-mac-light.png,"a ""payments-api""",97,285,137,286
+stuck-mac-light.png,"a span.sub ""PM stuck""",213,281,237,285
+stuck-mac-light.png,"a ""docs-site""",140,319,125,321
+stuck-mac-light.png,"a ""mobile-app""",97,353,132,355
+stuck-mac-light.png,"a span.sub ""paused""",223,352,243,353
+stuck-mac-light.png,"span.title ""payments-api""",411,65,362,70
+stuck-mac-light.png,"h1.h2 ""payments-api""",444,109,378,116
+stuck-mac-light.png,"span.path ""build-host · ~/src/payments-api""",331,144,424,140
+stuck-mac-light.png,"span.pill ""Moving""",340,158,360,162
+stuck-mac-light.png,"div.ovstat ""3 agents working · 2 wait for you""",404,162,499,164
+stuck-mac-light.png,"span.muted ""Live · updated 3 s ago""",670,160,669,162
+stuck-mac-light.png,"h2.grp ""Project manager""",314,193,360,197
+stuck-mac-light.png,"b ""pm-1 looks stuck""",384,232,409,235
+stuck-mac-light.png,"span.bt ""It shows as working but has made no progress …""",723,252,554,256
+stuck-mac-light.png,"button.btn ""PM messages""",393,283,433,286
+stuck-mac-light.png,"button.btn ""Pause project…""",516,283,563,287
+stuck-mac-light.png,"span.id ""pm-1""",356,331,345,335
+stuck-mac-light.png,"span.act ""Working""",389,332,413,336
+stuck-mac-light.png,"span.since ""since 11:58 · 33 min""",1120,330,1142,334
+stuck-mac-light.png,"p.lbl ""From the PM · 12:05""",330,373,386,377
+stuck-mac-light.png,"button.mrow span.mt ""Starting the integration of plan-14 now.""",385,401,473,403
+stuck-mac-light.png,"p.lbl ""You sent · 12:02""",330,440,375,444
+stuck-mac-light.png,"button.mrow span.mt ""Please hold plan-15 until finance signs off t…""",331,470,548,469
+stuck-mac-light.png,"button.mrow span.dl ""Read by the PM · 12:03""",347,486,412,490
+stuck-mac-light.png,"p.lbl ""Waiting on""",877,373,904,377
+stuck-mac-light.png,"button.wrow span ""Worker reports""",883,400,917,404
+stuck-mac-light.png,"button.wrow b ""3""",1069,400,1067,405
+stuck-mac-light.png,"button.wrow span.wc ""· oldest 2 h 10 min""",1144,399,1126,403
+stuck-mac-light.png,"button.wrow span ""Verify runs""",896,430,904,432
+stuck-mac-light.png,"button.wrow b ""1""",1127,427,1128,431
+stuck-mac-light.png,"button.wrow span.wc ""· 31 min""",1152,427,1155,431
+stuck-mac-light.png,"button.wrow span ""You""",890,464,883,460
+stuck-mac-light.png,"button.wrow b ""2""",1090,456,1088,458
+stuck-mac-light.png,"button.wrow span.wc ""· oldest 12 min""",1144,455,1136,459
+stuck-mac-light.png,"p.plabel ""Notification: a title and the project, no body""",87,839,165,845
+stuck-mac-light.png,"span.nt ""PM looks stuck""",97,875,144,880
+stuck-mac-light.png,"span.nw ""now""",387,878,397,878
+stuck-mac-light.png,"span.ns ""payments-api""",142,894,134,896
+stuck-mac-light.png,"p.plabel ""Menu bar: the existing count only""",41,935,137,939
+stuck-mac-light.png,"span ""Finder""",54,969,70,973
+stuck-mac-light.png,"span.mbx ""7""",331,969,333,972
+stuck-mac-light.png,"span ""Thu 12:31""",355,969,383,973
+stuck-mac-light.png,"p.plabel ""Unread mail""",449,841,482,845
+stuck-mac-light.png,"b ""pm-1 looks stuck"" (2)",519,875,544,879
+stuck-mac-light.png,"span.bt ""It is idle while your message has waited unre…""",786,895,642,899
+stuck-mac-light.png,"button.btn ""PM messages"" (2)",506,940,547,942
+stuck-mac-light.png,"button.btn ""Pause project…"" (2)",629,940,676,943
+stuck-mac-light.png,"p.plabel ""Stopped at a prompt""",457,990,506,993
+stuck-mac-light.png,"b ""pm-1 looks stuck"" (3)",519,1029,544,1033
+stuck-mac-light.png,"span.bt ""It has been stopped at a prompt for 15 min, s…""",696,1049,651,1053
+stuck-mac-light.png,"button.btn ""PM messages"" (3)",506,1094,547,1096
+stuck-mac-light.png,"button.btn ""Pause project…"" (3)",629,1094,676,1097
+stuck-mac-light.png,"span.tag151 ""plan-151 · not built in plan-152""",865,841,950,836
+stuck-mac-light.png,"p.plabel ""With Peek""",1052,841,1075,836
+stuck-mac-light.png,"b ""pm-1 looks stuck"" (4)",927,880,952,884
+stuck-mac-light.png,"span.bt ""It shows as working but has made no progress …"" (2)",902,902,1049,904
+stuck-mac-light.png,"button.btn ""Peek""",936,945,949,948
+stuck-mac-light.png,"button.btn ""PM messages"" (4)",1002,945,1043,948
+stuck-mac-light.png,"button.btn ""Pause project…"" (4)",914,981,961,984
+stuck-mac-light.png,"p.plabel ""Recovered: the banner goes; nothing else is s…""",857,1030,1002,1035
+stuck-mac-light.png,"span.id ""pm-1"" (2)",899,1070,888,1074
+stuck-mac-light.png,"span.act ""Working"" (2)",932,1071,956,1075
+stuck-mac-light.png,"span.since ""since 12:33 · 1 min""",1152,1070,1169,1074
+stuck-mac-dark.png,"a ""Waiting for you""",94,108,134,111
+stuck-mac-dark.png,"a span.badge ""7""",258,107,259,110
+stuck-mac-dark.png,"a ""Agents""",92,142,109,146
+stuck-mac-dark.png,"a span.badge ""12""",252,141,256,145
+stuck-mac-dark.png,"a ""Plans""",90,176,106,179
+stuck-mac-dark.png,"a span.badge ""4""",261,175,259,180
+stuck-mac-dark.png,"a ""Messages to PM""",97,210,139,214
+stuck-mac-dark.png,"a span.badge ""3""",260,213,259,212
+stuck-mac-dark.png,"div.sh ""build-host""",65,249,94,252
+stuck-mac-dark.png,"a ""payments-api""",97,285,137,286
+stuck-mac-dark.png,"a span.sub ""PM stuck""",213,281,237,285
+stuck-mac-dark.png,"a ""docs-site""",140,319,125,321
+stuck-mac-dark.png,"a ""mobile-app""",97,353,132,355
+stuck-mac-dark.png,"a span.sub ""paused""",223,352,243,353
+stuck-mac-dark.png,"span.title ""payments-api""",411,65,362,70
+stuck-mac-dark.png,"h1.h2 ""payments-api""",444,109,378,116
+stuck-mac-dark.png,"span.path ""build-host · ~/src/payments-api""",331,144,424,140
+stuck-mac-dark.png,"span.pill ""Moving""",340,158,360,162
+stuck-mac-dark.png,"div.ovstat ""3 agents working · 2 wait for you""",404,162,499,164
+stuck-mac-dark.png,"span.muted ""Live · updated 3 s ago""",670,160,669,162
+stuck-mac-dark.png,"h2.grp ""Project manager""",314,193,360,197
+stuck-mac-dark.png,"b ""pm-1 looks stuck""",384,232,409,235
+stuck-mac-dark.png,"span.bt ""It shows as working but has made no progress …""",723,252,554,256
+stuck-mac-dark.png,"button.btn ""PM messages""",393,283,433,286
+stuck-mac-dark.png,"button.btn ""Pause project…""",516,283,563,287
+stuck-mac-dark.png,"span.id ""pm-1""",356,331,345,335
+stuck-mac-dark.png,"span.act ""Working""",389,332,413,336
+stuck-mac-dark.png,"span.since ""since 11:58 · 33 min""",1120,330,1142,334
+stuck-mac-dark.png,"p.lbl ""From the PM · 12:05""",330,373,386,377
+stuck-mac-dark.png,"button.mrow span.mt ""Starting the integration of plan-14 now.""",385,401,473,403
+stuck-mac-dark.png,"p.lbl ""You sent · 12:02""",330,440,375,444
+stuck-mac-dark.png,"button.mrow span.mt ""Please hold plan-15 until finance signs off t…""",331,470,548,469
+stuck-mac-dark.png,"button.mrow span.dl ""Read by the PM · 12:03""",347,486,412,490
+stuck-mac-dark.png,"p.lbl ""Waiting on""",877,373,904,377
+stuck-mac-dark.png,"button.wrow span ""Worker reports""",883,400,917,404
+stuck-mac-dark.png,"button.wrow b ""3""",1069,400,1067,405
+stuck-mac-dark.png,"button.wrow span.wc ""· oldest 2 h 10 min""",1113,401,1126,403
+stuck-mac-dark.png,"button.wrow span ""Verify runs""",896,430,904,432
+stuck-mac-dark.png,"button.wrow b ""1""",1127,427,1128,431
+stuck-mac-dark.png,"button.wrow span.wc ""· 31 min""",1152,427,1155,431
+stuck-mac-dark.png,"button.wrow span ""You""",890,464,883,460
+stuck-mac-dark.png,"button.wrow b ""2""",1090,456,1088,458
+stuck-mac-dark.png,"button.wrow span.wc ""· oldest 12 min""",1134,457,1136,459
+stuck-mac-dark.png,"p.plabel ""Notification: a title and the project, no body""",41,843,165,845
+stuck-mac-dark.png,"span.nt ""PM looks stuck""",97,875,144,880
+stuck-mac-dark.png,"span.nw ""now""",387,878,397,878
+stuck-mac-dark.png,"span.ns ""payments-api""",142,894,134,896
+stuck-mac-dark.png,"p.plabel ""Menu bar: the existing count only""",41,935,137,939
+stuck-mac-dark.png,"span ""Finder""",54,969,70,973
+stuck-mac-dark.png,"span.mbx ""7""",331,969,333,972
+stuck-mac-dark.png,"span ""Thu 12:31""",355,969,383,973
+stuck-mac-dark.png,"p.plabel ""Unread mail""",458,843,482,845
+stuck-mac-dark.png,"b ""pm-1 looks stuck"" (2)",491,882,544,879
+stuck-mac-dark.png,"span.bt ""It is idle while your message has waited unre…""",494,897,642,899
+stuck-mac-dark.png,"button.btn ""PM messages"" (2)",506,940,547,942
+stuck-mac-dark.png,"button.btn ""Pause project…"" (2)",629,940,676,943
+stuck-mac-dark.png,"p.plabel ""Stopped at a prompt""",457,990,506,993
+stuck-mac-dark.png,"b ""pm-1 looks stuck"" (3)",519,1029,544,1033
+stuck-mac-dark.png,"span.bt ""It has been stopped at a prompt for 15 min, s…""",696,1049,651,1053
+stuck-mac-dark.png,"button.btn ""PM messages"" (3)",506,1094,547,1096
+stuck-mac-dark.png,"button.btn ""Pause project…"" (3)",629,1094,676,1097
+stuck-mac-dark.png,"span.tag151 ""plan-151 · not built in plan-152""",865,849,950,835
+stuck-mac-dark.png,"p.plabel ""With Peek""",1050,846,1075,837
+stuck-mac-dark.png,"b ""pm-1 looks stuck"" (4)",899,887,952,884
+stuck-mac-dark.png,"span.bt ""It shows as working but has made no progress …"" (2)",902,902,1049,904
+stuck-mac-dark.png,"button.btn ""Peek""",936,945,949,948
+stuck-mac-dark.png,"button.btn ""PM messages"" (4)",1002,945,1043,948
+stuck-mac-dark.png,"button.btn ""Pause project…"" (4)",914,981,961,984
+stuck-mac-dark.png,"p.plabel ""Recovered: the banner goes; nothing else is s…""",857,1030,1002,1035
+stuck-mac-dark.png,"span.id ""pm-1"" (2)",899,1070,888,1074
+stuck-mac-dark.png,"span.act ""Working"" (2)",932,1071,956,1075
+stuck-mac-dark.png,"span.since ""since 12:33 · 1 min""",1152,1070,1169,1074
+peek-ios-light.png,"p.phcap ""1 · Peek sheet (large detent): the last 40 li…""",137,44,273,48
+peek-ios-light.png,"h2.navt ""pm-1 screen""",261,168,274,174
+peek-ios-light.png,"button.gb ""Done""",397,168,418,174
+peek-ios-light.png,"span.nv ""Not verified""",122,216,158,220
+peek-ios-light.png,"span ""Captured""",241,214,244,217
+peek-ios-light.png,"b ""12:31:07""",279,213,304,217
+peek-ios-light.png,"span ""3 values masked""",401,215,396,217
+peek-ios-light.png,"div.ut-h ""Terminal of pm-1 · untrusted text · scrolls""",128,255,255,259
+peek-ios-light.png,"pre ""● Bash(cstan inbox) 1 message waits for you (…""",126,291,184,295
+peek-ios-light.png,"span.mask ""[masked]""",286,452,298,451
+peek-ios-light.png,"span.mask ""[masked]"" (2)",247,471,259,470
+peek-ios-light.png,"span.mask ""[masked]"" (3)",130,510,142,509
+peek-ios-light.png,"p.ifoot ""Masking is best effort. This text is not kept…""",106,819,270,822
+peek-ios-light.png,"button.ibtn ""Refresh""",256,881,286,887
+peek-ios-light.png,"p.phcap ""2 · Off: how to turn on [remote] peek""",727,43,699,48
+peek-ios-light.png,"h2.navt ""pm-1 screen"" (2)",687,168,700,174
+peek-ios-light.png,"button.gb ""Done"" (2)",823,168,844,174
+peek-ios-light.png,"b ""Screen peek is off for payments-api""",634,261,687,268
+peek-ios-light.png,"p ""Peek shows the last lines of the PM's termina…""",541,292,670,297
+peek-ios-light.png,"pre ""[remote] peek = true""",560,414,582,416
+peek-ios-light.png,"p ""Then tap Try again. Optional""",540,468,641,473
+peek-ios-light.png,"code ""peek_patterns""",799,472,794,474
+peek-ios-light.png,"button.ibtn ""Try again""",663,881,698,887
+peek-ios-light.png,"p.phcap ""3 · Rate limited: the old text stays; Refresh…""",996,44,1125,48
+peek-ios-light.png,"h2.navt ""pm-1 screen"" (3)",1113,168,1126,174
+peek-ios-light.png,"button.gb ""Done"" (3)",1249,168,1270,174
+peek-ios-light.png,"span.nv ""Not verified"" (2)",974,216,1010,220
+peek-ios-light.png,"span ""Captured"" (2)",1093,214,1096,217
+peek-ios-light.png,"b ""12:31:07"" (2)",1131,213,1156,217
+peek-ios-light.png,"b ""Too many peeks""",990,261,1047,267
+peek-ios-light.png,"span.bt ""build-host allows 6 a minute and one every 5 …""",1012,285,1119,291
+peek-ios-light.png,"div.ut-h ""Terminal of pm-1 · untrusted text · scrolls"" (2)",980,356,1107,360
+peek-ios-light.png,"pre ""● Bash(npm run test:integration -- --filter w…""",978,391,1106,395
+peek-ios-light.png,"button.ibtn ""Refresh in 4 s""",1072,881,1127,887
+peek-ios-light.png,"p.plabel ""Entry: Peek on the PM card (plan-151 adds it)""",140,982,169,987
+peek-ios-light.png,"span.id ""pm-1""",87,1019,74,1024
+peek-ios-light.png,"span.act ""Working""",388,1019,417,1027
+peek-ios-light.png,"span.since ""since 11:58 · 33 min""",102,1040,130,1045
+peek-ios-light.png,"button.ir span ""Peek at the screen""",84,1085,152,1091
+peek-ios-light.png,"button.ir span.rv ""on request""",393,1089,389,1091
+peek-ios-light.png,"p.plabel ""Loading: one read, nothing streams""",41,1132,144,1136
+peek-ios-light.png,"span.spinrow ""Reading pm-1's screen on build-host…""",80,1176,214,1180
+peek-ios-light.png,"p.plabel ""No PM""",509,977,505,983
+peek-ios-light.png,"b ""No PM to peek at""",533,1020,574,1028
+peek-ios-light.png,"p ""payments-api has no active PM right now.""",607,1049,653,1054
+peek-ios-light.png,"p.plabel ""No pane""",489,1099,511,1103
+peek-ios-light.png,"b ""pm-1 has no terminal pane""",542,1142,613,1149
+peek-ios-light.png,"p ""The host cannot read a screen for this PM, so…""",505,1171,693,1176
+peek-ios-light.png,"p.plabel ""Refused (forbidden, unauthorized)""",937,979,1036,987
+peek-ios-light.png,"b ""build-host refused the peek""",954,1020,1065,1029
+peek-ios-light.png,"p ""Only the host's operator may peek, and this i…""",1229,1049,1140,1054
+peek-ios-light.png,"p.plabel ""Older host""",972,1118,966,1122
+peek-ios-light.png,"b ""build-host cannot peek yet""",954,1161,1062,1168
+peek-ios-light.png,"p ""Its Capstan has no peek command. Update Capst…""",1207,1190,1147,1195
+peek-ios-light.png,"p.plabel ""No answer""",937,1259,966,1263
+peek-ios-light.png,"b ""build-host did not answer""",954,1302,1057,1308
+peek-ios-light.png,"p ""Nothing was read. Check the connection and tr…""",954,1331,1148,1336
+peek-ios-light.png,"button.ibtn ""Retry""",972,1369,991,1376
+peek-ios-dark.png,"p.phcap ""1 · Peek sheet (large detent): the last 40 li…""",137,44,273,45
+peek-ios-dark.png,"h2.navt ""pm-1 screen""",261,168,274,174
+peek-ios-dark.png,"button.gb ""Done""",397,168,418,174
+peek-ios-dark.png,"span.nv ""Not verified""",122,216,158,220
+peek-ios-dark.png,"span ""Captured""",241,214,244,217
+peek-ios-dark.png,"b ""12:31:07""",279,213,304,217
+peek-ios-dark.png,"span ""3 values masked""",401,215,396,217
+peek-ios-dark.png,"div.ut-h ""Terminal of pm-1 · untrusted text · scrolls""",128,255,255,259
+peek-ios-dark.png,"pre ""● Bash(cstan inbox) 1 message waits for you (…""",126,291,184,295
+peek-ios-dark.png,"span.mask ""[masked]""",286,452,298,451
+peek-ios-dark.png,"span.mask ""[masked]"" (2)",247,471,259,470
+peek-ios-dark.png,"span.mask ""[masked]"" (3)",130,510,142,509
+peek-ios-dark.png,"p.ifoot ""Masking is best effort. This text is not kept…""",106,819,270,822
+peek-ios-dark.png,"button.ibtn ""Refresh""",256,881,286,887
+peek-ios-dark.png,"p.phcap ""2 · Off: how to turn on [remote] peek""",727,43,702,46
+peek-ios-dark.png,"h2.navt ""pm-1 screen"" (2)",687,168,700,174
+peek-ios-dark.png,"button.gb ""Done"" (2)",823,168,844,174
+peek-ios-dark.png,"b ""Screen peek is off for payments-api""",634,261,687,268
+peek-ios-dark.png,"p ""Peek shows the last lines of the PM's termina…""",541,292,670,297
+peek-ios-dark.png,"pre ""[remote] peek = true""",560,414,582,416
+peek-ios-dark.png,"p ""Then tap Try again. Optional""",540,468,641,473
+peek-ios-dark.png,"code ""peek_patterns""",799,472,794,474
+peek-ios-dark.png,"button.ibtn ""Try again""",663,881,698,887
+peek-ios-dark.png,"p.phcap ""3 · Rate limited: the old text stays; Refresh…""",996,44,1127,46
+peek-ios-dark.png,"h2.navt ""pm-1 screen"" (3)",1113,168,1126,174
+peek-ios-dark.png,"button.gb ""Done"" (3)",1249,168,1270,174
+peek-ios-dark.png,"span.nv ""Not verified"" (2)",974,216,1010,220
+peek-ios-dark.png,"span ""Captured"" (2)",1093,214,1096,217
+peek-ios-dark.png,"b ""12:31:07"" (2)",1131,213,1156,217
+peek-ios-dark.png,"b ""Too many peeks""",990,261,1047,267
+peek-ios-dark.png,"span.bt ""build-host allows 6 a minute and one every 5 …""",1012,285,1119,291
+peek-ios-dark.png,"div.ut-h ""Terminal of pm-1 · untrusted text · scrolls"" (2)",980,356,1107,360
+peek-ios-dark.png,"pre ""● Bash(npm run test:integration -- --filter w…""",978,391,1106,395
+peek-ios-dark.png,"button.ibtn ""Refresh in 4 s""",1072,881,1127,887
+peek-ios-dark.png,"p.plabel ""Entry: Peek on the PM card (plan-151 adds it)""",41,979,169,987
+peek-ios-dark.png,"span.id ""pm-1""",62,1023,74,1024
+peek-ios-dark.png,"span.act ""Working""",445,1023,417,1024
+peek-ios-dark.png,"span.since ""since 11:58 · 33 min""",102,1040,130,1045
+peek-ios-dark.png,"button.ir span ""Peek at the screen""",84,1085,152,1091
+peek-ios-dark.png,"button.ir span.rv ""on request""",393,1089,389,1091
+peek-ios-dark.png,"p.plabel ""Loading: one read, nothing streams""",41,1132,144,1136
+peek-ios-dark.png,"span.spinrow ""Reading pm-1's screen on build-host…""",80,1176,214,1180
+peek-ios-dark.png,"p.plabel ""No PM""",489,985,507,981
+peek-ios-dark.png,"b ""No PM to peek at""",506,1029,574,1027
+peek-ios-dark.png,"p ""payments-api has no active PM right now.""",607,1049,653,1054
+peek-ios-dark.png,"p.plabel ""No pane""",489,1099,511,1103
+peek-ios-dark.png,"b ""pm-1 has no terminal pane""",542,1142,613,1149
+peek-ios-dark.png,"p ""The host cannot read a screen for this PM, so…""",505,1171,693,1176
+peek-ios-dark.png,"p.plabel ""Refused (forbidden, unauthorized)""",937,985,1036,987
+peek-ios-dark.png,"b ""build-host refused the peek""",954,1023,1065,1027
+peek-ios-dark.png,"p ""Only the host's operator may peek, and this i…""",1229,1049,1140,1054
+peek-ios-dark.png,"p.plabel ""Older host""",972,1118,966,1122
+peek-ios-dark.png,"b ""build-host cannot peek yet""",954,1161,1062,1168
+peek-ios-dark.png,"p ""Its Capstan has no peek command. Update Capst…""",1207,1190,1147,1195
+peek-ios-dark.png,"p.plabel ""No answer""",937,1259,966,1263
+peek-ios-dark.png,"b ""build-host did not answer""",954,1302,1057,1308
+peek-ios-dark.png,"p ""Nothing was read. Check the connection and tr…""",954,1331,1148,1336
+peek-ios-dark.png,"button.ibtn ""Retry""",972,1369,991,1376
+peek-mac-light.png,"h2.h3 ""pm-1 screen · payments-api""",317,117,385,122
+peek-mac-light.png,"span.nv ""Not verified""",524,118,556,122
+peek-mac-light.png,"span.note ""Captured 12:31:07 · 40 lines · 3 values masked""",830,118,864,122
+peek-mac-light.png,"div.ut-h ""Terminal of pm-1 · untrusted text · scrolls""",315,157,442,161
+peek-mac-light.png,"pre ""● Bash(cstan status) plan-15 in review round …""",298,195,368,195
+peek-mac-light.png,"span.mask ""[masked]""",472,341,471,339
+peek-mac-light.png,"span.mask ""[masked]"" (2)",436,359,435,357
+peek-mac-light.png,"span.mask ""[masked]"" (3)",562,378,571,375
+peek-mac-light.png,"p.note ""Masking is best effort. The text is not kept:…""",415,682,502,686
+peek-mac-light.png,"button.btn ""Refresh""",322,717,344,721
+peek-mac-light.png,"button.btn span.kbd ""⌘R""",394,718,389,721
+peek-mac-light.png,"button.btn ""Done""",951,717,966,721
+peek-mac-light.png,"p.plabel ""Entry: Peek in the PM card header (plan-151)""",79,838,168,845
+peek-mac-light.png,"span.id ""pm-1""",83,881,72,884
+peek-mac-light.png,"span.act ""Working""",116,881,140,885
+peek-mac-light.png,"span.since ""since 11:58 · 33 min""",239,881,261,884
+peek-mac-light.png,"button.btn ""Peek""",365,881,378,883
+peek-mac-light.png,"p.plabel ""Off""",42,931,49,935
+peek-mac-light.png,"b.h3 ""Screen peek is off for payments-api""",156,974,189,979
+peek-mac-light.png,"p.note ""Peek shows the last lines of the PM's termina…""",62,1005,227,1009
+peek-mac-light.png,"pre ""[remote] peek = true""",82,1100,101,1098
+peek-mac-light.png,"p.note ""Then choose Try again.""",61,1152,129,1156
+peek-mac-light.png,"code ""peek_patterns""",257,1155,243,1156
+peek-mac-light.png,"button.btn ""Try again""",265,1204,294,1207
+peek-mac-light.png,"button.btn ""Done"" (2)",359,1204,374,1207
+peek-mac-light.png,"p.plabel ""Loading""",449,841,471,833
+peek-mac-light.png,"span.spinrow ""Reading pm-1's screen on build-host…""",492,878,598,882
+peek-mac-light.png,"p.plabel ""Rate limited: the old text stays""",448,985,535,979
+peek-mac-light.png,"b ""Too many peeks""",507,1030,556,1034
+peek-mac-light.png,"span.bt ""build-host allows 6 a minute and one every 5 …""",755,1048,640,1052
+peek-mac-light.png,"button.btn ""Refresh in 4 s""",484,1110,525,1114
+peek-mac-light.png,"button.btn ""Done"" (3)",767,1110,782,1114
+peek-mac-light.png,"p.plabel ""No PM · no pane""",451,1175,497,1168
+peek-mac-light.png,"b.h3 ""No PM to peek at""",470,1208,529,1213
+peek-mac-light.png,"p.note ""payments-api has no active PM right now.""",630,1238,587,1242
+peek-mac-light.png,"b.h3 ""pm-1 has no terminal pane""",501,1268,564,1273
+peek-mac-light.png,"p.note ""The host cannot read a screen for this PM, so…""",469,1298,619,1302
+peek-mac-light.png,"p.plabel ""Refused (forbidden, unauthorized)""",857,841,957,839
+peek-mac-light.png,"b.h3 ""build-host refused the peek""",896,879,978,884
+peek-mac-light.png,"p.note ""Only the host's operator may peek, and this M…""",1128,910,1047,914
+peek-mac-light.png,"p.plabel ""Older host""",859,986,884,979
+peek-mac-light.png,"b.h3 ""build-host cannot peek yet""",896,1019,975,1025
+peek-mac-light.png,"p.note ""Its Capstan has no peek command. Update Capst…""",880,1052,1032,1054
+peek-mac-light.png,"p.plabel ""No answer""",873,1125,887,1118
+peek-mac-light.png,"b.h3 ""build-host did not answer""",896,1159,967,1164
+peek-mac-light.png,"p.note ""Nothing was read. Check the connection and tr…""",893,1192,1033,1193
+peek-mac-light.png,"button.btn ""Retry""",1175,1225,1188,1228
+peek-mac-dark.png,"h2.h3 ""pm-1 screen · payments-api""",317,118,385,122
+peek-mac-dark.png,"span.nv ""Not verified""",524,119,556,123
+peek-mac-dark.png,"span.note ""Captured 12:31:07 · 40 lines · 3 values masked""",830,119,864,122
+peek-mac-dark.png,"div.ut-h ""Terminal of pm-1 · untrusted text · scrolls""",315,158,442,162
+peek-mac-dark.png,"pre ""● Bash(cstan status) plan-15 in review round …""",298,196,368,195
+peek-mac-dark.png,"span.mask ""[masked]""",472,342,471,339
+peek-mac-dark.png,"span.mask ""[masked]"" (2)",436,360,435,357
+peek-mac-dark.png,"span.mask ""[masked]"" (3)",591,376,571,375
+peek-mac-dark.png,"p.note ""Masking is best effort. The text is not kept:…""",415,683,503,686
+peek-mac-dark.png,"button.btn ""Refresh""",322,718,344,722
+peek-mac-dark.png,"button.btn span.kbd ""⌘R""",394,719,389,722
+peek-mac-dark.png,"button.btn ""Done""",951,718,966,721
+peek-mac-dark.png,"p.plabel ""Entry: Peek in the PM card header (plan-151)""",41,844,168,837
+peek-mac-dark.png,"span.id ""pm-1""",57,884,72,885
+peek-mac-dark.png,"span.act ""Working""",125,888,140,886
+peek-mac-dark.png,"span.since ""since 11:58 · 33 min""",205,889,261,885
+peek-mac-dark.png,"button.btn ""Peek""",380,885,378,883
+peek-mac-dark.png,"p.plabel ""Off""",42,932,49,932
+peek-mac-dark.png,"b.h3 ""Screen peek is off for payments-api""",156,975,190,979
+peek-mac-dark.png,"p.note ""Peek shows the last lines of the PM's termina…""",62,1005,227,1009
+peek-mac-dark.png,"pre ""[remote] peek = true""",82,1101,101,1099
+peek-mac-dark.png,"p.note ""Then choose Try again.""",61,1153,129,1157
+peek-mac-dark.png,"code ""peek_patterns""",257,1156,243,1155
+peek-mac-dark.png,"button.btn ""Try again""",265,1205,292,1206
+peek-mac-dark.png,"button.btn ""Done"" (2)",388,1209,373,1207
+peek-mac-dark.png,"p.plabel ""Loading""",449,844,471,837
+peek-mac-dark.png,"span.spinrow ""Reading pm-1's screen on build-host…""",492,883,599,881
+peek-mac-dark.png,"p.plabel ""Rate limited: the old text stays""",449,976,535,973
+peek-mac-dark.png,"b ""Too many peeks""",507,1031,557,1032
+peek-mac-dark.png,"span.bt ""build-host allows 6 a minute and one every 5 …""",755,1049,640,1052
+peek-mac-dark.png,"button.btn ""Refresh in 4 s""",484,1111,525,1115
+peek-mac-dark.png,"button.btn ""Done"" (3)",788,1114,782,1114
+peek-mac-dark.png,"p.plabel ""No PM · no pane""",449,1165,499,1171
+peek-mac-dark.png,"b.h3 ""No PM to peek at""",470,1209,529,1214
+peek-mac-dark.png,"p.note ""payments-api has no active PM right now.""",630,1239,587,1242
+peek-mac-dark.png,"b.h3 ""pm-1 has no terminal pane""",501,1269,564,1274
+peek-mac-dark.png,"p.note ""The host cannot read a screen for this PM, so…""",469,1299,619,1303
+peek-mac-dark.png,"p.plabel ""Refused (forbidden, unauthorized)""",857,844,956,837
+peek-mac-dark.png,"b.h3 ""build-host refused the peek""",878,888,978,884
+peek-mac-dark.png,"p.note ""Only the host's operator may peek, and this M…""",1128,910,1047,914
+peek-mac-dark.png,"p.plabel ""Older host""",858,977,886,980
+peek-mac-dark.png,"b.h3 ""build-host cannot peek yet""",896,1020,975,1026
+peek-mac-dark.png,"p.note ""Its Capstan has no peek command. Update Capst…""",880,1053,1032,1055
+peek-mac-dark.png,"p.plabel ""No answer""",857,1116,886,1120
+peek-mac-dark.png,"b.h3 ""build-host did not answer""",896,1160,968,1163
+peek-mac-dark.png,"p.note ""Nothing was read. Check the connection and tr…""",893,1193,1032,1193
+peek-mac-dark.png,"button.btn ""Retry""",1175,1226,1188,1229

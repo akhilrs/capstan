@@ -40,8 +40,9 @@ The secret is read again for every send, so you can rotate a `token_file` withou
 | `agent_lost` | an agent is gone |
 | `verify_failed` | a verify run failed |
 | `integration_conflicted` | an integration hit a conflict |
+| `pm_stuck` | the PM has waited too long (unread mail, no progress or a prompt; see `pm_stuck_minutes`) |
 
-`events` selects which of these notify (all by default). Priorities, tags and click links per event are in [Configuration](configuration.md#push-notifications-ntfy). The `test` message of `cstan notify test` is always allowed and is not an event you can select.
+`events` selects which of these notify (all by default, `pm_stuck` included). An explicit list notifies only for the events it names, so add `pm_stuck` to a list written before this event existed. The message names the project (in the title prefix), the PM and the reason with the minutes, nothing else, and is sent with high priority. One stuck episode is pushed once; the same PM becoming stuck again within 30 minutes of an alerting episode raises the event for the feed but is not pushed. Priorities, tags and click links per event are in [Configuration](configuration.md#push-notifications-ntfy). The `test` message of `cstan notify test` is always allowed and is not an event you can select.
 
 ## Requirements
 

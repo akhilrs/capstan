@@ -1,0 +1,27 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "pm-1",
+    "effects": [
+      {
+        "fields": {},
+        "key": "run",
+        "op": "invalidate",
+        "section": "run"
+      }
+    ],
+    "episodeId": "stuck-<id:2>",
+    "reason": "recovered"
+  },
+  "entity": {
+    "id": "pm-1",
+    "type": "agent"
+  },
+  "from": "open",
+  "id": "prustonly:daeca3b2245f3519:23",
+  "k": 0,
+  "seq": 23,
+  "to": "recovered",
+  "ts": "<ts>",
+  "type": "pm.recovered"
+}

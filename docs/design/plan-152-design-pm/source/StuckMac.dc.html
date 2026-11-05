@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stuck · Mac</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="p152.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="2">
+<p class="cap">stuck · Mac — banner on the PM card (no progress), PM messages and Pause project; the notification and the menu bar carry no host text — {{t.label}}</p>
+<div class="{{t.cls}} desk" data-shot="stuck-mac-{{t.cls}}">
+<div class="win two">
+  <nav class="side glass" aria-label="Sidebar">
+    <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+    <ul class="nav">
+      <li><a href="#inbox"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>Waiting for you<span class="badge">7</span></a></li>
+      <li><a href="#agents"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13c.6-2.3 2.2-3.5 4.2-3.5s3.6 1.2 4.2 3.5"/></svg>Agents<span class="badge">12</span></a></li>
+      <li><a href="#plans"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11.5" rx="2"/><path d="M6 6h4M6 8.5h4M6 11h2.5"/></svg>Plans<span class="badge">4</span></a></li>
+      <li><a href="#messages"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>Messages to PM<span class="badge">3</span></a></li>
+    </ul>
+    <div class="sh">build-host</div>
+    <ul class="nav">
+      <li><a class="in on" href="#p1" aria-current="page"><span class="dot s-warn" aria-hidden="true"></span>payments-api<span class="sub">PM stuck</span></a></li>
+      <li><a class="in" href="#p2"><span class="dot s-live" aria-hidden="true"></span>docs-site</a></li>
+      <li><a class="in" href="#p3"><span class="dot s-off" aria-hidden="true"></span>mobile-app<span class="sub">paused</span></a></li>
+    </ul>
+  </nav>
+  <section class="mid" aria-label="Overview of payments-api">
+    <div class="tb">
+      <div class="capg glass"><span class="title">payments-api</span></div>
+      <div class="capg glass" style="margin-left:auto"><button class="tbtn" type="button" aria-label="Message PM" title="Message PM (⇧⌘N)"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M13.5 8.5V13a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1H8"/><path d="m11.5 2 2.5 2.5L8.5 10H6V7.5z"/></svg></button><button class="tbtn" type="button" aria-label="More actions"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button></div>
+    </div>
+    <div class="ovw">
+      <div class="ovh"><h1 class="h2" style="margin:0">payments-api</h1><span class="path">build-host · ~/src/payments-api</span>
+        <div class="ovstat"><span class="pill p-green"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 8h3l2-4 2 8 2-4h3"/></svg>Moving</span>3 agents working · 2 wait for you<span class="muted">Live · updated 3 s ago</span></div></div>
+      <div class="sblk">
+        <h2 class="grp" style="margin:0">Project manager</h2>
+        <div class="pmc stuck">
+          <div class="stuckb" role="alert"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It shows as working but has made no progress for 22 min, since 12:09.</span>
+            <span class="bb"><button class="btn is-focus" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3.5h12v8H6l-3 2.5v-2.5H2z"/></svg>PM messages</button><button class="btn des" type="button">Pause project…</button></span></div>
+          <div class="pmc-h"><span class="id">pm-1</span><span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span><span class="since">since 11:58 · 33 min</span></div>
+          <div class="pmc-grid">
+            <div class="pmc-col">
+              <p class="lbl">From the PM · 12:05</p>
+              <button class="mrow" type="button"><span class="mt">Starting the integration of plan-14 now.</span></button>
+              <p class="lbl">You sent · 12:02</p>
+              <button class="mrow" type="button"><span class="mt">Please hold plan-15 until finance signs off the refund rules.</span><span class="mm"><span class="dl"><svg class="ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="m5 8.2 2 2 4-4" stroke="var(--win)" stroke-width="1.6" fill="none"/></svg>Read by the PM · 12:03</span></span></button>
+            </div>
+            <div class="pmc-col">
+              <p class="lbl">Waiting on</p>
+              <ul class="wrows">
+                <li><button class="wrow" type="button"><span>Worker reports</span><span class="wc"><b>3</b> · oldest 2 h 10 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button></li>
+                <li><button class="wrow" type="button"><span>Verify runs</span><span class="wc"><b>1</b> · 31 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button></li>
+                <li><button class="wrow" type="button"><span>You</span><span class="wc"><b>2</b> · oldest 12 min</span><svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="gal3">
+  <div class="col">
+    <p class="plabel on-wall">Notification: a title and the project, no body</p>
+    <div class="notif glass"><span class="ap" aria-hidden="true"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg></span><span class="nt">PM looks stuck</span><span class="nw">now</span><span class="ns">payments-api</span></div>
+    <p class="plabel on-wall">Menu bar: the existing count only</p>
+    <div class="menubar glass"><span>Finder</span><span class="sp"></span><span class="mbx"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 9.5 3.6 3h8.8L14 9.5V13H2z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></svg>7</span><span>Thu 12:31</span></div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall">Unread mail</p>
+    <div class="pmc stuck" style="background:var(--win)">
+      <div class="stuckb" style="border-bottom:0"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It is idle while your message has waited unread for 17 min, since 12:14.</span>
+        <span class="bb"><button class="btn" type="button">PM messages</button><button class="btn des" type="button">Pause project…</button></span></div>
+    </div>
+    <p class="plabel on-wall">Stopped at a prompt</p>
+    <div class="pmc stuck" style="background:var(--win)">
+      <div class="stuckb" style="border-bottom:0"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It has been stopped at a prompt for 15 min, since 12:16. A prompt it relayed waits in Waiting for you.</span>
+        <span class="bb"><button class="btn" type="button">PM messages</button><button class="btn des" type="button">Pause project…</button></span></div>
+    </div>
+  </div>
+  <div class="col">
+    <p class="plabel on-wall"><span class="tag151">plan-151 · not built in plan-152</span> With Peek</p>
+    <div class="pmc stuck" style="background:var(--win)">
+      <div class="stuckb" style="border-bottom:0"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg><b>pm-1 looks stuck</b><span class="bt">It shows as working but has made no progress for 22 min, since 12:09.</span>
+        <span class="bb"><button class="btn" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>Peek</button><button class="btn" type="button">PM messages</button><button class="btn des" type="button">Pause project…</button></span></div>
+    </div>
+    <p class="plabel on-wall">Recovered: the banner goes; nothing else is shown</p>
+    <div class="pmc" style="background:var(--win)">
+      <div class="pmc-h"><span class="id">pm-1</span><span class="act a-work"><svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor"/></svg>Working</span><span class="since">since 12:33 · 1 min</span></div>
+    </div>
+  </div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":2530}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themes: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

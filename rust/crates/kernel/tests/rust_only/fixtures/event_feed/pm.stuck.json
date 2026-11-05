@@ -1,0 +1,30 @@
+{
+  "actorId": "<id:1>",
+  "body": {
+    "agentId": "pm-1",
+    "alert": true,
+    "effects": [
+      {
+        "fields": {},
+        "key": "run",
+        "op": "invalidate",
+        "section": "run"
+      }
+    ],
+    "episodeId": "stuck-<id:2>",
+    "minutes": 15,
+    "reason": "unread_mail",
+    "since": "2026-01-01T00:00:00.035Z"
+  },
+  "entity": {
+    "id": "pm-1",
+    "type": "agent"
+  },
+  "from": null,
+  "id": "prustonly:daeca3b2245f3519:20",
+  "k": 0,
+  "seq": 20,
+  "to": "open",
+  "ts": "<ts>",
+  "type": "pm.stuck"
+}

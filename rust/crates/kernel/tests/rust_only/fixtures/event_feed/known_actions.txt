@@ -81,6 +81,8 @@ code pm.attention
 code pm.delivery_notices
 code pm.floor_hit
 code pm.input_blocked
+code pm.recovered
+code pm.stuck
 code pm.wake
 code pm_restart.consume
 code prompt_relay.begin

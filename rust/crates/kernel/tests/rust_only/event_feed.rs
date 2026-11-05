@@ -310,6 +310,7 @@ fn required_fields(ty: &str) -> &'static [&'static str] {
         "finding" => &["findingId", "state"],
         "agent" => &["agentId", "kind", "role", "state", "paused", "generation"],
         "run" => &["state", "paused"],
+        "pm" => &["agentId", "episodeId", "reason"],
         "integration" => &["integrationId", "state"],
         "snapshot" => &["section", "key"],
         other => panic!("no family {other}"),
@@ -858,7 +859,7 @@ const ONE_PACKAGE: &str = r#"{"summary":"s","packages":[
     {"id":"only","title":"Only","owns":["src/only"],"acceptance":["works"],"estimate_hours":1}],
     "risks":[],"integration_order":["only"]}"#;
 
-const BODY: &str = r#"{"summary":"s","packages":[
+pub const BODY: &str = r#"{"summary":"s","packages":[
     {"id":"ui","title":"UI","owns":["design/ui"],"acceptance":["approved"],"estimate_hours":1,"design":true},
     {"id":"api","title":"API","owns":["src/api"],"acceptance":["works"],"estimate_hours":1,"depends_on":["ui"]},
     {"id":"docs","title":"Docs","owns":["docs/x"],"acceptance":["written"],"estimate_hours":1}],
@@ -952,6 +953,7 @@ fn feed_report_recorded() {
             {"section": "waiting", "op": "invalidate", "key": "design", "fields": {}},
             {"section": "plans", "op": "invalidate", "key": "plan", "fields": {}},
             {"section": "waiting", "op": "invalidate", "key": "message", "fields": {}},
+            {"section": "run", "op": "invalidate", "key": "run", "fields": {}},
         ])
     );
     // A non-design report: the package is not a design.
@@ -1043,7 +1045,7 @@ fn feed_design_decided() {
     assert_eq!(body["effects"][1]["section"], "plans");
 }
 
-fn plan_body_json() -> String {
+pub fn plan_body_json() -> String {
     serde_json::to_string(&capstan_kernel::plan_body::parse_plan_body(BODY, 8).unwrap()).unwrap()
 }
 
@@ -1115,6 +1117,7 @@ fn feed_plan_submitted() {
         json!([
             {"section": "plans", "op": "invalidate", "key": "1", "fields": {}},
             {"section": "waiting", "op": "invalidate", "key": "message", "fields": {}},
+            {"section": "run", "op": "invalidate", "key": "run", "fields": {}},
         ])
     );
 }
@@ -1193,7 +1196,7 @@ fn feed_review_verdict() {
     assert_eq!(event["from"], "started");
     assert_eq!(
         event["body"]["effects"],
-        json!([{"section": "waiting", "op": "invalidate", "key": "message", "fields": {}}])
+        json!([{"section": "waiting", "op": "invalidate", "key": "message", "fields": {}}, {"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
     );
     let (_, again) = rig.review(&report_id, "pass", "fine now");
     let verdicts = events_of(&again, "review.verdict");
@@ -1228,7 +1231,7 @@ fn feed_integration_finished() {
     assert_eq!(begun[0]["body"]["key"], "integration:1");
     assert_eq!(
         begun[0]["body"]["effects"],
-        json!([{"section": "waiting", "op": "invalidate", "key": "integration:1", "fields": {}}])
+        json!([{"section": "waiting", "op": "invalidate", "key": "integration:1", "fields": {}}, {"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
     );
     let event = expect_type(&rig, &finished, "integration.finished");
     assert_eq!(event["body"]["integrationId"], "int-1");
@@ -1583,7 +1586,7 @@ fn feed_agent_paused() {
     assert_eq!(event["body"]["reason"], "hold on");
     assert_eq!(
         event["body"]["effects"],
-        json!([{"section": "agents", "op": "invalidate", "key": "dev-1", "fields": {}}])
+        json!([{"section": "agents", "op": "invalidate", "key": "dev-1", "fields": {}}, {"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
     );
 }
 
@@ -1689,7 +1692,7 @@ fn feed_agent_replacement() {
 }
 
 impl Rig {
-    fn observe(&self, agent: &str, state: &str) {
+    pub(crate) fn observe(&self, agent: &str, state: &str) {
         self.core
             .record_agent_observation(&self.ctx("owner"), agent, &json!(state))
             .unwrap();
@@ -1925,6 +1928,56 @@ fn twelve_hundred_observation_rows_page_within_the_budgets_and_charge_the_histor
 }
 
 #[test]
+fn feed_pm_stuck() {
+    let rig = Rig::new();
+    rig.observe("pm-1", "idle");
+    rig.enqueue("pm-1", "please answer", true);
+    let now = capstan_kernel::env::SEEDED_EPOCH_MS + 10_000 + 15 * 60_000;
+    let (_, events) = rig.run(|r| {
+        r.core
+            .pm_stuck_tick(&r.ctx("owner"), &Default::default(), now, 15)
+            .unwrap()
+    });
+    let event = expect_type(&rig, &events, "pm.stuck");
+    assert_eq!(events.len(), 1);
+    assert_eq!(event["entity"], json!({"type": "agent", "id": "pm-1"}));
+    assert_eq!(event["from"], Value::Null);
+    assert_eq!(event["to"], "open");
+    assert_eq!(event["body"]["reason"], "unread_mail");
+    assert_eq!(event["body"]["minutes"], 15);
+    assert_eq!(event["body"]["alert"], true);
+    assert!(event["body"]["since"].is_string());
+    assert_eq!(
+        event["body"]["effects"],
+        json!([{"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
+    );
+}
+
+#[test]
+fn feed_pm_recovered() {
+    let rig = Rig::new();
+    rig.observe("pm-1", "idle");
+    let mail = rig.enqueue("pm-1", "please answer", true);
+    let now = capstan_kernel::env::SEEDED_EPOCH_MS + 10_000 + 15 * 60_000;
+    let tick = |at: i64| {
+        rig.core
+            .pm_stuck_tick(&rig.ctx("owner"), &Default::default(), at, 15)
+            .unwrap()
+    };
+    tick(now);
+    rig.core.pull_pending(&rig.cred("pm-1")).unwrap();
+    rig.core.ack_message(&rig.ctx("pm-1"), &mail).unwrap();
+    tick(now + 1000);
+    let (_, events) = rig.run(|_| tick(now + 1000 + 60_000));
+    let event = expect_type(&rig, &events, "pm.recovered");
+    assert_eq!(events.len(), 1);
+    assert_eq!(event["entity"], json!({"type": "agent", "id": "pm-1"}));
+    assert_eq!(event["from"], "open");
+    assert_eq!(event["to"], "recovered");
+    assert_eq!(event["body"]["reason"], "recovered");
+}
+
+#[test]
 fn feed_agent_blocked() {
     let rig = Rig::new();
     let message = rig.enqueue("dev-1", "are you there?", true);
@@ -2026,7 +2079,7 @@ fn feed_decision_remote() {
     assert!(body["messageId"].is_null() && body["replaces"].is_null());
     assert_eq!(
         body["effects"],
-        json!([{"section": "waiting", "op": "invalidate", "key": format!("op:{}", sequence(&denied_id)), "fields": {}}])
+        json!([{"section": "waiting", "op": "invalidate", "key": format!("op:{}", sequence(&denied_id)), "fields": {}}, {"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
     );
     assert_eq!(event["seq"], result["eventSeq"]);
 
@@ -2052,7 +2105,7 @@ fn feed_decision_remote() {
     let (_, events) = rig.run(|r| decide_remote(r, "agent:dev-1", "nonce-0004", &["pause"]));
     assert_eq!(
         only_decision(&events)["body"]["effects"],
-        json!([{"section": "agents", "op": "invalidate", "key": "dev-1", "fields": {}}])
+        json!([{"section": "agents", "op": "invalidate", "key": "dev-1", "fields": {}}, {"section": "run", "op": "invalidate", "key": "run", "fields": {}}])
     );
     let (_, events) = rig.run(|r| decide_remote(r, "run", "nonce-0005", &["pause"]));
     assert_eq!(

@@ -715,6 +715,7 @@ fn replay_driver(label: &str, sequence: &Value, run: &Run) -> Result<(), String>
             calls: Arc::clone(&run.calls),
         })),
         pm_stale_seconds: config["pmStaleSeconds"].as_i64().unwrap_or(1200),
+        pm_stuck_minutes: 0,
         liveness: None,
         stall_child_max_seconds: 3600,
         snapshot: None,
@@ -1182,6 +1183,7 @@ fn a_driver_tick_makes_the_calls_of_the_node_budget_whatever_the_ledger_holds() 
             tick_ms: None,
             process_probe: None,
             pm_stale_seconds: 1200,
+            pm_stuck_minutes: 0,
             liveness: None,
             stall_child_max_seconds: 3600,
             snapshot: None,
@@ -1324,8 +1326,11 @@ fn world_over(
         "workerAckTimeoutSeconds": 3600, "pmWakeAfterSeconds": 3600, "pmWakeIntervalSeconds": 3600,
     });
     for (key, value) in overrides.as_object().into_iter().flatten() {
-        timers[key] = value.clone();
+        if key != "pmStuckMinutes" {
+            timers[key] = value.clone();
+        }
     }
+    let pm_stuck_minutes = overrides["pmStuckMinutes"].as_i64().unwrap_or(0);
     kernel
         .run({
             let policy = timers.clone();
@@ -1360,6 +1365,7 @@ fn world_over(
         tick_ms: None,
         process_probe: Some(probe.clone()),
         pm_stale_seconds: 1200,
+        pm_stuck_minutes,
         liveness,
         stall_child_max_seconds: 3600,
         snapshot: None,
@@ -1908,5 +1914,68 @@ fn a_schema_39_ledger_migrates_and_still_wakes_the_pm_for_its_queued_messages() 
         lock(&w.log),
         classes
     );
+    w.kernel.close();
+}
+
+// ---- a stuck PM
+
+impl World {
+    fn pm_stuck(&self) -> Value {
+        self.kernel
+            .run(|core| {
+                Ok(
+                    capstan_kernel::areas::snapshot_feed::snapshot_item(core, "run", "run")?
+                        .map_or(Value::Null, |run| run["pm"]["stuck"].clone()),
+                )
+            })
+            .expect("the run item")
+    }
+
+    fn version(&self) -> i64 {
+        self.kernel
+            .run(|core| Ok(json!(core.state_version()?)))
+            .unwrap()
+            .as_i64()
+            .unwrap()
+    }
+}
+
+#[test]
+fn the_driver_raises_one_stuck_episode_for_unread_mail_and_writes_nothing_more() {
+    let mut w = world_with("driver", None, json!({"pmStuckMinutes": 15}));
+    w.tell_pm("please answer", json!({"actionNeeded": true}));
+    w.driver.tick();
+    w.pass(15 * 60 - 30);
+    w.driver.tick();
+    assert_eq!(w.pm_stuck(), Value::Null, "inside the 15 minutes");
+    w.pass(60);
+    w.driver.tick();
+    let stuck = w.pm_stuck();
+    assert_eq!(stuck["reason"], "unread_mail", "{stuck} {:?}", lock(&w.log));
+    assert_eq!(stuck["alert"], true);
+    let version = w.version();
+    for _ in 0..3 {
+        w.pass(10);
+        w.driver.tick();
+    }
+    // The ticks write the observations of the agents, not the episode: no new episode, the same one is shown.
+    assert_eq!(w.pm_stuck()["episodeId"], stuck["episodeId"]);
+    assert!(
+        !lock(&w.log).iter().any(|e| e["event"] == "pm_stuck_failed"),
+        "{:?}",
+        lock(&w.log)
+    );
+    let _ = version;
+    w.kernel.close();
+}
+
+#[test]
+fn a_driver_with_the_check_off_never_raises_an_episode() {
+    let mut w = world_with("driver", None, json!({}));
+    w.tell_pm("please answer", json!({"actionNeeded": true}));
+    w.driver.tick();
+    w.pass(2 * 3600);
+    w.driver.tick();
+    assert_eq!(w.pm_stuck(), Value::Null);
     w.kernel.close();
 }

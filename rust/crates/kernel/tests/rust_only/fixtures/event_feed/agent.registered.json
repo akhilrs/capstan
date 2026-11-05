@@ -18,6 +18,12 @@
         "key": "dev-3",
         "op": "upsert",
         "section": "agents"
+      },
+      {
+        "fields": {},
+        "key": "run",
+        "op": "invalidate",
+        "section": "run"
       }
     ],
     "generation": 1,

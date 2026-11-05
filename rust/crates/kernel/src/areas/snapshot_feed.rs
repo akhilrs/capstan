@@ -13,8 +13,11 @@
 //! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha` |
 //! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
-//! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash` |
+//! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash`, `pm` |
 //! | `Page<T>` | `head`, `items`, `next` |
+//!
+//! `pm` of the run item is the active PM's card ([`pm_card`]); `contentHash` of the run does not cover it, so a client re-reads
+//! the run item on every invalidate of it.
 //!
 //! An agent item has no `stalled` field. Text (`summary`, `task`, `branch`, `title`) is cleaned and cut to [`TEXT_CAP`]
 //! bytes. `branch` is the branch of the agent's pane (null without a pane). The `contentHash` of an agent is a decision
@@ -78,6 +81,7 @@
 //! have a `next`.
 
 use super::event_feed::{item_key, parse_item_key, KEY_KINDS};
+use super::pm_card::{self, PmCard};
 use super::{design_approvals, feed_cursor, plan_packages, user_messages};
 use crate::canonical::sha256;
 use crate::core::Core;
@@ -189,6 +193,8 @@ pub struct RunItem {
     pub state: String,
     pub paused: bool,
     pub content_hash: String,
+    /// The active PM's card (null without one); not covered by `content_hash` (see [`pm_card`]).
+    pub pm: Option<PmCard>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -416,7 +422,8 @@ fn run_hash(state: &str, paused: bool, open_pause_id: Option<&str>) -> String {
     })))
 }
 
-fn run_item(core: &Core) -> KernelResult<RunItem> {
+/// The run's state, whether it is paused and its binding hash (everything but `pm`).
+fn run_core(core: &Core) -> KernelResult<(String, bool, String)> {
     let kernel = core.kernel();
     let state = query_opt(
         &kernel.database,
@@ -427,11 +434,20 @@ fn run_item(core: &Core) -> KernelResult<RunItem> {
     .ok_or_else(|| KernelError::controller("run control record is missing"))?;
     let pause = open_pause(core, "run", "")?;
     let paused = state == "paused";
+    let hash = run_hash(&state, paused, pause.as_deref());
+    Ok((state, paused, hash))
+}
+
+fn run_item(core: &Core) -> KernelResult<RunItem> {
+    let (state, paused, content_hash) = run_core(core)?;
+    // The card's statements and the rows they return, at their most.
+    tick(2 * pm_card::MAX_STATEMENTS);
     Ok(RunItem {
         request_id: "run".to_string(),
-        content_hash: run_hash(&state, paused, pause.as_deref()),
+        content_hash,
         state,
         paused,
+        pm: pm_card::pm_card(core)?,
     })
 }
 
@@ -1433,7 +1449,7 @@ fn build(
 }
 
 /// The packages of `pp` whose accepted report `r` is in an integration, as in `plan_packages` (`PACKAGE_REPORT_PREDICATE`).
-const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
+pub(crate) const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
   AND EXISTS (SELECT 1 FROM agents a WHERE a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation)
   AND NOT EXISTS (
     SELECT 1 FROM plan_packages other
@@ -2260,7 +2276,7 @@ pub fn content_hash_counted(
     request_id: &str,
 ) -> KernelResult<(Option<String>, usize)> {
     if request_id == "run" {
-        return Ok((Some(run_item(core)?.content_hash), 2));
+        return Ok((Some(run_core(core)?.2), 2));
     }
     if request_id == "pm" {
         return Ok((pm_hash(core)?, 1));

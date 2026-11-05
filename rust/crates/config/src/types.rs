@@ -172,12 +172,15 @@ pub const DEFAULT_MIN_PANE_ROWS: i64 = 12;
 pub const DEFAULT_SUPERVISION_CHECK_SECONDS: i64 = 300;
 pub const MAX_MAX_ACTIVE: i64 = 1000;
 pub const DEFAULT_PM_STALE_MINUTES: i64 = 10;
+pub const DEFAULT_PM_STUCK_MINUTES: i64 = 15;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Notifications {
     pub herdr: bool,
     pub fallback: bool,
     pub pm_stale_minutes: i64,
+    /// Minutes before a PM that waits is called stuck; 0 turns the check off, else 2 to 240.
+    pub pm_stuck_minutes: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

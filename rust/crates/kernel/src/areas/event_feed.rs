@@ -48,9 +48,15 @@
 //! integration is `merged` or `conflicted`: the item's `integrationDetails` show these results and are not covered by its
 //! `contentHash`. Each integration is read once by primary key (sequence and state); a report's review or run names none.
 //!
+//! The event of a row of `pm_card::PM_CARD_ACTIONS` that can change the PM card also invalidates the run item: the effect
+//! `{run, invalidate, run}` comes last on the first event of the row, or is the only effect of a `snapshot.invalidated`
+//! event of `run` when the row has no event of its own. A message row counts only when the operator sent it to the active
+//! PM, a verify or prompt row only when it opens or closes what the card counts, a report row only when accepted.
+//!
 //! The keys are built by [`item_key`] from [`KEY_KINDS`]; the snapshot code uses the same function.
 
 use super::feed_cursor;
+use super::pm_card::PM_CARD_ACTIONS;
 use crate::canonical::sha256;
 use crate::core::Core;
 use crate::errors::{KernelError, KernelResult};
@@ -135,6 +141,7 @@ pub const OUTCOME_TYPES: &[&str] = &[
     "agent.lost",
     "agent.blocked",
     "finding.raised",
+    "pm.stuck",
 ];
 
 /// The answer of `recent_page`: the newest outcomes at or below a head, or the ledger's own position when the caller's
@@ -566,6 +573,8 @@ pub const MAPPING: &[Rule] = &[
         "*",
         ev("agent.blocked"),
     ),
+    rule("pm_stuck", "pm.stuck", "-", "open", ev("pm.stuck")),
+    rule("pm_stuck", "pm.recovered", "open", "+", ev("pm.recovered")),
     rule(
         "pm_notice",
         "pm.attention",
@@ -645,7 +654,7 @@ pub const SKIPPED_ACTIONS: &[&str] = &[
 /// are skipped. (The history of `kernel/src` and `testdata/node/daemon.ts` show none that no current action replaced.)
 pub const LEGACY_ACTIONS: &[&str] = &[];
 
-/// The types of the first version of the feed, fixed by the plan.
+/// The event types of the feed: those of the first version, fixed by the plan, and the later ones at the end.
 pub const V1_TYPES: &[&str] = &[
     "message.action_needed",
     "message.state",
@@ -677,6 +686,8 @@ pub const V1_TYPES: &[&str] = &[
     "integration.finished",
     "decision.remote",
     "snapshot.invalidated",
+    "pm.stuck",
+    "pm.recovered",
 ];
 
 /// V1 types that cannot be produced, each with its reason; empty when every type has a writer that moves `state_version`
@@ -846,9 +857,21 @@ fn load_message(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
     let project = ctx.project_id.clone();
     ctx.lookup(
         format!("message:{id}"),
-        "SELECT sequence, body, recipient_agent_id, action_needed FROM messages WHERE project_id = ? AND message_id = ?",
+        "SELECT m.sequence, m.body, m.recipient_agent_id, m.action_needed, r.kind, r.state, a.role
+           FROM messages m
+           LEFT JOIN agents r ON r.project_id = m.project_id AND r.agent_id = m.recipient_agent_id
+           LEFT JOIN actors a ON a.actor_id = m.sender_actor_id
+          WHERE m.project_id = ? AND m.message_id = ?",
         sql_params![project, id],
-        &["sequence", "body", "recipient", "actionNeeded"],
+        &[
+            "sequence",
+            "body",
+            "recipient",
+            "actionNeeded",
+            "recipientKind",
+            "recipientState",
+            "senderRole",
+        ],
     )
 }
 
@@ -1057,9 +1080,15 @@ struct Draft {
     item: Option<Value>,
     /// Whether the id of the event has `:<k>`.
     listed: bool,
+    /// Whether the row can change the PM card, so the event carries the run effect (the first event of the row).
+    run: bool,
+    /// Whether the event exists only for the run effect (the row has no event of its own).
+    run_only: bool,
 }
 
 struct Built {
+    /// The type of the event when it is not the draft's (a row whose entity is gone keeps only its run effect).
+    ty: Option<&'static str>,
     entity_type: String,
     entity_id: String,
     from: Option<String>,
@@ -1091,7 +1120,59 @@ fn num_text(value: &Value, key: &str) -> String {
 
 // ---------------------------------------------------------------------------------------------------------- classify
 
+/// Whether the ledger row can change the PM card, so its first event also invalidates the run item. Only the rows of
+/// `PM_CARD_ACTIONS` can. Of those, a message row only when the operator sent it to the active PM (the card reads no other
+/// message), and a verify or prompt row only when it opens or closes what the card counts (not a claim or a process).
+fn changes_pm(ctx: &mut Ctx<'_>, row: &Row) -> Step<bool> {
+    if !PM_CARD_ACTIONS.contains(&row.action.as_str()) {
+        return Ok(false);
+    }
+    let (from, to) = (row.from.as_deref(), row.to.as_deref());
+    if row.action.starts_with("message.") {
+        let found = load_message(ctx, &row.entity_id)?;
+        let Some(found) = found else {
+            return Ok(false);
+        };
+        // The card shows the operator's messages to the active PM and nothing else of the messages.
+        return Ok(found["senderRole"].as_str() == Some("operator")
+            && found["recipientKind"].as_str() == Some("PM")
+            && found["recipientState"].as_str() == Some("active"));
+    }
+    if row.action == "report.record" {
+        // Only an accepted report counts for a package; a rejected or repeated one writes a row and changes nothing.
+        return Ok(to == Some("accepted"));
+    }
+    if row.action.starts_with("verify.") {
+        let active = |state: Option<&str>| matches!(state, Some("queued" | "running"));
+        return Ok(row.action == "verify.interrupt" || active(from) != active(to));
+    }
+    if row.action.starts_with("prompt_relay.") {
+        // A batch expiry lists its relays and names no state; every one of them was captured.
+        return Ok(row.action == "prompt_relay.expire"
+            || (from == Some("captured")) != (to == Some("captured")));
+    }
+    Ok(true)
+}
+
+/// The drafts of a row, with the run effect asked of the first one, or a draft of its own when the row has none.
 fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
+    let mut drafts = classify_row(ctx, row)?;
+    if changes_pm(ctx, row)? {
+        match drafts.first_mut() {
+            Some(first) => first.run = true,
+            None => drafts.push(Draft {
+                ty: "snapshot.invalidated",
+                item: None,
+                listed: false,
+                run: true,
+                run_only: true,
+            }),
+        }
+    }
+    Ok(drafts)
+}
+
+fn classify_row(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
     let Some(kind) = map_row(
         &row.entity_type,
         &row.action,
@@ -1105,6 +1186,8 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
             ty: "snapshot.invalidated",
             item: None,
             listed: false,
+            run: false,
+            run_only: false,
         }]),
         Kind::Event { ty, each: "" } => {
             if row.entity_type == "message" {
@@ -1122,6 +1205,8 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
                             ty: "snapshot.invalidated",
                             item: None,
                             listed: false,
+                            run: false,
+                            run_only: false,
                         }]
                     } else {
                         Vec::new()
@@ -1135,6 +1220,8 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
                 ty,
                 item: None,
                 listed: false,
+                run: false,
+                run_only: false,
             }])
         }
         Kind::Event { ty, each } => {
@@ -1156,6 +1243,8 @@ fn classify(ctx: &mut Ctx<'_>, row: &Row) -> Step<Vec<Draft>> {
                     ty,
                     item: Some(item),
                     listed: true,
+                    run: false,
+                    run_only: false,
                 })
                 .collect())
         }
@@ -1178,10 +1267,57 @@ pub(crate) fn queued(row: &Row) -> bool {
 
 // ------------------------------------------------------------------------------------------------------------ build
 
+/// The effect that asks for the run item again: the PM card changed.
+fn run_effect() -> Value {
+    effect("run", "invalidate", item_key("run", "run", ""), json!({}))
+}
+
 fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
+    if draft.run_only {
+        return Ok(Some(run_only_built(row)));
+    }
+    let mut built = build_inner(ctx, row, draft)?;
+    match built.as_mut() {
+        Some(built) if draft.run => {
+            if let Some(Value::Array(effects)) = built.body.get_mut("effects") {
+                // An event that already asks for the run item (a decision on it) does not ask twice.
+                if !effects.contains(&run_effect()) {
+                    effects.push(run_effect());
+                }
+            }
+        }
+        // The row's entity is gone, so the event it would carry cannot be built: the run effect still goes out.
+        None if draft.run => {
+            let mut only = run_only_built(row);
+            only.ty = Some("snapshot.invalidated");
+            return Ok(Some(only));
+        }
+        _ => {}
+    }
+    Ok(built)
+}
+
+/// The event that carries only the run effect.
+fn run_only_built(row: &Row) -> Built {
+    let mut body = Map::new();
+    body.insert("section".into(), json!("run"));
+    body.insert("key".into(), json!(item_key("run", "run", "")));
+    body.insert("effects".into(), json!([run_effect()]));
+    Built {
+        ty: None,
+        entity_type: row.entity_type.clone(),
+        entity_id: row.entity_id.clone(),
+        from: row.from.clone(),
+        to: row.to.clone(),
+        body,
+    }
+}
+
+fn build_inner(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
     let mut body = Map::new();
     let mut text = Text::new();
     let mut base = Built {
+        ty: None,
         entity_type: row.entity_type.clone(),
         entity_id: row.entity_id.clone(),
         from: row.from.clone(),
@@ -1659,6 +1795,32 @@ fn build(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built>> {
                 effects
             };
         }
+        "pm.stuck" | "pm.recovered" => {
+            // The episode's agent is the public entity; no host text is carried (the reason is one of a fixed set).
+            let agent_id = text_of(&row.details, "agentId").unwrap_or("").to_string();
+            base.entity_type = "agent".into();
+            base.entity_id = agent_id.clone();
+            body.insert("agentId".into(), json!(agent_id));
+            body.insert("episodeId".into(), row.details["episodeId"].clone());
+            if draft.ty == "pm.stuck" {
+                body.insert("reason".into(), row.details["reason"].clone());
+                let since_ms = row.details["sinceMs"].as_i64().unwrap_or(0);
+                body.insert(
+                    "since".into(),
+                    json!(capstan_ledger::iso_from_millis(since_ms)),
+                );
+                body.insert("minutes".into(), row.details["minutes"].clone());
+                body.insert(
+                    "alert".into(),
+                    json!(row.details["alert"].as_bool() == Some(true)),
+                );
+            } else {
+                body.insert("reason".into(), row.details["closeReason"].clone());
+            }
+            // Only the run item changes (the PM card); the run effect is added to the first event of every row of
+            // `PM_CARD_ACTIONS`.
+            effects = Vec::new();
+        }
         "run.changed" => {
             body.insert("state".into(), json!(row.to));
             body.insert("paused".into(), json!(row.to.as_deref() == Some("paused")));
@@ -2037,7 +2199,7 @@ fn event_of(ctx: &Ctx<'_>, row: &Row, k: usize, draft: &Draft, built: Built) -> 
         "seq": row.seq,
         "k": k,
         "ts": row.created_at,
-        "type": draft.ty,
+        "type": built.ty.unwrap_or(draft.ty),
         "actorId": row.actor_id,
         "entity": {"type": built.entity_type, "id": built.entity_id},
         "from": built.from,

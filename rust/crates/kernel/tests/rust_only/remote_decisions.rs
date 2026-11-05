@@ -1260,8 +1260,15 @@ fn a_failed_check_writes_nothing_and_the_feed_shows_the_decision() {
         None,
     )
     .unwrap();
+    // The decision is one event of its own; the proposal's own row only asks for the run item (the PM card counted it).
     let types: Vec<&Value> = page.events.iter().map(|event| &event["type"]).collect();
-    assert_eq!(types, ["decision.remote"], "{:#?}", page.events);
+    assert_eq!(
+        types,
+        ["snapshot.invalidated", "decision.remote"],
+        "{:#?}",
+        page.events
+    );
+    assert_eq!(page.events[0]["body"]["section"], "run");
     assert_eq!(page.scanned.seq, feed_head(&rig.core).unwrap().head);
     assert!(page.scanned.seq > head);
 }
