@@ -39,6 +39,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// Takes notifications back by identifier, delivered and still pending: a stuck PM that recovered.
+    func remove(_ identifiers: [String]) {
+        guard !identifiers.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
     func setBadge(_ count: Int) {
         center.setBadgeCount(count)
     }

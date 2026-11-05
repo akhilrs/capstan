@@ -23,13 +23,19 @@ struct OverviewView<Waiting: View>: View {
     /// The Project manager block, at the top under the status strip; nil until the project has a complete snapshot.
     let pmCard: PmCardModel?
     let pmActions: PmCardActions
+    /// True while the snapshot is read: the card's skeleton stands in its place, with the host's name.
+    let pmLoading: Bool
+    let hostName: String
     private let waiting: Waiting
 
     init(
         content: OverviewModel, projectName: String, anythingWaiting: Bool, selectedOutcome: String? = nil,
         actions: OverviewActions = OverviewActions(), pmCard: PmCardModel? = nil,
-        pmActions: PmCardActions = PmCardActions(), @ViewBuilder waiting: () -> Waiting
+        pmActions: PmCardActions = PmCardActions(), pmLoading: Bool = false, hostName: String = "",
+        @ViewBuilder waiting: () -> Waiting
     ) {
+        self.pmLoading = pmLoading
+        self.hostName = hostName
         self.pmCard = pmCard
         self.pmActions = pmActions
         self.content = content
@@ -48,6 +54,11 @@ struct OverviewView<Waiting: View>: View {
                 .listRowSeparator(.hidden)
             if let pmCard {
                 PmCardView(card: pmCard, actions: pmActions)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 8, trailing: 12))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            } else if pmLoading {
+                PmCardSkeleton(hostName: hostName)
                     .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 8, trailing: 12))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)

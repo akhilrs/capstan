@@ -85,6 +85,7 @@ struct PmCardView: View {
                 StatePill(word: "Stale · as of " + time, symbol: "exclamationmark.triangle", tone: .yellow)
                 Button("Refresh", action: actions.refresh)
                     .buttonStyle(.capstanQuiet)
+                    .help("Refresh (⌘R)")
             }
         }
     }
@@ -306,3 +307,59 @@ private enum PmCardSamples {
     if let card = PmCardSamples.card(pm: false) { PmCardView(card: card, actions: PmCardActions()).padding().frame(width: 720) }
 }
 #endif
+
+/// The card's shape in `fill2` blocks while the project's snapshot is read: the header line, two message lines and the
+/// Waiting on column, with "Reading <host name>…". It is redacted and does not move, with or without Reduce Motion.
+struct PmCardSkeleton: View {
+    let hostName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.space[2]) {
+            Label { Text("Project manager") } icon: { Image(systemName: "person.crop.circle.badge.checkmark") }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Tokens.color(.label2))
+                .labelStyle(.titleAndIcon)
+                .unredacted()
+                .accessibilityAddTraits(.isHeader)
+            HStack(spacing: Tokens.space[1]) {
+                block(width: 88, height: 14)
+                block(width: 64, height: 18, radius: 9)
+                Spacer(minLength: Tokens.space[1])
+                Text(verbatim: "Reading " + hostName + "…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.color(.label2))
+                    .lineLimit(1)
+                    .unredacted()
+            }
+            HStack(alignment: .top, spacing: Tokens.space[3]) {
+                VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                    block(width: 80, height: 10)
+                    block(width: nil, height: 12)
+                    block(width: 200, height: 12)
+                }
+                .frame(minWidth: 200, maxWidth: .infinity, alignment: .topLeading)
+                .layoutPriority(3)
+                VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                    block(width: 72, height: 10)
+                    block(width: nil, height: 12)
+                }
+                .frame(minWidth: 120, maxWidth: .infinity, alignment: .topLeading)
+                .layoutPriority(2)
+            }
+        }
+        .redacted(reason: .placeholder)
+        .padding(Tokens.space[2])
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Tokens.color(.fill), in: RoundedRectangle(cornerRadius: Tokens.radius.block))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.radius.block).strokeBorder(Tokens.color(.sep)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "Project manager. Reading " + hostName)) // static-text
+    }
+
+    private func block(width: CGFloat?, height: CGFloat, radius: CGFloat = 4) -> some View {
+        RoundedRectangle(cornerRadius: radius)
+            .fill(Tokens.color(.fill2))
+            .frame(width: width, height: height)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+    }
+}

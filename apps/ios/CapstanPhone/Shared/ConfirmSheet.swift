@@ -27,11 +27,12 @@ struct ConfirmSheet: View {
     init(
         title: String, detail: UntrustedText?, noteLimit: Int?, destructiveLabel: String,
         detailLabel: String = "From the host", noteLabel: String = "Note (optional)", footnote: String? = nil,
-        onConfirm: @escaping (String?) -> Void
+        initialNote: String = "", onConfirm: @escaping (String?) -> Void
     ) {
         self.detailLabel = detailLabel
         self.noteLabel = noteLabel
         self.footnote = footnote
+        _note = State(initialValue: initialNote)
         self.title = title
         self.detail = detail
         self.noteLimit = noteLimit

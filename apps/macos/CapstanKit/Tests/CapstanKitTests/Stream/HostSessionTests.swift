@@ -628,6 +628,30 @@ final class HostSessionTests: XCTestCase {
         }
     }
 
+    /// 20 run invalidates in 3 s: the session coalesces them with its urgent gap, without a timer of its own.
+    func testABurstOfRunInvalidatesGivesOneImmediateAndOneTrailingRestart() async throws {
+        let cursor = makeCursor(["p1", "p2"])
+        let session = makeSession(consumer: RecordingConsumer(cursor: cursor))
+        await startAndWait(session)
+        await prime(cursor)
+        for _ in 0..<20 {
+            await session.refresh(projectIds: ["p1"], urgent: true)
+            await settle()
+            clock.advance(by: 0.15)
+            await settle()
+        }
+        await eventually("the immediate restart") { self.runner.startCount >= 2 }
+        // The restarted connection delivers its cursor line: the invalidates that came after the restart ask again.
+        await prime(cursor)
+        await session.refresh(projectIds: ["p1"], urgent: true)
+        await settle()
+        XCTAssertEqual(runner.startCount, 2, "within the gap the read waits")
+        await advanceKeepingAlive(by: HostSession.urgentRefreshGapSeconds + 1)
+        await eventually("the trailing restart after the last invalidate") { self.runner.startCount == 3 }
+        await advanceKeepingAlive(by: 3 * HostSession.urgentRefreshGapSeconds)
+        XCTAssertEqual(runner.startCount, 3, "no further restart without a new invalidate")
+    }
+
     func testRefreshRestartWaitsForTheOldChildToExit() async throws {
         runner.enqueue(FakeScript(chunks: [Wire.hello], slowExit: true))
         let session = makeSession(consumer: RecordingConsumer(cursor: makeCursor(["p1", "p2"])))

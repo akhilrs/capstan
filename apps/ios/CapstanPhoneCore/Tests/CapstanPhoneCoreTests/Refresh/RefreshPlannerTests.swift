@@ -17,9 +17,19 @@ final class RefreshPlannerTests: XCTestCase {
             + "\"summary\":\(text(hostile)),\"contentHash\":\"aaaaaaaaaaaa\",\"needsTerminal\":false}"
     }
 
-    private func project(_ id: String, availability: String = "ready", complete: Bool = true, waiting: [String]) -> String {
+    private func runJSON(stuck episode: String?, alert: Bool = true) -> String {
+        let stuck = episode.map {
+            "{\"episodeId\":\"\($0)\",\"reason\":\"unread_mail\",\"since\":\"2026-10-29T09:00:00Z\",\"alert\":\(alert)}"
+        } ?? "null"
+        return "{\"requestId\":\"run\",\"state\":\"active\",\"paused\":false,\"contentHash\":\"h\","
+            + "\"pm\":{\"agentId\":\"pm-1\",\"waitingOn\":[],\"fromUser\":null,\"stuck\":\(stuck)}}"
+    }
+
+    private func project(
+        _ id: String, availability: String = "ready", complete: Bool = true, waiting: [String], run: String = "null"
+    ) -> String {
         "\"\(id)\":{\"projectId\":\"\(id)\",\"root\":\"/work/\(id)\",\"availability\":\"\(availability)\",\"epoch\":\"e1\","
-            + "\"head\":4,\"waiting\":{\(waiting.joined(separator: ","))},\"agents\":{},\"plans\":{},\"run\":null,"
+            + "\"head\":4,\"waiting\":{\(waiting.joined(separator: ","))},\"agents\":{},\"plans\":{},\"run\":\(run),"
             + "\"details\":{},\"attention\":{},\"snapshotComplete\":\(complete),\"staleSince\":null}"
     }
 
@@ -122,5 +132,83 @@ final class RefreshPlannerTests: XCTestCase {
             .joined(separator: "\n")
         XCTAssertFalse(code.contains("BiometricGate"))
         XCTAssertFalse(code.contains("Decider"))
+    }
+
+    // MARK: Stuck PM
+
+    private func stuckModel(_ episode: String?, alert: Bool = true, availability: String = "ready", complete: Bool = true) throws
+        -> HostModel
+    {
+        try model([
+            project(
+                "alpha", availability: availability, complete: complete, waiting: [],
+                run: runJSON(stuck: episode, alert: alert))
+        ])
+    }
+
+    func testStuckBaselinePassIsSilent() throws {
+        let pass = RefreshPlanner.pass(models: [try stuckModel("ep1")], seen: nil, settings: PhoneSettings())
+        XCTAssertTrue(pass.notifications.isEmpty)
+        XCTAssertTrue(pass.withdraw.isEmpty)
+        XCTAssertEqual(pass.seen, ["pmstuck/\(hostId.uuidString)/alpha/ep1"])
+    }
+
+    func testANewEpisodeIsAnnouncedOnceAcrossPassesAndRelaunch() throws {
+        let base = RefreshPlanner.pass(models: [try stuckModel(nil)], seen: nil, settings: PhoneSettings())
+        let first = RefreshPlanner.pass(models: [try stuckModel("ep1")], seen: base.seen, settings: PhoneSettings())
+        XCTAssertEqual(first.notifications.count, 1)
+        let plan = try XCTUnwrap(first.notifications.first)
+        XCTAssertEqual(plan.title, "PM looks stuck")
+        XCTAssertEqual(plan.body, "alpha")
+        XCTAssertEqual(plan.category, "pm.stuck")
+        XCTAssertEqual(plan.identifier, "pmstuck.\(hostId.uuidString).alpha.ep1")
+        // The seen set goes through the store, as a relaunch does.
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("seen-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SeenStore(directory: directory)
+        try store.write(first.seen)
+        let second = RefreshPlanner.pass(models: [try stuckModel("ep1")], seen: store.read(), settings: PhoneSettings())
+        XCTAssertTrue(second.notifications.isEmpty)
+        XCTAssertTrue(second.withdraw.isEmpty)
+    }
+
+    func testAnEndedEpisodeIsWithdrawn() throws {
+        let open = RefreshPlanner.pass(models: [try stuckModel("ep1")], seen: [], settings: PhoneSettings())
+        let ended = RefreshPlanner.pass(models: [try stuckModel(nil)], seen: open.seen, settings: PhoneSettings())
+        XCTAssertEqual(ended.withdraw, ["pmstuck.\(hostId.uuidString).alpha.ep1"])
+        XCTAssertTrue(ended.seen.isEmpty)
+        let later = RefreshPlanner.pass(models: [try stuckModel(nil)], seen: ended.seen, settings: PhoneSettings())
+        XCTAssertTrue(later.withdraw.isEmpty, "withdrawn once")
+    }
+
+    func testAnEpisodeOfAHostNotReadInThisPassIsNotWithdrawn() throws {
+        let other = "pmstuck/B2B2B2B2-0000-4000-8000-000000000002/alpha/ep9"
+        let pass = RefreshPlanner.pass(models: [try stuckModel(nil)], seen: [other], settings: PhoneSettings())
+        XCTAssertTrue(pass.withdraw.isEmpty)
+    }
+
+    func testAProjectThatCannotBeReadKeepsItsEpisode() throws {
+        let key = "pmstuck/\(hostId.uuidString)/alpha/ep1"
+        for (availability, complete) in [("silent", true), ("ready", false)] {
+            let pass = RefreshPlanner.pass(
+                models: [try stuckModel(nil, availability: availability, complete: complete)], seen: [key],
+                settings: PhoneSettings())
+            XCTAssertTrue(pass.withdraw.isEmpty, availability)
+            XCTAssertTrue(pass.seen.contains(key), availability)
+        }
+    }
+
+    func testAnEpisodeWithoutAlertIsNeverAnnounced() throws {
+        let pass = RefreshPlanner.pass(models: [try stuckModel("ep1", alert: false)], seen: [], settings: PhoneSettings())
+        XCTAssertTrue(pass.notifications.isEmpty)
+        XCTAssertTrue(pass.seen.isEmpty)
+    }
+
+    func testStuckPlansCountInTheCap() throws {
+        var items: [String] = []
+        for number in 0..<RefreshPlanner.notificationCap { items.append(waiting("w\(number)", kind: "op")) }
+        let m = try model([project("alpha", waiting: items, run: runJSON(stuck: "ep1"))])
+        let pass = RefreshPlanner.pass(models: [m], seen: [], settings: PhoneSettings())
+        XCTAssertEqual(pass.notifications.count, RefreshPlanner.notificationCap)
     }
 }

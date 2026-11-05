@@ -114,7 +114,17 @@ extension AppModel {
         let freshness = overview.controller(hostId)?.freshness(projectId)
             ?? ProjectFreshness(project: held, liveness: .unknown)
         return PmCardModel.make(
-            project: held, projectName: HostLabel.projectName(held), freshness: freshness, now: Date())
+            project: held, projectName: HostLabel.projectName(held), freshness: freshness, now: Date(),
+            sent: sent.thread(hostId: hostId, projectId: projectId))
+    }
+
+    /// True while the project is known but its snapshot is not complete and its host is not stopped: the overview
+    /// shows the card's skeleton in the card's place.
+    func pmCardLoading(hostId: UUID, projectId: String) -> Bool {
+        _ = overview.version
+        guard let held = project(hostId, projectId), !held.snapshotComplete else { return false }
+        if case .stopped? = connection[hostId] { return false }
+        return true
     }
 
     /// Opens Messages on the conversation with the project's PM.

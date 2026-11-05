@@ -17,20 +17,39 @@ import UserNotifications
         super.init()
     }
 
-    /// Posts one notification per kind that is on: a title, the project name and a sound, no agent text.
+    /// Posts one notification per kind that is on: a title, the project name and a sound, no agent text. A stuck PM is
+    /// announced when any kind is on; its recovery withdraws the notification of that episode.
     func handle(_ candidates: [NotifyCandidate]) {
         guard let model else { return }
         let settings = model.settings
         let preferences = SoundPreferences.load(from: sounds)
-        let plans = candidates.filter { settings.notifyKinds.contains($0.kind) }.map { candidate in
-            NotificationPlan(
-                candidate: candidate, settings: settings,
-                projectName: model.project(candidate.hostId, candidate.projectId)?.displayName ?? "",
-                preferences: preferences, fileCheck: SoundLibrary.userFileUsable)
+        var plans: [NotificationPlan] = []
+        var withdrawn: [String] = []
+        for candidate in candidates {
+            let name = model.project(candidate.hostId, candidate.projectId)?.displayName ?? ""
+            switch candidate.topic {
+            case .waiting:
+                guard settings.notifyKinds.contains(candidate.kind) else { continue }
+                plans.append(
+                    NotificationPlan(
+                        candidate: candidate, settings: settings, projectName: name,
+                        preferences: preferences, fileCheck: SoundLibrary.userFileUsable))
+            case .pmStuck:
+                guard !settings.notifyKinds.isEmpty else { continue }
+                plans.append(
+                    NotificationPlan(
+                        pmStuck: candidate, settings: settings, projectName: name,
+                        preferences: preferences, fileCheck: SoundLibrary.userFileUsable))
+            case .pmRecovered(let episodeId):
+                withdrawn.append(
+                    NotificationPlan.pmStuckIdentifier(
+                        hostId: candidate.hostId, projectId: candidate.projectId, episodeId: episodeId))
+            }
         }
-        guard !plans.isEmpty else { return }
+        guard !plans.isEmpty || !withdrawn.isEmpty else { return }
         let port = port
         Task {
+            if !withdrawn.isEmpty { await port.remove(identifiers: withdrawn) }
             for plan in plans { await port.add(plan) }
         }
     }
@@ -62,6 +81,12 @@ import UserNotifications
         model?.showMain(row: row)
     }
 
+    /// A tap on a stuck-PM notification opens that project's overview.
+    private func stuckTapped(hostId: UUID, projectId: String) {
+        model?.showMain(row: nil)
+        model?.selection = .project(hostId: hostId, projectId: projectId)
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
@@ -71,7 +96,11 @@ import UserNotifications
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
     ) async {
-        let row = NotificationPlan.row(fromUserInfo: response.notification.request.content.userInfo)
-        await responseReceived(row)
+        let info = response.notification.request.content.userInfo
+        if let (hostId, projectId) = NotificationPlan.pmStuckProject(fromUserInfo: info) {
+            await stuckTapped(hostId: hostId, projectId: projectId)
+            return
+        }
+        await responseReceived(NotificationPlan.row(fromUserInfo: info))
     }
 }

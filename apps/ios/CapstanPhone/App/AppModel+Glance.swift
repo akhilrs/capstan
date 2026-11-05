@@ -38,10 +38,10 @@ extension AppModel {
         let pass = RefreshPlanner.pass(models: complete, seen: previous, settings: settings) { name in
             FileManager.default.fileExists(atPath: PhoneSounds.userDirectory.appendingPathComponent(name).path)
         }
-        let readPrefixes = complete.map { $0.hostId.uuidString + "/" }
-        let kept = (previous ?? []).filter { key in !readPrefixes.contains { key.hasPrefix($0) } }
-        let next = pass.seen.union(kept)
+        let next = SeenMerge.merged(previous: previous, pass: pass.seen, completeHostIds: complete.map(\.hostId))
         if next != previous { try? store.write(next) }
+        // The stuck plans are among the notifications (one per episode); an episode that ended is withdrawn.
         if !pass.notifications.isEmpty { notifier.post(pass.notifications) }
+        if !pass.withdraw.isEmpty { notifier.remove(pass.withdraw) }
     }
 }

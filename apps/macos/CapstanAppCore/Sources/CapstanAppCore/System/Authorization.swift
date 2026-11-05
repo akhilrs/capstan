@@ -11,6 +11,12 @@ public protocol NotificationPort: Sendable {
     func authorizationStatus() async -> AuthStatus
     func requestAuthorization() async -> Bool
     func add(_ plan: NotificationPlan) async
+    /// Withdraws delivered and pending notifications by identifier.
+    func remove(identifiers: [String]) async
+}
+
+extension NotificationPort {
+    public func remove(identifiers: [String]) async {}
 }
 
 public enum AuthorizationPolicy {

@@ -272,6 +272,13 @@ public enum SidebarText {
     public static func projectStatus(_ availability: ProjectAvailability) -> String? {
         availability == .ready ? nil : AvailabilityText(availability).word.lowercased()
     }
+
+    public static let pmStuckWord = "PM stuck"
+
+    /// `PM stuck` for a ready project whose PM has an open stuck episode; nil otherwise.
+    public static func pmStuck(_ project: ProjectModel) -> String? {
+        project.availability == .ready && project.run?.pm?.stuck != nil ? pmStuckWord : nil
+    }
 }
 
 /// The footer status capsule: one line for every host. The host name is set bold, the rest in secondary text.

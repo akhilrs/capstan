@@ -130,6 +130,30 @@ run_checks() {
     fi
   fi
 
+  # (10) the PM fields the readers decode are documented and covered by the kernel fixtures; the overview shows the card
+  if [ -f "$macos/scripts/check-pm-fields.py" ]; then
+    if ! out=$(python3 -I "$macos/scripts/check-pm-fields.py" "$root" 2>&1); then
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        echo "apps/macos/scripts/check-pm-fields.py:1: [pm-fields] $line"
+      done <<< "$out"
+      found=1
+    fi
+  fi
+  local overview=$macos/Capstan/Inbox/OverviewView.swift
+  if [ -f "$overview" ] && ! grep -q 'PmCardView' "$overview"; then
+    echo "apps/macos/Capstan/Inbox/OverviewView.swift:1: [pm-card] OverviewView does not reference PmCardView"; found=1
+  fi
+
+  # (11) a stuck PM is announced and withdrawn by the coordinator, and the sidebar row shows it
+  local coordinator=$macos/Capstan/System/NotificationCoordinator.swift sidebar=$macos/Capstan/Navigation/SidebarView.swift
+  if [ -f "$coordinator" ] && ! grep -q 'pmStuck' "$coordinator"; then
+    echo "apps/macos/Capstan/System/NotificationCoordinator.swift:1: [pm-stuck] the coordinator does not handle pmStuck"; found=1
+  fi
+  if [ -f "$sidebar" ] && ! grep -q 'SidebarText\.pmStuck' "$sidebar"; then
+    echo "apps/macos/Capstan/Navigation/SidebarView.swift:1: [pm-stuck] the sidebar does not call SidebarText.pmStuck"; found=1
+  fi
+
   return $found
 }
 
@@ -141,8 +165,11 @@ self_test() {
   trap 'rm -rf "$tmp"' RETURN
 
   fresh() {
-    rm -rf "$tmp/repo"; mkdir -p "$tmp/repo/apps"
+    rm -rf "$tmp/repo"; mkdir -p "$tmp/repo/apps" "$tmp/repo/docs" "$tmp/repo/rust/crates/kernel/tests/rust_only/fixtures"
     cp -R "$root/apps/macos" "$tmp/repo/apps/macos"
+    cp "$root/docs/remote-protocol.md" "$tmp/repo/docs/"
+    cp -R "$root/rust/crates/kernel/tests/rust_only/fixtures/event_feed" \
+      "$tmp/repo/rust/crates/kernel/tests/rust_only/fixtures/"
     rm -rf "$tmp/repo/apps/macos/CapstanKit/.build" "$tmp/repo/apps/macos/CapstanAppCore/.build"
   }
 
@@ -261,6 +288,34 @@ SWIFT
   rm -f "$tmp/repo/apps/macos/scripts/check-xcodeproj.py" "$tmp/repo/apps/macos/scripts/stubs.txt"
   if ! run_checks "$tmp/repo" >"$tmp/none.out" 2>&1; then
     echo "self-test: a tree without the optional files was flagged" >&2; cat "$tmp/none.out" >&2; rc=1
+  fi
+
+  # check-pm-fields.py: a field the reader decodes that the document and the fixtures lack is caught; a card the
+  # overview does not reference is caught.
+  fresh
+  local events=$tmp/repo/apps/macos/CapstanKit/Sources/CapstanKit/Protocol/Events.swift
+  sed -i 's|public var pmRecoveredBody: PmRecoveredBody? {|&\n        _ = try? raw.string("plantedField")|' "$events"
+  if run_checks "$tmp/repo" >"$tmp/pm.out" 2>&1; then
+    echo "self-test: a decoded field missing from the document and fixtures was not caught" >&2; rc=1
+  elif ! grep -q 'plantedField' "$tmp/pm.out"; then
+    echo "self-test: the missing PM field was caught without its name" >&2; cat "$tmp/pm.out" >&2; rc=1
+  fi
+  fresh
+  sed -i 's/PmCardView/SomethingElse/g' "$tmp/repo/apps/macos/Capstan/Inbox/OverviewView.swift"
+  if run_checks "$tmp/repo" >"$tmp/pm.out" 2>&1; then
+    echo "self-test: an overview without the PM card was not caught" >&2; rc=1
+  fi
+
+  # the coordinator without pmStuck and a sidebar without SidebarText.pmStuck are each caught
+  fresh
+  sed -i 's/pmStuck/somethingElse/g' "$tmp/repo/apps/macos/Capstan/System/NotificationCoordinator.swift"
+  if run_checks "$tmp/repo" >"$tmp/pm.out" 2>&1; then
+    echo "self-test: a coordinator without pmStuck was not caught" >&2; rc=1
+  fi
+  fresh
+  sed -i 's/SidebarText\.pmStuck/SidebarText.other/g' "$tmp/repo/apps/macos/Capstan/Navigation/SidebarView.swift"
+  if run_checks "$tmp/repo" >"$tmp/pm.out" 2>&1; then
+    echo "self-test: a sidebar without SidebarText.pmStuck was not caught" >&2; rc=1
   fi
 
   [ $rc = 0 ] && echo "self-test passed (${#cases[@]} planted patterns caught)"

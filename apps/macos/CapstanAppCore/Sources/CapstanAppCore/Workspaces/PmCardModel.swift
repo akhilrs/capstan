@@ -90,7 +90,7 @@ public struct PmCardModel: Sendable, Equatable {
     /// The card of the project, or nil while the project has no complete snapshot.
     public static func make(
         project: ProjectModel, projectName: String, freshness: ProjectFreshness, now: Date,
-        calendar: Calendar = Calendar.current
+        calendar: Calendar = Calendar.current, sent: [SentMessage] = []
     ) -> PmCardModel? {
         guard project.snapshotComplete else { return nil }
         let times = OverviewTimes(now: now, calendar: calendar)
@@ -105,6 +105,7 @@ public struct PmCardModel: Sendable, Equatable {
                 waitingTitle: "", waitingEmptyText: "")
         }
         let name = HostText.name(pm.agentId)
+        let mine = youSent(host: pm.fromUser, local: sent, times: times)
         let agent = project.agents.values.first { $0.agentId == pm.agentId }
         let health = agent.map { AgentRow(agent: $0, in: project).health }
         let lastKnownTime: String? = {
@@ -122,8 +123,7 @@ public struct PmCardModel: Sendable, Equatable {
             stuck: pm.stuck.map { stuckBanner($0, name: name, times: times) },
             fromPM: newestFromPM(project, agentId: pm.agentId, times: times),
             fromPMEmptyText: "No message to you yet.",
-            youSent: pm.fromUser.map { message(text: $0.body, at: $0.createdAt, times: times) },
-            delivery: pm.fromUser.flatMap { deliveryOf($0, times: times) },
+            youSent: mine?.message, delivery: mine?.delivery,
             youSentEmptyText: "Nothing yet. Write to " + name + " in Messages.",
             waitingOn: pm.waitingOn.map { waitingRow($0, times: times) },
             waitingTitle: lastKnownTime.map { "Waiting on at " + $0 } ?? "Waiting on",
@@ -171,6 +171,54 @@ public struct PmCardModel: Sendable, Equatable {
             return one.isEmpty ? nil : OverviewModel.isolate(one)
         }
         return PmCardMessage(text: shown, time: OverviewTimes.date(time).map(times.text) ?? "")
+    }
+
+    /// The newer of the host's `fromUser` and the newest local message. A local message the host entry names (same
+    /// message id) is the same message and the host entry wins. A tie goes to the host.
+    private static func youSent(
+        host: PmCard.FromUser?, local: [SentMessage], times: OverviewTimes
+    ) -> (message: PmCardMessage, delivery: PmCardDelivery?)? {
+        let hostDate = host.flatMap { OverviewTimes.date($0.createdAt) }
+        let newestLocal = local
+            .filter { entry in
+                guard let host, case .sent(let id) = entry.state else { return true }
+                return id != host.messageId
+            }
+            .max { $0.sentAt < $1.sentAt }
+        if let newestLocal, host == nil || hostDate.map({ newestLocal.sentAt > $0 }) ?? true {
+            return (localMessage(newestLocal, times: times), localDelivery(newestLocal, times: times))
+        }
+        guard let host else { return nil }
+        return (message(text: host.body, at: host.createdAt, times: times), deliveryOf(host, times: times))
+    }
+
+    /// The person's own text: cleaned and cut, without the isolation the host's text gets.
+    private static func localMessage(_ entry: SentMessage, times: OverviewTimes) -> PmCardMessage {
+        let one = HostText.clean(entry.text, maxBytes: previewCap).trimmingCharacters(in: .whitespaces)
+        return PmCardMessage(text: one.isEmpty ? nil : one, time: times.text(entry.sentAt))
+    }
+
+    private static func localDelivery(_ entry: SentMessage, times: OverviewTimes) -> PmCardDelivery? {
+        let queued = PmCardDelivery(text: "Queued: the PM gets it when it is free", symbol: "clock", failed: false)
+        switch entry.delivery {
+        case .queued?:
+            return queued
+        case .delivered(let at)?:
+            return PmCardDelivery(text: "Delivered to the PM · " + times.text(at), symbol: "checkmark", failed: false)
+        case .read(let at)?:
+            return PmCardDelivery(text: "Read by the PM · " + times.text(at), symbol: "checkmark.circle.fill", failed: false)
+        case .dropped(let state, _)?:
+            let word = HostText.name(state)
+            let known = ["expired", "cancelled", "skipped", "failed"].contains(word)
+            return PmCardDelivery(
+                text: known ? "Not delivered (" + word + ")" : "Not delivered", symbol: "exclamationmark.triangle.fill",
+                failed: true)
+        case nil:
+            if case .notSent = entry.state {
+                return PmCardDelivery(text: "Not delivered", symbol: "exclamationmark.triangle.fill", failed: true)
+            }
+            return queued
+        }
     }
 
     private static func newestFromPM(_ project: ProjectModel, agentId: String, times: OverviewTimes) -> PmCardMessage? {

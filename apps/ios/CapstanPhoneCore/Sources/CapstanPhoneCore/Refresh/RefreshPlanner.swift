@@ -37,6 +37,25 @@ public enum RefreshPlanner {
         public let notifications: [PhoneNotificationPlan]
         /// What is waiting now: the next pass compares against it.
         public let seen: Set<String>
+        /// Identifiers of notifications to withdraw: stuck-PM episodes that have ended.
+        public let withdraw: [String]
+
+        public init(notifications: [PhoneNotificationPlan], seen: Set<String>, withdraw: [String] = []) {
+            self.notifications = notifications
+            self.seen = seen
+            self.withdraw = withdraw
+        }
+    }
+
+    /// Prefix of the seen keys of stuck-PM episodes.
+    static let pmStuckPrefix = "pmstuck/"
+
+    /// The notification identifier of a `pmstuck/<host>/<project>/<episode>` key; nil for any other key.
+    static func pmStuckIdentifier(ofSeenKey key: String) -> String? {
+        guard key.hasPrefix(pmStuckPrefix) else { return nil }
+        let parts = key.dropFirst(pmStuckPrefix.count).split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, let host = UUID(uuidString: String(parts[0])) else { return nil }
+        return NotificationPlan.pmStuckIdentifier(hostId: host, projectId: String(parts[1]), episodeId: String(parts[2]))
     }
 
     /// The notifications for items that wait now and were not seen before, by kind and project name only, at most
@@ -49,6 +68,17 @@ public enum RefreshPlanner {
         var fresh: [(since: String, plan: PhoneNotificationPlan)] = []
         for model in models {
             for project in model.projects.values where project.availability == .ready {
+                if let stuck = project.run?.pm?.stuck, stuck.alert, project.snapshotComplete {
+                    let key = pmStuckPrefix + seenKey(hostId: model.hostId, projectId: project.projectId, requestId: stuck.episodeId)
+                    now.insert(key)
+                    if let seen, !seen.contains(key),
+                       let plan = PhoneNotificationPlan(
+                           pmStuck: model.hostId, projectId: project.projectId, episodeId: stuck.episodeId,
+                           projectName: project.displayName, settings: settings, fileCheck: fileCheck)
+                    {
+                        fresh.append((stuck.since ?? "", plan))
+                    }
+                }
                 for item in project.waiting.values {
                     let key = seenKey(hostId: model.hostId, projectId: project.projectId, requestId: item.requestId)
                     now.insert(key)
@@ -64,8 +94,24 @@ public enum RefreshPlanner {
                 }
             }
         }
+        // A stuck episode of a host read in this pass that is gone ended: its notification is withdrawn. A project that
+        // cannot be read right now (not ready, no complete snapshot) keeps what it had.
+        var withdraw: [String] = []
+        if let seen {
+            let read = Dictionary(uniqueKeysWithValues: models.map { ($0.hostId, $0) })
+            for key in seen.sorted() where key.hasPrefix(pmStuckPrefix) && !now.contains(key) {
+                let parts = key.dropFirst(pmStuckPrefix.count).split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
+                guard parts.count == 3, let host = UUID(uuidString: String(parts[0])), let model = read[host],
+                      let identifier = pmStuckIdentifier(ofSeenKey: key) else { continue }
+                if let project = model.projects[String(parts[1])], !(project.availability == .ready && project.snapshotComplete) {
+                    now.insert(key)
+                } else {
+                    withdraw.append(identifier)
+                }
+            }
+        }
         let ordered = fresh.sorted { $0.since != $1.since ? $0.since < $1.since : $0.plan.identifier < $1.plan.identifier }
-        return Pass(notifications: ordered.prefix(notificationCap).map(\.plan), seen: now)
+        return Pass(notifications: ordered.prefix(notificationCap).map(\.plan), seen: now, withdraw: withdraw)
     }
 }
 

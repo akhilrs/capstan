@@ -121,6 +121,25 @@ extension AppModel {
             project: held, freshness: freshness, history: history, folded: folded, now: Date())
     }
 
+    /// The PM card of the project's overview, with the messages this phone sent to its PM; nil while the project has no
+    /// complete snapshot (`pmCardLoading` tells that apart from a project the app does not hold).
+    func pmCard(hostId: UUID, projectId: String) -> PmCardModel? {
+        _ = overview.version
+        guard let held = project(hostId, projectId) else { return nil }
+        let freshness = overview.controller(hostId)?.freshness(projectId)
+            ?? ProjectFreshness(project: held, liveness: .unknown)
+        return PmCardModel.make(
+            project: held, projectName: TextBudget.displayPrefix(held.displayName, maxBytes: 64).text,
+            freshness: freshness, now: Date(), sent: messages.thread(hostId: hostId, projectId: projectId))
+    }
+
+    /// True while the project is held but its first complete snapshot has not been read: the card shows its skeleton.
+    func pmCardLoading(hostId: UUID, projectId: String) -> Bool {
+        _ = overview.version
+        guard let held = project(hostId, projectId) else { return false }
+        return !held.snapshotComplete
+    }
+
     /// Called when a host's connection state changes. A host that became live starts the history read of the selected
     /// project; one that is no longer live lets the next connection read it again.
     func overviewConnection(_ state: ConnectionState, hostId: UUID, engine: HostStoreEngine?) {
