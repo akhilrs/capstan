@@ -11,14 +11,21 @@ fn tmp() -> tempdir::T {
 
 mod tempdir {
     use std::path::{Path, PathBuf};
-    pub struct T(PathBuf);
+    use std::sync::{Mutex, MutexGuard};
+
+    /// Held for a test's whole lifetime so a test that changes the process
+    /// environment never overlaps another test in this binary.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    pub struct T(PathBuf, #[allow(dead_code)] MutexGuard<'static, ()>);
     impl T {
         pub fn new() -> T {
             static COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let n = COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let p = std::env::temp_dir().join(format!("cw-sp-{}-{n}", std::process::id()));
             std::fs::create_dir_all(&p).unwrap();
-            T(std::fs::canonicalize(p).unwrap())
+            T(std::fs::canonicalize(p).unwrap(), guard)
         }
         pub fn path(&self) -> &Path {
             &self.0
@@ -74,10 +81,19 @@ fn deterministic() {
     let via = link.join(a.strip_prefix(t.path().join("a")).unwrap());
     assert_eq!(control_socket_in(&via, &base), control_socket_in(&a, &base));
     let before = control_socket_in(&a, &base);
-    std::env::set_var("HOME", "/nonexistent");
-    std::env::set_var("TMPDIR", "/nonexistent");
-    std::env::set_var("XDG_RUNTIME_DIR", "/nonexistent");
-    assert_eq!(control_socket_in(&a, &base), before);
+    let keys = ["HOME", "TMPDIR", "XDG_RUNTIME_DIR"];
+    let saved: Vec<_> = keys.iter().map(std::env::var_os).collect();
+    for k in keys {
+        std::env::set_var(k, "/nonexistent");
+    }
+    let after = control_socket_in(&a, &base);
+    for (k, v) in keys.iter().zip(saved) {
+        match v {
+            Some(v) => std::env::set_var(k, v),
+            None => std::env::remove_var(k),
+        }
+    }
+    assert_eq!(after, before);
 }
 
 #[test]
