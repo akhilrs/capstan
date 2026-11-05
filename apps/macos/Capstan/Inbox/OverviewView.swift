@@ -20,12 +20,18 @@ struct OverviewView<Waiting: View>: View {
     let anythingWaiting: Bool
     let selectedOutcome: String?
     let actions: OverviewActions
+    /// The Project manager block, at the top under the status strip; nil until the project has a complete snapshot.
+    let pmCard: PmCardModel?
+    let pmActions: PmCardActions
     private let waiting: Waiting
 
     init(
         content: OverviewModel, projectName: String, anythingWaiting: Bool, selectedOutcome: String? = nil,
-        actions: OverviewActions = OverviewActions(), @ViewBuilder waiting: () -> Waiting
+        actions: OverviewActions = OverviewActions(), pmCard: PmCardModel? = nil,
+        pmActions: PmCardActions = PmCardActions(), @ViewBuilder waiting: () -> Waiting
     ) {
+        self.pmCard = pmCard
+        self.pmActions = pmActions
         self.content = content
         self.projectName = projectName
         self.anythingWaiting = anythingWaiting
@@ -40,6 +46,12 @@ struct OverviewView<Waiting: View>: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
+            if let pmCard {
+                PmCardView(card: pmCard, actions: pmActions)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 8, trailing: 12))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
             waiting
             if anythingWaiting {
                 Section {

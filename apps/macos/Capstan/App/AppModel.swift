@@ -48,6 +48,8 @@ final class AppModel {
     private(set) var sent: SentMessageLog
     /// The project the person asked to remove from the list; the window asks to confirm.
     var projectToRemove: ProjectKey?
+    /// The conversation Messages opens on next (`<hostId>/<projectId>`); taken and cleared by the Messages screen.
+    var messagesFocus: String?
     @ObservationIgnored var openMainWindow: (@MainActor () -> Void)?
 
     @ObservationIgnored private let defaults: UserDefaults?

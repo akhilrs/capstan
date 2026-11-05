@@ -542,6 +542,8 @@ public struct RunItem: WireItem {
     public let state: String
     public let paused: Bool
     public let contentHash: String
+    /// The PM card; nil when the project has no active PM, and from a host that does not send it.
+    public let pm: PmCard?
 
     public init(json: JSONValue) throws {
         _ = try json.members("run item")
@@ -549,6 +551,156 @@ public struct RunItem: WireItem {
         state = try json.string("state")
         paused = try json.bool("paused")
         contentHash = try json.string("contentHash")
+        pm = json.optional("pm").flatMap { PmCard(wire: $0) }
+    }
+}
+
+// MARK: PM card (document section 5, `pm`)
+
+/// The `pm` member of the run item: who the active PM is, what it waits on, the person's newest message to it and its
+/// open stuck episode. Read leniently: a member that does not read is dropped, never the run item.
+public struct PmCard: Codable, Sendable, Equatable {
+    /// One kind of work the PM waits on, with a count above 0 and the oldest time.
+    public struct Waiting: Codable, Sendable, Equatable {
+        /// `report`, `review`, `verify`, `plan_review`, `user`, or a kind a newer host adds.
+        public var kind: String
+        public var count: Int64
+        public var since: String?
+
+        public init(kind: String, count: Int64, since: String?) {
+            self.kind = kind
+            self.count = count
+            self.since = since
+        }
+
+        init?(wire json: JSONValue) {
+            guard let kind = json.wireString("kind") else { return nil }
+            let count = json.wireCount("count")
+            guard count > 0 else { return nil }
+            self.init(kind: kind, count: count, since: json.wireString("since"))
+        }
+
+        var json: JSONValue {
+            var members: [String: JSONValue] = ["kind": .string(kind), "count": .int(count)]
+            if let since { members["since"] = .string(since) }
+            return .object(members)
+        }
+    }
+
+    /// The person's newest message to the active PM.
+    public struct FromUser: Codable, Sendable, Equatable {
+        public var messageId: String
+        public var client: String?
+        public var createdAt: String
+        public var state: String?
+        public var stateSince: String?
+        /// `queued`, `delivered`, `read`, `not_delivered`, or a value a newer host adds.
+        public var delivery: String
+        /// Nil when the host could not vouch for the stored text (`body` null).
+        public var body: UntrustedText?
+
+        public init(
+            messageId: String, client: String? = nil, createdAt: String, state: String? = nil,
+            stateSince: String? = nil, delivery: String, body: UntrustedText?
+        ) {
+            self.messageId = messageId
+            self.client = client
+            self.createdAt = createdAt
+            self.state = state
+            self.stateSince = stateSince
+            self.delivery = delivery
+            self.body = body
+        }
+
+        init?(wire json: JSONValue) {
+            guard let messageId = json.wireString("messageId"), let createdAt = json.wireString("createdAt"),
+                  let delivery = json.wireString("delivery") else { return nil }
+            let body = json.optional("body").flatMap { $0.flaggedText("text") }
+            self.init(
+                messageId: messageId, client: json.wireString("client"), createdAt: createdAt,
+                state: json.wireString("state"), stateSince: json.wireString("stateSince"), delivery: delivery,
+                body: body.flatMap { $0.verified ? $0 : nil })
+        }
+
+        var json: JSONValue {
+            var members: [String: JSONValue] = [
+                "messageId": .string(messageId), "createdAt": .string(createdAt), "delivery": .string(delivery),
+            ]
+            if let client { members["client"] = .string(client) }
+            if let state { members["state"] = .string(state) }
+            if let stateSince { members["stateSince"] = .string(stateSince) }
+            if let body {
+                members["body"] = .object([
+                    "text": .string(body.raw), "textVerified": .bool(body.verified), "truncated": .bool(body.truncated),
+                ])
+            } else {
+                members["body"] = .null
+            }
+            return .object(members)
+        }
+    }
+
+    /// The open stuck episode of the PM.
+    public struct Stuck: Codable, Sendable, Equatable {
+        public var episodeId: String
+        /// `unread_mail`, `no_progress`, `prompt`, or a reason a newer host adds.
+        public var reason: String
+        public var since: String?
+        /// False when an alerting episode of the same PM opened in the last 30 minutes: the banner shows, no alert.
+        public var alert: Bool
+
+        public init(episodeId: String, reason: String, since: String?, alert: Bool) {
+            self.episodeId = episodeId
+            self.reason = reason
+            self.since = since
+            self.alert = alert
+        }
+
+        init?(wire json: JSONValue) {
+            guard let episodeId = json.wireString("episodeId"), let reason = json.wireString("reason") else { return nil }
+            self.init(
+                episodeId: episodeId, reason: reason, since: json.wireString("since"),
+                alert: json.wireBool("alert") ?? false)
+        }
+
+        var json: JSONValue {
+            var members: [String: JSONValue] = [
+                "episodeId": .string(episodeId), "reason": .string(reason), "alert": .bool(alert),
+            ]
+            if let since { members["since"] = .string(since) }
+            return .object(members)
+        }
+    }
+
+    public var agentId: String
+    public var waitingOn: [Waiting]
+    public var fromUser: FromUser?
+    public var stuck: Stuck?
+
+    public init(agentId: String, waitingOn: [Waiting] = [], fromUser: FromUser? = nil, stuck: Stuck? = nil) {
+        self.agentId = agentId
+        self.waitingOn = waitingOn
+        self.fromUser = fromUser
+        self.stuck = stuck
+    }
+
+    /// Nil when the value is not an object or has no agent id.
+    public init?(wire json: JSONValue) {
+        guard let agentId = json.wireString("agentId"), !agentId.isEmpty else { return nil }
+        self.init(
+            agentId: agentId, waitingOn: json.wireList("waitingOn") { Waiting(wire: $0) },
+            fromUser: json.optional("fromUser").flatMap { FromUser(wire: $0) },
+            stuck: json.optional("stuck").flatMap { Stuck(wire: $0) })
+    }
+
+    /// The card as the host sends it, so an effect merged over the stored run keeps it.
+    public var json: JSONValue {
+        .object([
+            "agentId": .string(agentId),
+            "waitingOn": .array(waitingOn.map(\.json)),
+            "fromUser": fromUser?.json ?? .null,
+            "stuck": stuck?.json ?? .null,
+        ])
     }
 }
 

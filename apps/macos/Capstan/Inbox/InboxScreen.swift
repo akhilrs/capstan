@@ -221,6 +221,15 @@ private struct OverviewHost<Waiting: View>: View {
     let hostId: UUID
     let projectId: String
     @ViewBuilder let waiting: () -> Waiting
+    /// The stuck episode whose Pause project… the person pressed; the confirm sheet shows while it is set.
+    @State private var pausing: PmCardStuck?
+
+    init(model: AppModel, hostId: UUID, projectId: String, @ViewBuilder waiting: @escaping () -> Waiting) {
+        self.model = model
+        self.hostId = hostId
+        self.projectId = projectId
+        self.waiting = waiting
+    }
 
     private struct FeedKey: Equatable {
         let hostId: UUID
@@ -238,7 +247,16 @@ private struct OverviewHost<Waiting: View>: View {
             OverviewView(
                 content: content, projectName: HostLabel.projectName(project),
                 anythingWaiting: !project.waiting.isEmpty, selectedOutcome: model.overview.selectedOutcomeId,
-                actions: actions, waiting: waiting)
+                actions: actions, pmCard: model.pmCard(hostId: hostId, projectId: projectId),
+                pmActions: pmActions(project), waiting: waiting)
+            .sheet(item: $pausing) { stuck in
+                ConfirmSheet(
+                    title: "Pause the project?", detail: nil, noteLimit: ProtocolLimits.reasonCap,
+                    destructiveLabel: "Pause", initialNote: stuck.pauseReason
+                ) { reason in
+                    Task { _ = await model.decideRun(.runPause(reason: reason), hostId: hostId, projectId: projectId) }
+                }
+            }
             .task(id: feedKey(project)) {
                 // Takes the model and the liveness now and every few seconds while the overview is shown.
                 while !Task.isCancelled {
@@ -253,6 +271,26 @@ private struct OverviewHost<Waiting: View>: View {
         FeedKey(
             hostId: hostId, projectId: projectId, epoch: project.epoch, head: project.head,
             complete: project.snapshotComplete, availability: project.availability)
+    }
+
+    private func pmActions(_ project: ProjectModel) -> PmCardActions {
+        let key = BusyKey(hostId: hostId, projectId: projectId, requestId: project.run?.requestId ?? "run")
+        let control = ProjectPauseControl(
+            capabilities: model.capabilities[hostId], busy: model.busy.keys, key: key,
+            runPaused: project.run?.paused ?? false, hashKnown: project.run?.hashKnown ?? true)
+        return PmCardActions(
+            open: { link in
+                switch link {
+                case .conversation: model.openPMConversation(hostId: hostId, projectId: projectId)
+                case .plans: model.selection = .plans(hostId: hostId, projectId: projectId)
+                case .waiting:
+                    model.inboxKind = nil
+                    model.selection = .project(hostId: hostId, projectId: projectId)
+                }
+            },
+            pause: { stuck in pausing = stuck },
+            refresh: { model.refreshSelection() },
+            canPause: control.action == .pause && control.state.isEnabled)
     }
 
     private var actions: OverviewActions {

@@ -23,7 +23,16 @@ struct MessagesScreen: View {
                     .id(current.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .onAppear(perform: takeFocus)
+            .onChange(of: model.messagesFocus) { _, _ in takeFocus() }
         }
+    }
+
+    /// Opens the conversation another screen asked for (the PM card, say), once.
+    private func takeFocus() {
+        guard let focus = model.messagesFocus else { return }
+        picked = focus
+        model.messagesFocus = nil
     }
 
     private var empty: some View {

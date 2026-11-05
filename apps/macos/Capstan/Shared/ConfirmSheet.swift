@@ -16,10 +16,12 @@ struct ConfirmSheet: View {
 
     private enum Field { case cancel, note }
 
+    /// `initialNote` fills the note in for the person, who may clear it.
     init(
-        title: String, detail: UntrustedText?, noteLimit: Int?, destructiveLabel: String,
+        title: String, detail: UntrustedText?, noteLimit: Int?, destructiveLabel: String, initialNote: String = "",
         onConfirm: @escaping (String?) -> Void
     ) {
+        _note = State(initialValue: initialNote)
         self.title = title
         self.detail = detail
         self.noteLimit = noteLimit

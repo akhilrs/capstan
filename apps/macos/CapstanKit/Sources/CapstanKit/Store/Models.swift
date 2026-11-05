@@ -374,25 +374,30 @@ public struct StoredRun: Codable, Sendable, Equatable {
     public var state: String
     public var paused: Bool
     public var contentHash: String
+    /// The PM card; nil without an active PM, from an older host and in saved files from before it.
+    public var pm: PmCard?
 
-    public init(requestId: String, state: String, paused: Bool, contentHash: String) {
+    public init(requestId: String, state: String, paused: Bool, contentHash: String, pm: PmCard? = nil) {
         self.requestId = requestId
         self.state = state
         self.paused = paused
         self.contentHash = contentHash
+        self.pm = pm
     }
 
     /// False between a `run.changed` event and the read that follows it: a decision would carry a stale hash.
     public var hashKnown: Bool { !contentHash.isEmpty }
 
     init(_ item: RunItem) {
-        self.init(requestId: item.requestId, state: item.state, paused: item.paused, contentHash: item.contentHash)
+        self.init(
+            requestId: item.requestId, state: item.state, paused: item.paused, contentHash: item.contentHash,
+            pm: item.pm)
     }
 
     var json: JSONValue {
         .object([
             "requestId": .string(requestId), "state": .string(state), "paused": .bool(paused),
-            "contentHash": .string(contentHash),
+            "contentHash": .string(contentHash), "pm": pm?.json ?? .null,
         ])
     }
 }
