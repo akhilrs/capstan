@@ -18,6 +18,7 @@ extension AppModel {
 }
 
 /// What the Agents and Plans screens and the toolbar read, for all projects or for the one in `scope`.
+@MainActor
 enum ListData {
     static func agentGroups(_ model: AppModel, scope: ProjectKey?) -> [AgentGroup] {
         let groups = model.agentGroups()

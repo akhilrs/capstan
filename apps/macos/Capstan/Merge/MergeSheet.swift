@@ -187,7 +187,8 @@ struct MergeSheet: View {
 
     private func pendingId(_ outcome: DecideOutcome) -> UUID? {
         switch outcome {
-        case .notSent(_, let id), .malformed(_, let id): return id
+        case .notSent(_, let id): return id
+        case .malformed(_, let id): return id
         default: return nil
         }
     }
