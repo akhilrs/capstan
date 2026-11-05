@@ -36,6 +36,7 @@ The root is `root` (an absolute path or `~/...`), else `$XDG_CACHE_HOME/capstan`
 | `rust`, mode `sccache` (default mode) | `SCCACHE_DIR`, `RUSTC_WRAPPER=sccache`, `SCCACHE_CACHE_SIZE`, `CARGO_INCREMENTAL=0` | `sccache` |
 | `rust`, mode `shared-build-dir` | `CARGO_BUILD_BUILD_DIR` | `cargo` |
 | `rust`, mode `off` | none | |
+| any `rust` mode except `off`, with `target_dir = true` | also `CARGO_TARGET_DIR` (subdirectory `cargo-target`) | `cargo` |
 | `python` | `PIP_CACHE_DIR`, `UV_CACHE_DIR`, `POETRY_CACHE_DIR` | |
 | `node` | `NPM_CONFIG_CACHE`, `NPM_CONFIG_STORE_DIR` (pnpm), `YARN_CACHE_FOLDER` | |
 | `go` | `GOCACHE`, `GOMODCACHE` | |
@@ -165,6 +166,10 @@ Capstan only sets the environment; this holds for any tool whose cache location 
 ## Measuring a project
 
 `scripts/measure-build-cache.sh <repo> <setup-cmd> <build-cmd> [--cache-env file] [--reuse path]...` builds the same commit twice in fresh git worktrees, first with an empty cache root (cold), then with the filled one (warm), and prints wall times, sizes and, for sccache, hit statistics. Both worktrees and the temp root are removed afterwards, also after a failure. The `--cache-env` file holds `NAME=value` lines; `$CACHE_ROOT` stands for the run's cache root. The commands to use for Python and Node projects, and the results for this repository, are in [the measurement document](../investigations/build-cache-measurement.md#measuring-your-own-project).
+
+### A persistent target directory (`target_dir`)
+
+`[cache.rust] target_dir = true` (default `false`) adds `CARGO_TARGET_DIR` pointing into the cache, so a build keeps its compiled output between runs. `cstan verify` exports the same cache variables as agents get, so a gate run starts warm instead of building in a fresh target directory under its scratch worktree. cargo holds a file lock on a target directory: two builds at once wait for each other (`Blocking waiting for file lock`) instead of corrupting it, which is why `[verify] max_parallel = 1` loses nothing. The directory is part of the entry, so `max_size_gb` and `max_age_days` bound it like the rest of the cache. Scripts that build several trees into one `CARGO_TARGET_DIR` should give each its own subdirectory, as `scripts/check.sh` does. Other presets need no such option: their cache directories (`GOCACHE`, `PIP_CACHE_DIR`, `NPM_CONFIG_CACHE`, ...) are safe to share between concurrent runs by the tools' own design.
 
 ## The `capstan.toml` for this repository
 

@@ -37,7 +37,7 @@ const ACTIVE: &str = "('queued', 'running')";
 
 const COLUMNS: &str = "run_id, sequence, subject_report_id, subject_integration_id, commit_sha, commands_json, commands_sha, trigger,
   requested_by_actor_id, state, queued_at, started_at, finished_at, exit_code, failed_step, duration_ms, output_tail, output_truncated,
-  log_path, scratch_path, pgid, leader_start";
+  log_path, scratch_path, pgid, leader_start, skipped_json";
 
 fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
     input.get(key).unwrap_or(&Value::Null)
@@ -88,6 +88,7 @@ struct RunRow {
     scratch_path: Option<String>,
     pgid: Option<i64>,
     leader_start: Option<String>,
+    skipped_json: String,
 }
 
 impl RunRow {
@@ -115,6 +116,7 @@ impl RunRow {
             scratch_path: row.get("scratch_path")?,
             pgid: row.get("pgid")?,
             leader_start: row.get("leader_start")?,
+            skipped_json: row.get("skipped_json")?,
         })
     }
 
@@ -158,6 +160,7 @@ impl RunRow {
             "outputTail": self.output_tail,
             "outputTruncated": self.output_truncated,
             "logPath": self.log_path,
+            "skippedSteps": serde_json::from_str::<Value>(&self.skipped_json).unwrap_or_else(|_| json!([])),
         }))
     }
 }
@@ -498,6 +501,36 @@ fn notice_recipients(kernel: &Kernel, run: &RunRow, pm: &AgentRow) -> KernelResu
     Ok(recipients)
 }
 
+/// The optional `skippedSteps` of a finish: an array of at most 16 `{ step, command, reason }`, stored as JSON.
+fn skipped_steps(input: &Value) -> KernelResult<String> {
+    let entries = match field(input, "skippedSteps") {
+        Value::Null => return Ok("[]".into()),
+        Value::Array(entries) if entries.len() <= 16 => entries,
+        _ => {
+            return Err(KernelError::type_error(
+                "skippedSteps must be an array of at most 16 steps",
+            ))
+        }
+    };
+    let mut kept = Vec::new();
+    for entry in entries {
+        let (Some(step), Some(command), Some(reason)) = (
+            entry["step"].as_i64().filter(|n| *n >= 1),
+            entry["command"].as_str(),
+            entry["reason"].as_str(),
+        ) else {
+            return Err(KernelError::type_error(
+                "a skipped step needs a step number, a command and a reason",
+            ));
+        };
+        if command.len() > 1000 || reason.len() > 2000 {
+            return Err(KernelError::type_error("a skipped step is too long"));
+        }
+        kept.push(json!({"step": step, "command": command, "reason": reason}));
+    }
+    Ok(serde_json::to_string(&kept)?)
+}
+
 /// `finishVerifyRun`: records how a running run ended and queues one controller notice per recipient.
 pub fn finish_verify_run(
     kernel: &Kernel,
@@ -531,6 +564,7 @@ pub fn finish_verify_run(
         Value::Bool(flag) => *flag,
         _ => return Err(KernelError::type_error("outputTruncated must be a boolean")),
     };
+    let skipped = skipped_steps(input)?;
     let (tail, cut) = bounded_tail(tail);
     let truncated = supplied_truncated || cut;
     kernel.mutate(context, "verify.finish", CONTROL, input, |_| {
@@ -545,7 +579,7 @@ pub fn finish_verify_run(
         execute(
             &kernel.database,
             "UPDATE verify_runs SET state = ?, finished_at = ?, exit_code = ?, failed_step = ?, duration_ms = ?,
-               output_tail = ?, output_truncated = ? WHERE project_id = ? AND run_id = ?",
+               output_tail = ?, output_truncated = ?, skipped_json = ? WHERE project_id = ? AND run_id = ?",
             rusqlite::params![
                 state,
                 now,
@@ -554,6 +588,7 @@ pub fn finish_verify_run(
                 duration_ms,
                 tail,
                 truncated as i64,
+                skipped,
                 kernel.project_id,
                 run_id
             ],

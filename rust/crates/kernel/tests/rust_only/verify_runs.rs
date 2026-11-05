@@ -644,3 +644,59 @@ fn the_brief_summary_follows_the_latest_run_at_the_commit() {
         "failed"
     );
 }
+
+#[test]
+fn a_finished_run_lists_its_skipped_steps_and_a_run_without_any_lists_none() {
+    let f = Fixture::new();
+    let core = f.core();
+    let id = queue(&f, &report(&f, COMMIT), COMMANDS)["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(claim(core, &id, 4));
+    let skipped =
+        json!([{"step": 1, "command": "cargo test", "reason": "the diff touches none of rust/**"}]);
+    let done = finish(
+        core,
+        &id,
+        json!({"state": "passed", "exitCode": 0, "durationMs": 5, "outputTail": "ok", "skippedSteps": skipped}),
+    )
+    .unwrap();
+    assert_eq!(done["state"], "passed");
+    assert_eq!(done["skippedSteps"], skipped);
+    assert_eq!(core.verify_run(&id).unwrap()["skippedSteps"], skipped);
+
+    let other = queue(
+        &f,
+        &report(&f, "2222222222222222222222222222222222222222"),
+        COMMANDS,
+    )["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    passed(core, &other);
+    assert_eq!(core.verify_run(&other).unwrap()["skippedSteps"], json!([]));
+}
+
+#[test]
+fn a_malformed_skipped_step_refuses_the_finish() {
+    let f = Fixture::new();
+    let core = f.core();
+    let id = queue(&f, &report(&f, COMMIT), COMMANDS)["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(claim(core, &id, 4));
+    for bad in [
+        json!("x"),
+        json!([{"step": 0, "command": "c", "reason": "r"}]),
+        json!([{"step": 1}]),
+    ] {
+        let result = finish(
+            core,
+            &id,
+            json!({"state": "passed", "exitCode": 0, "skippedSteps": bad}),
+        );
+        assert!(result.is_err());
+    }
+}

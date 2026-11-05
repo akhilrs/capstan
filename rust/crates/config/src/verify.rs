@@ -19,6 +19,9 @@ const MAX_ENV_VALUE_CHARS: usize = 1024;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verify {
     pub commands: Vec<String>,
+    /// One entry per command: `Some(globs)` when the step is written as `{ run, paths }` and runs only when the diff
+    /// touches a matching path; `None` for a plain string, which always runs.
+    pub path_filters: Vec<Option<Vec<String>>>,
     pub env: Vec<(String, String)>,
     pub timeout_seconds: i64,
     pub max_parallel: i64,
@@ -37,13 +40,27 @@ pub struct Verify {
 
 impl Verify {
     /// Lowercase hex SHA-256 of the canonical JSON array of the commands: the key a passed run must match.
+    /// With no path filter this is the SHA of the plain command array (as before filters existed); a filter is part of
+    /// the key, so changing one makes earlier passes stale.
     pub fn commands_sha(&self) -> String {
-        let json = serde_json::to_string(&self.commands).unwrap_or_default();
-        sha256(&json)
+        if self.path_filters.iter().all(Option::is_none) {
+            let json = serde_json::to_string(&self.commands).unwrap_or_default();
+            return sha256(&json);
+        }
+        let steps: Vec<serde_json::Value> = self
+            .commands
+            .iter()
+            .zip(&self.path_filters)
+            .map(|(run, paths)| match paths {
+                None => serde_json::Value::String(run.clone()),
+                Some(paths) => serde_json::json!({"run": run, "paths": paths}),
+            })
+            .collect();
+        sha256(&serde_json::to_string(&steps).unwrap_or_default())
     }
 
     pub(crate) fn to_value(&self) -> Value {
-        object(vec![
+        let mut members = vec![
             ("commands", strings(&self.commands)),
             (
                 "env",
@@ -66,7 +83,20 @@ impl Verify {
             ("useWorktreeHooks", Value::Bool(self.use_worktree_hooks)),
             ("reap", Value::Bool(self.reap)),
             ("scratchDir", optional(&self.scratch_dir)),
-        ])
+        ];
+        // Printed only when a step has a filter, so a configuration without filters prints what it always did.
+        if self.path_filters.iter().any(Option::is_some) {
+            members.push((
+                "pathFilters",
+                Value::Array(
+                    self.path_filters
+                        .iter()
+                        .map(|f| f.as_ref().map_or(Value::Null, |paths| strings(paths)))
+                        .collect(),
+                ),
+            ));
+        }
+        object(members)
     }
 }
 
@@ -128,6 +158,81 @@ fn scratch_dir(value: Option<&Item>) -> Result<Option<String>> {
     Ok(Some(path.trim_end_matches('/').to_string()))
 }
 
+pub const MAX_PATH_GLOBS: usize = 32;
+const MAX_PATH_GLOB_CHARS: usize = 200;
+
+/// The `paths` of a filtered step: 1 to 32 repo-relative globs (`*` within a segment, `**` across segments, `?`).
+fn path_globs(value: Option<&Item>, at: &str) -> Result<Vec<String>> {
+    let Some(Item::Array(entries)) = value else {
+        return invalid(format!(
+            "{at} must be an array of 1 to {MAX_PATH_GLOBS} path globs"
+        ));
+    };
+    if entries.is_empty() || entries.len() > MAX_PATH_GLOBS {
+        return invalid(format!(
+            "{at} must have between 1 and {MAX_PATH_GLOBS} entries"
+        ));
+    }
+    let mut globs: Vec<String> = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let at = format!("{at}[{index}]");
+        let glob = required_string(Some(entry), &at, MAX_PATH_GLOB_CHARS, false)?;
+        if glob.starts_with('/') || glob.starts_with('~') || glob.contains('\\') {
+            return invalid(format!(
+                "{at} must be a path relative to the project root, with / separators"
+            ));
+        }
+        if glob.split('/').any(|part| part == ".." || part.is_empty()) {
+            return invalid(format!("{at} must not have an empty or .. segment"));
+        }
+        if globs.iter().any(|seen| seen == glob) {
+            return invalid(format!("{at} repeats {glob}"));
+        }
+        globs.push(glob.to_string());
+    }
+    Ok(globs)
+}
+
+/// Whether the repo-relative `path` matches `glob`: segments are split on `/`; `*` and `?` stay inside a segment, and
+/// a `**` segment matches any number of segments (none included). A glob is anchored at the project root.
+pub fn path_matches(glob: &str, path: &str) -> bool {
+    fn segments(glob: &[&str], path: &[&str]) -> bool {
+        match glob.split_first() {
+            None => path.is_empty(),
+            Some((&"**", rest)) => (0..=path.len()).any(|skip| segments(rest, &path[skip..])),
+            Some((first, rest)) => match path.split_first() {
+                Some((head, tail)) => {
+                    segment(first.as_bytes(), head.as_bytes()) && segments(rest, tail)
+                }
+                None => false,
+            },
+        }
+    }
+    fn segment(glob: &[u8], text: &[u8]) -> bool {
+        match glob.split_first() {
+            None => text.is_empty(),
+            Some((b'*', rest)) => (0..=text.len()).any(|skip| segment(rest, &text[skip..])),
+            Some((b'?', rest)) => !text.is_empty() && segment(rest, &text[1..]),
+            Some((c, rest)) => text.first() == Some(c) && segment(rest, &text[1..]),
+        }
+    }
+    let glob: Vec<&str> = glob.split('/').collect();
+    let path: Vec<&str> = path.split('/').collect();
+    segments(&glob, &path)
+}
+
+/// Whether a step with `filter` runs for a diff touching `changed`. No filter always runs. `changed` of `None` (the diff
+/// could not be read) and an empty diff also run the step: skipping is only done on positive evidence.
+pub fn step_runs(filter: Option<&[String]>, changed: Option<&[String]>) -> bool {
+    match (filter, changed) {
+        (None, _) | (_, None) => true,
+        (Some(_), Some([])) => true,
+        (Some(globs), Some(paths)) => paths
+            .iter()
+            .any(|path| globs.iter().any(|glob| path_matches(glob, path))),
+    }
+}
+
 /// Resolves `[verify]`; an absent table is `None`, which changes nothing for the project.
 pub fn resolve_verify(value: Option<&Item>) -> Result<Option<Verify>> {
     if value.is_none() {
@@ -144,10 +249,25 @@ pub fn resolve_verify(value: Option<&Item>) -> Result<Option<Verify>> {
         ));
     }
     let mut commands = Vec::new();
+    let mut path_filters = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         let at = format!("verify.commands[{index}]");
-        commands
-            .push(required_string(Some(entry), &at, MAX_VERIFY_COMMAND_CHARS, false)?.to_string());
+        if let Item::Table(step) = entry {
+            reject_unknown_keys(step, &["run", "paths"], &at)?;
+            let run = required_string(
+                step.get("run"),
+                &format!("{at}.run"),
+                MAX_VERIFY_COMMAND_CHARS,
+                false,
+            )?;
+            commands.push(run.to_string());
+            path_filters.push(Some(path_globs(step.get("paths"), &format!("{at}.paths"))?));
+        } else {
+            commands.push(
+                required_string(Some(entry), &at, MAX_VERIFY_COMMAND_CHARS, false)?.to_string(),
+            );
+            path_filters.push(None);
+        }
     }
 
     let env_table = optional_table(table.get("env"), "verify.env")?;
@@ -174,6 +294,7 @@ pub fn resolve_verify(value: Option<&Item>) -> Result<Option<Verify>> {
 
     Ok(Some(Verify {
         commands,
+        path_filters,
         env,
         timeout_seconds: optional_integer(
             table.get("timeout_seconds"),
@@ -219,6 +340,7 @@ mod tests {
     fn sample(commands: &[&str]) -> Verify {
         Verify {
             commands: commands.iter().map(|c| c.to_string()).collect(),
+            path_filters: commands.iter().map(|_| None).collect(),
             env: vec![],
             timeout_seconds: 3600,
             max_parallel: 1,
@@ -243,5 +365,42 @@ mod tests {
         assert_ne!(a.commands_sha(), sample(&["b", "a"]).commands_sha());
         assert_ne!(a.commands_sha(), sample(&["a", "c"]).commands_sha());
         assert_eq!(sample(&["a"]).commands_sha(), sha256("[\"a\"]"));
+    }
+
+    #[test]
+    fn globs_match_by_segment() {
+        assert!(path_matches("rust/**", "rust/crates/a/src/lib.rs"));
+        assert!(path_matches("rust/**", "rust/Cargo.toml"));
+        assert!(!path_matches("rust/**", "rustic/a.rs"));
+        assert!(path_matches("Cargo.lock", "Cargo.lock"));
+        assert!(!path_matches("Cargo.lock", "rust/Cargo.lock"));
+        assert!(path_matches("**/Cargo.lock", "rust/Cargo.lock"));
+        assert!(path_matches("**/Cargo.lock", "Cargo.lock"));
+        assert!(path_matches("docs/*.md", "docs/a.md"));
+        assert!(!path_matches("docs/*.md", "docs/x/a.md"));
+        assert!(path_matches("a?c", "abc"));
+    }
+
+    #[test]
+    fn a_step_runs_only_on_positive_evidence_of_a_matching_path() {
+        let globs = vec!["rust/**".to_string(), "Cargo.lock".to_string()];
+        let docs = vec!["docs/a.md".to_string()];
+        let code = vec!["docs/a.md".to_string(), "rust/x.rs".to_string()];
+        assert!(!step_runs(Some(&globs), Some(&docs)));
+        assert!(step_runs(Some(&globs), Some(&code)));
+        assert!(step_runs(None, Some(&docs)));
+        assert!(step_runs(Some(&globs), None));
+        assert!(step_runs(Some(&globs), Some(&[])));
+    }
+
+    #[test]
+    fn a_filter_changes_the_commands_sha_but_no_filter_keeps_it() {
+        let plain = sample(&["a", "b"]);
+        let mut filtered = sample(&["a", "b"]);
+        filtered.path_filters[0] = Some(vec!["x/**".into()]);
+        assert_ne!(plain.commands_sha(), filtered.commands_sha());
+        let mut other = filtered.clone();
+        other.path_filters[0] = Some(vec!["y/**".into()]);
+        assert_ne!(filtered.commands_sha(), other.commands_sha());
     }
 }

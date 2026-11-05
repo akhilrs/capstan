@@ -361,3 +361,22 @@ fn the_rust_preset_turns_incremental_compilation_off_unless_the_project_asks() {
         "{message}"
     );
 }
+
+#[test]
+fn rust_target_dir_adds_a_cargo_target_dir_except_in_mode_off() {
+    let sccache = cache("[cache]\npresets = [\"rust\"]\n[cache.rust]\ntarget_dir = true\n");
+    assert!(sccache.entries[0]
+        .dirs
+        .contains(&("CARGO_TARGET_DIR".into(), "cargo-target".into())));
+    assert!(sccache.entries[0]
+        .dirs
+        .contains(&("SCCACHE_DIR".into(), "sccache".into())));
+    let off =
+        cache("[cache]\npresets = [\"rust\"]\n[cache.rust]\nmode = \"off\"\ntarget_dir = true\n");
+    assert!(off.entries[0].dirs.is_empty());
+    let default = cache("[cache]\npresets = [\"rust\"]\n");
+    assert!(!default.entries[0]
+        .dirs
+        .iter()
+        .any(|(e, _)| e == "CARGO_TARGET_DIR"));
+}

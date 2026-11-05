@@ -200,6 +200,7 @@ fn preset_entry(
     incremental: bool,
     size: u64,
     own_size: Option<u64>,
+    target_dir: bool,
 ) -> CacheEntry {
     let mut entry = CacheEntry {
         name: name.to_string(),
@@ -235,6 +236,12 @@ fn preset_entry(
                     entry.requires = Some("cargo".into());
                 }
                 _ => {}
+            }
+            // A persistent target directory: cargo takes a file lock on it, so two builds at once wait for each
+            // other instead of corrupting it.
+            if target_dir && mode != "off" {
+                entry.dirs.push(pair("CARGO_TARGET_DIR", "cargo-target"));
+                entry.requires.get_or_insert_with(|| "cargo".into());
             }
         }
         "python" => {
@@ -633,11 +640,19 @@ fn resolve_preset(
         None
     };
     let incremental = optional_boolean(fields.get("incremental"), "cache.rust.incremental", false)?;
+    let target_dir = optional_boolean(fields.get("target_dir"), "cache.rust.target_dir", false)?;
     let own = size_bytes(fields.get("max_size_gb"), &format!("{at}.max_size_gb"))?;
     if let Some(bytes) = own {
         sized.push((at, bytes));
     }
-    let entry = preset_entry(name, mode, incremental, own.unwrap_or(total), own);
+    let entry = preset_entry(
+        name,
+        mode,
+        incremental,
+        own.unwrap_or(total),
+        own,
+        target_dir,
+    );
     for (env, _) in entry.dirs.iter().chain(entry.set.iter()) {
         seen_env.push((env.clone(), entry.name.clone()));
     }

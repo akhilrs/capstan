@@ -55,7 +55,7 @@ pub use resolve::{
 pub use review::Review;
 pub use smol::{refusal as toml_refusal, Position as TomlPosition};
 pub use types::*;
-pub use verify::Verify;
+pub use verify::{path_matches, step_runs, Verify};
 
 /// `loadCapstanConfig` / `loadRoleConfig`: reads `capstan.toml` in `cwd` and resolves it.
 pub fn load_role_config(cwd: &Path) -> Result<RoleConfig> {
