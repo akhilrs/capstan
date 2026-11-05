@@ -105,3 +105,57 @@ fn the_same_role_gets_each_hosts_argument_shape_and_model() {
         );
     }
 }
+
+#[test]
+fn the_pm_gets_the_memory_guard_instead_of_the_bare_write_and_edit_deny() {
+    let sc = Scenario::new("pm-memory-guard", json!({"toml": toml("claude")}));
+    sc.launcher.launch_pm().expect("the PM launches");
+    let calls = sc.take_calls();
+    let start = calls
+        .iter()
+        .find(|c| c["m"] == "startAgent")
+        .expect("the PM started");
+    let args: Vec<String> = start["a"][0]["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap().to_string())
+        .collect();
+    let from = args
+        .iter()
+        .position(|a| a == "--disallowedTools")
+        .expect("a deny list");
+    let denied: Vec<&String> = args[from + 1..]
+        .iter()
+        .take_while(|a| !a.starts_with("--"))
+        .collect();
+    let settings = after(&args, "--settings").expect("settings");
+    assert!(settings.contains("guard-write"), "{settings}");
+    assert!(
+        denied.iter().all(|r| *r != "Write" && *r != "Edit"),
+        "{denied:?}"
+    );
+    assert!(denied.iter().any(|r| *r == "NotebookEdit"));
+    assert!(denied.iter().any(|r| *r == "Agent") && denied.iter().any(|r| *r == "Task"));
+    assert!(
+        args.iter()
+            .any(|a| a.starts_with("Edit(//") && a.ends_with("/memory/**)")),
+        "{args:?}"
+    );
+    // Every file-editing tool is either denied outright or matched by the guard hook.
+    let parsed: Value = serde_json::from_str(&settings).unwrap();
+    let matcher = parsed["hooks"]["PreToolUse"][0]["matcher"]
+        .as_str()
+        .unwrap();
+    for tool in ["Write", "Edit", "MultiEdit", "NotebookEdit"] {
+        assert!(
+            denied.iter().any(|r| *r == tool) || matcher.split('|').any(|m| m == tool),
+            "{tool} is neither denied nor guarded: {denied:?} {matcher}"
+        );
+    }
+    assert!(settings.contains("\"disableAllHooks\":false"), "{settings}");
+    assert!(
+        settings.contains("/projects/") && settings.contains("/memory'"),
+        "{settings}"
+    );
+}

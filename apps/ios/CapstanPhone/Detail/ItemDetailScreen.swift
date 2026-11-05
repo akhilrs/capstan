@@ -17,6 +17,9 @@ struct DetailContext {
     /// The host's stream is live.
     let live: Bool
 
+    /// The design link: the one the host decided on, else the one it took from the designer's report.
+    var designLink: UntrustedText? { detail?.designBody?.link ?? item.designLink }
+
     /// Decisions can be taken from here.
     var answerable: Bool { mode == .interactive && ready && live }
 
@@ -311,18 +314,18 @@ struct ItemDetailScreen: View {
     @ViewBuilder
     private func designBody(_ ctx: DetailContext, main: (text: UntrustedText, name: String, received: Bool)) -> some View {
         DetailTextBlock(text: main.text, name: main.name, shownAs: "shown as written")
-        if let design = ctx.detail?.designBody {
-            DetailTextBlock(text: design.link, name: "Link", shownAs: "shown as text", symbol: "link")
+        if let designLink = ctx.designLink {
+            DetailTextBlock(text: designLink, name: "Link", shownAs: "shown as text", symbol: "link")
             Button {
-                link = LinkItem(text: design.link)
+                link = LinkItem(text: designLink)
             } label: {
                 Text("Open in Safari…").padding(.horizontal, Tokens.space[1])
             }
             .buttonStyle(.capstanQuiet)
             .fixedSize()
-            .disabled(!design.link.verified || !LinkCheck.isOpenable(design.link.raw))
+            .disabled(!designLink.verified || !LinkCheck.isOpenable(designLink.raw))
         } else {
-            waitingFor("The design link has not arrived yet.")
+            waitingFor("The designer's report names no link, so this cannot be approved here. Ask the PM.")
         }
     }
 
@@ -447,15 +450,15 @@ struct ItemDetailScreen: View {
     }
 
     private func designBar(_ ctx: DetailContext, stacked: Bool) -> some View {
-        let design = ctx.detail?.designBody
-        let approvable = design.map { $0.link.verified && LinkCheck.isOpenable($0.link.raw) } ?? false
+        let designLink = ctx.designLink
+        let approvable = designLink.map { $0.verified && LinkCheck.isOpenable($0.raw) } ?? false
         return BarLayout(stacked: stacked) {
             Button { askingChanges = true } label: { Text("Request changes…") }
                 .buttonStyle(.capstanQuiet)
                 .disabled(sending || !isAvailable(.designChanges(askedUser: "x", link: nil)))
         } primary: {
             Button {
-                if let design { run(.designApprove(link: design.link.raw, askedUser: "Approved")) }
+                if let designLink { run(.designApprove(link: designLink.raw, askedUser: "Approved")) }
             } label: {
                 if sending { SendingLabel() } else { Text("Approve") }
             }

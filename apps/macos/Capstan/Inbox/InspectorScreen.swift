@@ -255,28 +255,28 @@ struct InspectorScreen: View {
     }
 
     private func designBody(_ row: InboxRowID, _ item: StoredWaiting, _ detail: ItemDetail?, _ mode: InspectorMode) -> some View {
-        let design = detail?.designBody
+        let designLink = detail?.designBody?.link ?? item.designLink
         return VStack(alignment: .leading, spacing: Tokens.space[2]) {
             UntrustedTextBlock(text: item.summary, label: "Screens · untrusted text")
-            if let design {
-                UntrustedTextBlock(text: design.link, label: "Link · untrusted, not opened until you choose")
+            if let designLink {
+                UntrustedTextBlock(text: designLink, label: "Link · untrusted, not opened until you choose")
                 HStack {
-                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(design.link.raw, forType: .string) } label: { Text("Copy link") }
+                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(designLink.raw, forType: .string) } label: { Text("Copy link") }
                         .buttonStyle(.capstanQuiet)
-                        .disabled(!design.link.verified)
-                    Button { linkToConfirm = design.link } label: { Text("Open in browser…") }
+                        .disabled(!designLink.verified)
+                    Button { linkToConfirm = designLink } label: { Text("Open in browser…") }
                         .buttonStyle(.capstanQuiet)
-                        .disabled(!LinkCheck.isOpenable(design.link.raw) || !design.link.verified)
+                        .disabled(!LinkCheck.isOpenable(designLink.raw) || !designLink.verified)
                 }
                 if mode == .interactive {
                     DesignDecision(
-                        link: design.link, enabled: !sending, approveAvailable: isAvailable(.designApprove(link: "x", askedUser: "Approved"), row),
+                        link: designLink, enabled: !sending, approveAvailable: isAvailable(.designApprove(link: "x", askedUser: "Approved"), row),
                         changesAvailable: isAvailable(.designChanges(askedUser: "x", link: nil), row),
-                        onApprove: { run(.designApprove(link: design.link.raw, askedUser: "Approved"), row) },
+                        onApprove: { run(.designApprove(link: designLink.raw, askedUser: "Approved"), row) },
                         onChanges: { text in run(.designChanges(askedUser: text, link: nil), row) })
                 }
             } else {
-                notReceived("The design link has not been received yet")
+                notReceived("The designer's report names no link, so this cannot be approved here")
             }
         }
     }

@@ -41,6 +41,9 @@ public struct WaitingItem: WireItem {
     public let headSha: String?
     /// What an integration brought and how its checks went; nil for another kind and from a host that does not send it.
     public let integrationDetails: IntegrationDetails?
+    /// The link of a design item, taken by the host from the designer's report; nil for another kind, when the report
+    /// names none and from a host that does not send it. Untrusted text: shown as text, opened only when http or https.
+    public let designLink: UntrustedText?
 
     public init(json: JSONValue) throws {
         _ = try json.members("waiting item")
@@ -55,6 +58,7 @@ public struct WaitingItem: WireItem {
         branch = try json.optionalString("branch").map(itemText)
         headSha = try json.optionalString("headSha").flatMap(WaitingItem.validSha)
         integrationDetails = json.optional("integrationDetails").flatMap { IntegrationDetails(wire: $0) }
+        designLink = try json.optionalString("designLink").flatMap { $0.isEmpty ? nil : itemText($0) }
     }
 
     static func validSha(_ text: String) -> String? {

@@ -227,6 +227,7 @@ fn role(name: &str, kind: &str, host: &str, prompt_text: Option<&str>) -> Role {
         allow: Vec::new(),
         deny: Vec::new(),
         hooks: "off",
+        memory: false,
         mcp: Vec::new(),
         prompt: PromptSource {
             source: "none",

@@ -6,9 +6,9 @@ use crate::event_feed::{prompt_sha, Rig, BASE, COMMIT};
 use capstan_kernel::areas::event_feed::{item_key, parse_item_key, KEY_KINDS};
 use capstan_kernel::areas::snapshot_feed::{
     agent_content_hash, agents_page, agents_page_counted, canonical, content_hash,
-    content_hash_counted, design_hash_input, message_hash_input, plans_page, plans_page_counted,
-    plans_page_sized, snapshot_head, snapshot_item, waiting_page, waiting_page_counted, AgentItem,
-    Page, PlanItem, WaitingItem, DETAILS_WIRE_MAX, MAX_PAGE_BYTES,
+    content_hash_counted, design_hash_input, design_link_of, message_hash_input, plans_page,
+    plans_page_counted, plans_page_sized, snapshot_head, snapshot_item, waiting_page,
+    waiting_page_counted, AgentItem, Page, PlanItem, WaitingItem, DETAILS_WIRE_MAX, MAX_PAGE_BYTES,
 };
 use capstan_kernel::canonical::sha256;
 use capstan_kernel::errors::KernelError;
@@ -791,6 +791,7 @@ fn proposals_prompts_and_designs_wait_with_their_hashes_and_leave_when_decided()
         designs[0].content_hash,
         sha256(&design_hash_input(&report_id, COMMIT, None))
     );
+    assert_eq!(designs[0].design_link, None, "the report names no link");
     // A message that needs action, to an agent, does not wait; the other kinds are still listed.
     let message = rig.enqueue("dev-1", "look at this", true);
     assert!(one(&rig.core, "message").is_empty());
@@ -816,10 +817,27 @@ fn proposals_prompts_and_designs_wait_with_their_hashes_and_leave_when_decided()
         assert_eq!(kind, item.kind);
         assert_eq!(item.key, item_key("waiting", kind, &id));
     }
-    // A new report changes the hash of the design item.
-    rig.report_as("dev-1", "feat/ui", &"2".repeat(40), "designed again");
+    // A new report changes the hash of the design item; its link comes from the report text.
+    rig.report_as(
+        "dev-1",
+        "feat/ui",
+        &"2".repeat(40),
+        "designed again: https://claude.ai/artifact/FDX39U5s95ABpDmHhX5KRK (screens: home, empty)",
+    );
     let changed = &one(&rig.core, "design")[0];
     assert_ne!(changed.content_hash, designs[0].content_hash);
+    assert_eq!(
+        changed.design_link.as_deref(),
+        Some("https://claude.ai/artifact/FDX39U5s95ABpDmHhX5KRK")
+    );
+    assert_eq!(
+        value_of(changed)["designLink"],
+        "https://claude.ai/artifact/FDX39U5s95ABpDmHhX5KRK"
+    );
+    assert!(all_waiting(&rig.core, None)
+        .iter()
+        .filter(|i| i.kind != "design")
+        .all(|i| i.design_link.is_none()));
     // Decisions remove the items.
     rig.decide(&proposal, "approve");
     assert!(one(&rig.core, "op").is_empty());
@@ -1000,7 +1018,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     assert_eq!(fields(&waiting), "head,items,next");
     assert_eq!(
         fields(&waiting["items"][0]),
-        "branch,contentHash,headSha,integrationDetails,integrationState,key,kind,needsTerminal,requestId,since,summary"
+        "branch,contentHash,designLink,headSha,integrationDetails,integrationState,key,kind,needsTerminal,requestId,since,summary"
     );
     let agents = value_of(&agents_page(&rig.core, None, 10).unwrap());
     assert_eq!(
@@ -3229,4 +3247,37 @@ fn forty_worst_case_details_items_page_within_the_byte_budget_and_each_line_fits
     assert!(pages >= 2, "{pages} pages");
     let expected: Vec<String> = (1..=40).map(|n| format!("integration:{n}")).collect();
     assert_eq!(seen, expected);
+}
+
+#[test]
+fn design_link_of_takes_the_first_whole_http_url_of_a_report() {
+    let cases: [(&str, Option<&str>); 9] = [
+        (
+            "see https://claude.ai/artifact/AbC123 for screens",
+            Some("https://claude.ai/artifact/AbC123"),
+        ),
+        (
+            "Link: <https://x.test/a?b=1&c=2>.",
+            Some("https://x.test/a?b=1&c=2"),
+        ),
+        ("(http://x.test/d/1), then more", Some("http://x.test/d/1")),
+        (
+            "a https://a.test/1 and https://b.test/2",
+            Some("https://a.test/1"),
+        ),
+        (
+            "http://a.test/1 before https://b.test/2",
+            Some("http://a.test/1"),
+        ),
+        ("path docs/design/p-1/index.html only", None),
+        ("javascript:alert(1) ftp://x.test/f", None),
+        ("empty https:// here", None),
+        ("", None),
+    ];
+    for (text, want) in cases {
+        assert_eq!(design_link_of(text).as_deref(), want, "{text}");
+    }
+    // A URL longer than a text field is dropped, not cut.
+    let long = format!("https://x.test/{}", "a".repeat(2000));
+    assert_eq!(design_link_of(&long), None);
 }

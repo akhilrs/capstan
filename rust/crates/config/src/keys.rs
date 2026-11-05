@@ -110,6 +110,7 @@ pub const ROLE_KEYS: &[&str] = &[
     "allow",
     "deny",
     "hooks",
+    "memory",
     "mcp",
     "prompt",
     "prompt_file",

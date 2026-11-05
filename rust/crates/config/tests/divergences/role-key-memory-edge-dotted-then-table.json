@@ -1,0 +1,9 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-dotted-then-table",
+  "reason": "roles gained the memory key (PM memory write guard), so the allowed-key list names it",
+  "expected": {
+    "kind": "error",
+    "message": "roles.reviewer has 1 unknown key(s); allowed: kind, host, model, permission_mode, allow, deny, hooks, memory, mcp, prompt, prompt_file, max_active"
+  }
+}

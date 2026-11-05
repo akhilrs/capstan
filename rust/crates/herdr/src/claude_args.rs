@@ -80,6 +80,32 @@ pub struct ClaudeRoleSettings {
     /// `"off"` turns every hook off; anything else installs the inbox hook.
     pub hooks: String,
     pub mcp: Vec<McpServer>,
+    /// The folder a PM may write to (absolute). When set, the Write/Edit guard hook is installed and the folder is
+    /// allowed; the caller has already left bare `Write` and `Edit` out of `deny`.
+    pub write_guard: Option<String>,
+}
+
+/// The hook matcher of the guard: every tool that edits a file except NotebookEdit, which the PM keeps denied.
+pub const WRITE_GUARD_MATCHER: &str = "Write|Edit|MultiEdit";
+
+/// The shell command of the Write/Edit guard hook. `|| exit 2` makes a guard that cannot run (no `cstan`, a crash)
+/// refuse the write: Claude Code treats any other non-zero exit as a non-blocking error.
+pub fn write_guard_command(memory_dir: &str) -> String {
+    format!("cstan guard-write '{memory_dir}' || exit 2")
+}
+
+/// The folder is put inside single quotes and a `//` absolute-path rule, so it must not hold a quote, a glob
+/// character or anything unprintable.
+pub fn guard_path_is_usable(memory_dir: &str) -> bool {
+    memory_dir.starts_with('/')
+        && !memory_dir.contains("..")
+        && !has_control(memory_dir)
+        && !memory_dir.chars().any(|c| {
+            matches!(
+                c,
+                '\'' | '"' | '\\' | '*' | '?' | '[' | ']' | '{' | '}' | '!' | '$' | '`' | '#'
+            )
+        })
 }
 
 /// The arguments Claude Code gets for a role. Herdr quotes each argument safely, so none is quoted here; a newline is
@@ -95,9 +121,16 @@ pub fn claude_arguments(
     }
     args.push("--permission-mode".into());
     args.push(role.permission_mode.clone());
-    if !role.allow.is_empty() {
+    let mut allow = role.allow.clone();
+    if let Some(dir) = &role.write_guard {
+        if !guard_path_is_usable(dir) {
+            return Err(invalid("the write guard folder is not a usable path"));
+        }
+        allow.push(format!("Edit(/{}/**)", dir.trim_end_matches('/')));
+    }
+    if !allow.is_empty() {
         args.push("--allowedTools".into());
-        args.extend(role.allow.iter().cloned());
+        args.extend(allow);
     }
     if !role.deny.is_empty() {
         args.push("--disallowedTools".into());
@@ -135,7 +168,27 @@ pub fn claude_arguments(
         base
     };
     args.push("--settings".into());
-    if role.hooks == "off" {
+    if let Some(dir) = &role.write_guard {
+        // Only the guard: hooks = "off" still installs no inbox hook. disableAllHooks cannot stay, because it would
+        // switch the guard off too, so hooks from the user's or project's own Claude settings run as well.
+        let mut settings = attribution(Map::new());
+        settings.insert("disableAllHooks".into(), json!(false));
+        let mut hooks = Vec::new();
+        hooks.push(json!({"matcher": WRITE_GUARD_MATCHER, "hooks": [{"type": "command", "command": write_guard_command(dir), "timeout": 10}]}));
+        let mut events = Map::new();
+        events.insert("PreToolUse".into(), Value::Array(hooks));
+        if role.hooks != "off" {
+            events.insert(
+                "PostToolUse".into(),
+                json!([{
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": INBOX_HOOK_COMMAND, "timeout": 5}],
+                }]),
+            );
+        }
+        settings.insert("hooks".into(), Value::Object(events));
+        args.push(Value::Object(settings).to_string());
+    } else if role.hooks == "off" {
         let mut base = Map::new();
         base.insert("disableAllHooks".into(), json!(true));
         args.push(Value::Object(attribution(base)).to_string());

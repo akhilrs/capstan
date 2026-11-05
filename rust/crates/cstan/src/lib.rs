@@ -13,6 +13,7 @@ pub mod design_guide;
 pub mod events;
 pub mod git;
 pub mod gitignore;
+pub mod guard;
 pub mod init;
 pub mod jsops;
 pub mod merge_targets;
@@ -362,6 +363,21 @@ impl Cli<'_> {
             "init" => return self.init(&rest),
             "config" => return self.config(&rest),
             "cache" => return self.cache(&rest),
+            "guard-write" => {
+                // A hook: exit 2 refuses the tool call, so every failure, a bad argument included, is 2.
+                let [memory_dir] = rest.as_slice() else {
+                    self.io
+                        .err_line("guard-write: usage: guard-write <memory-dir>");
+                    return Ok(Flow::Code(2));
+                };
+                return Ok(match guard::run(memory_dir) {
+                    Ok(()) => Flow::Code(0),
+                    Err(reason) => {
+                        self.io.err_line(&format!("guard-write: {reason}"));
+                        Flow::Code(2)
+                    }
+                });
+            }
             "herdr-config" => {
                 if !rest.is_empty() {
                     return Err(Fail::Usage);
