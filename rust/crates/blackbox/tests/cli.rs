@@ -117,7 +117,12 @@ fn init_creates_a_private_project_a_starter_config_and_refuses_to_change_it() {
         "the designer prompt is built in"
     );
     let ignore = std::fs::read_to_string(w.project.join(".gitignore")).unwrap();
-    assert!(ignore.contains(".capstan/\ncapstan.toml\n"), "{ignore}");
+    assert!(
+        ignore.contains(
+            ".capstan/\ncapstan.toml\ncapstan.toml~\ncapstan.local.toml\ncapstan.local.toml~\n"
+        ),
+        "{ignore}"
+    );
     // The key is the one `init` printed a path for, and git does not stage it.
     let key = std::fs::read_to_string(w.project.join(".capstan/operator.key")).unwrap();
     assert!(

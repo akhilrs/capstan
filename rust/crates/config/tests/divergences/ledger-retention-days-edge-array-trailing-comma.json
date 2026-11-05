@@ -1,10 +1,9 @@
 {
   "fixture": "config-edge-cases.json",
   "case": "edge-array-trailing-comma",
-  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
+  "reason": "[env] pass is honoured only from capstan.local.toml: the tracked capstan.toml is refused before the value is checked",
   "expected": {
-    "kind": "ok",
-    "sha256": "519e84daa89ddbdf7e1015ae894bc87b5b108f24e1c7f70143d3619fe3b7b136",
-    "bytes": 3803
+    "kind": "error",
+    "message": "env.pass is not honoured in capstan.toml, which is tracked in git; set it in capstan.local.toml (untracked), so a pulled commit cannot send host secrets or notifications elsewhere"
   }
 }

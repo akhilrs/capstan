@@ -528,18 +528,24 @@ impl MergeProject {
     }
 }
 
-/// `capstan.toml` with `[remote]` and a `[verify]` section of `commands`.
+/// `capstan.toml` with a `[verify]` section of `commands`, and `capstan.local.toml` with `[remote]`: the tracked file may
+/// not turn merging on, so the merge switch lives in the local one, as it does in a real project.
 fn write_config(dir: &Path, scratch: &Path, merge: bool, commands: &[String]) {
     let commands: Vec<String> = commands
         .iter()
         .map(|c| serde_json::to_string(c).unwrap())
         .collect();
     let text = format!(
-        "{BASE_CONFIG}\n[remote]\nmerge = {merge}\n\n[verify]\ncommands = [{}]\nscratch_dir = \"{}\"\n",
+        "{BASE_CONFIG}\n[verify]\ncommands = [{}]\nscratch_dir = \"{}\"\n",
         commands.join(", "),
         scratch.display()
     );
-    let file = dir.join("capstan.toml");
-    std::fs::write(&file, text).unwrap();
-    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    for (name, body) in [
+        ("capstan.toml", text),
+        ("capstan.local.toml", format!("[remote]\nmerge = {merge}\n")),
+    ] {
+        let file = dir.join(name);
+        std::fs::write(&file, body).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
 }

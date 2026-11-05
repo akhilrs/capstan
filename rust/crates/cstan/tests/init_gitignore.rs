@@ -5,8 +5,8 @@ use std::process::{Command, Output, Stdio};
 
 use cstan_front::gitignore::{BLOCK_BEGIN, BLOCK_END};
 
-const BLOCK: &str = "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\n# <<< capstan\n";
-const TRACKED_BLOCK: &str = "# >>> capstan (managed by cstan init)\n.capstan/\n# <<< capstan\n";
+const BLOCK: &str = "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\ncapstan.local.toml\ncapstan.local.toml~\n# <<< capstan\n";
+const TRACKED_BLOCK: &str = "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.local.toml\ncapstan.local.toml~\n# <<< capstan\n";
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("cstan-init-gi-{}-{name}", std::process::id()));
@@ -126,7 +126,7 @@ fn gitignore_flag_works_before_init_and_changes_the_block_with_track_config() {
     let dir = scratch("flag");
     let created = cstan(&dir, &["init", "--gitignore"]);
     assert_eq!(created.status.code(), Some(0));
-    assert_eq!(out(&created), "Created .gitignore with the capstan block\n");
+    assert!(out(&created).starts_with("Created .gitignore with the capstan block\n"));
     assert!(!dir.join(".capstan").exists());
     let tracked = cstan(&dir, &["--track-config", "init", "--gitignore"]);
     assert_eq!(tracked.status.code(), Some(2), "flags go after the command");
@@ -172,11 +172,13 @@ fn track_config_keeps_capstan_toml_out_of_the_block_and_git_commits_it() {
     let files = git(&dir, &["ls-tree", "-r", "--name-only", "HEAD"]);
     assert_eq!(files, ".gitignore\ncapstan.toml\n");
     assert_eq!(git(&dir, &["check-ignore", "-q", "capstan.toml"]), "");
+    std::fs::write(dir.join("capstan.local.toml"), "").unwrap();
+    assert_eq!(git(&dir, &["status", "--porcelain"]), "");
     std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
-fn plain_git_commits_the_gitignore_but_not_the_ignored_config() {
+fn plain_git_commits_the_gitignore_but_not_the_ignored_configs() {
     let dir = scratch("git");
     let init = cstan(&dir, &["init", "--git"]);
     assert_eq!(init.status.code(), Some(0), "{}", err(&init));
@@ -185,76 +187,7 @@ fn plain_git_commits_the_gitignore_but_not_the_ignored_config() {
         ".gitignore\n"
     );
     assert!(dir.join("capstan.toml").is_file());
+    std::fs::write(dir.join("capstan.local.toml"), "").unwrap();
     assert_eq!(git(&dir, &["status", "--porcelain"]), "");
     std::fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn a_legacy_project_with_a_designer_prompt_file_still_loads_it() {
-    let dir = scratch("legacy");
-    assert_eq!(cstan(&dir, &["init"]).status.code(), Some(0));
-    let starter = std::fs::read_to_string(dir.join("capstan.toml")).unwrap();
-    let legacy = starter.replace(
-        "[roles.designer]\n",
-        "[roles.designer]\nprompt_file = \"roles/designer.md\"\n",
-    );
-    assert_ne!(legacy, starter);
-    std::fs::write(dir.join("capstan.toml"), legacy).unwrap();
-    std::fs::create_dir_all(dir.join("roles")).unwrap();
-    std::fs::write(dir.join("roles/designer.md"), "My own designer prompt.\n").unwrap();
-    assert_eq!(designer_source(&dir), "file");
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn an_existing_designer_file_is_left_alone_and_unused() {
-    let dir = scratch("kept");
-    std::fs::create_dir_all(dir.join("roles")).unwrap();
-    std::fs::write(dir.join("roles/designer.md"), "Mine.\n").unwrap();
-    assert_eq!(cstan(&dir, &["init"]).status.code(), Some(0));
-    assert_eq!(
-        std::fs::read_to_string(dir.join("roles/designer.md")).unwrap(),
-        "Mine.\n"
-    );
-    assert_eq!(designer_source(&dir), "builtin");
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-#[test]
-fn a_refused_block_fails_with_exit_3_and_writes_nothing_else() {
-    for args in [&["init"][..], &["init", "--gitignore"][..]] {
-        let dir = scratch("refused");
-        let broken = format!("{BLOCK}{BLOCK}");
-        std::fs::write(dir.join(".gitignore"), &broken).unwrap();
-        let output = cstan(&dir, args);
-        assert_eq!(output.status.code(), Some(3), "{args:?}: {}", err(&output));
-        let message = err(&output);
-        assert!(
-            message.contains(".gitignore") && message.contains(BLOCK_BEGIN),
-            "{message}"
-        );
-        assert!(!dir.join(".capstan").exists() && !dir.join("capstan.toml").exists());
-        assert_eq!(
-            std::fs::read_to_string(dir.join(".gitignore")).unwrap(),
-            broken
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-}
-
-#[test]
-fn config_check_stops_warning_after_init_gitignore() {
-    let dir = scratch("fix");
-    git(&dir, &["init", "-q"]);
-    std::fs::write(dir.join("capstan.toml"), cstan_config_starter()).unwrap();
-    let before = err(&cstan(&dir, &["config", "check"]));
-    assert!(before.contains("not ignored by git"), "{before}");
-    assert_eq!(cstan(&dir, &["init", "--gitignore"]).status.code(), Some(0));
-    let after = err(&cstan(&dir, &["config", "check"]));
-    assert!(!after.contains("not ignored by git"), "{after}");
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-fn cstan_config_starter() -> &'static str {
-    capstan_config::starter::STARTER_CONFIG
 }

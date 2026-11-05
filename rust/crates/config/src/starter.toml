@@ -45,7 +45,7 @@ enabled = true
 # setup = "npm ci"
 # teardown = "rm -rf node_modules"
 
-# Opt-in: environment variables agents need beyond the basic ones.
+# Opt-in, in capstan.local.toml only (capstan.toml refuses it): environment variables agents need beyond the basic ones.
 # [env]
 # pass = ["MY_API_KEY"]
 

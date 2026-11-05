@@ -21,6 +21,7 @@ pub enum Outcome {
 pub enum Unignored {
     CapstanDir,
     CapstanToml,
+    CapstanLocalToml,
 }
 
 impl Unignored {
@@ -28,15 +29,24 @@ impl Unignored {
         match self {
             Unignored::CapstanDir => "warning: .capstan/ is not ignored by git; run cstan init --gitignore to add the capstan block to .gitignore",
             Unignored::CapstanToml => "warning: capstan.toml is not ignored by git; run cstan init --gitignore to ignore it, or commit it to track it (cstan init --gitignore --track-config keeps it out of the block)",
+            Unignored::CapstanLocalToml => "warning: capstan.local.toml is not ignored by git; run cstan init --gitignore to ignore it (it holds machine and personal settings and must not be committed)",
         }
     }
 }
 
+/// The paths of the block. `capstan.toml` is ignored unless the project opted in to tracking it (`track_config`);
+/// the personal layer `capstan.local.toml` is always ignored.
 pub fn entries(track_config: bool) -> Vec<&'static str> {
     if track_config {
-        vec![".capstan/"]
+        vec![".capstan/", "capstan.local.toml", "capstan.local.toml~"]
     } else {
-        vec![".capstan/", "capstan.toml", "capstan.toml~"]
+        vec![
+            ".capstan/",
+            "capstan.toml",
+            "capstan.toml~",
+            "capstan.local.toml",
+            "capstan.local.toml~",
+        ]
     }
 }
 
@@ -149,6 +159,18 @@ pub fn unignored(env: Env, root: &Path) -> Vec<Unignored> {
             != Some(0)
     {
         found.push(Unignored::CapstanToml);
+    }
+    if root.join("capstan.local.toml").exists()
+        && not_ignored("capstan.local.toml")
+        && git(
+            env,
+            root,
+            &["ls-files", "--error-unmatch", "--", "capstan.local.toml"],
+        )
+        .status
+            != Some(0)
+    {
+        found.push(Unignored::CapstanLocalToml);
     }
     found
 }

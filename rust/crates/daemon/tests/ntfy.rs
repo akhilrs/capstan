@@ -1508,8 +1508,12 @@ impl World {
         let state = write_project(dir.path(), &identity);
         let agent = register_agent(&state, dir.path(), &identity);
         let file = dir.path().join("capstan.toml");
-        std::fs::write(&file, format!("{BASE_TOML}{ntfy_toml}")).unwrap();
+        std::fs::write(&file, BASE_TOML).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        // `[ntfy]` connection keys are honoured only from the untracked local file.
+        let local = dir.path().join("capstan.local.toml");
+        std::fs::write(&local, ntfy_toml).unwrap();
+        std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o600)).unwrap();
         let kernel = {
             let (state, project, root) = (
                 state.clone(),

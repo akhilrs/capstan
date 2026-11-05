@@ -31,8 +31,12 @@ fn absent_section_is_default_and_bad_one_fails_the_full_path() {
     );
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("capstan.toml");
-    std::fs::write(&file, format!("{BASE}{}", on("retries = 4\n"))).unwrap();
+    std::fs::write(&file, BASE).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    // The connection keys are honoured only from the untracked local file.
+    let local = dir.path().join("capstan.local.toml");
+    std::fs::write(&local, on("retries = 4\n")).unwrap();
+    std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o600)).unwrap();
     let config = load_role_config(dir.path()).unwrap();
     assert_eq!(config.ntfy.retries, 4);
     assert_eq!(config.ntfy.server, "https://h.example");
