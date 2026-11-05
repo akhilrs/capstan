@@ -24,8 +24,8 @@ final class NotificationPlanTests: XCTestCase {
 
     func testBodyIsTheKindAndTheProjectOnly() throws {
         let made = try XCTUnwrap(plan(.prompt))
-        XCTAssertEqual(made.title, "Permission prompt waiting")
-        XCTAssertEqual(made.body, "Capstan")
+        XCTAssertEqual(made.title, "Permission prompt to answer")
+        XCTAssertEqual(made.body, "In Capstan.")
         XCTAssertEqual(made.category, "waiting.prompt")
         XCTAssertEqual(made.deepLink, "capstan://item/\(host.uuidString.lowercased())/p1/op:p1")
     }
@@ -44,7 +44,7 @@ final class NotificationPlanTests: XCTestCase {
 
     func testTheProjectNameIsPlainAndCapped() throws {
         let made = try XCTUnwrap(plan(.op, project: "Proj\u{202E}ect " + String(repeating: "x", count: 200)))
-        XCTAssertLessThanOrEqual(made.body.count, NotificationPlan.subtitleCap)
+        XCTAssertLessThanOrEqual(made.body.count, NotificationPlan.subtitleCap + CarTexts.body(project: "").count)
         XCTAssertFalse(made.body.unicodeScalars.contains("\u{202E}"))
     }
 

@@ -50,7 +50,7 @@ struct NotificationsSettingsScreen: View {
             } header: {
                 Text("Time Sensitive")
             } footer: {
-                Text("A Time Sensitive notification can break through a Focus when you allow it in iOS Settings. Notifications say the kind and the project, never the text.")
+                Text("Time Sensitive notifications break through a Focus, so all kinds start off. In CarPlay, Siri reads them aloud when Announce Notifications is on for Capstan. They say the kind and the project, never the text.")
             }
         }
         .listStyle(.insetGrouped)

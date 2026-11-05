@@ -69,6 +69,18 @@ Maintainers who run the end-to-end test of this feature (`cargo test -p cstan-fr
 | `http_4xx`, `http_3xx`, `http_5xx` | Another HTTP answer; the error text shows the status. |
 | `busy` | A test notification is already running; wait for it. |
 
+## In the car
+
+The ntfy iOS app marks a message Time Sensitive by its priority. Its notification service sets the interruption level from the message priority: 4 (`high`) and 5 (`urgent`) give Time Sensitive, 3 (`default`) gives the normal level, and 1 and 2 give a quiet level. Priority 5 becomes Critical only when the person turned on critical alerts in the ntfy app and iOS granted them; otherwise it is Time Sensitive.
+
+So a Capstan event sent with `high` or `urgent` priority is a Time Sensitive notification in the ntfy app. Most events already default to `high` (see [Configuration](configuration.md#push-notifications-ntfy)); `design_waiting`, `plan_signed_off`, `agent_stalled` and `verify_failed` default to `default`, so set `priority = "high"` on them in `[ntfy.event.<name>]` to have them announced. Time Sensitive here is the ntfy app's own setting: it needs the Time Sensitive switch of the ntfy app in iOS Settings, and Announce Notifications for ntfy in CarPlay settings. This is separate from Capstan for iPhone's own switches ([car](../../apps/ios/docs/car.md)). Whether a particular car reads it aloud is not verified, see the car pass.
+
+### Sources
+
+- https://github.com/binwiederhier/ntfy-ios/blob/main/ntfy/Utils/NotificationContent.swift (the priority to interruption level switch, lines 43 to 68), accessed 2026-11-06
+- https://github.com/binwiederhier/ntfy/blob/main/server/server_firebase.go (the server sends the iOS message with mutable-content, so the app's notification service runs), accessed 2026-11-06
+- https://docs.ntfy.sh/publish/ (priorities 1 to 5), accessed 2026-11-06
+
 ## Limits
 
 - There is no replay of downtime: events that happen while the controller is not running are not sent when it starts again.

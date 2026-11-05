@@ -2,14 +2,14 @@ import CapstanAppCore
 import CapstanKit
 import Foundation
 
-/// A notification for a new waiting item on the phone. It reuses the Mac's `NotificationPlan` for the title (from the
-/// kind), the project name and the sound; the body is the project name. No agent text is ever part of it.
+/// A notification for a new waiting item on the phone. Its title and body are `CarTexts` (the kind and the project name, so
+/// Siri can read them in the car); the project name and the sound come from the Mac's `NotificationPlan`. No agent text is ever part of it.
 public struct PhoneNotificationPlan: Equatable, Sendable {
     public let identifier: String
     /// One category per kind, so the system can group and the person can manage them.
     public let category: String
     public let title: String
-    /// The project name, plain and capped.
+    /// "In <project>.", the project name plain and capped.
     public let body: String
     /// Notifications of one project are threaded together.
     public let threadIdentifier: String
@@ -30,8 +30,8 @@ public struct PhoneNotificationPlan: Equatable, Sendable {
             fileCheck: fileCheck)
         identifier = base.identifier
         category = PhoneNotificationPlan.category(candidate.kind)
-        title = base.title
-        body = base.subtitle
+        title = CarTexts.title(candidate.kind)
+        body = CarTexts.body(project: base.subtitle)
         threadIdentifier = "project.\(candidate.hostId.uuidString).\(candidate.projectId)"
         timeSensitive = settings.timeSensitiveKinds.contains(candidate.kind)
         sound = base.sound

@@ -23,9 +23,15 @@ archives and uploads.
 In Xcode → the project → each target → **Signing & Capabilities**, with **Automatically manage signing** and your
 paid Team:
 
-- **CapstanPhone:** Background Modes → Background fetch (already on); **Time Sensitive Notifications** if you want
-  Time Sensitive per kind to break through Focus (without it iOS delivers them at the normal level); **App Groups**
+- **CapstanPhone:** Background Modes → Background fetch (already on); **Time Sensitive Notifications** (the project
+  already names it in `CapstanPhone.entitlements`, so it must also be on the App ID); **App Groups**
   → `group.in.qusol.capstan` once the `widgets` package adds the widgets.
+- **Time Sensitive Notifications, your manual step.** Signing fails on a device or an archive until the capability
+  is on the App ID `in.qusol.capstan.phone` (developer.apple.com → Identifiers, or let Xcode do it: with
+  **Automatically manage signing** it adds the capability and makes a fresh provisioning profile). Download or let
+  Xcode refresh the profile before archiving. A build for the generic simulator does not show this failure. The file
+  holds that one key and nothing else; `scripts/check-xcodeproj.py` refuses any other key, and `aps-environment`
+  stays refused.
 - **CapstanWidgets:** App Groups → the same group, with `widgets`.
 - Keychain needs no capability (the app uses its own access group). Live Activities need no capability: the app's
   Info.plist has `NSSupportsLiveActivities`.

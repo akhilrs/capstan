@@ -42,8 +42,8 @@ final class RefreshPlannerTests: XCTestCase {
         let after = try model([project("alpha", waiting: [waiting("w1", kind: "op"), waiting("w2", kind: "prompt")])])
         let second = RefreshPlanner.pass(models: [after], seen: first.seen, settings: PhoneSettings())
         XCTAssertEqual(second.notifications.count, 1)
-        XCTAssertEqual(second.notifications.first?.title, "Permission prompt waiting")
-        XCTAssertEqual(second.notifications.first?.body, "alpha")
+        XCTAssertEqual(second.notifications.first?.title, CarTexts.title(.prompt))
+        XCTAssertEqual(second.notifications.first?.body, CarTexts.body(project: "alpha"))
         let third = RefreshPlanner.pass(models: [after], seen: second.seen, settings: PhoneSettings())
         XCTAssertTrue(third.notifications.isEmpty, "deduplicated by request id")
     }
@@ -70,7 +70,7 @@ final class RefreshPlannerTests: XCTestCase {
             project("beta", availability: "silent", waiting: [waiting("w3", kind: "prompt")]),
         ])
         let pass = RefreshPlanner.pass(models: [m], seen: [], settings: settings)
-        XCTAssertEqual(pass.notifications.map(\.title), ["Permission prompt waiting"])
+        XCTAssertEqual(pass.notifications.map(\.title), [CarTexts.title(.prompt)])
         XCTAssertFalse(pass.seen.contains { $0.contains("beta") }, "a silent project is not remembered either")
     }
 
