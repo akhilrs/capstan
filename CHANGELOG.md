@@ -7,9 +7,8 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 ### Features
 
 - feat: Mac app parity with the recent iPhone app changes (9249d07)
-- feat: PM card data in the run item of the feed (6ed5b20)
+- feat: PM card data in the run item of the feed, with stuck-PM detection and an ntfy push (6ed5b20)
 - feat(macos): PM card and stuck banner on the project overview (plan-152) (3e9a7ce)
-- PM card data and stuck detection with ntfy push (merged integration, 709dee3)
 - PM messages up to 4096 bytes, PM memory-write guard hook and the iPhone design link (merged integration, 709dee3)
 - path-aware verify steps, a persistent cargo target directory and `--no-fail-fast` (merged integration, ef9ce56)
 
