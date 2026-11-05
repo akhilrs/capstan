@@ -16,6 +16,7 @@ mod json;
 pub mod keys;
 pub mod ntfy;
 mod operator_policy;
+pub mod operator_texts;
 pub mod primitives;
 pub mod prompts;
 pub mod remote;

@@ -300,6 +300,11 @@ fn session_rule_grant_id(rule: Option<&str>) -> Option<&str> {
     rule.and_then(|rule| rule.strip_prefix(SESSION_RULE_LEAD))
 }
 
+/// `prefix_grant_problem` for a prefix given as text (the parity test against the Operator's policy calls it).
+pub fn prefix_problem(prefix: &str) -> Option<String> {
+    prefix_grant_problem(&json!(prefix))
+}
+
 /// `prefixGrantProblem`: null when `prefix` may be stored as a session grant; otherwise why not.
 fn prefix_grant_problem(prefix: &Value) -> Option<String> {
     let text = match normalize_command(prefix) {
@@ -333,6 +338,156 @@ fn prefix_grant_problem(prefix: &Value) -> Option<String> {
         ));
     }
     None
+}
+
+// ---------------------------------------------------------------------------------------------------- approve choices
+
+/// What the approval floor said about a command: `verdict` is `clear`, `unchecked` or `floor`, and `entry` names the floor
+/// entry that holds a command back (only with `floor`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FloorCheck {
+    pub verdict: String,
+    pub entry: Option<String>,
+}
+
+impl FloorCheck {
+    /// The `floorCheck` of a proposal body: none when absent or null, else a verdict and, for `floor`, its entry.
+    fn parse(value: &Value) -> KernelResult<Option<Self>> {
+        if value.is_null() {
+            return Ok(None);
+        }
+        let verdict = match value.get("verdict").and_then(Value::as_str) {
+            Some(verdict @ ("clear" | "unchecked" | "floor")) => verdict.to_string(),
+            _ => {
+                return Err(KernelError::type_error(
+                    "the floor check verdict must be clear, unchecked or floor",
+                ))
+            }
+        };
+        let entry = match (
+            verdict.as_str(),
+            value.get("entry").filter(|v| !v.is_null()),
+        ) {
+            ("floor", Some(entry)) => Some(normalize_reason(entry).map_err(|code| {
+                KernelError::type_error(format!(
+                    "the floor check entry must be non-empty printable ASCII ({code})"
+                ))
+            })?),
+            ("floor", None) => {
+                return Err(KernelError::type_error(
+                    "a floor verdict names the floor entry",
+                ))
+            }
+            (_, None) => None,
+            (_, Some(_)) => {
+                return Err(KernelError::type_error(
+                    "only a floor verdict carries a floor entry",
+                ))
+            }
+        };
+        Ok(Some(Self { verdict, entry }))
+    }
+
+    fn of_row(row: &ProposalRow) -> Option<Self> {
+        Self::stored(row.floor_check.as_deref(), row.floor_entry.as_deref())
+    }
+
+    /// The verdict kept in the columns of a proposal.
+    pub(crate) fn stored(verdict: Option<&str>, entry: Option<&str>) -> Option<Self> {
+        verdict.map(|verdict| Self {
+            verdict: verdict.to_string(),
+            entry: entry.map(str::to_string),
+        })
+    }
+}
+
+/// The most prefixes a proposal offers.
+const MAX_OFFERED_PREFIXES: usize = 3;
+
+/// What a remote client may choose for an Operator proposal, from the stored row and, when given, a fresh floor verdict
+/// (which wins over the stored one). Never null; `once: false` means the text no longer matches its hash (deny only).
+pub(crate) fn approve_choices(row: &ProposalRow, floor_now: Option<FloorCheck>) -> Value {
+    choices_of(
+        &row.kind,
+        &row.command,
+        &row.command_sha,
+        row.force_restart == 1,
+        FloorCheck::of_row(row),
+        floor_now,
+    )
+}
+
+/// `approve_choices` from the stored columns (the feed reads only these).
+pub(crate) fn choices_of(
+    kind: &str,
+    command: &str,
+    command_sha: &str,
+    force: bool,
+    stored: Option<FloorCheck>,
+    floor_now: Option<FloorCheck>,
+) -> Value {
+    if command_hash(kind, command, force) != command_sha {
+        return json!({
+            "once": false,
+            "exact": false,
+            "prefixes": [],
+            "auto": [],
+            "limit": "text_mismatch",
+        });
+    }
+    let floor = floor_now.or(stored);
+    let floor_entry = match &floor {
+        Some(check) if check.verdict == "floor" => check.entry.clone(),
+        _ => None,
+    };
+    let limit: Option<&str> = if kind == "restart" {
+        Some("restart")
+    } else if floor.as_ref().is_some_and(|check| check.verdict == "floor") {
+        Some("floor")
+    } else if command.len() > super::event_feed::TEXT_CAP.min(super::snapshot_feed::TEXT_CAP) {
+        Some("truncated")
+    } else if floor.is_none() {
+        Some("not_checked")
+    } else {
+        None
+    };
+    if limit.is_some() {
+        return json!({
+            "once": true,
+            "exact": false,
+            "prefixes": [],
+            "auto": [],
+            "limit": limit,
+            "floorEntry": floor_entry,
+        });
+    }
+    let own = words(command);
+    // A prefix grant matches only a simple command line without a word that always needs a human (the Operator's
+    // `match_session_grant`), so a prefix of any other command would never match it and is not offered.
+    let (simple, always_approval) = classify_command(command);
+    let matchable =
+        simple && always_approval.is_empty() && !own.first().is_some_and(|t| t.contains('='));
+    let mut prefixes: Vec<String> = Vec::new();
+    for count in 1..own.len() {
+        if !matchable {
+            break;
+        }
+        if prefixes.len() == MAX_OFFERED_PREFIXES {
+            break;
+        }
+        let text = own[..count].join(" ");
+        if words(&text) == own[..count] && prefix_grant_problem(&json!(text)).is_none() {
+            prefixes.push(text);
+        }
+    }
+    json!({
+        "once": true,
+        "exact": true,
+        "prefixes": prefixes,
+        "auto": ["hour", "session"],
+        "limit": null,
+        "floorEntry": floor_entry,
+    })
 }
 
 // ------------------------------------------------------------------------------------------------ notices
@@ -554,6 +709,10 @@ pub(crate) struct ProposalRow {
     pub decision_note: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// What the approval floor said when the proposal was made (`clear`, `unchecked` or `floor`); none when it was not
+    /// checked.
+    pub floor_check: Option<String>,
+    pub floor_entry: Option<String>,
 }
 
 impl ProposalRow {
@@ -575,6 +734,8 @@ impl ProposalRow {
             decision_note: row.get("decision_note")?,
             created_at: row.get("created_at")?,
             updated_at: row.get("updated_at")?,
+            floor_check: row.get("floor_check")?,
+            floor_entry: row.get("floor_entry")?,
         })
     }
 }
@@ -624,6 +785,18 @@ pub(crate) fn operator_record(kernel: &Kernel, row: &ProposalRow) -> KernelResul
             }))
         },
     )?;
+    let decided_via = query_opt(
+        &kernel.database,
+        "SELECT decision_id, client FROM remote_decisions
+          WHERE project_id = ? AND request_id = ? AND outcome = 'applied' ORDER BY decided_at, decision_id LIMIT 1",
+        [&kernel.project_id, &format!("op:{}", row.proposal_id)],
+        |r| {
+            Ok(json!({
+                "decisionId": r.get::<_, String>(0)?,
+                "client": r.get::<_, String>(1)?,
+            }))
+        },
+    )?;
     Ok(json!({
         "proposalId": row.proposal_id,
         "sequence": row.sequence,
@@ -643,6 +816,7 @@ pub(crate) fn operator_record(kernel: &Kernel, row: &ProposalRow) -> KernelResul
         "updatedAt": row.updated_at,
         "run": run.unwrap_or(Value::Null),
         "sessionGrant": operator_grants::grant_of_proposal(kernel, &row.proposal_id)?,
+        "decidedVia": decided_via.unwrap_or(Value::Null),
     }))
 }
 
@@ -904,6 +1078,7 @@ pub fn propose_operator_action(
         ))
     })?;
     let sha = command_hash(&kind, &command, force_restart);
+    let floor_check = FloorCheck::parse(field("floorCheck"))?;
     let requested_grant_id = session_rule_grant_id(auto_rule.as_deref()).map(str::to_string);
     let window_rule_id = auto_rule
         .as_deref()
@@ -917,6 +1092,9 @@ pub fn propose_operator_action(
         "autoRule": auto_rule,
     });
     window_note.add_to(&mut payload);
+    if let Some(check) = &floor_check {
+        payload["floorCheck"] = json!({"verdict": check.verdict, "entry": check.entry});
+    }
     kernel.mutate(
         context,
         "operator.propose",
@@ -971,8 +1149,9 @@ pub fn propose_operator_action(
             execute(
                 &kernel.database,
                 "INSERT INTO operator_proposals(project_id, proposal_id, sequence, kind, command, command_sha, reason, force_restart,
-                   proposer_agent_id, proposer_actor_id, state, auto_rule, decided_at, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   proposer_agent_id, proposer_actor_id, state, auto_rule, decided_at, created_at, updated_at,
+                   floor_check, floor_entry)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rusqlite::params![
                     kernel.project_id,
                     proposal_id,
@@ -988,7 +1167,9 @@ pub fn propose_operator_action(
                     effective_rule,
                     effective_rule.as_ref().map(|_| now.clone()),
                     now,
-                    now
+                    now,
+                    floor_check.as_ref().map(|check| check.verdict.clone()),
+                    floor_check.as_ref().and_then(|check| check.entry.clone())
                 ],
             )?;
             let record = record_of(kernel, &proposal_id)?;
@@ -1110,6 +1291,7 @@ pub fn decide_operator_proposal(
                 kernel,
                 actor,
                 &OperatorDecision {
+                    approver: Approver::Agent,
                     proposal_id: &proposal_id,
                     decision: &decision,
                     hash: hash_value.as_ref(),
@@ -1123,8 +1305,20 @@ pub fn decide_operator_proposal(
     )
 }
 
+/// Who approves. `Remote` is built only by `remote_decisions`: the operator role may approve only through it, for a choice
+/// the user made in a remote client.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Approver<'a> {
+    Agent,
+    Remote {
+        decision_id: &'a str,
+        client: &'a str,
+    },
+}
+
 /// What `apply_operator_decision` decides: the validated input of `decideOperatorProposal`.
 pub(crate) struct OperatorDecision<'a> {
+    pub approver: Approver<'a>,
     pub proposal_id: &'a str,
     pub decision: &'a str,
     pub hash: Option<&'a Value>,
@@ -1152,7 +1346,7 @@ pub(crate) fn apply_operator_decision(
     let agent = kernel.agent_by_actor(&actor.actor_id)?;
     let is_pm = matches!(&agent, Some(a) if a.kind == "PM");
     if actor.role == "operator" {
-        if decision == "approve" {
+        if decision == "approve" && !matches!(args.approver, Approver::Remote { .. }) {
             return Err(KernelError::controller(
                 "approve_requires_pm: only an active PM agent approves an operator proposal; the operator may deny, cancel and show",
             ));
@@ -1342,6 +1536,13 @@ pub(crate) fn apply_operator_decision(
         ],
     )?;
     let mut record = record_of(kernel, &row.proposal_id)?;
+    if let Approver::Remote {
+        decision_id,
+        client,
+    } = args.approver
+    {
+        record["decidedVia"] = json!({"decisionId": decision_id, "client": client});
+    }
     if let Some((window, _)) = &opened {
         record["window"] = window.clone();
     }
@@ -1359,26 +1560,67 @@ pub(crate) fn apply_operator_decision(
             &row.proposal_id,
             Some("proposed"),
             state,
-            json!({"decidedBy": actor.actor_id}),
+            remote_details(args.approver, json!({"decidedBy": actor.actor_id})),
         ),
     );
-    if let Some((_, events)) = opened {
+    if let Some((_, mut events)) = opened {
+        if let (
+            Approver::Remote {
+                decision_id,
+                client,
+            },
+            Some(last),
+        ) = (args.approver, events.last_mut())
+        {
+            last.details = last.details.take().map(|details| {
+                remote_details(
+                    Approver::Remote {
+                        decision_id,
+                        client,
+                    },
+                    details,
+                )
+            });
+        }
         output.extra_events.extend(events);
     }
     if let Some(grant) = &grant {
         output.extra_events.push(MutationEvent {
             to_state: Some("created".into()),
-            details: Some(json!({
-                "event": "operator.grant_created",
-                "kind": grant["kind"],
-                "text": grant["text"],
-                "expiresAt": grant["expiresAt"],
-                "proposalId": row.proposal_id,
-            })),
+            details: Some(remote_details(
+                args.approver,
+                json!({
+                    "event": "operator.grant_created",
+                    "kind": grant["kind"],
+                    "text": grant["text"],
+                    "expiresAt": grant["expiresAt"],
+                    "proposalId": row.proposal_id,
+                }),
+            )),
             ..MutationEvent::new("operator_grant", text_of(grant, "grantId"), 0)
         });
     }
     Ok(output)
+}
+
+/// The details of an event of a remote decision: they say so and name the decision and the client. A window event keeps
+/// its own `source` (the proposal), so it gets `via` instead.
+fn remote_details(approver: Approver<'_>, mut details: Value) -> Value {
+    if let Approver::Remote {
+        decision_id,
+        client,
+    } = approver
+    {
+        let key = if details.get("source").is_some() {
+            "via"
+        } else {
+            "source"
+        };
+        details[key] = json!("remote");
+        details["decisionId"] = json!(decision_id);
+        details["client"] = json!(client);
+    }
+    details
 }
 
 fn has_orphans(kernel: &Kernel) -> KernelResult<bool> {
@@ -1586,6 +1828,11 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         "proposeOperatorAction" => {
             let context = arg!(a.ctx(0));
             let input = a.value(1);
+            if input.get("floorCheck").is_some() {
+                return Some(call(Err(KernelError::type_error(
+                    "floorCheck is set by the Operator service, not by a call",
+                ))));
+            }
             Some(call(propose_operator_action(kernel, &context, input)))
         }
         "decideOperatorProposal" => {
@@ -1698,5 +1945,156 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod approve_choices_tests {
+    use super::*;
+
+    fn row(kind: &str, command: &str) -> ProposalRow {
+        let force = false;
+        ProposalRow {
+            proposal_id: "op-1".into(),
+            sequence: 1,
+            kind: kind.into(),
+            command: command.into(),
+            command_sha: command_hash(kind, command, force),
+            reason: "r".into(),
+            force_restart: 0,
+            proposer_agent_id: "dev-1".into(),
+            proposer_actor_id: "actor".into(),
+            state: "proposed".into(),
+            auto_rule: None,
+            decided_by_actor_id: None,
+            decided_at: None,
+            decision_note: None,
+            created_at: "2026-01-01T00:00:00.000Z".into(),
+            updated_at: "2026-01-01T00:00:00.000Z".into(),
+            floor_check: Some("clear".into()),
+            floor_entry: None,
+        }
+    }
+
+    fn floor(entry: &str) -> FloorCheck {
+        FloorCheck {
+            verdict: "floor".into(),
+            entry: Some(entry.into()),
+        }
+    }
+
+    fn clear() -> FloorCheck {
+        FloorCheck {
+            verdict: "clear".into(),
+            entry: None,
+        }
+    }
+
+    #[test]
+    fn a_checked_command_offers_exact_auto_and_short_prefixes() {
+        let choices = approve_choices(&row("command", "git log --oneline -5"), None);
+        assert_eq!(choices["once"], true);
+        assert_eq!(choices["exact"], true);
+        assert_eq!(choices["auto"], json!(["hour", "session"]));
+        assert_eq!(choices["limit"], Value::Null);
+        // "git" alone needs a subcommand; the whole command is never offered
+        assert_eq!(choices["prefixes"], json!(["git log", "git log --oneline"]));
+        assert_eq!(choices["floorEntry"], Value::Null);
+    }
+
+    #[test]
+    fn at_most_three_prefixes_shortest_first_and_never_the_whole_command() {
+        let choices = approve_choices(&row("command", "echo a b c x y z"), None);
+        assert_eq!(choices["prefixes"], json!(["echo", "echo a", "echo a b"]));
+        let choices = approve_choices(&row("command", "echo a"), None);
+        assert_eq!(choices["prefixes"], json!(["echo"]));
+        let choices = approve_choices(&row("command", "ls"), None);
+        assert_eq!(choices["prefixes"], json!([]));
+        assert_eq!(choices["exact"], true);
+    }
+
+    #[test]
+    fn a_prefix_that_is_too_wide_is_left_out_and_longer_ones_are_offered() {
+        // "git" and "cstan" alone are too wide; "rm" always needs a human
+        let choices = approve_choices(&row("command", "cstan op list --all"), None);
+        assert_eq!(choices["prefixes"], json!(["cstan op", "cstan op list"]));
+        let choices = approve_choices(&row("command", "rm -f x y"), None);
+        assert_eq!(choices["prefixes"], json!([]));
+    }
+
+    #[test]
+    fn a_quoted_word_does_not_round_trip_and_is_left_out() {
+        // A quote makes the command not simple, and a prefix grant never matches such a command: nothing is offered.
+        let choices = approve_choices(&row("command", "echo \"a b\" c x"), None);
+        assert_eq!(choices["prefixes"], json!([]));
+        // Tabs are not simple either; repeated spaces collapse into the single-spaced words.
+        let choices = approve_choices(&row("command", "echo\t\ta   b c"), None);
+        assert_eq!(choices["prefixes"], json!([]));
+        let choices = approve_choices(&row("command", "echo a   b c"), None);
+        assert_eq!(choices["prefixes"], json!(["echo", "echo a", "echo a b"]));
+        // A word that always needs a human (`d`, `f`, `rm`) anywhere in the command: no prefix would match it.
+        let choices = approve_choices(&row("command", "echo a d"), None);
+        assert_eq!(choices["prefixes"], json!([]));
+    }
+
+    #[test]
+    fn the_limits_hold_back_everything_but_once() {
+        let restart = approve_choices(&row("restart", RESTART_COMMAND_TEXT), Some(clear()));
+        assert_eq!(restart["limit"], "restart");
+        assert_eq!(restart["once"], true);
+        assert_eq!(restart["exact"], false);
+        assert_eq!(restart["auto"], json!([]));
+        let held = approve_choices(&row("command", "git log"), Some(floor("git-push")));
+        assert_eq!(held["limit"], "floor");
+        assert_eq!(held["floorEntry"], "git-push");
+        assert_eq!(held["prefixes"], json!([]));
+        let long = "x".repeat(1025);
+        let two_k = approve_choices(&row("command", &"y".repeat(2000)), None);
+        assert_eq!(two_k["limit"], "truncated");
+        assert_eq!(two_k["exact"], false);
+        assert_eq!(two_k["prefixes"], json!([]));
+        assert_eq!(two_k["auto"], json!([]));
+        let edge = approve_choices(&row("command", &"y".repeat(1024)), None);
+        assert_eq!(edge["limit"], Value::Null);
+        let truncated = approve_choices(&row("command", &long), None);
+        assert_eq!(truncated["limit"], "truncated");
+        assert_eq!(truncated["exact"], false);
+        let mut unchecked = row("command", "ls");
+        unchecked.floor_check = None;
+        let none = approve_choices(&unchecked, None);
+        assert_eq!(none["limit"], "not_checked");
+        assert_eq!(none["once"], true);
+        assert_eq!(none["exact"], false);
+    }
+
+    #[test]
+    fn floor_now_wins_over_the_stored_verdict() {
+        let mut stored = row("command", "git log");
+        stored.floor_check = Some("floor".into());
+        stored.floor_entry = Some("old".into());
+        assert_eq!(approve_choices(&stored, None)["limit"], "floor");
+        assert_eq!(
+            approve_choices(&stored, Some(clear()))["limit"],
+            Value::Null
+        );
+        let fresh = row("command", "git log");
+        assert_eq!(
+            approve_choices(&fresh, Some(floor("new")))["floorEntry"],
+            "new"
+        );
+        let mut none = row("command", "git log");
+        none.floor_check = None;
+        assert_eq!(approve_choices(&none, Some(clear()))["limit"], Value::Null);
+    }
+
+    #[test]
+    fn a_failed_text_hash_offers_nothing() {
+        let mut changed = row("command", "ls");
+        changed.command = "ls -la".into();
+        let choices = approve_choices(&changed, Some(clear()));
+        assert_eq!(
+            choices,
+            json!({"once": false, "exact": false, "prefixes": [], "auto": [], "limit": "text_mismatch"})
+        );
     }
 }

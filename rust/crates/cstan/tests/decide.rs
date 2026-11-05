@@ -358,3 +358,46 @@ fn the_codes_of_the_command_are_these() {
         ["project_not_found", "no_operator_key", "not_answering"]
     );
 }
+
+#[test]
+fn approve_as_with_a_prefix_is_planned_and_its_choice_is_worded() {
+    let words = [
+        "--project",
+        "/x",
+        "op:abc",
+        "--expect",
+        "0123456789ab",
+        "--nonce",
+        "nonce-0002",
+        "approve-as",
+        "prefix",
+        "--prefix",
+        "git log",
+    ];
+    let plan = decide::plan(&args(&words)).expect("approve-as is a verb of the decide grammar");
+    assert_eq!(decide::route_of(&plan.argv).0, "decide");
+    assert_eq!(plan.argv[5], "approve-as");
+
+    let root = project("p-approve-as");
+    let mut reply = applied();
+    reply["result"]["verb"] = json!("approve-as");
+    reply["result"]["approval"] = json!({"choice": "prefix", "grantId": "g1"});
+    let received = serve(&root, Some(reply));
+    let answer = decide::run(
+        &plan_of_argv(root.to_str().unwrap(), &plan.argv),
+        &[],
+        5_000,
+    );
+    let frame = received.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(frame.to_string().contains("approve-as"));
+    assert_eq!(answer.stdout, "op:abc approve-as: applied, choice prefix\n");
+    assert_eq!(answer.exit, 0);
+}
+
+fn plan_of_argv(project: &str, argv: &[String]) -> DecidePlan {
+    DecidePlan {
+        project: project.to_string(),
+        json: false,
+        argv: argv.to_vec(),
+    }
+}

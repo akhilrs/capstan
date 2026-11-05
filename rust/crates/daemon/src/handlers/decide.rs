@@ -15,6 +15,7 @@ use capstan_kernel::areas::remote_decisions::{
 };
 use capstan_kernel::integrate::GitRepo;
 use capstan_kernel::{KernelError, KernelResult};
+use capstan_operator::api::OperatorFailure;
 use serde_json::Value;
 
 /// Registers the handlers of the routes this module serves (decide and decide-merge).
@@ -34,6 +35,7 @@ pub(super) fn options_of(remote: Option<&Remote>) -> DecideOptions {
     match remote {
         Some(remote) => DecideOptions {
             messages_per_hour: remote.messages_per_hour,
+            ..DecideOptions::default()
         },
         None => DecideOptions::default(),
     }
@@ -104,10 +106,39 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     } else {
         None
     };
-    let decided = env.deps.kernel.run(move |core| {
-        let context = crate::deps::new_context(core, &credential)?;
-        remote_decisions::decide_with(core, &context, &input, options)
-    });
+    let op_target = (input.kind == Kind::Op).then(|| input.target.clone());
+    let decided = if input.kind == Kind::Op && input.verb == "approve-as" {
+        // The choice makes grants and windows: the Operator service decides it, with its configuration and the floor now.
+        match env.deps.operator.clone() {
+            Some(operator) => {
+                operator
+                    .remote_decide(&credential, input, options)
+                    .map_err(|failure| match failure {
+                        OperatorFailure::Kernel(error) => error,
+                        OperatorFailure::Operator(error) => {
+                            KernelError::controller(format!("{}: {}", error.code, error.message))
+                        }
+                    })
+            }
+            None => Err(remote_decisions::Refusal {
+                code: "needs_terminal",
+                message: "the Operator is not enabled on this host; approve at the terminal".into(),
+            }
+            .into()),
+        }
+    } else {
+        env.deps.kernel.run(move |core| {
+            let context = crate::deps::new_context(core, &credential)?;
+            remote_decisions::decide_with(core, &context, &input, options)
+        })
+    };
+    if let (Ok(result), Some(proposal_id)) = (&decided, op_target) {
+        if result["repeat"] == false
+            && matches!(result["outcome"].as_str(), Some("applied" | "forwarded"))
+        {
+            close_operator_picker(env, &proposal_id);
+        }
+    }
     if let (Ok(result), Some(message_id)) = (&decided, reply_to) {
         if result["outcome"] == "applied" {
             close_answered_picker(env, &message_id);
@@ -127,6 +158,72 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         }
     }
     Some(answer(decided))
+}
+
+/// After a proposal was decided (or forwarded) from a remote client the PM may still show its picker: one Esc closes it,
+/// only when the screen shows the question of this proposal and hash (the launcher checks). Best effort and advisory:
+/// the approval never waits on it, and a busy PM or a picker worded differently stays open. Runs on its own thread.
+fn close_operator_picker(env: &CommandEnv<'_>, proposal_id: &str) {
+    let id = proposal_id.to_string();
+    let lookup = env.deps.kernel.run(move |core| {
+        let record = core.operator_proposal(&id)?;
+        let pm = capstan_kernel::areas::message_notices::notice_parties(core.kernel())?
+            .map(|parties| parties.pm.agent_id);
+        Ok((record["commandSha"].as_str().map(str::to_string), pm))
+    });
+    let (sha, pm) = match lookup {
+        Ok((sha, pm)) => (sha, pm),
+        Err(error) => {
+            env.log(
+                "operator_picker_closed",
+                serde_json::json!({
+                    "agentId": null,
+                    "proposalId": proposal_id,
+                    "sent": false,
+                    "error": error.message(),
+                }),
+            );
+            return;
+        }
+    };
+    let (Some(agent_id), Some(sha)) = (pm, sha) else {
+        env.log(
+            "operator_picker_closed",
+            serde_json::json!({
+                "agentId": null,
+                "proposalId": proposal_id,
+                "sent": false,
+                "error": "no_active_pm",
+            }),
+        );
+        return;
+    };
+    let Some(launcher) = env.deps.launcher.clone() else {
+        return;
+    };
+    let question = capstan_config::operator_texts::fill(
+        capstan_config::operator_texts::OPERATOR_PICKER_QUESTION,
+        &[
+            ("<proposal-id>", proposal_id),
+            ("<hash12>", sha.get(..12).unwrap_or(&sha)),
+        ],
+    );
+    let deps = env.deps.clone();
+    let proposal_id = proposal_id.to_string();
+    let _ = std::thread::Builder::new()
+        .name("close-operator-picker".into())
+        .spawn(move || {
+            let outcome = launcher.dismiss_question(&agent_id, &question, &[]);
+            deps.detail_log(
+                "operator_picker_closed",
+                serde_json::json!({
+                    "agentId": agent_id,
+                    "proposalId": proposal_id,
+                    "sent": matches!(outcome, Ok(true)),
+                    "error": outcome.err().map(|error| error.to_string()),
+                }),
+            );
+        });
 }
 
 /// After a question was answered from a remote client: the agent that asked may still show it in a picker, which

@@ -394,6 +394,16 @@ impl OperatorService for Scripted {
         Ok(proposal)
     }
 
+    fn remote_decide(
+        &self,
+        _credential: &str,
+        input: capstan_kernel::areas::remote_decisions::DecideInput,
+        _options: capstan_kernel::areas::remote_decisions::DecideOptions,
+    ) -> OperatorResult<Value> {
+        self.log(format!("remote_decide {} {}", input.request_id, input.verb));
+        Ok(json!({}))
+    }
+
     fn decide(&self, _credential: &str, input: DecideInput) -> OperatorResult<Value> {
         self.log(format!(
             "decide {} {:?} hash={:?} note={:?} session={}",

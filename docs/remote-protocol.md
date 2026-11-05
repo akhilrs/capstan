@@ -310,7 +310,7 @@ An event from the kernel's golden fixtures (the placeholders `actorId` and `ts` 
 
 Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line carries the item in `item` and adds
 `projectId`, `section` and `key`. `WaitingItem`: `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`,
-`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`. `designLink` is set for kind `design` and `null` for every other kind: it is the first whole `http://` or `https://` URL in the text of the designer's report (trailing punctuation and closing brackets are not part of it), and `null` when the report names none or the URL is longer than 1024 bytes. It is untrusted text: a client shows it as text and opens it only after the person chooses to, and only when it is an `http` or `https` link. The design item's `contentHash` does not cover it (the report id in the hash fixes the report text). `integrationState` (`merged` or
+`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`, `approveChoices`. `designLink` is set for kind `design` and `null` for every other kind: it is the first whole `http://` or `https://` URL in the text of the designer's report (trailing punctuation and closing brackets are not part of it), and `null` when the report names none or the URL is longer than 1024 bytes. It is untrusted text: a client shows it as text and opens it only after the person chooses to, and only when it is an `http` or `https` link. The design item's `contentHash` does not cover it (the report id in the hash fixes the report text). `approveChoices` is `null` for every kind but `op`; an `op` item always has it (an old host lacks the field, so a client can tell). `integrationState` (`merged` or
 `conflicted`), `branch` and `headSha` are set for kind `integration` and `null` for every other kind. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
 `contentHash`, `branch`, `activity`, `activitySince`, `activitySeq`. `branch` is optional (absent or `null` without a
 pane) and untrusted text (section 8). The three activity fields are the agent's latest observed
@@ -321,6 +321,21 @@ integrated}`, `requestId` (`plan:<planId>`) and `contentHash` (the SHA-256 of th
 `plans`, as `signed_off`, while one of its sign-offs is on an integration that is neither confirmed nor discarded, and
 leaves when that integration is confirmed or discarded (a cancelled plan is never listed). `RunItem`: `requestId` (`run`), `state`, `paused`, `contentHash`, `pm`; the run item has no key of its own and
 its line uses `run`. `Page<T>`: `head`, `items`, `next`.
+
+#### `approveChoices`
+
+The waiting item of an Operator proposal (`op`) carries `approveChoices`, what a client may offer for `op approve-as`
+(section 11): `once`, `exact` (booleans), `prefixes` (a list of texts, at most 3, shortest first, each the leading words
+of the command and never the whole command), `auto` (a list of `hour` and `session`), `limit` and `floorEntry`. `limit`
+is `null` when nothing holds the proposal back; otherwise it names why only `once` is offered (and `exact` is false, with
+no prefixes and no `auto`): `restart` (a restart is never granted for the session), `floor` (the approval floor holds the
+command back; `floorEntry` names the entry), `truncated` (the command is longer than the feed's text cap, 4096 bytes, so
+the person cannot see all of it), or `not_checked` (the floor did not check this proposal). `limit` `text_mismatch` means
+the command no longer matches its hash: nothing but a deny is offered (`once` is false).
+
+`approveChoices` is made from the stored proposal alone, so it changes only when the proposal does, and `contentHash` does
+not cover it. A choice that was offered can still be refused when the request is made: the floor is read again then, and
+a floor entry added since the proposal makes `exact`, a prefix and `auto` refuse with `needs_terminal`, naming the entry.
 
 #### `integrationDetails`
 
@@ -366,7 +381,7 @@ One page of each section (the values are examples; the hashes are the SHA-256 of
 defined over):
 
 ```json
-{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null,"designLink":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","designLink":null,"integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}}}],"next":null}
+{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null,"designLink":null,"approveChoices":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","designLink":null,"integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}},"approveChoices":null},{"key":"op:4","requestId":"op:op-4","kind":"op","since":"2026-10-01T09:31:00.000Z","summary":"git log --oneline -5","contentHash":"4488f25f56519d50884ee05647369ff6e3a52beffa84ba97885b37e759ea6a64","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null,"designLink":null,"approveChoices":{"once":true,"exact":true,"prefixes":["git log","git log --oneline"],"auto":["hour","session"],"limit":null,"floorEntry":null}}],"next":null}
 ```
 
 ```json
@@ -449,6 +464,9 @@ the snapshot of the project before any further event of it.
 - a line with a `v` the client does not know is refused: the client stops and tells the person.
 
 A field is never removed or changed in meaning within a major version.
+
+An old host does not send `approveChoices` on its `op` items and does not accept `op approve-as` (it refuses the verb with
+`invalid_request`). A client that finds no `approveChoices` on an `op` item offers only `op approve` (section 11).
 
 ## 8. Untrusted text
 
@@ -579,6 +597,7 @@ the two outcomes.
 |---|---|---|
 | op | deny | applied |
 | op | approve | forwarded |
+| op | approve-as | applied |
 | prompt | option | forwarded |
 | prompt | esc | forwarded |
 | design | approve | applied |
@@ -593,25 +612,59 @@ the two outcomes.
 | plan | cancel | applied |
 | pm | message | applied |
 
-Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
+Arguments: `op deny [<note>]`; `op approve-as <choice> [--prefix <words>]` (`choice` is `once`, `exact`, `prefix`,
+`auto-hour` or `auto-session`; `--prefix` is required with `prefix` and refused with any other choice; an unknown choice
+is `invalid_request`); `prompt option <n>` (a whole number of at least 1, an option of the prompt as shown);
 `design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
 `message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`; `integration merge`
 (no arguments; see Merge); `integration discard` and `plan cancel` (no arguments); `pm message <text>`. Text is cleaned
 and capped like the text of the feed (section 8), except that `pm message` and `message reply` text of more than 4096
 bytes is refused with `invalid`, not cut.
 
-An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
-proposal or answer a prompt of an agent: a tap on a phone is not an approval. The controller sends the active PM a
-message instead. The message names the request, the verb and the exact command to run, and tells the PM to confirm with
-the person first; the text the client supplied (its label, the label of an option) comes after a heading that marks it
-as untrusted. Nothing is typed into any terminal and nothing is approved until the PM has the person's answer. A second
+An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would answer a prompt
+of an agent, or approve a proposal without the person having chosen how: the controller sends the active PM a message
+instead. The message names the request, the verb and the exact command to run; the text the client supplied (its label,
+the label of an option) comes after a heading that marks it as untrusted. Nothing is typed into any terminal. For a prompt
+the message tells the PM to confirm with the person first. The forward of `op approve` is the person's choice of approving
+once, made after the client's own confirmation: it reads `The user chose approve once for <requestId> in a remote client;
+that client offers only this choice. Run: <command>. Do not ask the user again.` An older client that sends `op approve`
+as a plain "send to the PM" therefore now means that choice to the PM; the outcome stays `forwarded`. A second
 forward of the same request and hash replaces the first: the result's `replaces` names the earlier message, which the
 PM is told not to act on, and an applied decision on the request ends the forwards still open. One request takes at most
 10 messages to the PM from remote clients (forwards and replies); the next is refused with `limit_reached`.
 
 Some answers are not made remotely and are refused with `needs_terminal`: a text answer to a prompt, an option that
 widens permissions or accepts typed text, a prompt with no option that can be answered remotely, a `--session` or
-`--window` grant on `op approve` or on a prompt.
+`--window` grant on `op approve` or on a prompt (a proposal's grants are made with `op approve-as`, below), and full auto,
+which no remote verb turns on.
+
+### Approve as
+
+`op approve-as <choice>` approves an Operator proposal as the Operator, with the grant or window the person chose; it is
+`applied`, not forwarded. The choices are those `approveChoices` of the item offers (section 5): `once` approves this
+command only; `exact` approves it and lets the same command run again for a while (a session grant of the configured
+length); `prefix --prefix <words>` does so for every command that begins with those words (the words are one of the
+offered `prefixes`, byte for byte, else `invalid_request`); `auto-hour` opens an approval window of at most an hour and
+`auto-session` one of the configured length, in which commands the floor does not hold back are approved without asking.
+The grants and windows are the ones the PM's approval of the same choice makes, with the same limits. The host needs the
+Operator enabled; without it every `approve-as` is `needs_terminal`, as is a choice that `approveChoices` does not offer
+(with its `limit`) or that the floor, read again at that moment, now holds back; the message names the floor entry.
+
+The request is bound to the proposal's hash like every other (the hash of its command), and the first decision on a
+proposal wins: `approve-as`, a remote `deny`, the PM's decision and the Operator's cancel are one race, and the others are
+refused (`not_waiting`, or `proposal_not_open` at the terminal). A proposal that waited too long is `not_waiting`; while
+an Operator run is in progress or a process of an abandoned one may still live, the call is `busy`; a changed command is
+`hash_mismatch`; a grant or window the host refuses is `invalid_request`.
+
+When `approve-as` or a remote `deny` is made, the PM gets one message of class info saying that the user decided the
+proposal in a remote client, which choice, and the grant or window that was made; it tells the PM that the user already
+answered, so it does not ask again and does not run `cstan op decide` for it. The forwards still open for the request end
+as for any applied decision. The events of the decision (`operator.decided`, `operator.grant_created`,
+`operator.window_opened`) name the remote client (`source` or `via` `remote`, `decisionId` and `client`), and the
+proposal's record has `decidedVia` (`{decisionId, client}`, or `null`).
+
+The agent that asked may still show a picker for the answered request; the controller closes it once, when its screen
+still shows that question. This is best effort: the message to the PM is what tells the agent.
 
 A `message reply` answers an open question an agent sent the user (section 4, Messages to the user). The answer goes to
 that agent as an action message with the text marked as untrusted, quoting the question (cut at 600 bytes), and the
@@ -695,10 +748,17 @@ the hourly limit of the project (`[remote] messages_per_hour`, 30 by default), w
 ### Result
 
 A decision that was made, or repeated, answers one object with these fields (`messageId` and `replaces` are present only
-when there is a message or an earlier forward):
+when there is a message or an earlier forward, and `approval` only for `op approve-as`):
 
 ```json
 {"v":1,"decisionId":"remote-0000000004","requestId":"op:proposal-2","nonce":"n-7f3a91c2","outcome":"forwarded","repeat":false,"kind":"op","verb":"approve","contentHash":"b47b658cf5dd643526252edbaca2e5ef54b936794d728ddb6193be0f194dcf9a","eventSeq":57,"messageId":"3f0c2a9e-5d4b-4c1e-9a77-0e8d6b1f2c34","replaces":"8a1d5e72-93c0-4b6f-a2d1-5c7e90b4f3a8"}
+```
+
+The result of `op approve-as` has `approval` `{choice, grantId, windowId, expiresAt}`, with `null` for what the choice did
+not make (a grant has no window and the reverse; `once` makes neither):
+
+```json
+{"v":1,"decisionId":"remote-0000000005","requestId":"op:op-4","nonce":"n-91b2c7d0","outcome":"applied","repeat":false,"kind":"op","verb":"approve-as","contentHash":"4488f25f56519d50884ee05647369ff6e3a52beffa84ba97885b37e759ea6a64","eventSeq":61,"approval":{"choice":"exact","grantId":"grant-3","windowId":null,"expiresAt":"2026-10-01T10:01:00.000Z"}}
 ```
 
 `eventSeq` is the `seq` of the `decision.remote` event (section 5) the decision wrote. `contentHash` is the full hash the

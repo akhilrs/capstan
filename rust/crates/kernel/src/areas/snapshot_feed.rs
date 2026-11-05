@@ -10,7 +10,7 @@
 //! # Items (serde, camelCase)
 //! | type | fields |
 //! |---|---|
-//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `designLink` |
+//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`, `approveChoices` |
 //! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
 //! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash`, `pm` |
@@ -81,6 +81,7 @@
 //! have a `next`.
 
 use super::event_feed::{item_key, parse_item_key, KEY_KINDS};
+use super::operator_proposals::{self, FloorCheck};
 use super::pm_card::{self, PmCard};
 use super::{design_approvals, feed_cursor, plan_packages, user_messages};
 use crate::canonical::sha256;
@@ -129,6 +130,9 @@ pub struct WaitingItem {
     /// The design link of a design item: the first whole http(s) URL in the designer's report; null for every other
     /// kind and when the report names none.
     pub design_link: Option<String>,
+    /// What a remote client may choose for an Operator proposal (see `operator_proposals::approve_choices`); null for every
+    /// other kind. It depends only on the stored row, so it changes only when the row does, and is not part of the hash.
+    pub approve_choices: Option<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1220,6 +1224,9 @@ fn fetch(core: &Core, kind: &str, sel: &Sel, limit: usize) -> KernelResult<Vec<C
                 "command",
                 "command_sha",
                 "created_at",
+                "force_restart",
+                "floor_check",
+                "floor_entry",
             ],
             "proposal_id",
             "operator_proposals",
@@ -1407,15 +1414,28 @@ fn build(
         head_sha: None,
         integration_details: None,
         design_link: None,
+        approve_choices: None,
     };
     Ok(Built::Done(
         match kind {
-            "op" => Some(item(
-                text(cols, "created_at"),
-                shown(&text(cols, "command")),
-                text(cols, "command_sha"),
-                false,
-            )),
+            "op" => {
+                let mut found = item(
+                    text(cols, "created_at"),
+                    shown(&text(cols, "command")),
+                    text(cols, "command_sha"),
+                    false,
+                );
+                let stored = |key: &str| cols.get(key).and_then(Value::as_str);
+                found.approve_choices = Some(operator_proposals::choices_of(
+                    &text(cols, "kind"),
+                    &text(cols, "command"),
+                    &text(cols, "command_sha"),
+                    int(cols, "force_restart") == 1,
+                    FloorCheck::stored(stored("floor_check"), stored("floor_entry")),
+                    None,
+                ));
+                Some(found)
+            }
             "prompt" => Some(item(
                 text(cols, "captured_at"),
                 shown(&text(cols, "prompt_text")),

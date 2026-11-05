@@ -19,7 +19,8 @@ use serde_json::{json, Map, Value};
 use super::design_approvals::{self, DesignDecision};
 use super::event_feed::{item_key, REASON_CAP, TEXT_CAP};
 use super::messaging::MessageClass;
-use super::operator_proposals::{self, OperatorDecision};
+pub use super::operator_proposals::FloorCheck;
+use super::operator_proposals::{self, Approver, OperatorDecision};
 use super::snapshot_feed::{canonical, content_hash};
 use super::{
     integrations, message_notices, messages, pauses, plans, prompt_relay, user_messages,
@@ -101,6 +102,7 @@ pub const RESULT_FIELDS: &[&str] = &[
     "eventSeq",
     "messageId",
     "replaces",
+    "approval",
 ];
 
 /// The most forwards plus replies (the rows that sent the PM a message) one request id takes.
@@ -236,6 +238,14 @@ const INTO: Flag = Flag {
     key: "into",
     required: false,
 };
+/// `op approve-as prefix --prefix <words>`: the leading words of the command a prefix grant covers.
+const PREFIX: Flag = Flag {
+    name: "--prefix",
+    key: "prefix",
+    required: false,
+};
+/// The choices of `op approve-as`.
+pub const APPROVE_CHOICES: &[&str] = &["once", "exact", "prefix", "auto-hour", "auto-session"];
 const REASON: Flag = Flag {
     name: "--reason",
     key: "reason",
@@ -288,6 +298,13 @@ pub const VERBS: &[VerbRow] = &[
         Outcome::Forwarded,
         Positional::None,
         &[],
+    ),
+    row(
+        Kind::Op,
+        "approve-as",
+        Outcome::Applied,
+        Positional::RequiredText("choice"),
+        &[PREFIX],
     ),
     row(
         Kind::Prompt,
@@ -496,6 +513,10 @@ fn text_value(raw: &str, what: &str, max_chars: Option<usize>) -> Result<String,
     Ok(text)
 }
 
+fn arg_str<'a>(args: &'a Map<String, Value>, key: &str) -> &'a str {
+    args.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
 /// Parses `<requestId> --expect <hex> --nonce <n> [--client <label>] <verb> [verb args and flags]`.
 pub fn parse(argv: &[String]) -> Result<DecideInput, Refusal> {
     let request_id = argv
@@ -635,6 +656,23 @@ pub fn parse(argv: &[String]) -> Result<DecideInput, Refusal> {
             flag.key.into(),
             json!(text_value(value, flag.name, max_chars)?),
         );
+    }
+    if kind == Kind::Op && row.verb == "approve-as" {
+        let choice = arg_str(&args, "choice");
+        if !APPROVE_CHOICES.contains(&choice) {
+            return Err(Refusal::invalid(format!(
+                "{choice} is not a choice: use once, exact, prefix, auto-hour or auto-session"
+            )));
+        }
+        match (choice, args.contains_key("prefix")) {
+            ("prefix", false) => return Err(Refusal::invalid("--prefix is required with prefix")),
+            ("prefix", true) | (_, false) => {}
+            (_, true) => {
+                return Err(Refusal::invalid(
+                    "--prefix comes only with the choice prefix",
+                ))
+            }
+        }
     }
     if let Some(missing) = row
         .flags
@@ -804,17 +842,35 @@ fn payload_of(input: &DecideInput) -> Value {
     })
 }
 
+/// How the Operator decides on this host: what `op approve-as` needs to make the same grants and windows the Operator
+/// service makes for the PM.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OperatorDecideConfig {
+    /// The length of an exact or prefix grant.
+    pub session_grant_max_minutes: i64,
+    /// The cap of an auto window (1 to 480).
+    pub auto_window_max_minutes: i64,
+    pub approval_floor: Vec<String>,
+    pub window_tool_prompts: bool,
+    pub proposal_ttl_minutes: f64,
+    /// The floor's verdict on the command now, read by the caller just before the step; it wins over the stored one.
+    pub floor_now: Option<FloorCheck>,
+}
+
 /// What `decide_with` can be told apart from the defaults.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DecideOptions {
     /// The most messages to the PM (forwards and replies) one project takes over the trailing 60 minutes.
     pub messages_per_hour: u32,
+    /// Set when the Operator is enabled on this host; `op approve-as` needs it.
+    pub operator: Option<OperatorDecideConfig>,
 }
 
 impl Default for DecideOptions {
     fn default() -> Self {
         Self {
             messages_per_hour: MESSAGES_PER_HOUR,
+            operator: None,
         }
     }
 }
@@ -858,7 +914,7 @@ pub fn decide_with(
             "remote.decide",
             "operator:decide",
             &payload_of(input),
-            |actor| apply(core, context, actor, input, options),
+            |actor| apply(core, context, actor, input, &options),
         );
         match outcome {
             Err(KernelError::Controller(message)) if message == NONCE_TAKEN => continue,
@@ -878,6 +934,8 @@ struct Done {
     message_id: Option<String>,
     replaces: Option<String>,
     item_key: String,
+    /// What `op approve-as` made: `{choice, grantId, windowId, expiresAt}`.
+    approval: Option<Value>,
 }
 
 fn apply(
@@ -885,7 +943,7 @@ fn apply(
     context: &MutationContext,
     actor: &AuthenticatedActor,
     input: &DecideInput,
-    options: DecideOptions,
+    options: &DecideOptions,
 ) -> KernelResult<MutationOutput> {
     let kernel = core.kernel();
     if stored(kernel, &input.nonce)?.is_some() {
@@ -942,7 +1000,10 @@ fn apply(
     }
     let decision_id = next_decision_id(kernel)?;
     let done = match (input.kind, input.verb) {
-        (Kind::Op, "deny") => deny_proposal(kernel, actor, input)?,
+        (Kind::Op, "deny") => deny_proposal(kernel, actor, input, &decision_id)?,
+        (Kind::Op, "approve-as") => {
+            approve_proposal_as(kernel, actor, input, &hash, &decision_id, options)?
+        }
         (Kind::Op, _) => forward_proposal(kernel, actor, input, &hash, &decision_id)?,
         (Kind::Prompt, _) => forward_prompt(kernel, actor, input, &hash, &decision_id)?,
         (Kind::Design, _) => decide_design(kernel, actor, input)?,
@@ -1009,6 +1070,10 @@ fn apply(
     if let Some(replaces) = &done.replaces {
         details["replaces"] = json!(replaces);
         result["replaces"] = json!(replaces);
+    }
+    if let Some(approval) = &done.approval {
+        details["approval"] = approval.clone();
+        result["approval"] = approval.clone();
     }
     execute(
         &kernel.database,
@@ -1115,10 +1180,20 @@ fn forward_body(
     replaces: Option<&str>,
     untrusted: &[(&'static str, String)],
 ) -> String {
-    let mut body = format!(
-        "The user chose {verb_text} for {} in a remote client. Confirm with the user, then run: {command}",
-        input.request_id
-    );
+    let mut body = if input.kind == Kind::Op && input.verb == "approve" {
+        format!(
+            "{}; that client offers only this choice. Run: {command}. Do not ask the user again.",
+            capstan_config::operator_texts::fill(
+                capstan_config::operator_texts::FORWARD_APPROVE_ONCE_LEAD,
+                &[("<requestId>", &input.request_id)]
+            )
+        )
+    } else {
+        format!(
+            "The user chose {verb_text} for {} in a remote client. Confirm with the user, then run: {command}",
+            input.request_id
+        )
+    };
     if let Some(earlier) = replaces {
         body.push_str(&format!(
             "\n\nThis replaces the earlier forward in message {earlier}; do not run that one."
@@ -1170,6 +1245,7 @@ fn forward(
         message_id: Some(message_id),
         replaces,
         item_key: spec.item_key,
+        approval: None,
     })
 }
 
@@ -1283,6 +1359,7 @@ fn deny_proposal(
     kernel: &Kernel,
     actor: &AuthenticatedActor,
     input: &DecideInput,
+    decision_id: &str,
 ) -> KernelResult<Done> {
     let row = operator_proposals::operator_row(kernel, &input.target)?
         .ok_or_else(|| Refusal::new("not_waiting", "the proposal is gone"))?;
@@ -1291,6 +1368,10 @@ fn deny_proposal(
         kernel,
         actor,
         &OperatorDecision {
+            approver: Approver::Remote {
+                decision_id,
+                client: &input.client,
+            },
             proposal_id: &row.proposal_id,
             decision: "deny",
             hash: None,
@@ -1300,11 +1381,179 @@ fn deny_proposal(
             input: &empty,
         },
     )?;
+    send_info_to_pm(
+        kernel,
+        &crate::helpers::remote_proposal_notice(&row.proposal_id, &input.client, None, None),
+    )?;
     Ok(Done {
         events: events_of(output),
         message_id: None,
         replaces: None,
         item_key: item_key("waiting", "op", &row.sequence.to_string()),
+        approval: None,
+    })
+}
+
+/// Why a choice is not offered: `needs_terminal`, naming the limit and, for the floor, its entry.
+fn choice_refusal(choices: &Value, choice: &str) -> Refusal {
+    let limit = choices["limit"].as_str().unwrap_or("");
+    let why = match limit {
+        "floor" => format!(
+            "the approval floor entry {} holds this command back",
+            choices["floorEntry"].as_str().unwrap_or("of the config")
+        ),
+        "restart" => "a restart is never granted for the session".to_string(),
+        "truncated" => "the command is too long to be shown in full".to_string(),
+        "not_checked" => "the approval floor did not check this command".to_string(),
+        "text_mismatch" => "the command text no longer matches its hash".to_string(),
+        _ => "the choice is not offered for this command".to_string(),
+    };
+    Refusal::new(
+        "needs_terminal",
+        format!("{choice} is made at the terminal: {why}"),
+    )
+}
+
+/// The refusal of the operator body mapped to the codes of a remote decision; other failures stay as they are.
+fn map_operator_refusal(error: KernelError) -> KernelError {
+    let KernelError::Controller(message) = &error else {
+        return error;
+    };
+    let code = message.split(':').next().unwrap_or("");
+    let mapped = match code {
+        "proposal_expired" | "proposal_not_open" | "unknown_proposal" => "not_waiting",
+        "run_in_progress" | "orphan_running" => "busy",
+        "hash_mismatch" => "hash_mismatch",
+        _ if code.starts_with("session_") || code.starts_with("window_") => "invalid_request",
+        _ => return error,
+    };
+    let text = message.split_once(':').map_or("", |(_, rest)| rest.trim());
+    Refusal::new(mapped, text.to_string()).into()
+}
+
+/// `op approve-as`: the user's choice in a remote client, applied as the Operator service applies the PM's approval of
+/// the same choice.
+fn approve_proposal_as(
+    kernel: &Kernel,
+    actor: &AuthenticatedActor,
+    input: &DecideInput,
+    hash: &str,
+    decision_id: &str,
+    options: &DecideOptions,
+) -> KernelResult<Done> {
+    let Some(config) = &options.operator else {
+        return Err(Refusal::new(
+            "needs_terminal",
+            "the Operator is not enabled on this host; approve at the terminal",
+        )
+        .into());
+    };
+    let row = operator_proposals::operator_row(kernel, &input.target)?
+        .ok_or_else(|| Refusal::new("not_waiting", "the proposal is gone"))?;
+    let choices = operator_proposals::approve_choices(&row, config.floor_now.clone());
+    let choice = arg_str(&input.args, "choice");
+    let offered = |name: &str| choices[name] == Value::Bool(true);
+    let listed = |list: &str, value: &str| {
+        choices[list]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(value)))
+    };
+    let session = match choice {
+        "once" => {
+            if !offered("once") {
+                return Err(choice_refusal(&choices, choice).into());
+            }
+            None
+        }
+        "exact" => {
+            if !offered("exact") {
+                return Err(choice_refusal(&choices, choice).into());
+            }
+            Some(json!({"kind": "exact", "maxMinutes": config.session_grant_max_minutes}))
+        }
+        "prefix" => {
+            let prefix = arg_str(&input.args, "prefix");
+            if !offered("exact") && choices["prefixes"].as_array().is_none_or(|p| p.is_empty()) {
+                return Err(choice_refusal(&choices, choice).into());
+            }
+            if !listed("prefixes", prefix) {
+                return Err(Refusal::invalid(format!(
+                    "{prefix} is not one of the prefixes offered for {}",
+                    row.proposal_id
+                ))
+                .into());
+            }
+            Some(json!({
+                "kind": "prefix",
+                "text": prefix,
+                "maxMinutes": config.session_grant_max_minutes,
+            }))
+        }
+        "auto-hour" | "auto-session" => {
+            let (name, kind, minutes) = if choice == "auto-hour" {
+                ("hour", "hour", config.auto_window_max_minutes.min(60))
+            } else {
+                ("session", "session", config.auto_window_max_minutes)
+            };
+            if !listed("auto", name) {
+                return Err(choice_refusal(&choices, choice).into());
+            }
+            Some(json!({"kind": "window", "windowKind": kind, "maxMinutes": minutes}))
+        }
+        other => {
+            return Err(Refusal::invalid(format!("{other} is not a choice")).into());
+        }
+    };
+    let mut body = json!({});
+    if session.as_ref().is_some_and(|s| s["kind"] == "window") {
+        body["approvalFloor"] = json!(config.approval_floor);
+        body["windowToolPrompts"] = json!(config.window_tool_prompts);
+    }
+    let hash_value = json!(hash);
+    let output = operator_proposals::apply_operator_decision(
+        kernel,
+        actor,
+        &OperatorDecision {
+            approver: Approver::Remote {
+                decision_id,
+                client: &input.client,
+            },
+            proposal_id: &row.proposal_id,
+            decision: "approve",
+            hash: Some(&hash_value),
+            note: None,
+            session: session.as_ref(),
+            proposal_ttl_minutes: config.proposal_ttl_minutes,
+            input: &body,
+        },
+    )
+    .map_err(map_operator_refusal)?;
+    let grant_id = output.value["sessionGrant"]["grantId"].as_str();
+    let window_id = output.value["window"]["windowId"].as_str();
+    let expires_at = output.value["sessionGrant"]["expiresAt"]
+        .as_str()
+        .or_else(|| output.value["window"]["expiresAt"].as_str());
+    let approval = json!({
+        "choice": choice,
+        "grantId": grant_id,
+        "windowId": window_id,
+        "expiresAt": expires_at,
+    });
+    send_info_to_pm(
+        kernel,
+        &crate::helpers::remote_proposal_notice(
+            &row.proposal_id,
+            &input.client,
+            Some(choice),
+            grant_id.or(window_id),
+        ),
+    )?;
+    Ok(Done {
+        events: events_of(output),
+        message_id: None,
+        replaces: None,
+        item_key: item_key("waiting", "op", &row.sequence.to_string()),
+        approval: Some(approval),
     })
 }
 
@@ -1340,6 +1589,7 @@ fn decide_design(
         message_id: None,
         replaces: None,
         item_key: item_key("waiting", "design", &format!("{sequence}/{package_id}")),
+        approval: None,
     })
 }
 
@@ -1368,6 +1618,7 @@ fn discard_integration(
         message_id: None,
         replaces: None,
         item_key: item_key("waiting", "integration", &integration.sequence.to_string()),
+        approval: None,
     })
 }
 
@@ -1395,6 +1646,7 @@ fn cancel_plan(
         message_id: None,
         replaces: None,
         item_key: item_key("plans", "plan", &plan.sequence.to_string()),
+        approval: None,
     })
 }
 
@@ -1427,6 +1679,7 @@ fn reply_to_message(
         message_id: Some(message_id),
         replaces: None,
         item_key: item_key("waiting", "message", &row.sequence.to_string()),
+        approval: None,
     })
 }
 
@@ -1453,6 +1706,7 @@ fn message_pm(
         message_id: Some(message_id),
         replaces: None,
         item_key: "pm".to_string(),
+        approval: None,
     })
 }
 
@@ -1489,6 +1743,7 @@ fn pause_agent(
         message_id: None,
         replaces: None,
         item_key: input.target.clone(),
+        approval: None,
     })
 }
 
@@ -1519,6 +1774,7 @@ fn pause_run(
         message_id: None,
         replaces: None,
         item_key: item_key("run", "run", ""),
+        approval: None,
     })
 }
 

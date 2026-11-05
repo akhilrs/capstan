@@ -1018,7 +1018,7 @@ fn every_page_and_item_serializes_to_the_fields_the_plan_fixes() {
     assert_eq!(fields(&waiting), "head,items,next");
     assert_eq!(
         fields(&waiting["items"][0]),
-        "branch,contentHash,designLink,headSha,integrationDetails,integrationState,key,kind,needsTerminal,requestId,since,summary"
+        "approveChoices,branch,contentHash,designLink,headSha,integrationDetails,integrationState,key,kind,needsTerminal,requestId,since,summary"
     );
     let agents = value_of(&agents_page(&rig.core, None, 10).unwrap());
     assert_eq!(

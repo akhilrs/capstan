@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, Mutex};
 
 fn setup_step(core: &Core, owner: &str, op: &str, args: Value) -> Value {
     let context = json!({
@@ -89,8 +89,78 @@ fn register_agents(state: &Path, directory: &Path, identity: &Identity) -> HashM
     credentials
 }
 
+/// A launcher that delegates to the recording stub and records the pickers it was asked to close; `sent` is its answer.
+struct PickerLauncher {
+    stub: StubLauncher,
+    closed: Mutex<Vec<(String, String)>>,
+    sent: bool,
+}
+
+impl PickerLauncher {
+    fn new(sent: bool) -> Arc<Self> {
+        Arc::new(Self {
+            stub: StubLauncher::new(),
+            closed: Mutex::new(Vec::new()),
+            sent,
+        })
+    }
+
+    /// The closes so far, waiting a moment for the thread that makes them.
+    fn closes(&self, expected: usize) -> Vec<(String, String)> {
+        for _ in 0..200 {
+            if self.closed.lock().unwrap().len() >= expected {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        self.closed.lock().unwrap().clone()
+    }
+}
+
+macro_rules! delegate {
+    ($($name:ident($($arg:ident: $ty:ty),*) -> $ret:ty;)*) => {
+        $(fn $name(&self, $($arg: $ty),*) -> $ret { self.stub.$name($($arg),*) })*
+    };
+}
+
+impl LauncherService for PickerLauncher {
+    delegate! {
+        launch_pm() -> capstan_launcher::api::LauncherResult<capstan_launcher::api::LaunchResult>;
+        restart_pm() -> capstan_launcher::api::LauncherResult<capstan_launcher::api::LaunchResult>;
+        spawn(role_name: &str, options: &capstan_launcher::api::SpawnOptions) -> capstan_launcher::api::LauncherResult<capstan_launcher::api::SpawnResult>;
+        rename_branch_for_task(agent_id: &str, task: &str) -> capstan_launcher::api::LauncherResult<capstan_launcher::api::BranchRenameResult>;
+        release(agent_id: &str) -> capstan_launcher::api::LauncherResult<capstan_launcher::api::ReleaseResult>;
+        replace(agent_id: &str) -> capstan_launcher::api::LauncherResult<capstan_launcher::api::ReplaceResult>;
+        observe(agent_id: &str, lines: usize) -> capstan_launcher::api::LauncherResult<capstan_launcher::api::ObserveResult>;
+        capture_prompt(agent_id: &str) -> capstan_launcher::api::LauncherResult<capstan_herdr::api::CaptureOutcome>;
+        answer_prompt(agent_id: &str, request: capstan_launcher::api::AnswerPromptRequest<'_>) -> capstan_launcher::api::LauncherResult<capstan_herdr::api::RelayOutcome>;
+        interrupt(agent_id: &str) -> capstan_launcher::api::LauncherResult<bool>;
+        status() -> capstan_launcher::api::LauncherStatus;
+        operator_environment() -> std::collections::BTreeMap<String, String>;
+        in_flight_operations() -> usize;
+        adopt_all() -> capstan_launcher::api::LauncherResult<()>;
+        teardown(agent_id: &str, worktree_path: &str) -> capstan_launcher::api::LauncherResult<capstan_launcher::api::SetupOutcome>;
+    }
+
+    fn dismiss_question(
+        &self,
+        agent_id: &str,
+        question: &str,
+        _options: &[String],
+    ) -> capstan_launcher::api::LauncherResult<bool> {
+        self.closed
+            .lock()
+            .unwrap()
+            .push((agent_id.to_string(), question.to_string()));
+        Ok(self.sent)
+    }
+}
+
 struct World {
     dir: common::PrivateDir,
+    logs: Arc<Mutex<Vec<LogEntry>>>,
+    picker: Option<Arc<PickerLauncher>>,
+    operator: Option<Arc<capstan_operator::api::StubOperator>>,
     deps: Deps,
     owner: String,
     launcher: Arc<StubLauncher>,
@@ -101,6 +171,15 @@ struct World {
 
 impl World {
     fn new() -> World {
+        World::build(None, false)
+    }
+
+    /// A world whose launcher records the pickers it is asked to close, and whose Operator service is a stub.
+    fn with_picker(sent: bool, operator: bool) -> World {
+        World::build(Some(PickerLauncher::new(sent)), operator)
+    }
+
+    fn build(picker: Option<Arc<PickerLauncher>>, operator: bool) -> World {
         let dir = private_tempdir();
         let identity = Identity {
             project_id: "pdecide".into(),
@@ -128,7 +207,11 @@ impl World {
             })
             .expect("the kernel opens")
         };
-        let sink: Logger = Arc::new(|_: &LogEntry| {});
+        let logs: Arc<Mutex<Vec<LogEntry>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink: Logger = {
+            let logs = logs.clone();
+            Arc::new(move |entry: &LogEntry| logs.lock().unwrap().push(entry.clone()))
+        };
         let options = DaemonOptions::new(
             state.clone(),
             identity.initial_project(),
@@ -136,12 +219,22 @@ impl World {
         );
         let launcher = Arc::new(StubLauncher::new());
         let mut deps = Deps::new(kernel, options, sink);
-        deps.launcher = Some(launcher.clone() as Arc<dyn LauncherService>);
+        deps.launcher = Some(match &picker {
+            Some(picker) => picker.clone() as Arc<dyn LauncherService>,
+            None => launcher.clone() as Arc<dyn LauncherService>,
+        });
+        let stub_operator = operator.then(|| Arc::new(capstan_operator::api::StubOperator::new()));
+        deps.operator = stub_operator
+            .clone()
+            .map(|stub| stub as Arc<dyn capstan_operator::api::OperatorService>);
         let socket = state.join("control.sock");
         let server = DaemonServer::start(deps.clone(), ServerOptions::new(socket.clone()))
             .expect("the server starts");
         World {
             dir,
+            logs,
+            picker,
+            operator: stub_operator,
             deps,
             owner: identity.credential,
             launcher,
@@ -514,5 +607,182 @@ fn a_request_id_is_never_expanded_from_a_prefix() {
     assert_eq!(w.decision_rows(), 0);
     let source = include_str!("../src/handlers/id_prefix.rs");
     assert!(!source.contains("(\"decide\","));
+    w.finish();
+}
+
+// ------------------------------------------------------------------------------------------------ the operator picker
+
+impl World {
+    fn picker(&self) -> &Arc<PickerLauncher> {
+        self.picker
+            .as_ref()
+            .expect("a world with a picker launcher")
+    }
+
+    /// The question the PM's picker of this proposal opens with.
+    fn question_of(&self, request: &str) -> String {
+        let id = request.strip_prefix("op:").unwrap().to_string();
+        let record = self
+            .deps
+            .kernel
+            .run(move |core| core.operator_proposal(&id))
+            .unwrap();
+        format!(
+            "Operator proposal {} hash {}",
+            record["proposalId"].as_str().unwrap(),
+            &record["commandSha"].as_str().unwrap()[..12]
+        )
+    }
+
+    fn picker_logs(&self) -> Vec<Value> {
+        self.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry.command == "daemon:operator_picker_closed")
+            .filter_map(|entry| entry.detail.clone())
+            .collect()
+    }
+
+    fn wait_logs(&self, count: usize) -> Vec<Value> {
+        for _ in 0..200 {
+            if self.picker_logs().len() >= count {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        self.picker_logs()
+    }
+}
+
+fn settle() {
+    std::thread::sleep(std::time::Duration::from_millis(300));
+}
+
+#[test]
+fn a_deny_and_a_forward_close_the_pm_picker_and_a_repeat_or_a_refusal_does_not() {
+    let w = World::with_picker(false, false);
+    let denied = w.propose("rm -rf build");
+    let hash = w.hash12(&denied);
+    let question = w.question_of(&denied);
+    let args = [&*denied, "--expect", &hash, "--nonce", "nonce-0001", "deny"];
+    assert_eq!(result(&w.decide(&args))["outcome"], "applied");
+    assert_eq!(
+        w.picker().closes(1),
+        vec![("pm-1".to_string(), question.clone())]
+    );
+    // A working PM gives sent false and no error.
+    let logs = w.wait_logs(1);
+    assert_eq!(logs[0]["sent"], false);
+    assert_eq!(logs[0]["error"], Value::Null);
+    assert_eq!(logs[0]["agentId"], "pm-1");
+    // The same nonce again is a repeat: nothing more is closed.
+    assert_eq!(result(&w.decide(&args))["repeat"], true);
+    // The phone decided already, so an approve now is refused and closes nothing.
+    let late = w.decide(&[
+        &denied,
+        "--expect",
+        &hash,
+        "--nonce",
+        "nonce-0002",
+        "approve",
+    ]);
+    assert_eq!(code(&late), "not_waiting", "{late}");
+    settle();
+    assert_eq!(w.picker().closes(1).len(), 1);
+
+    // A forward closes the picker, a second forward with a new nonce closes it again.
+    let shipped = w.propose("git push origin main");
+    let hash = w.hash12(&shipped);
+    let question = w.question_of(&shipped);
+    for nonce in ["nonce-0003", "nonce-0004"] {
+        let forwarded = w.decide(&[&shipped, "--expect", &hash, "--nonce", nonce, "approve"]);
+        assert_eq!(result(&forwarded)["outcome"], "forwarded");
+    }
+    let closes = w.picker().closes(3);
+    assert_eq!(closes.len(), 3);
+    assert_eq!(closes[1], ("pm-1".to_string(), question.clone()));
+    assert_eq!(closes[2], ("pm-1".to_string(), question));
+    w.finish();
+}
+
+#[test]
+fn without_an_active_pm_nothing_is_closed_and_the_log_says_so() {
+    let w = World::with_picker(true, false);
+    let denied = w.propose("rm -rf build");
+    let hash = w.hash12(&denied);
+    let database =
+        capstan_ledger::resolve_database_path(&w.dir.path().join(".capstan/state")).unwrap();
+    rusqlite::Connection::open(database)
+        .unwrap()
+        .execute("UPDATE agents SET state = 'ended' WHERE kind = 'PM'", [])
+        .unwrap();
+    let answer = w.decide(&[&denied, "--expect", &hash, "--nonce", "nonce-0001", "deny"]);
+    assert_eq!(result(&answer)["outcome"], "applied");
+    let logs = w.wait_logs(1);
+    assert_eq!(logs[0]["error"], "no_active_pm");
+    assert_eq!(logs[0]["sent"], false);
+    settle();
+    assert!(w.picker().closes(0).is_empty());
+    w.finish();
+}
+
+#[test]
+fn approve_as_goes_to_the_operator_service_closes_the_picker_and_a_repeat_does_not() {
+    let w = World::with_picker(true, true);
+    let proposal = w.propose("git log --oneline");
+    let hash = w.hash12(&proposal);
+    let question = w.question_of(&proposal);
+    let applied = json!({"v": 1, "decisionId": "d1", "requestId": proposal, "nonce": "nonce-0001",
+        "outcome": "applied", "repeat": false, "kind": "op", "verb": "approve-as"});
+    let mut repeat = applied.clone();
+    repeat["repeat"] = json!(true);
+    let operator = w.operator.clone().unwrap();
+    operator.script("decide", Ok(applied));
+    operator.script("decide", Ok(repeat));
+    let args = [
+        &*proposal,
+        "--expect",
+        &hash,
+        "--nonce",
+        "nonce-0001",
+        "approve-as",
+        "exact",
+    ];
+    assert_eq!(result(&w.decide(&args))["outcome"], "applied");
+    assert_eq!(w.picker().closes(1), vec![("pm-1".to_string(), question)]);
+    assert_eq!(result(&w.decide(&args))["repeat"], true);
+    settle();
+    assert_eq!(w.picker().closes(1).len(), 1);
+    assert_eq!(operator.calls().len(), 2);
+    w.finish();
+}
+
+#[test]
+fn without_an_operator_service_approve_as_is_needs_terminal_and_an_old_approve_is_forwarded() {
+    let w = World::with_picker(true, false);
+    let proposal = w.propose("git log --oneline");
+    let hash = w.hash12(&proposal);
+    let answer = w.decide(&[
+        &proposal,
+        "--expect",
+        &hash,
+        "--nonce",
+        "nonce-0001",
+        "approve-as",
+        "once",
+    ]);
+    assert_eq!(code(&answer), "needs_terminal", "{answer}");
+    settle();
+    assert!(w.picker().closes(0).is_empty());
+    let forwarded = w.decide(&[
+        &proposal,
+        "--expect",
+        &hash,
+        "--nonce",
+        "nonce-0002",
+        "approve",
+    ]);
+    assert_eq!(result(&forwarded)["outcome"], "forwarded");
     w.finish();
 }

@@ -22,6 +22,8 @@ use crate::policy::{
     GrantVerdict, FULL_AUTO_RULE,
 };
 use capstan_config::AutoWindowKind;
+use capstan_kernel::areas::operator_proposals::FloorCheck;
+use capstan_kernel::areas::remote_decisions::{self, DecideOptions, OperatorDecideConfig};
 use capstan_kernel::helpers::strip_terminal_sequences;
 use capstan_kernel::types::MutationContext;
 use capstan_kernel::{Core, KernelResult};
@@ -893,6 +895,19 @@ impl Inner {
         self.drained.notify_all();
     }
 
+    /// What follows a committed approval: the deadline of a grant it made and the run of the approved command.
+    fn after_decide(self: &Arc<Self>, record: &Value, grant_made: bool, grant_minutes: i64) {
+        if let (true, Some(grant_id)) = (grant_made, record["sessionGrant"]["grantId"].as_str()) {
+            let deadline = self.now() + grant_minutes * 60_000;
+            self.state()
+                .grant_deadlines
+                .insert(grant_id.to_string(), deadline);
+        }
+        if record["state"].as_str() == Some("approved") {
+            self.kick();
+        }
+    }
+
     fn kick(self: &Arc<Self>) {
         if self.state().stopped {
             return;
@@ -980,13 +995,20 @@ impl OperatorService for ProcessOperatorService {
             inner.operator_window()
         };
         let mut auto_rule: Option<String> = full_auto.then(|| FULL_AUTO_RULE.to_string());
-        // Inside a window the floor is asked first: a floored proposal gets no grant, no allowlist rule and no window.
+        // The floor is asked for every proposal and the verdict is stored with it. Inside a window it is asked first: a
+        // floored proposal gets no grant, no allowlist rule and no window.
+        let floor_verdict = inner.check_window_floor(input.kind, &input.command);
+        let floor_check = match &floor_verdict {
+            FloorVerdict::Clear => json!({"verdict": "clear", "entry": Value::Null}),
+            FloorVerdict::Unchecked { .. } => json!({"verdict": "unchecked", "entry": Value::Null}),
+            FloorVerdict::Floor { entry, .. } => json!({"verdict": "floor", "entry": entry}),
+        };
         let mut window_floor = None;
         let mut window_unchecked = None;
         let mut unchecked_verdict = None;
         if auto_rule.is_none() {
             if let Some(window) = &window {
-                match inner.check_window_floor(input.kind, &input.command) {
+                match floor_verdict {
                     FloorVerdict::Floor { entry, detail } => {
                         window_floor = Some(json!({
                             "windowId": window["windowId"],
@@ -1049,6 +1071,7 @@ impl OperatorService for ProcessOperatorService {
             "forceRestart": input.force_restart,
             "autoRule": auto_rule,
             "maxPending": config.max_pending_proposals,
+            "floorCheck": floor_check,
         });
         let mut body = body;
         if let Some(floor) = window_floor {
@@ -1153,17 +1176,64 @@ impl OperatorService for ProcessOperatorService {
                 core.decide_operator_proposal(context, &body)
             })
             .map_err(OperatorFailure::from)?;
-        if let (true, Some(grant_id)) = (grant_made, record["sessionGrant"]["grantId"].as_str()) {
-            let deadline = inner.now() + grant_minutes * 60_000;
-            inner
-                .state()
-                .grant_deadlines
-                .insert(grant_id.to_string(), deadline);
-        }
-        if record["state"].as_str() == Some("approved") {
-            inner.kick();
-        }
+        inner.after_decide(&record, grant_made, grant_minutes);
         Ok(record)
+    }
+
+    fn remote_decide(
+        &self,
+        credential: &str,
+        input: remote_decisions::DecideInput,
+        mut options: DecideOptions,
+    ) -> OperatorResult<Value> {
+        let inner = &self.inner;
+        let config = inner.config();
+        let floor_now = (input.kind == remote_decisions::Kind::Op)
+            .then(|| self.show(&input.target))
+            .flatten()
+            .and_then(|record| {
+                let kind = match record["kind"].as_str()? {
+                    "restart" => ProposalKind::Restart,
+                    _ => ProposalKind::Command,
+                };
+                let command = record["command"].as_str().unwrap_or_default().to_string();
+                Some(match inner.check_window_floor(kind, &command) {
+                    FloorVerdict::Clear => FloorCheck {
+                        verdict: "clear".into(),
+                        entry: None,
+                    },
+                    FloorVerdict::Unchecked { .. } => FloorCheck {
+                        verdict: "unchecked".into(),
+                        entry: None,
+                    },
+                    FloorVerdict::Floor { entry, .. } => FloorCheck {
+                        verdict: "floor".into(),
+                        entry: Some(entry),
+                    },
+                })
+            });
+        options.operator = Some(OperatorDecideConfig {
+            session_grant_max_minutes: config.session_grant_max_minutes,
+            auto_window_max_minutes: config.auto_window_max_minutes,
+            approval_floor: config.approval_floor.clone(),
+            window_tool_prompts: config.auto_window_tool_prompts,
+            proposal_ttl_minutes: config.proposal_ttl_minutes as f64,
+            floor_now,
+        });
+        let applied_approval = input.verb == "approve-as";
+        let result = inner
+            .step(credential, move |core, context| {
+                remote_decisions::decide_with(core, context, &input, options)
+            })
+            .map_err(OperatorFailure::from)?;
+        if applied_approval && result["repeat"] != true && result["outcome"] == "applied" {
+            // The same follow-up as `decide`: the grant's deadline and the run. A failure here never undoes the commit.
+            let grant_id = result["approval"]["grantId"].clone();
+            let grant_made = grant_id.is_string();
+            let record = json!({"state": "approved", "sessionGrant": {"grantId": grant_id}});
+            inner.after_decide(&record, grant_made, config.session_grant_max_minutes);
+        }
+        Ok(result)
     }
 
     fn cancel(&self, credential: &str, proposal_id: &str) -> OperatorResult<Value> {

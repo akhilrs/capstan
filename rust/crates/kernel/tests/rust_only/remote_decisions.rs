@@ -58,10 +58,12 @@ fn valid_rest(row: &capstan_kernel::areas::remote_decisions::VerbRow) -> Vec<&'s
     match row.positional {
         Positional::None => {}
         Positional::OptionalText(_) => rest.push("not now"),
+        Positional::RequiredText(_) if row.verb == "approve-as" => rest.push("once"),
         Positional::RequiredText(_) => rest.push("go ahead"),
         Positional::Number(_) => rest.push("2"),
     }
-    for flag in row.flags {
+    // `approve-as once` takes no prefix; a prefix is tested with its own choice.
+    for flag in row.flags.iter().filter(|f| f.key != "prefix") {
         rest.push(flag.name);
         // `--into` takes a branch name; the other flags take free text.
         rest.push(if flag.name == "--into" {
@@ -86,7 +88,7 @@ fn every_row_of_the_verb_table_parses_with_its_flags_and_nothing_else_does() {
         assert_eq!(input.kind, row.kind);
         assert_eq!(input.client, "remote");
         // Every argument of the row is kept for the repeat check.
-        for flag in row.flags {
+        for flag in row.flags.iter().filter(|f| f.key != "prefix") {
             assert!(
                 input.args.contains_key(flag.key),
                 "{} {}",
@@ -102,7 +104,7 @@ fn every_row_of_the_verb_table_parses_with_its_flags_and_nothing_else_does() {
             "invalid_request",
             "{request} {rest:?}"
         );
-        if let Some(flag) = row.flags.first() {
+        if let Some(flag) = row.flags.iter().find(|f| f.key != "prefix") {
             let mut twice = rest.clone();
             twice.extend([flag.name, "again"]);
             assert_eq!(
@@ -123,7 +125,7 @@ fn every_row_of_the_verb_table_parses_with_its_flags_and_nothing_else_does() {
         "pm",
         "plan",
     ];
-    assert_eq!(VERBS.len(), 15);
+    assert_eq!(VERBS.len(), 16);
     for kind in kinds {
         assert!(VERBS.iter().any(|row| row.kind.as_str() == kind), "{kind}");
     }
@@ -408,7 +410,7 @@ fn free_text_is_cleaned_capped_and_kept_in_the_arguments() {
             "git_unavailable"
         ]
     );
-    assert_eq!(RESULT_FIELDS.len(), 12);
+    assert_eq!(RESULT_FIELDS.len(), 13);
     assert_eq!(MESSAGE_LIMIT, 10);
 }
 
@@ -648,7 +650,7 @@ fn op_approve_is_forwarded_to_the_pm_and_never_approves() {
     assert_eq!(class, "action");
     assert!(
         body.starts_with(&format!(
-            "The user chose approve for {request} in a remote client. Confirm with the user, then run: cstan op decide {id} approve --hash {}",
+            "The user chose approve once for {request} in a remote client; that client offers only this choice. Run: cstan op decide {id} approve --hash {}. Do not ask the user again.",
             h12(&hash)
         )),
         "{body}"

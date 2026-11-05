@@ -176,8 +176,8 @@ fn call(root: &Path, route: &str, argv: &[String], timeout_ms: u64) -> Result<Va
     }
 }
 
-/// The readable line of an answer: `<requestId> <verb>: <outcome>`, with `(repeat)` and the message id when there are
-/// any.
+/// The readable line of an answer: `<requestId> <verb>: <outcome>`, with `(repeat)`, the message id and the choice of an
+/// `approve-as` when there are any.
 fn line_of(result: &Value) -> String {
     let text = |key: &str| result.get(key).and_then(Value::as_str).unwrap_or("");
     let mut line = format!(
@@ -191,6 +191,13 @@ fn line_of(result: &Value) -> String {
     }
     if let Some(id) = result.get("messageId").and_then(Value::as_str) {
         line.push_str(&format!(", message {id}"));
+    }
+    if let Some(choice) = result
+        .get("approval")
+        .and_then(|approval| approval.get("choice"))
+        .and_then(Value::as_str)
+    {
+        line.push_str(&format!(", choice {choice}"));
     }
     clean_text(&line)
 }

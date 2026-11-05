@@ -177,6 +177,14 @@ pub struct FullAutoOnInput {
 pub trait OperatorService: Send + Sync {
     fn propose(&self, credential: &str, input: ProposeInput) -> OperatorResult<Value>;
     fn decide(&self, credential: &str, input: DecideInput) -> OperatorResult<Value>;
+    /// One remote decision on an Operator proposal (`op approve-as`): the service fills the options from its
+    /// configuration and the floor's verdict now, decides in one step and does what `decide` does after its step.
+    fn remote_decide(
+        &self,
+        credential: &str,
+        input: capstan_kernel::areas::remote_decisions::DecideInput,
+        options: capstan_kernel::areas::remote_decisions::DecideOptions,
+    ) -> OperatorResult<Value>;
     fn cancel(&self, credential: &str, proposal_id: &str) -> OperatorResult<Value>;
     fn show(&self, proposal_id: &str) -> Option<Value>;
     fn list(&self, filter: &ListFilter) -> Vec<Value>;
@@ -300,6 +308,18 @@ impl OperatorService for StubOperator {
     fn decide(&self, _credential: &str, input: DecideInput) -> OperatorResult<Value> {
         self.answer(
             format!("decide {} {:?}", input.proposal_id, input.decision),
+            "decide",
+        )
+    }
+
+    fn remote_decide(
+        &self,
+        _credential: &str,
+        input: capstan_kernel::areas::remote_decisions::DecideInput,
+        _options: capstan_kernel::areas::remote_decisions::DecideOptions,
+    ) -> OperatorResult<Value> {
+        self.answer(
+            format!("decide {} {}", input.request_id, input.verb),
             "decide",
         )
     }

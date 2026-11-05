@@ -668,7 +668,7 @@ impl Adapter {
             return Ok(false);
         }
         let plain = crate::screen::strip_ansi(&screen);
-        if !plain.contains("Esc to cancel") || !screen_shows_question(&plain, question, options) {
+        if !screen_shows_open_picker(&plain, question, options) {
             return Ok(false);
         }
         self.send_key(
@@ -986,9 +986,46 @@ pub fn screen_shows_question(screen: &str, question: &str, options: &[String]) -
         })
 }
 
+/// Whether the screen shows the picker of this question as one still open: the screen offers `Esc to cancel` (an older
+/// picker only in the scrollback above a plain prompt does not) and shows the question.
+fn screen_shows_open_picker(plain: &str, question: &str, options: &[String]) -> bool {
+    plain.contains("Esc to cancel") && screen_shows_question(plain, question, options)
+}
+
 #[cfg(test)]
 mod question_tests {
-    use super::screen_shows_question;
+    use super::{screen_shows_open_picker, screen_shows_question};
+
+    const OPERATOR_QUESTION: &str = "Operator proposal proposal-12 hash 3fa9c1d2e4b5";
+
+    #[test]
+    fn an_operator_picker_is_matched_by_its_first_line_even_when_the_border_wraps_the_id() {
+        let picker = "╭──────────────────────────────╮\n│ Operator proposal proposal-12 hash 3fa9c1d2e4b5 │\n│ git status                    │\n│ ❯ 1. Approve once             │\n╰──────────────────────────────╯\nEnter to select · Esc to cancel";
+        assert!(screen_shows_open_picker(picker, OPERATOR_QUESTION, &[]));
+        let wrapped = "╭────────────────────╮\n│ Operator proposal proposal-1 │\n│ 2 hash 3fa9c1d2e4b5          │\n│ ❯ 1. Approve once  │\n╰────────────────────╯\nEnter to select · Esc to cancel";
+        assert!(screen_shows_open_picker(wrapped, OPERATOR_QUESTION, &[]));
+        // Another proposal id or another hash is another picker.
+        assert!(!screen_shows_open_picker(
+            picker,
+            "Operator proposal proposal-1 hash 3fa9c1d2e4b5",
+            &[]
+        ));
+        assert!(!screen_shows_open_picker(
+            picker,
+            "Operator proposal proposal-12 hash 000000000000",
+            &[]
+        ));
+        // An older picker that is only in the scrollback above a prompt has no Esc to cancel.
+        let scrollback = "Operator proposal proposal-12 hash 3fa9c1d2e4b5\n  git status\n\n> ";
+        assert!(!screen_shows_open_picker(
+            scrollback,
+            OPERATOR_QUESTION,
+            &[]
+        ));
+        // A differently worded picker is not matched.
+        let other = "Approve this command?\n  git status\n❯ 1. Yes\n  2. No\nEsc to cancel";
+        assert!(!screen_shows_open_picker(other, OPERATOR_QUESTION, &[]));
+    }
 
     #[test]
     fn a_wrapped_bordered_picker_shows_its_question_and_another_screen_does_not() {

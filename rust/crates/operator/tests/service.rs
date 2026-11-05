@@ -727,3 +727,291 @@ fn a_tick_still_expires_a_window_that_is_past_its_cap() {
     s.service.tick();
     assert_eq!(ledger_rows(&s), after);
 }
+
+// ------------------------------------------------------------------------------------------------- remote decisions
+
+use capstan_kernel::areas::remote_decisions::{self, DecideOptions};
+
+fn stored_floor(s: &Setup, proposal: &Value) -> (Option<String>, Option<String>) {
+    let id = proposal["proposalId"].as_str().unwrap().to_string();
+    let answer = s
+        .world
+        .ledger
+        .run(Box::new(move |core| {
+            let row = capstan_kernel::helpers::query_opt(
+                &core.kernel().database,
+                "SELECT floor_check, floor_entry FROM operator_proposals WHERE proposal_id = ?",
+                [&id],
+                |r| {
+                    Ok(serde_json::json!([
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<String>>(1)?
+                    ]))
+                },
+            )?;
+            Ok(row.unwrap_or(Value::Null))
+        }))
+        .unwrap();
+    (
+        answer[0].as_str().map(str::to_string),
+        answer[1].as_str().map(str::to_string),
+    )
+}
+
+fn request_hash(s: &Setup, proposal: &Value) -> String {
+    let asked = format!("op:{}", proposal["proposalId"].as_str().unwrap());
+    let hash = s
+        .world
+        .ledger
+        .run(Box::new(move |core| {
+            Ok(Value::String(
+                capstan_kernel::areas::snapshot_feed::content_hash(core, &asked)?
+                    .expect("the request waits"),
+            ))
+        }))
+        .unwrap();
+    hash.as_str().unwrap().to_string()
+}
+
+fn remote(
+    s: &Setup,
+    proposal: &Value,
+    nonce: &str,
+    rest: &[&str],
+) -> capstan_operator::api::OperatorResult<Value> {
+    let hash = request_hash(s, proposal);
+    remote_expecting(s, proposal, &hash, nonce, rest)
+}
+
+fn remote_expecting(
+    s: &Setup,
+    proposal: &Value,
+    hash: &str,
+    nonce: &str,
+    rest: &[&str],
+) -> capstan_operator::api::OperatorResult<Value> {
+    let request = format!("op:{}", proposal["proposalId"].as_str().unwrap());
+    let mut words: Vec<String> = [
+        request.as_str(),
+        "--expect",
+        &hash[..12],
+        "--nonce",
+        nonce,
+        "--client",
+        "My phone",
+    ]
+    .iter()
+    .map(|w| w.to_string())
+    .collect();
+    words.extend(rest.iter().map(|w| w.to_string()));
+    let input = remote_decisions::parse(&words).unwrap_or_else(|e| panic!("{words:?}: {e}"));
+    s.service
+        .remote_decide(OWNER, input, DecideOptions::default())
+}
+
+fn refusal_code(result: capstan_operator::api::OperatorResult<Value>) -> String {
+    match result.expect_err("refused") {
+        capstan_operator::api::OperatorFailure::Kernel(error) => {
+            error.message().split(':').next().unwrap().to_string()
+        }
+        other => panic!("not a kernel refusal: {other}"),
+    }
+}
+
+#[test]
+fn every_proposal_stores_the_verdict_of_the_floor_with_no_window_open() {
+    let s = setup(|_| {});
+    let clear = s.propose("git status");
+    assert_eq!(stored_floor(&s, &clear), (Some("clear".into()), None));
+    let unchecked = s.propose("bash deploy.sh");
+    assert_eq!(
+        stored_floor(&s, &unchecked),
+        (Some("unchecked".into()), None)
+    );
+    let floored = s.propose("git push --force-with-lease");
+    let (verdict, entry) = stored_floor(&s, &floored);
+    assert_eq!(verdict.as_deref(), Some("floor"));
+    assert!(entry.is_some_and(|entry| !entry.is_empty()));
+    s.service.stop();
+}
+
+#[test]
+fn remote_decide_asks_the_floor_now_and_the_config_decides_the_grants() {
+    let s = setup(|_| {});
+    let proposal = s.propose("echo changed");
+    // The floor was clear when the proposal came; a config entry added since floors it.
+    let id = proposal["proposalId"].as_str().unwrap().to_string();
+    s.world
+        .ledger
+        .run(Box::new(move |core| {
+            capstan_kernel::helpers::execute(
+                &core.kernel().database,
+                "UPDATE operator_proposals SET floor_check = 'clear', floor_entry = NULL WHERE proposal_id = ?",
+                [&id],
+            )?;
+            Ok(Value::Null)
+        }))
+        .unwrap();
+    // Only `exact` is refused here when the floor says floor now; the flooring is simulated by a floored command.
+    let floored = s.propose("git push --force-with-lease");
+    let id = floored["proposalId"].as_str().unwrap().to_string();
+    s.world
+        .ledger
+        .run(Box::new(move |core| {
+            capstan_kernel::helpers::execute(
+                &core.kernel().database,
+                "UPDATE operator_proposals SET floor_check = 'clear', floor_entry = NULL WHERE proposal_id = ?",
+                [&id],
+            )?;
+            Ok(Value::Null)
+        }))
+        .unwrap();
+    assert_eq!(
+        refusal_code(remote(
+            &s,
+            &floored,
+            "nonce-floor",
+            &["approve-as", "exact"]
+        )),
+        "needs_terminal"
+    );
+    s.service.stop();
+}
+
+#[test]
+fn an_applied_exact_choice_registers_the_deadline_and_starts_the_run() {
+    let s = setup(|_| {});
+    let first = s.propose("echo granted");
+    let hash = request_hash(&s, &first);
+    let result = remote_expecting(&s, &first, &hash, "nonce-exact", &["approve-as", "exact"])
+        .expect("applied");
+    assert_eq!(result["outcome"], "applied");
+    let grant_id = result["approval"]["grantId"]
+        .as_str()
+        .expect("a grant")
+        .to_string();
+    s.wait(&first, "finished");
+    assert_eq!(s.runs.load(Ordering::SeqCst), 1);
+    // The grant is live (its deadline is registered), so the same text is approved by its session rule.
+    assert_eq!(s.service.grants().len(), 1);
+    let second = s.propose("echo granted");
+    assert_eq!(second["state"], "approved");
+    assert_eq!(second["autoRule"], format!("session:{grant_id}"));
+    s.wait(&second, "finished");
+    // A repeat of the same nonce starts nothing again.
+    let again = remote_expecting(&s, &first, &hash, "nonce-exact", &["approve-as", "exact"])
+        .expect("stored answer");
+    assert_eq!(again["repeat"], true);
+    assert_eq!(s.service.grants().len(), 1);
+    s.service.stop();
+}
+
+#[test]
+fn an_applied_auto_hour_opens_a_window_that_approves_the_next_proposal() {
+    let s = setup(|_| {});
+    let first = s.propose("echo start");
+    let result = remote(&s, &first, "nonce-hour", &["approve-as", "auto-hour"]).expect("applied");
+    let window_id = result["approval"]["windowId"]
+        .as_str()
+        .expect("a window")
+        .to_string();
+    s.wait(&first, "finished");
+    let next = s.propose("echo later");
+    assert_eq!(next["state"], "approved");
+    assert_eq!(next["autoRule"], format!("window:{window_id}"));
+    s.wait(&next, "finished");
+    s.service.stop();
+}
+
+#[test]
+fn a_prefix_grant_approves_the_next_matching_proposal_and_an_always_approve_word_still_asks() {
+    let s = setup(|_| {});
+    let first = s.propose("git log --oneline -5");
+    let result = remote(
+        &s,
+        &first,
+        "nonce-prefix",
+        &["approve-as", "prefix", "--prefix", "git log"],
+    )
+    .expect("applied");
+    let grant_id = result["approval"]["grantId"]
+        .as_str()
+        .expect("a grant")
+        .to_string();
+    s.wait_ended(&first);
+    let next = s.propose("git log --stat");
+    assert_eq!(next["state"], "approved");
+    assert_eq!(next["autoRule"], format!("session:{grant_id}"));
+    s.wait_ended(&next);
+    // The prefix covers no other command, and a prefix policy refuses is never offered.
+    let bad = s.propose("git status");
+    assert_eq!(bad["state"], "proposed");
+    assert_eq!(
+        refusal_code(remote(
+            &s,
+            &bad,
+            "nonce-bad",
+            &["approve-as", "prefix", "--prefix", "git"]
+        )),
+        "invalid_request"
+    );
+    s.service.stop();
+}
+
+#[test]
+fn every_offered_prefix_passes_the_policy_and_matches_its_command_as_a_grant() {
+    use capstan_operator::api::GrantKind;
+    use capstan_operator::policy::{
+        match_session_grant, prefix_grant_problem, GrantRef, GrantVerdict,
+    };
+    let s = setup(|c| c.max_pending_proposals = 50);
+    let commands = [
+        "git log --oneline -5",
+        "cargo test -p capstan-operator --lib",
+        "ls -la /tmp",
+        "npm run build",
+        "echo hello world",
+        "git push --force origin main",
+        "rm -rf target",
+        "cat Cargo.toml | head -3",
+        "make",
+    ];
+    for command in commands {
+        let proposal = s.propose(command);
+        let id = proposal["proposalId"].as_str().unwrap().to_string();
+        let choices = s
+            .world
+            .ledger
+            .run(Box::new(move |core| {
+                let page =
+                    capstan_kernel::areas::snapshot_feed::waiting_page(core, None, 50, Some("op"))?;
+                let item = page
+                    .items
+                    .into_iter()
+                    .find(|item| item.request_id == format!("op:{id}"))
+                    .expect("the proposal waits");
+                Ok(item.approve_choices.expect("an op item has choices"))
+            }))
+            .unwrap();
+        for prefix in choices["prefixes"].as_array().unwrap() {
+            let prefix = prefix.as_str().unwrap();
+            assert!(
+                prefix_grant_problem(prefix).is_none(),
+                "{command}: {prefix} is offered but refused"
+            );
+            let grants = [GrantRef {
+                grant_id: "g1".into(),
+                kind: GrantKind::Prefix,
+                text: prefix.into(),
+            }];
+            assert!(
+                matches!(
+                    match_session_grant(ProposalKind::Command, command, &grants),
+                    GrantVerdict::Matched { .. }
+                ),
+                "{command}: {prefix} does not match as a grant"
+            );
+        }
+    }
+    s.service.stop();
+}

@@ -1535,6 +1535,33 @@ fn unchecked_suffix(unchecked_reason: Option<&str>) -> String {
     }
 }
 
+/// The info notice to the PM when the user decided an Operator proposal in a remote client. `choice` is the approval
+/// chosen (none for a denial) and `made` the grant or window id it produced. The PM must not ask the user again.
+pub fn remote_proposal_notice(
+    proposal_id: &str,
+    client: &str,
+    choice: Option<&str>,
+    made: Option<&str>,
+) -> String {
+    use capstan_config::operator_texts::{fill, PM_REMOTE_APPROVED_LEAD, PM_REMOTE_DENIED_LEAD};
+    let lead = if choice.is_some() {
+        PM_REMOTE_APPROVED_LEAD
+    } else {
+        PM_REMOTE_DENIED_LEAD
+    };
+    let mut text = format!("{} {client}.", fill(lead, &[("<id>", proposal_id)]));
+    if let Some(choice) = choice {
+        text.push_str(&format!(" Choice: {choice}."));
+        if let Some(made) = made {
+            text.push_str(&format!(" It made {made}."));
+        }
+    }
+    text.push_str(&format!(
+        " The user already answered: do not ask again and do not run cstan op decide for {proposal_id}."
+    ));
+    text
+}
+
 /// The info notice when a window approves an Operator proposal.
 pub fn window_used_notice(
     proposal_id: &str,

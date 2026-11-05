@@ -645,6 +645,29 @@ mod tests {
     }
 
     #[test]
+    fn pm_operator_section_does_not_ask_again_for_phone_decisions() {
+        use crate::operator_texts::{
+            FORWARD_APPROVE_ONCE_LEAD, OPERATOR_PICKER_QUESTION, PM_REMOTE_APPROVED_LEAD,
+            PM_REMOTE_DENIED_LEAD,
+        };
+        let text = fill(PM_OPERATOR_SECTION, &["operator-1", "operator"]);
+        for needle in [
+            OPERATOR_PICKER_QUESTION,
+            PM_REMOTE_APPROVED_LEAD,
+            PM_REMOTE_DENIED_LEAD,
+            FORWARD_APPROVE_ONCE_LEAD,
+            "do not ask again and do not run `cstan op decide`",
+            "run its command without asking again",
+            "Full auto is asked only in the terminal picker, never with @user",
+            "cstan op show <id>",
+        ] {
+            assert!(text.contains(needle), "missing {needle}");
+        }
+        let reference = include_str!("prompts/pm_reference.txt");
+        assert!(reference.contains("Exception: an Operator proposal"));
+    }
+
+    #[test]
     fn pm_relay_section_adds_the_window_option_for_allow_once_only() {
         assert!(super::PM_PROMPT_RELAY_SECTION
             .contains("only when the prompt has an allow-once option"));

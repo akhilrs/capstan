@@ -866,7 +866,7 @@ fn forward_ops(rig: &Rig, count: usize, options: DecideOptions) -> Vec<Result<Va
                 "approve",
             ]))
             .unwrap();
-            decide_with(&rig.core, &rig.ctx("owner"), &input, options)
+            decide_with(&rig.core, &rig.ctx("owner"), &input, options.clone())
         })
         .collect()
 }
@@ -880,6 +880,7 @@ fn messages_per_hour_caps_the_messages_to_the_pm_and_the_default_is_thirty() {
         8,
         DecideOptions {
             messages_per_hour: 7,
+            ..DecideOptions::default()
         },
     );
     assert!(results[..7].iter().all(Result::is_ok));
@@ -895,8 +896,9 @@ fn messages_per_hour_caps_the_messages_to_the_pm_and_the_default_is_thirty() {
     let rig = Rig::new();
     let options = DecideOptions {
         messages_per_hour: 2,
+        ..DecideOptions::default()
     };
-    let results = forward_ops(&rig, 3, options);
+    let results = forward_ops(&rig, 3, options.clone());
     assert_eq!(code_of(results[2].as_ref().unwrap_err()), "limit_reached");
     rig.db()
         .execute(

@@ -383,6 +383,7 @@ fn example_pages_have_the_shape_of_each_section() {
         "headSha",
         "integrationDetails",
         "designLink",
+        "approveChoices",
     ];
     let agents = [
         "key",
@@ -705,17 +706,31 @@ fn check_examples(doc: &str) -> Result<(), String> {
         .iter()
         .filter(|v| v.get("error").is_some())
         .collect();
-    let [result] = results[..] else {
-        return Err(format!("{} result examples, one wanted", results.len()));
-    };
+    if results.is_empty() {
+        return Err("no result example".into());
+    }
     let [refusal] = refusals[..] else {
         return Err(format!("{} refusal examples, one wanted", refusals.len()));
     };
     let want: BTreeSet<String> = RESULT_FIELDS.iter().map(|f| f.to_string()).collect();
-    if field_names(result) != want {
+    // `messageId`, `replaces` and `approval` are present only with a message, an earlier forward or an approval: each
+    // example has the fields it would, and together they show every field.
+    let optional: BTreeSet<String> = ["messageId", "replaces", "approval"]
+        .map(String::from)
+        .into();
+    let mut shown = BTreeSet::new();
+    for result in &results {
+        let have = field_names(result);
+        if !have.is_subset(&want) || !want.difference(&optional).all(|f| have.contains(f)) {
+            return Err(format!(
+                "result fields {have:?}, the code has {want:?} (optional {optional:?})"
+            ));
+        }
+        shown.extend(have);
+    }
+    if shown != want {
         return Err(format!(
-            "result fields {:?}, the code has {want:?}",
-            field_names(result)
+            "the result examples show {shown:?}, the code has {want:?}"
         ));
     }
     let top: BTreeSet<String> = ["v", "error"].map(String::from).into();
@@ -723,7 +738,10 @@ fn check_examples(doc: &str) -> Result<(), String> {
     if field_names(refusal) != top || field_names(&refusal["error"]) != inner {
         return Err(format!("refusal fields {:?}", field_names(refusal)));
     }
-    if refusal["error"]["code"].as_str().is_none() || result["v"] != 1 || refusal["v"] != 1 {
+    if refusal["error"]["code"].as_str().is_none()
+        || results.iter().any(|result| result["v"] != 1)
+        || refusal["v"] != 1
+    {
         return Err("an example without its code or with another version".into());
     }
     Ok(())
