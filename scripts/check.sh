@@ -56,7 +56,7 @@ cargo_gate() (
   # shellcheck disable=SC2086
   # The tests start daemons; the run fails if one of them is still alive when it ends (scripts/daemon-survivors.sh).
   "$ROOT/scripts/daemon-survivors.sh" check "${CARGO_TARGET_DIR:-$ROOT/$dir/target}" \
-    sh -c 'cd "$1" && shift && exec cargo test "$@"' sh "$ROOT/$dir" $JOBS --locked
+    sh -c 'cd "$1" && shift && exec cargo test --no-fail-fast "$@"' sh "$ROOT/$dir" $JOBS --locked
 )
 
 # ------------------------------------------------------------------------------------------------- the no-Node guard

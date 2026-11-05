@@ -821,6 +821,14 @@ fn verify_show_lines(run: &Value) -> Vec<String> {
             text_of(Some(command)).unwrap_or_default()
         ));
     }
+    for skipped in items(run.get("skippedSteps")) {
+        lines.push(format!(
+            "skipped step {}: {} ({})",
+            number_text(skipped.get("step")).unwrap_or_default(),
+            text_of(skipped.get("command")).unwrap_or_default(),
+            text_of(skipped.get("reason")).unwrap_or_default()
+        ));
+    }
     if let Some(code) = number_text(run.get("exitCode")) {
         lines.push(format!("exit code: {code}"));
     }

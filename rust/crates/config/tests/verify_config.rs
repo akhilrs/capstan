@@ -221,3 +221,101 @@ fn commands_sha_tracks_commands_and_order() {
         .chars()
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
 }
+
+#[test]
+fn a_step_table_carries_a_path_filter_and_a_string_does_not() {
+    let v = verify_commands(
+        r#"commands = [{ run = "scripts/check.sh rust", paths = ["rust/**", "Cargo.lock"] }, "guard"]"#,
+    );
+    assert_eq!(
+        v.commands,
+        vec!["scripts/check.sh rust".to_string(), "guard".to_string()]
+    );
+    assert_eq!(
+        v.path_filters,
+        vec![
+            Some(vec!["rust/**".to_string(), "Cargo.lock".to_string()]),
+            None
+        ]
+    );
+}
+
+fn verify_commands(line: &str) -> capstan_config::Verify {
+    load(&format!("[verify]\n{line}\n"))
+        .expect("loads")
+        .verify
+        .expect("present")
+}
+
+#[test]
+fn plain_strings_keep_the_old_hash_and_filters_change_it() {
+    let plain = verify_commands(r#"commands = ["a", "b"]"#);
+    assert!(plain.path_filters.iter().all(Option::is_none));
+    let filtered = verify_commands(r#"commands = [{ run = "a", paths = ["x/**"] }, "b"]"#);
+    let other = verify_commands(r#"commands = [{ run = "a", paths = ["y/**"] }, "b"]"#);
+    assert_ne!(plain.commands_sha(), filtered.commands_sha());
+    assert_ne!(filtered.commands_sha(), other.commands_sha());
+}
+
+#[test]
+fn a_config_without_filters_does_not_print_them_and_one_with_filters_does() {
+    let plain = load("[verify]\ncommands = [\"a\"]\n")
+        .expect("loads")
+        .to_json();
+    assert!(!plain.contains("pathFilters"));
+    let filtered = load("[verify]\ncommands = [{ run = \"a\", paths = [\"x/**\"] }]\n")
+        .expect("loads")
+        .to_json();
+    assert!(filtered.contains("\"pathFilters\""));
+}
+
+#[test]
+fn bad_step_tables_are_refused_naming_the_entry() {
+    for (line, named) in [
+        (
+            r#"commands = [{ paths = ["a"] }]"#,
+            "verify.commands[0].run",
+        ),
+        (r#"commands = [{ run = "a" }]"#, "verify.commands[0].paths"),
+        (
+            r#"commands = [{ run = "a", paths = [] }]"#,
+            "verify.commands[0].paths",
+        ),
+        (
+            r#"commands = [{ run = "a", paths = "x" }]"#,
+            "verify.commands[0].paths",
+        ),
+        (
+            r#"commands = ["ok", { run = "a", paths = [""] }]"#,
+            "verify.commands[1].paths[0]",
+        ),
+        (
+            r#"commands = [{ run = "a", paths = ["/abs"] }]"#,
+            "verify.commands[0].paths[0]",
+        ),
+        (
+            r#"commands = [{ run = "a", paths = ["a/../b"] }]"#,
+            "verify.commands[0].paths[0]",
+        ),
+        (
+            r#"commands = [{ run = "a", paths = ["x", "x"] }]"#,
+            "verify.commands[0].paths[1]",
+        ),
+        (
+            r#"commands = [{ run = "a", paths = [3] }]"#,
+            "verify.commands[0].paths[0]",
+        ),
+        (
+            r#"commands = [{ run = "", paths = ["x"] }]"#,
+            "verify.commands[0].run",
+        ),
+        (
+            r#"commands = [{ run = "a", paths = ["x"], extra = 1 }]"#,
+            "verify.commands[0]",
+        ),
+        (r#"commands = [4]"#, "verify.commands[0]"),
+    ] {
+        let message = refusal(&format!("[verify]\n{line}\n"));
+        assert!(message.contains(named), "{line}: {message}");
+    }
+}

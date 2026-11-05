@@ -174,7 +174,7 @@ pub const CACHE_KEYS: &[&str] = &[
 ];
 pub const CACHE_SETUP_REUSE_KEYS: &[&str] = &["key_files", "paths"];
 pub const CACHE_ENTRY_KEYS: &[&str] = &["dirs", "set", "requires", "prune", "stop", "max_size_gb"];
-pub const CACHE_RUST_KEYS: &[&str] = &["mode", "incremental", "max_size_gb"];
+pub const CACHE_RUST_KEYS: &[&str] = &["mode", "incremental", "target_dir", "max_size_gb"];
 /// The keys of `[cache.python]`, `[cache.node]` and `[cache.go]`.
 pub const CACHE_PRESET_KEYS: &[&str] = &["max_size_gb"];
 pub const VERIFY_KEYS: &[&str] = &[

@@ -707,6 +707,8 @@ Each `dirs` pair is `ENV = subdirectory` of the entry's cache directory; `set` p
 | `node` | `NPM_CONFIG_CACHE=npm`, `NPM_CONFIG_STORE_DIR=pnpm-store`, `YARN_CACHE_FOLDER=yarn` | | prune: `npm cache verify`, `pnpm store prune` |
 | `go` | `GOCACHE=go-build`, `GOMODCACHE=go-mod` | | |
 
+`[cache.rust] target_dir` (default `false`), for any mode but `off`, also sets `CARGO_TARGET_DIR=cargo-target`: a persistent target directory that agents and `cstan verify` runs reuse (see the [build cache guide](build-cache.md)).
+
 `[cache.rust] mode` accepts `sccache`, `shared-build-dir` and `off`; anything else is refused.
 
 `[cache.rust] incremental` (default `false`) applies to mode `sccache`: sccache cannot cache incremental crates, so the preset sets `CARGO_INCREMENTAL=0` and the incremental cache (about 3 GB per worktree) is not written. `incremental = true` leaves cargo's own default. `scripts/check.sh` sets the same `CARGO_INCREMENTAL=0` for its cargo stages unless the caller already sets the variable.
@@ -753,7 +755,7 @@ scratch_dir = "~/.cache/capstan/verify"
 
 | Key | Meaning |
 | --- | --- |
-| `commands` | Required. 1 to 16 non-empty strings of at most 1000 characters, each run with `sh -c` in the scratch worktree, in order; the run stops at the first non-zero exit. |
+| `commands` | Required. 1 to 16 entries, run in order with `sh -c` in the scratch worktree; the run stops at the first non-zero exit. An entry is a non-empty string of at most 1000 characters (always runs), or a table `{ run = "...", paths = ["..."] }` that runs only when the diff touches a matching path; see [Path-aware steps](#path-aware-steps). |
 | `env` | Extra variables for the commands, `{ NAME = "value" }`. A name is checked like `[env] pass`: upper-case letters, digits and underscore, not `CAPSTAN_*`, and none of the reserved names (`PATH`, `HOME`, `SHELL`, ...) or prefixes (`LD_`, `DYLD_`, `GIT_`, `BASH_`). Values must not look like credentials. |
 | `timeout_seconds` | Limit for the whole run, 60 to 14400. Default 3600. |
 | `max_parallel` | Runs that may be active at once, 1 to 8. Default 1. |
@@ -767,6 +769,24 @@ scratch_dir = "~/.cache/capstan/verify"
 | `scratch_dir` | Where scratch worktrees are made: an absolute path or one starting with `~/`, without `..`. Default `<cache root>/projects/<project id>/verify`, resolved by the daemon. The daemon makes the directory with a `.capstan-verify` marker file naming the project and refuses a directory that already holds other files and has no marker (`verify_scratch_refused`); it removes only worktrees of this repository that it finds there. |
 
 A passed run is keyed by the commit and by the SHA-256 of the command list (`commands_sha`): changing, adding, removing or reordering a command makes earlier passes stale. A review brief carries a gate line; when it says the gate passed at the reviewed commit, the reviewer does targeted checks and does not rerun the full gate.
+
+### Path-aware steps
+
+A `commands` entry written as a table runs its `run` command only when the change touches one of its `paths`. A plain string always runs, as before.
+
+```toml
+[verify]
+commands = [
+  { run = "scripts/check.sh rust", paths = ["rust/**", "Cargo.lock"] },
+  { run = "scripts/check.sh dash", paths = ["dash/**"] },
+  "scripts/check.sh node-guard",
+]
+```
+
+- `run` is the command (same limits as a string entry). `paths` is 1 to 32 globs relative to the project root, with `/` separators, no leading `/`, no `..` and no empty segment. `*` and `?` match inside one path segment; a `**` segment matches any number of segments, none included; a glob without a wildcard names one exact path (`Cargo.lock` does not match `rust/Cargo.lock`; write `**/Cargo.lock` for that). Only the keys `run` and `paths` are accepted; `cstan config check` names the entry (`verify.commands[1].paths[0]`) it refuses.
+- The diff is taken from the merge base of the verified commit and the HEAD checked out in the project root, to the commit, with renames listed as a delete and an add. A step is skipped only when that diff was read, is not empty, and touches none of the step's paths. If the diff cannot be read (no common ancestor) or is empty (the commit is already in HEAD), every step runs.
+- The run record (`cstan verify show`, the `skippedSteps` field) lists each skipped step with its number, command and reason, and the log notes it. A run whose steps were all either run and passed or skipped is `passed`, for the same commit.
+- A filter is part of the `commands_sha` key: adding, changing or removing a filter or a glob makes earlier passes stale, like changing a command. A configuration without filters keeps the `commands_sha` it had before filters existed.
 
 ### Examples
 

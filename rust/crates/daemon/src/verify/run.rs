@@ -22,6 +22,70 @@ pub(crate) struct Outcome {
     pub truncated: bool,
 }
 
+/// A step that was not run, and why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Skipped {
+    pub step: i64,
+    pub command: String,
+    pub reason: String,
+}
+
+impl Skipped {
+    pub(crate) fn to_json(&self) -> Value {
+        json!({"step": self.step, "command": self.command, "reason": self.reason})
+    }
+}
+
+/// The steps of `commands` whose path filter excludes every path of `changed`; `filters` is `[verify]`'s filter list.
+/// A run whose commands differ from the configured ones (the config changed after it was queued) skips nothing.
+pub(crate) fn skipped_steps(
+    commands: &[String],
+    configured: &[String],
+    filters: &[Option<Vec<String>>],
+    changed: Option<&[String]>,
+) -> Vec<Skipped> {
+    if commands != configured || filters.len() != commands.len() {
+        return Vec::new();
+    }
+    let mut skipped = Vec::new();
+    for (index, command) in commands.iter().enumerate() {
+        let filter = filters[index].as_deref();
+        if capstan_config::step_runs(filter, changed) {
+            continue;
+        }
+        skipped.push(Skipped {
+            step: (index + 1) as i64,
+            command: command.clone(),
+            reason: format!(
+                "the diff touches none of {}",
+                filter.unwrap_or_default().join(", ")
+            ),
+        });
+    }
+    skipped
+}
+
+/// The paths changed between the merge base of `commit` and the project's checked-out HEAD, and `commit`. `None` when
+/// they cannot be read, which makes every step run.
+pub(crate) fn changed_paths(project_root: &Path, commit: &str) -> Option<Vec<String>> {
+    let base = scratch::git(project_root, &["merge-base", commit, "HEAD"]).ok()?;
+    let base = base.trim();
+    if base.is_empty() {
+        return None;
+    }
+    let list = scratch::git(
+        project_root,
+        &["diff", "--name-only", "--no-renames", "-z", base, commit],
+    )
+    .ok()?;
+    Some(
+        list.split('\0')
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
 impl Outcome {
     fn error(message: impl Into<String>) -> Self {
         Self {
@@ -57,6 +121,8 @@ pub(crate) struct Left {
     pub worktree_added: bool,
     /// Set once the first process of the run is recorded in the ledger (it keeps one, write-once).
     pub recorded: Arc<AtomicBool>,
+    /// The steps the path filters left out; recorded with the finish.
+    pub skipped: Vec<Skipped>,
 }
 
 impl VerifyService {
@@ -214,11 +280,33 @@ impl VerifyService {
             }
         }
         let mut last: Option<capstan_operator::service::RunResult> = None;
+        let changed = if self.verify.path_filters.iter().any(Option::is_some) {
+            changed_paths(&self.project_root, commit)
+        } else {
+            None
+        };
+        left.skipped = skipped_steps(
+            commands,
+            &self.verify.commands,
+            &self.verify.path_filters,
+            changed.as_deref(),
+        );
         for (index, command) in commands.iter().enumerate() {
             if abort.load(Ordering::SeqCst) {
                 return None;
             }
             let step = (index + 1) as i64;
+            if let Some(skip) = left.skipped.iter().find(|s| s.step == step) {
+                log.append(
+                    format!(
+                        "$ [{step}/{}] {command}\n  skipped: {}\n",
+                        commands.len(),
+                        skip.reason
+                    )
+                    .as_bytes(),
+                );
+                continue;
+            }
             let left_ms = remaining(Instant::now());
             if left_ms == 0 {
                 return Some(Outcome {
@@ -529,7 +617,52 @@ impl VerifyService {
             "durationMs": duration_ms,
             "outputTail": outcome.tail,
             "outputTruncated": outcome.truncated,
+            "skippedSteps": left.skipped.iter().map(Skipped::to_json).collect::<Vec<_>>(),
         });
         self.finish_once(&run_id, input);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn filters() -> Vec<Option<Vec<String>>> {
+        vec![Some(strings(&["rust/**", "Cargo.lock"])), None]
+    }
+
+    #[test]
+    fn a_docs_only_diff_skips_the_filtered_step_and_says_why() {
+        let commands = strings(&["cargo test", "guard"]);
+        let changed = strings(&["docs/a.md"]);
+        let skipped = skipped_steps(&commands, &commands, &filters(), Some(&changed));
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].step, 1);
+        assert_eq!(skipped[0].command, "cargo test");
+        assert_eq!(
+            skipped[0].reason,
+            "the diff touches none of rust/**, Cargo.lock"
+        );
+    }
+
+    #[test]
+    fn a_matching_unknown_or_empty_diff_skips_nothing() {
+        let commands = strings(&["cargo test", "guard"]);
+        let hit = strings(&["rust/x.rs"]);
+        assert!(skipped_steps(&commands, &commands, &filters(), Some(&hit)).is_empty());
+        assert!(skipped_steps(&commands, &commands, &filters(), None).is_empty());
+        assert!(skipped_steps(&commands, &commands, &filters(), Some(&[])).is_empty());
+    }
+
+    #[test]
+    fn a_run_queued_with_other_commands_skips_nothing() {
+        let queued = strings(&["cargo test", "guard"]);
+        let now = strings(&["cargo test", "other"]);
+        let changed = strings(&["docs/a.md"]);
+        assert!(skipped_steps(&queued, &now, &filters(), Some(&changed)).is_empty());
     }
 }
