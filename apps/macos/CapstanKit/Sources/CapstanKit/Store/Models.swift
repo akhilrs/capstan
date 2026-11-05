@@ -117,12 +117,15 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
     public var headSha: String?
     /// Saved files from before the host sent the details decode them as nil.
     public var integrationDetails: IntegrationDetails?
+    /// The link the host took from the designer's report, for kind design; saved files from before decode it as nil.
+    public var designLink: UntrustedText?
 
     public init(
         key: String, requestId: String, kind: WaitingKind, since: String, summary: UntrustedText,
         contentHash: String, needsTerminal: Bool, integrationState: String? = nil, branch: UntrustedText? = nil,
-        headSha: String? = nil, integrationDetails: IntegrationDetails? = nil
+        headSha: String? = nil, integrationDetails: IntegrationDetails? = nil, designLink: UntrustedText? = nil
     ) {
+        self.designLink = designLink
         self.integrationDetails = integrationDetails
         self.integrationState = integrationState
         self.branch = branch
@@ -140,7 +143,8 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
         self.init(
             key: item.key, requestId: item.requestId, kind: item.kind, since: item.since, summary: item.summary,
             contentHash: item.contentHash, needsTerminal: item.needsTerminal, integrationState: item.integrationState,
-            branch: item.branch, headSha: item.headSha, integrationDetails: item.integrationDetails)
+            branch: item.branch, headSha: item.headSha, integrationDetails: item.integrationDetails,
+            designLink: item.designLink)
     }
 
     var json: JSONValue {
@@ -153,6 +157,7 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
         if let branch { members["branch"] = .string(branch.raw) }
         if let headSha { members["headSha"] = .string(headSha) }
         if let integrationDetails { members["integrationDetails"] = integrationDetails.json }
+        if let designLink { members["designLink"] = .string(designLink.raw) }
         return .object(members)
     }
 }

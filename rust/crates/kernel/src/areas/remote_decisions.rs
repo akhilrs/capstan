@@ -17,7 +17,7 @@ use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 
 use super::design_approvals::{self, DesignDecision};
-use super::event_feed::{item_key, REASON_CAP};
+use super::event_feed::{item_key, REASON_CAP, TEXT_CAP};
 use super::messaging::MessageClass;
 use super::operator_proposals::{self, OperatorDecision};
 use super::snapshot_feed::{canonical, content_hash};
@@ -467,10 +467,18 @@ fn is_session_flag(token: &str) -> bool {
         || token.starts_with("auto=")
 }
 
-/// Free text as the kernel keeps it: control and format characters turned into spaces, trimmed, and cut at the cap.
+/// Free text as the kernel keeps it: control and format characters turned into spaces and trimmed. A message to the PM
+/// and a reply (`text`, `reply`) are never cut: over `TEXT_CAP` bytes they are refused. Every other text is cut at
+/// `REASON_CAP`.
 fn text_value(raw: &str, what: &str, max_chars: Option<usize>) -> Result<String, Refusal> {
     let cleaned = clean_text(raw);
-    let mut text = cap_text(cleaned.trim(), REASON_CAP)
+    let whole = matches!(what, "text" | "reply");
+    if whole && cleaned.trim().len() > TEXT_CAP {
+        return Err(Refusal::invalid(format!(
+            "{what} must be at most {TEXT_CAP} bytes"
+        )));
+    }
+    let mut text = cap_text(cleaned.trim(), if whole { TEXT_CAP } else { REASON_CAP })
         .0
         .trim_end()
         .to_string();

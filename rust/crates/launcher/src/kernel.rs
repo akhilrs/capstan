@@ -15,6 +15,7 @@ use crate::shared::*;
 use capstan_config::prompts::{
     ArchitectInput, NexoraInput, OperatorInput, ResearcherInput, CSTAN_ALLOW_RULE,
 };
+use capstan_config::PM_GUARDED_DENY;
 use capstan_config::{Role, RoleConfig, DEFAULT_WAIT_TIMEOUT_SECONDS};
 use capstan_herdr::api::{AdapterError, LauncherAdapter, MetadataTarget};
 use capstan_herdr::claude_args::McpServer as HerdrMcpServer;
@@ -26,7 +27,7 @@ use capstan_kernel::{Core, KernelError, KernelResult};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -527,6 +528,10 @@ fn is_safe_terminal_id(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
 }
+
+/// The longest project slug Claude Code is known to use as is (it cuts and hashes longer ones, 200 characters being the
+/// documented-by-behaviour limit); a longer path gets no memory allowance.
+const MAX_PLAIN_SLUG: usize = 200;
 
 impl LauncherKernel {
     pub fn new(options: LauncherOptions) -> Self {
@@ -1039,6 +1044,57 @@ impl LauncherKernel {
             })
     }
 
+    /// The deny rules to pass and the folder the write guard allows. A PM whose role allows memory writes gets its
+    /// Claude Code memory folder (`<config dir>/projects/<slug>/memory`, slug = the project's real path with every
+    /// character that is not a letter or digit replaced by `-`) and loses the bare `Write` and `Edit` deny, because
+    /// the guard hook refuses everything outside that folder. If the folder cannot be worked out safely the full deny
+    /// stays and there is no guard.
+    fn memory_guard(&self, role: &Role) -> (Vec<String>, Option<String>) {
+        let keep = (role.deny.clone(), None);
+        if !role.memory || role.kind != "PM" {
+            return keep;
+        }
+        let config_dir = match self.base_environment.get("CLAUDE_CONFIG_DIR") {
+            Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+            _ => match self.base_environment.get("HOME") {
+                Some(home) if !home.is_empty() => Path::new(home).join(".claude"),
+                _ => return keep,
+            },
+        };
+        let Ok(root) = std::fs::canonicalize(&self.root) else {
+            return keep;
+        };
+        let Some(root) = root.to_str() else {
+            return keep;
+        };
+        let slug: String = root
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let slug_len = slug.len();
+        let Some(dir) = config_dir
+            .join("projects")
+            .join(slug)
+            .join("memory")
+            .to_str()
+            .map(str::to_string)
+        else {
+            return keep;
+        };
+        // Claude Code shortens a long project path (a cut and a hash that are not confirmed here), so a long slug
+        // could name a different folder: keep the full deny.
+        if slug_len > MAX_PLAIN_SLUG || !capstan_herdr::claude_args::guard_path_is_usable(&dir) {
+            return keep;
+        }
+        let deny = role
+            .deny
+            .iter()
+            .filter(|rule| !PM_GUARDED_DENY.contains(&rule.as_str()))
+            .cloned()
+            .collect();
+        (deny, Some(dir))
+    }
+
     /// The command-line arguments of the agent's host.
     pub fn arguments(
         &self,
@@ -1056,6 +1112,7 @@ impl LauncherKernel {
             "omp" => omp_arguments(&host, prompt_file)?,
             "pi" => pi_arguments(&host, prompt_file)?,
             _ => {
+                let (deny, write_guard) = self.memory_guard(role);
                 let mut allow = role.allow.clone();
                 if !allow.iter().any(|rule| rule == CSTAN_ALLOW_RULE) {
                     allow.push(CSTAN_ALLOW_RULE.to_string());
@@ -1065,7 +1122,7 @@ impl LauncherKernel {
                         model: role.model.clone(),
                         permission_mode: role.permission_mode.clone(),
                         allow,
-                        deny: role.deny.clone(),
+                        deny,
                         hooks: role.hooks.to_string(),
                         mcp: role
                             .mcp
@@ -1076,6 +1133,7 @@ impl LauncherKernel {
                                 args: server.args.clone(),
                             })
                             .collect(),
+                        write_guard,
                     },
                     Some(prompt_file),
                 )?

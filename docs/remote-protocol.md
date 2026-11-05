@@ -310,7 +310,7 @@ An event from the kernel's golden fixtures (the placeholders `actorId` and `ts` 
 
 Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line carries the item in `item` and adds
 `projectId`, `section` and `key`. `WaitingItem`: `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`,
-`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`. `integrationState` (`merged` or
+`needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`. `designLink` is set for kind `design` and `null` for every other kind: it is the first whole `http://` or `https://` URL in the text of the designer's report (trailing punctuation and closing brackets are not part of it), and `null` when the report names none or the URL is longer than 1024 bytes. It is untrusted text: a client shows it as text and opens it only after the person chooses to, and only when it is an `http` or `https` link. The design item's `contentHash` does not cover it (the report id in the hash fixes the report text). `integrationState` (`merged` or
 `conflicted`), `branch` and `headSha` are set for kind `integration` and `null` for every other kind. `AgentItem`: `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `requestId`,
 `contentHash`, `branch`, `activity`, `activitySince`, `activitySeq`. `branch` is optional (absent or `null` without a
 pane) and untrusted text (section 8). The three activity fields are the agent's latest observed
@@ -366,7 +366,7 @@ One page of each section (the values are examples; the hashes are the SHA-256 of
 defined over):
 
 ```json
-{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}}}],"next":null}
+{"head":26,"items":[{"key":"message:3","requestId":"message:msg-1","kind":"message","since":"2026-10-01T09:30:00.000Z","summary":"Please look at plan 1","contentHash":"fa78fb90bf4be31537ca520c46cd57bf447d8aea8b51d2b614649c3f37fa2639","needsTerminal":false,"integrationState":null,"branch":null,"headSha":null,"integrationDetails":null,"designLink":null},{"key":"integration:7","requestId":"integration:int-7","kind":"integration","since":"2026-10-01T09:30:00.000Z","summary":"merged integration/plan-3","contentHash":"6741f9c2efe51328a0059c87de7b9ab66af0489c005fca8ec2f46d2eeb96fbd6","needsTerminal":false,"integrationState":"merged","branch":"integration/plan-3","headSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","designLink":null,"integrationDetails":{"recorded":true,"impactError":null,"plans":[{"planId":"plan-3","title":"Remote protocol","textVerified":true,"truncated":false}],"plansOmitted":0,"reports":[{"reportId":"rep-9","packageId":"pkg-a","summary":"Added the feed","textVerified":true,"truncated":false}],"reportsOmitted":0,"signoffs":[{"planId":"plan-3","summary":"Reviewed and signed off","createdAt":"2026-10-01T10:00:00.000Z","textVerified":true,"truncated":false}],"signoffsOmitted":0,"impact":{"filesChanged":12,"insertions":340,"deletions":25,"truncated":false,"areas":[{"path":"rust/crates/kernel","files":9,"textVerified":true,"truncated":false}],"areasOmitted":0,"migrations":[{"path":"migrations/0053_integration_details.sql","textVerified":true,"truncated":false}],"migrationsOmitted":0,"nextSteps":[{"text":"Run the migrations","textVerified":true,"truncated":false}]},"review":{"verdict":"passed","reviewerAgentId":"reviewer-2","round":2},"verify":{"latest":{"state":"passed","commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"},"lastPassed":{"commitSha":"3f2a9c1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-10-01T09:50:00.000Z"}}}}],"next":null}
 ```
 
 ```json
@@ -460,7 +460,7 @@ Text in events and items comes from agents, messages and commands and is not to 
 - `truncated`: the text was cut to its cap.
 - `clean_text` is a processing step, not a field: the server replaces control, format and line and paragraph separator
   characters by a space in text it shows, before the text is capped.
-- Caps: event text 4096 bytes, a reason or note 1024 bytes, a prompt carries at most 32 options of at most 256 bytes
+- Caps: event text 4096 bytes, a reason or note 1024 bytes, a `pm message` or `message reply` text 4096 bytes (longer is refused, never cut), a prompt carries at most 32 options of at most 256 bytes
   each, a snapshot item's text (`summary`, `task`, `title`) 1024 bytes.
 
 A client renders every such field as plain text: no markup, no links followed, no escape sequences interpreted. It never
@@ -597,7 +597,8 @@ Arguments: `op deny [<note>]`; `prompt option <n>` (a whole number of at least 1
 `design approve --link <url> --asked-user <text>`; `design changes --asked-user <text> [--link <url>]`;
 `message reply <text>`; `agent pause|resume [--reason <text>]`; `run pause|resume [--reason <text>]`; `integration merge`
 (no arguments; see Merge); `integration discard` and `plan cancel` (no arguments); `pm message <text>`. Text is cleaned
-and capped like the text of the feed (section 8).
+and capped like the text of the feed (section 8), except that `pm message` and `message reply` text of more than 4096
+bytes is refused with `invalid`, not cut.
 
 An `applied` verb is made by the controller as the operator, at once. A verb is `forwarded` when it would approve a
 proposal or answer a prompt of an agent: a tap on a phone is not an approval. The controller sends the active PM a
@@ -688,7 +689,7 @@ action message whose text is marked as untrusted, from the client named by `--cl
 it, and its delivery shows in the feed like any message to the PM. `--expect` binds the message to the PM the person
 saw: it is the SHA-256, in lowercase hex, of the canonical JSON `{"pm":"<agentId>"}` of the one agent of kind `PM` in
 state `active` (for `pm-1`, the SHA-256 of `{"pm":"pm-1"}`). With no active PM the call is refused with `no_active_pm`;
-once another PM has taken over, with `hash_mismatch`. Messages to the PM are not capped per request but count toward
+once another PM has taken over, with `hash_mismatch`. The text is at most 4096 bytes after cleaning; a longer one is refused with `invalid`, never cut. Messages to the PM count toward
 the hourly limit of the project (`[remote] messages_per_hour`, 30 by default), with forwards and replies.
 
 ### Result

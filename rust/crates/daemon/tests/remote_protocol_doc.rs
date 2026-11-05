@@ -382,6 +382,7 @@ fn example_pages_have_the_shape_of_each_section() {
         "branch",
         "headSha",
         "integrationDetails",
+        "designLink",
     ];
     let agents = [
         "key",

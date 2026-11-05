@@ -298,6 +298,7 @@ fn role_of(value: &Value) -> ClaudeRoleSettings {
         allow: strings(&value["allow"]),
         deny: strings(&value["deny"]),
         hooks: s(&value["hooks"]).to_string(),
+        write_guard: None,
         mcp: value["mcp"]
             .as_array()
             .map(|servers| {

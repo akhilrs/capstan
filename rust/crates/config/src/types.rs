@@ -152,6 +152,9 @@ pub const RESERVED_ENV_PREFIXES: [&str; 4] = ["LD_", "DYLD_", "GIT_", "BASH_"];
 
 /// The tools a PM may not use unless its role sets `deny` itself.
 pub const PM_DEFAULT_DENY: [&str; 5] = ["Write", "Edit", "NotebookEdit", "Agent", "Task"];
+/// The rules of `PM_DEFAULT_DENY` the launcher drops when it installs the memory write guard (which then refuses every
+/// Write and Edit outside the PM's memory folder). Any other `deny` is used as written.
+pub const PM_GUARDED_DENY: [&str; 2] = ["Write", "Edit"];
 /// A Supervisor only reads and reports.
 pub const SUPERVISOR_DEFAULT_DENY: [&str; 9] = [
     "Write",
@@ -415,6 +418,9 @@ pub struct Role {
     pub allow: Vec<String>,
     pub deny: Vec<String>,
     pub hooks: &'static str,
+    /// PM only: the session may write its own Claude Code memory folder (through the write guard) even though
+    /// `Write` and `Edit` are in `deny`. Not printed in JSON and not hashed. `false` on every other kind.
+    pub memory: bool,
     pub mcp: Vec<McpServer>,
     pub prompt: PromptSource,
     /// The prompt's text, kept for the launcher; it is not part of the printed JSON.

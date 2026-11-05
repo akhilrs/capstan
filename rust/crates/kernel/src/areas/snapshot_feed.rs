@@ -10,7 +10,7 @@
 //! # Items (serde, camelCase)
 //! | type | fields |
 //! |---|---|
-//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha` |
+//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `designLink` |
 //! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
 //! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash`, `pm` |
@@ -126,6 +126,9 @@ pub struct WaitingItem {
     pub head_sha: Option<String>,
     /// What an integration brought and how it fared (see [`integration_details`]); null for every other kind.
     pub integration_details: Option<Value>,
+    /// The design link of a design item: the first whole http(s) URL in the designer's report; null for every other
+    /// kind and when the report names none.
+    pub design_link: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -246,6 +249,29 @@ pub fn canonical(value: &Value) -> String {
 /// The text a design item is hashed over (canonical JSON of what the user sees).
 pub fn design_hash_input(report_id: &str, commit: &str, link: Option<&str>) -> String {
     canonical(&json!({"reportId": report_id, "commit": commit, "link": link}))
+}
+
+/// The design link of a report: the first whole `http://` or `https://` URL in its summary, or none. The designer's report
+/// states the link in its text (there is no other field for it); trailing sentence punctuation and closing brackets are not
+/// part of it, and a URL that would not fit `TEXT_CAP` bytes is not cut but dropped.
+pub fn design_link_of(summary: &str) -> Option<String> {
+    let cleaned = clean_text(summary);
+    let start = ["https://", "http://"]
+        .iter()
+        .filter_map(|scheme| cleaned.find(scheme))
+        .min()?;
+    let rest = &cleaned[start..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | '"' | '`'))
+        .unwrap_or(rest.len());
+    let url = rest[..end].trim_end_matches(|c: char| {
+        matches!(
+            c,
+            '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '\'' | '*'
+        )
+    });
+    let host = url.split_once("://")?.1;
+    (!host.is_empty() && url.len() <= TEXT_CAP).then(|| url.to_string())
 }
 
 /// The text a message item is hashed over.
@@ -1380,6 +1406,7 @@ fn build(
         branch: None,
         head_sha: None,
         integration_details: None,
+        design_link: None,
     };
     Ok(Built::Done(
         match kind {
@@ -1440,7 +1467,11 @@ fn build(
             "design" => match build_design(core, candidate, scan, reads, force)? {
                 Designed::Defer => return Ok(Built::Defer),
                 Designed::Skip => None,
-                Designed::Item(since, summary, hash) => Some(item(since, summary, hash, false)),
+                Designed::Item(since, summary, hash, link) => {
+                    let mut found = item(since, summary, hash, false);
+                    found.design_link = link;
+                    Some(found)
+                }
             },
             _ => None,
         }
@@ -1771,7 +1802,7 @@ enum Built {
 enum Designed {
     Skip,
     Defer,
-    Item(String, String, String),
+    Item(String, String, String, Option<String>),
 }
 
 /// `(since, summary, hash)` of a design package that has a report with no decision on it.
@@ -1845,6 +1876,7 @@ fn build_design(
         created_at,
         shown(&summary),
         sha256(&design_hash_input(&report_id, &commit, link)),
+        design_link_of(&summary),
     ))
 }
 
