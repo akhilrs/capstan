@@ -38,6 +38,10 @@ host = "claude"
 [roles.developer]
 kind = "Developer"
 host = "claude"
+
+# These tests read the status right after changing the cache, which no ledger version covers.
+[daemon]
+status_cache_ms = 0
 "#;
 
 const MB: u64 = 1 << 20;

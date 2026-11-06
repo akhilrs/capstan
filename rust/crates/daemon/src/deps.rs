@@ -512,6 +512,30 @@ pub struct DriverSnapshot {
     pub pm_stale: Option<Value>,
 }
 
+impl DriverSnapshot {
+    /// A hash of every field, so a cached status answer is dropped when the driver's view changes. It destructures the
+    /// struct without `..`: a field added later does not compile until it is hashed here.
+    pub fn cache_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let DriverSnapshot {
+            stalled_agent_ids,
+            lost_agent_ids,
+            stuck,
+            pm_stale,
+        } = self;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        stalled_agent_ids.hash(&mut hasher);
+        lost_agent_ids.hash(&mut hasher);
+        stuck.hash(&mut hasher);
+        // serde_json::Value is not Hash; its serialization is (object members are ordered by the map).
+        pm_stale
+            .as_ref()
+            .map(|value| serde_json::to_vec(value).unwrap_or_default())
+            .hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 /// The delivery driver as the status command sees it (`driverSnapshot`).
 pub trait DriverView: Send + Sync {
     fn snapshot(&self) -> DriverSnapshot;

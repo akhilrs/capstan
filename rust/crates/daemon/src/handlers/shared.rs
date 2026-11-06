@@ -492,6 +492,76 @@ pub struct CommandState {
     pub remote_merge: Mutex<()>,
     /// The test seams of the decide-merge route; `None` outside tests.
     pub merge_seams: Mutex<Option<Arc<super::decide_merge_seams::DecideMergeSeams>>>,
+    /// The cached answers of `status` (see `status::StatusKey`); built on first use with `[daemon] status_cache_ms`.
+    pub status_cache: Mutex<Option<TtlLru<super::status::StatusKey, Value>>>,
+}
+
+/// A small cache: at most `capacity` entries, each good for `ttl_ms` milliseconds after it was stored, the least recently
+/// used one dropped first. The caller supplies the clock (`now`, milliseconds), so a test can move it.
+pub struct TtlLru<K: std::hash::Hash + Eq, V: Clone> {
+    capacity: usize,
+    ttl_ms: i64,
+    tick: u64,
+    /// (value, stored at, last use tick)
+    entries: HashMap<K, (V, i64, u64)>,
+}
+
+impl<K: std::hash::Hash + Eq, V: Clone> TtlLru<K, V> {
+    pub fn new(capacity: usize, ttl_ms: i64) -> Self {
+        Self {
+            capacity,
+            ttl_ms,
+            tick: 0,
+            entries: HashMap::new(),
+        }
+    }
+
+    pub fn ttl_ms(&self) -> i64 {
+        self.ttl_ms
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The value stored under `key` when it is younger than the TTL (a clock that went back counts as too old); a hit
+    /// makes the entry the most recently used. An expired entry is dropped.
+    pub fn get(&mut self, key: &K, now: i64) -> Option<V> {
+        let fresh = match self.entries.get(key) {
+            None => return None,
+            Some((_, stored, _)) => now >= *stored && now - *stored < self.ttl_ms,
+        };
+        if !fresh {
+            self.entries.remove(key);
+            return None;
+        }
+        self.tick += 1;
+        let tick = self.tick;
+        let entry = self.entries.get_mut(key)?;
+        entry.2 = tick;
+        Some(entry.0.clone())
+    }
+
+    /// Stores `value`; at capacity the least recently used entry goes (expired ones first).
+    pub fn insert(&mut self, key: K, value: V, now: i64) {
+        if self.capacity == 0 {
+            return;
+        }
+        let ttl = self.ttl_ms;
+        self.entries
+            .retain(|_, (_, stored, _)| now >= *stored && now - *stored < ttl);
+        if !self.entries.contains_key(&key) && self.entries.len() >= self.capacity {
+            if let Some(oldest) = self.entries.values().map(|entry| entry.2).min() {
+                self.entries.retain(|_, entry| entry.2 != oldest);
+            }
+        }
+        self.tick += 1;
+        self.entries.insert(key, (value, now, self.tick));
+    }
 }
 
 /// `OBSERVE_RATE_LIMIT` of src/observe.ts.
@@ -510,6 +580,7 @@ impl Default for CommandState {
             waits: Mutex::new(HashMap::new()),
             remote_merge: Mutex::new(()),
             merge_seams: Mutex::new(None),
+            status_cache: Mutex::new(None),
         }
     }
 }
