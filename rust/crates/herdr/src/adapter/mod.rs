@@ -14,6 +14,7 @@ use crate::naming::herdr_agent_name;
 use crate::runner::{failure_of, run_json};
 use crate::screen::{classify_input_blocker, extract_input_line, fresh_prompt_ready, strip_ansi};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use validate::*;
@@ -27,6 +28,13 @@ const MAX_NOTIFICATION_BODY_CHARS: usize = 500;
 
 pub type SleepFn = Arc<dyn Fn(u64) + Send + Sync>;
 pub type NowFn = Arc<dyn Fn() -> u64 + Send + Sync>;
+/// A monotonic millisecond clock; it times the `agent list` call only.
+pub type MonotonicFn = Arc<dyn Fn() -> u64 + Send + Sync>;
+/// Where the adapter reports an event of its own (`herdr_list_slow`, the list fallbacks); None writes a line to stderr.
+pub type AdapterLog = Arc<dyn Fn(&str, Value) + Send + Sync>;
+
+/// A list slower than this logs `herdr_list_slow` once.
+const LIST_SLOW_MS: u64 = 1_000;
 
 pub struct AdapterOptions {
     pub run: Arc<dyn HerdrRunner>,
@@ -36,6 +44,9 @@ pub struct AdapterOptions {
     pub now: Option<NowFn>,
     /// The project's slug: Herdr then sees every agent as `<slug>-<agent-id>`, while callers keep passing the ledger id.
     pub project_slug: Option<String>,
+    /// None = the real clock; used only to time the `agent list` call.
+    pub monotonic_ms: Option<MonotonicFn>,
+    pub log: Option<AdapterLog>,
 }
 
 impl AdapterOptions {
@@ -47,6 +58,8 @@ impl AdapterOptions {
             sleep: None,
             now: None,
             project_slug: None,
+            monotonic_ms: None,
+            log: None,
         }
     }
 }
@@ -85,6 +98,9 @@ pub struct Adapter {
     sleep: SleepFn,
     now: NowFn,
     slug: Option<String>,
+    monotonic: MonotonicFn,
+    log: Option<AdapterLog>,
+    logged_once: Mutex<std::collections::HashSet<String>>,
     state: Mutex<State>,
 }
 
@@ -195,6 +211,12 @@ impl Adapter {
             sleep,
             now,
             slug: options.project_slug,
+            monotonic: options.monotonic_ms.unwrap_or_else(|| {
+                let start = std::time::Instant::now();
+                Arc::new(move || start.elapsed().as_millis() as u64)
+            }),
+            log: options.log,
+            logged_once: Mutex::new(Default::default()),
             state: Mutex::new(State::default()),
         }
     }
@@ -317,6 +339,122 @@ impl Adapter {
     pub(crate) fn agent_state_of(&self, name: &str) -> AdapterResult<AgentState> {
         require_match_name(name, "agent name")?;
         self.agent_state_by_herdr_name(&self.herdr_name(name)?)
+    }
+
+    /// Logs an event once per daemon process (per key).
+    fn log_once(&self, key: &str, event: &str, details: Value) {
+        let first = self
+            .logged_once
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key.to_string());
+        if !first {
+            return;
+        }
+        match &self.log {
+            Some(log) => log(event, details),
+            None => eprintln!(
+                "{}",
+                serde_json::json!({"event": event, "details": details})
+            ),
+        }
+    }
+
+    /// One `herdr agent list` for all `agent_ids`; an agent the list cannot answer for falls back to `agent get`.
+    ///
+    /// Shape (herdr 0.9.5): `{"result": {"agents": [{"name", "pane_id", "agent_status", "agent", ..}]}}`, each entry
+    /// carrying the fields of `agent get`'s `result.agent`; `name` is `Adapter::herdr_name`. Entries of panes Capstan
+    /// did not start have no name. Herdr 0.9.5 has no paging field; one that a later version adds (`next_cursor`,
+    /// `has_more`, `truncated`) sends every agent to `agent get`.
+    pub(crate) fn observe_many(
+        &self,
+        agent_ids: &[String],
+    ) -> HashMap<String, AdapterResult<HerdrState>> {
+        let mut out = HashMap::new();
+        if agent_ids.is_empty() {
+            return out;
+        }
+        let started = (self.monotonic)();
+        let listed = self.json(&strings(&["agent", "list"]));
+        if (self.monotonic)().saturating_sub(started) > LIST_SLOW_MS {
+            self.log_once("herdr_list_slow", "herdr_list_slow", serde_json::json!({}));
+        }
+        let entries = match listed.as_ref().map(parse_agent_list) {
+            Ok(Some(entries)) => entries,
+            Ok(None) => {
+                self.log_once(
+                    "list_unparseable",
+                    "herdr_list_fallback",
+                    serde_json::json!({"reason": "unparseable_or_paged"}),
+                );
+                return self.observe_each(agent_ids);
+            }
+            Err(error) => {
+                self.log_once(
+                    "list_failed",
+                    "herdr_list_fallback",
+                    serde_json::json!({"reason": "list_failed", "code": error.code}),
+                );
+                return self.observe_each(agent_ids);
+            }
+        };
+        let mut fallback = Vec::new();
+        for id in agent_ids {
+            let Some(pane_id) = self.pane_for_agent(id) else {
+                out.insert(
+                    id.clone(),
+                    Err(AdapterError::UnknownPane(
+                        "no pane is registered for this agent".into(),
+                    )),
+                );
+                continue;
+            };
+            let name = match require_match_name(id, "agent name").and_then(|n| self.herdr_name(n)) {
+                Ok(name) => name,
+                Err(error) => {
+                    out.insert(id.clone(), Err(error));
+                    continue;
+                }
+            };
+            match entries.get(&name) {
+                Some(ListEntry::Good(state)) => {
+                    let result = if state.pane_id != pane_id {
+                        Err(AdapterError::AgentPaneMismatch(
+                            "the agent name no longer points at the registered pane".into(),
+                        ))
+                    } else {
+                        Ok(HerdrState::of(&state.status))
+                    };
+                    out.insert(id.clone(), result);
+                }
+                Some(ListEntry::Bad) => {
+                    self.log_once(
+                        "list_entry_bad",
+                        "herdr_list_fallback",
+                        serde_json::json!({"reason": "entry_malformed_or_duplicate"}),
+                    );
+                    fallback.push(id.clone());
+                }
+                None => {
+                    out.insert(
+                        id.clone(),
+                        Err(herdr_failure(
+                            "agent_not_found",
+                            "the agent is not in the herdr agent list",
+                        )),
+                    );
+                }
+            }
+        }
+        out.extend(self.observe_each(&fallback));
+        out
+    }
+
+    fn observe_each(&self, agent_ids: &[String]) -> HashMap<String, AdapterResult<HerdrState>> {
+        agent_ids
+            .iter()
+            .map(|id| (id.clone(), PaneRegistry::agent_observation(self, id)))
+            .collect()
     }
 
     pub(crate) fn agent_state_by_herdr_name(&self, herdr_name: &str) -> AdapterResult<AgentState> {
@@ -704,6 +842,51 @@ pub(crate) enum Action {
     CloseQuestion,
 }
 
+enum ListEntry {
+    Good(AgentState),
+    /// Malformed or listed more than once: that agent is asked with `agent get`.
+    Bad,
+}
+
+/// The entries of an `agent list` result by herdr name; None when the top level cannot be read or the list is paged or
+/// truncated.
+fn parse_agent_list(result: &Map<String, Value>) -> Option<HashMap<String, ListEntry>> {
+    let Some(Value::Array(items)) = result.get("agents") else {
+        return None;
+    };
+    let paged = ["next_cursor", "next_page", "has_more", "truncated"]
+        .iter()
+        .any(|key| matches!(result.get(*key), Some(v) if !v.is_null() && v != &Value::Bool(false)));
+    if paged {
+        return None;
+    }
+    let mut map: HashMap<String, ListEntry> = HashMap::new();
+    for item in items {
+        // Entries without a name (panes Capstan did not start) are not ours: ignored, never a reason to fall back.
+        let Some(entry) = item.as_object() else {
+            continue;
+        };
+        let Some(name) = entry.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let text = |key: &str| entry.get(key).and_then(Value::as_str);
+        let parsed = match (text("pane_id"), text("agent_status")) {
+            (Some(pane_id), Some(status)) => ListEntry::Good(AgentState {
+                status: status.to_string(),
+                pane_id: pane_id.to_string(),
+                kind: text("agent").unwrap_or("unknown").to_string(),
+            }),
+            _ => ListEntry::Bad,
+        };
+        if map.contains_key(name) {
+            map.insert(name.to_string(), ListEntry::Bad);
+        } else {
+            map.insert(name.to_string(), parsed);
+        }
+    }
+    Some(map)
+}
+
 pub(crate) fn require_match_name<'a>(value: &'a str, label: &str) -> AdapterResult<&'a str> {
     if is_name(value) {
         Ok(value)
@@ -724,6 +907,17 @@ impl PaneRegistry for Adapter {
 
     fn pane_entry(&self, pane_id: &str) -> Option<PaneEntry> {
         self.entry(pane_id)
+    }
+
+    fn batches_observations(&self) -> bool {
+        true
+    }
+
+    fn agent_observations(
+        &self,
+        agent_ids: &[String],
+    ) -> HashMap<String, AdapterResult<HerdrState>> {
+        self.observe_many(agent_ids)
     }
 
     fn agent_observation(&self, agent_id: &str) -> AdapterResult<HerdrState> {

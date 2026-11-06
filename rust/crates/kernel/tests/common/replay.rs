@@ -548,6 +548,7 @@ impl Run {
                 .as_str()
                 .map(PathBuf::from),
             keep_migration_backups: None,
+            ..Default::default()
         };
         let env = Box::new(SharedEnv(self.env.clone()));
         let core = if read_only {

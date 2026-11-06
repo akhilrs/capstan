@@ -17,9 +17,15 @@ pub use error::LedgerError;
 pub use lock::ProjectLock;
 pub use migrations::{checksum, max_embedded_migration, migrations, Migration};
 pub use open::{
-    migrate, open_database, open_database_read_only, prune_migration_backups,
-    resolve_database_path, OpenOptions, PruneErrorHandler, DEFAULT_KEEP_MIGRATION_BACKUPS,
+    maintain, migrate, open_database, open_database_read_only, optimize, prune_migration_backups,
+    prune_old_migration_backups, resolve_database_path, MaintenanceReport, OpenOptions,
+    PruneErrorHandler, DEFAULT_BACKUP_MAX_AGE_DAYS, DEFAULT_CACHE_MB,
+    DEFAULT_KEEP_MIGRATION_BACKUPS, DEFAULT_MMAP_MB,
 };
+
+/// The migration that adds the planner statistics and the two hot-path indexes (`0059_ledger_planner_stats.sql`).
+/// Tests and docs refer to this constant, not to the number.
+pub const PLANNER_STATS_MIGRATION: i64 = 59;
 pub use time::{iso_from_millis, now_iso, now_millis};
 
 /// The version of the SQLite library bundled into this build.

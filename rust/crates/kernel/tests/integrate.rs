@@ -259,6 +259,7 @@ fn replay_scenario(scenario: &Value, baseline: &Value) -> Status {
                     workspace_root: None,
                     runtime_workspace_path: None,
                     keep_migration_backups: None,
+                    ..Default::default()
                 };
                 match Core::open(&path, &project, &options, Box::new(SharedEnv(env.clone()))) {
                     Ok(opened) => {

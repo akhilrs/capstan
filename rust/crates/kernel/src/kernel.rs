@@ -22,6 +22,7 @@ use std::cell::{Cell, RefCell};
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// What `ControllerCore.open` takes besides the state directory and the project.
 #[derive(Default)]
@@ -30,6 +31,15 @@ pub struct KernelOptions {
     pub runtime_workspace_path: Option<PathBuf>,
     /// Pre-migration backups to keep after a migration; default 3.
     pub keep_migration_backups: Option<usize>,
+    /// Page cache of the ledger connection in MiB; None = the ledger default (64), Some(0) = SQLite's own default.
+    pub ledger_cache_mb: Option<u64>,
+    /// Memory-mapped reads of the ledger in MiB; None = the ledger default (256), Some(0) = off.
+    pub ledger_mmap_mb: Option<u64>,
+    /// Run the ledger maintenance when the ledger is opened (planner statistics, optimize, aged backup prune). Only the
+    /// daemon turns it on.
+    pub ledger_maintenance: bool,
+    /// Days a pre-migration backup is kept; None = the ledger default (14), Some(0) = count only.
+    pub backup_max_age_days: Option<u64>,
 }
 
 pub struct Kernel {
@@ -38,6 +48,8 @@ pub struct Kernel {
     pub project_id: String,
     pub internal_actor_id: String,
     pub read_only: bool,
+    /// What `ledger_maintenance` needs to find and prune the backups next to the ledger.
+    maintenance: MaintenanceSettings,
     pub env: Box<dyn Env>,
     /// `PromptRelayArea.#config`: set by `configurePromptRelay`, read by the prompt relay area.
     pub(crate) prompt_relay: RefCell<crate::areas::prompt_relay::PromptRelayConfig>,
@@ -47,6 +59,13 @@ pub struct Kernel {
     /// the frozen Node corpus, which predates the format, turns it on.
     pub(crate) free_text_plan_findings: Cell<bool>,
     closed: Cell<bool>,
+    mutate_calls: AtomicU64,
+}
+
+struct MaintenanceSettings {
+    database_path: PathBuf,
+    keep_backups: usize,
+    max_age_days: u64,
 }
 
 /// `path.resolve` for an absolute path: `.` and `..` folded, no trailing separator.
@@ -231,6 +250,21 @@ impl Kernel {
             if let Some(keep) = options.keep_migration_backups {
                 ledger_options.keep_migration_backups = keep;
             }
+            if let Some(mb) = options.ledger_cache_mb {
+                ledger_options.cache_mb = mb;
+            }
+            if let Some(mb) = options.ledger_mmap_mb {
+                ledger_options.mmap_mb = mb;
+            }
+            if let Some(days) = options.backup_max_age_days {
+                ledger_options.backup_max_age_days = days;
+            }
+            ledger_options.maintenance = options.ledger_maintenance;
+            let maintenance = MaintenanceSettings {
+                database_path: database_path.clone(),
+                keep_backups: ledger_options.keep_migration_backups,
+                max_age_days: ledger_options.backup_max_age_days,
+            };
             let database = open_database(&database_path, &ledger_options)?;
             fs::set_permissions(&database_path, fs::Permissions::from_mode(0o600))?;
             let known = query_opt(
@@ -253,11 +287,13 @@ impl Kernel {
                 project_id: project.project_id.clone(),
                 internal_actor_id: internal,
                 read_only: false,
+                maintenance,
                 env,
                 prompt_relay: RefCell::default(),
                 message_policy: RefCell::default(),
                 free_text_plan_findings: Cell::new(false),
                 closed: Cell::new(false),
+                mutate_calls: AtomicU64::new(0),
             })
         })();
         match attempt {
@@ -308,11 +344,21 @@ impl Kernel {
             project_id: project.project_id.clone(),
             internal_actor_id: internal,
             read_only: true,
+            maintenance: MaintenanceSettings {
+                database_path,
+                keep_backups: options
+                    .keep_migration_backups
+                    .unwrap_or(capstan_ledger::DEFAULT_KEEP_MIGRATION_BACKUPS),
+                max_age_days: options
+                    .backup_max_age_days
+                    .unwrap_or(capstan_ledger::DEFAULT_BACKUP_MAX_AGE_DAYS),
+            },
             env,
             prompt_relay: RefCell::default(),
             message_policy: RefCell::default(),
             free_text_plan_findings: Cell::new(false),
             closed: Cell::new(false),
+            mutate_calls: AtomicU64::new(0),
         })
     }
 
@@ -324,6 +370,42 @@ impl Kernel {
         if let Some(mut lock) = self.lock.borrow_mut().take() {
             lock.close();
         }
+    }
+
+    /// The ledger maintenance on demand: refreshes the planner statistics (`optimize`, and ANALYZE when `sqlite_stat1` is
+    /// empty) and removes the aged pre-migration backups. Needs `controller:reconcile`, like the retention prune. Returns
+    /// `{analyzed, optimized, removedBackups, elapsedMs}`. It is not a `mutate`: no event, no request row.
+    pub fn ledger_maintenance(&self, credential: &str) -> KernelResult<Value> {
+        self.authorize(credential, "controller:reconcile")?;
+        self.assert_writable()?;
+        let started = std::time::Instant::now();
+        let mut errors: Vec<String> = Vec::new();
+        let report = capstan_ledger::maintain(
+            &self.database,
+            &self.maintenance.database_path,
+            self.maintenance.keep_backups,
+            self.maintenance.max_age_days,
+            capstan_ledger::now_millis(),
+            &mut |message| errors.push(message.to_string()),
+        )?;
+        Ok(json!({
+            "analyzed": report.analyzed,
+            "optimized": true,
+            "removedBackups": report.removed_backups,
+            "errors": errors,
+            "elapsedMs": started.elapsed().as_millis() as u64,
+        }))
+    }
+
+    /// Statements the kernel's connection has run (calls, not rows stepped); see `Database::statements_run`.
+    pub fn statements_run(&self) -> u64 {
+        self.database.statements_run()
+    }
+
+    /// How many times `mutate` was called on this kernel, whatever came of the call (a replay, a refusal or a mutation
+    /// that wrote nothing counts too). It counts calls, not rows: a no-op mutation writes no `mutation_requests` row.
+    pub fn mutate_calls(&self) -> u64 {
+        self.mutate_calls.load(Ordering::Relaxed)
     }
 
     pub fn is_closed(&self) -> bool {
@@ -384,6 +466,7 @@ impl Kernel {
     where
         F: FnOnce(&AuthenticatedActor) -> KernelResult<MutationOutput>,
     {
+        self.mutate_calls.fetch_add(1, Ordering::Relaxed);
         self.assert_open()?;
         self.assert_writable()?;
         if !is_safe_id(&context.request_id) || !is_safe_id(&context.idempotency_key) {

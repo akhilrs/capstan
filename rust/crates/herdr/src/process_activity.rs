@@ -552,11 +552,15 @@ pub struct DetailedSample {
     pub processes: Vec<ProcEntry>,
 }
 
+type CachedTable = Result<Arc<ProcessTable>, (io::ErrorKind, String)>;
+
 pub struct HerdrProcessProbe {
     runner: Arc<dyn HerdrRunner>,
     read_table: ProcessTableReader,
     read_tools: Option<ToolProcessReader>,
     has_child: Option<ChildCheckReader>,
+    /// The table read in the current tick (or its failure), dropped by `begin_tick`.
+    table_cache: Mutex<Option<CachedTable>>,
 }
 
 impl HerdrProcessProbe {
@@ -579,6 +583,7 @@ impl HerdrProcessProbe {
             read_table: default_process_table_reader(),
             read_tools,
             has_child,
+            table_cache: Mutex::new(None),
         }
     }
 
@@ -589,6 +594,21 @@ impl HerdrProcessProbe {
             read_table,
             read_tools: None,
             has_child: None,
+            table_cache: Mutex::new(None),
+        }
+    }
+
+    /// The process table, read at most once between two `begin_tick` calls; a failed read is kept too.
+    fn table(&self) -> io::Result<Arc<ProcessTable>> {
+        let mut cache = self.table_cache.lock().unwrap_or_else(|p| p.into_inner());
+        let cached = cache.get_or_insert_with(|| {
+            (self.read_table)()
+                .map(Arc::new)
+                .map_err(|error| (error.kind(), error.to_string()))
+        });
+        match cached {
+            Ok(table) => Ok(Arc::clone(table)),
+            Err((kind, text)) => Err(io::Error::new(*kind, text.clone())),
         }
     }
 
@@ -616,7 +636,7 @@ impl HerdrProcessProbe {
         let processes = match direct {
             Some(processes) => processes,
             None => {
-                let table = (self.read_table)().map_err(|error| {
+                let table = self.table().map_err(|error| {
                     HerdrError::new(
                         "process_table",
                         format!("the process table cannot be read: {error}"),
@@ -638,9 +658,14 @@ impl api::ProcessActivityProbe for HerdrProcessProbe {
         if let Some(alive) = self.has_child.as_ref().and_then(|check| check(shell_pid)) {
             return Ok(Some(alive));
         }
-        Ok((self.read_table)()
+        Ok(self
+            .table()
             .ok()
             .map(|table| shell_has_child(&table, shell_pid)))
+    }
+
+    fn begin_tick(&self) {
+        *self.table_cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
     fn sample(&self, pane_id: &str) -> Result<api::ProcessSample, HerdrError> {

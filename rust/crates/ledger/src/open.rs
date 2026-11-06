@@ -9,6 +9,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_KEEP_MIGRATION_BACKUPS: usize = 3;
+pub const DEFAULT_CACHE_MB: u64 = 64;
+pub const DEFAULT_MMAP_MB: u64 = 256;
+pub const DEFAULT_BACKUP_MAX_AGE_DAYS: u64 = 14;
+/// Rows ANALYZE and OPTIMIZE look at per index (`PRAGMA analysis_limit`): bounds the cost on a large ledger.
+const ANALYSIS_LIMIT: u32 = 1000;
+const DAY_MS: u128 = 86_400_000;
 
 /// Receives a message when an old backup cannot be listed or deleted.
 pub type PruneErrorHandler = Box<dyn Fn(&str)>;
@@ -19,6 +25,16 @@ pub struct OpenOptions {
     pub keep_migration_backups: usize,
     /// Called when an old backup cannot be listed or deleted; the default writes to stderr.
     pub on_prune_error: Option<PruneErrorHandler>,
+    /// Page cache of the connection in MiB (`PRAGMA cache_size`); 0 leaves SQLite's default (-2000, about 2 MB).
+    pub cache_mb: u64,
+    /// Memory-mapped reads in MiB (`PRAGMA mmap_size`); 0 leaves SQLite's default (off). The map shares the OS page cache,
+    /// so the file must never be truncated or restored over while a process has it open.
+    pub mmap_mb: u64,
+    /// Run the maintenance after opening: ANALYZE when `sqlite_stat1` is empty, `PRAGMA optimize`, and the aged backup
+    /// prune. Only the daemon turns this on.
+    pub maintenance: bool,
+    /// With `maintenance`: pre-migration backups older than this many days go, the newest excepted; 0 = count only.
+    pub backup_max_age_days: u64,
 }
 
 impl Default for OpenOptions {
@@ -26,6 +42,10 @@ impl Default for OpenOptions {
         Self {
             keep_migration_backups: DEFAULT_KEEP_MIGRATION_BACKUPS,
             on_prune_error: None,
+            cache_mb: DEFAULT_CACHE_MB,
+            mmap_mb: DEFAULT_MMAP_MB,
+            maintenance: false,
+            backup_max_age_days: DEFAULT_BACKUP_MAX_AGE_DAYS,
         }
     }
 }
@@ -42,6 +62,15 @@ pub fn open_database(path: &Path, options: &OpenOptions) -> Result<Database, Led
     let prepared = (|| {
         database.exec("PRAGMA foreign_keys = ON")?;
         database.exec("PRAGMA journal_mode = WAL")?;
+        if options.cache_mb > 0 {
+            database.exec(&format!("PRAGMA cache_size = -{}", options.cache_mb * 1024))?;
+        }
+        if options.mmap_mb > 0 {
+            database.exec(&format!(
+                "PRAGMA mmap_size = {}",
+                options.mmap_mb * 1024 * 1024
+            ))?;
+        }
         database.exec("PRAGMA synchronous = FULL")?;
         database.exec("PRAGMA busy_timeout = 5000")?;
         let migrated = migrate(&database, path, migrations())?;
@@ -52,6 +81,20 @@ pub fn open_database(path: &Path, options: &OpenOptions) -> Result<Database, Led
             };
             prune_migration_backups(path, options.keep_migration_backups, &mut report);
         }
+        if options.maintenance {
+            let mut report = |message: &str| match &options.on_prune_error {
+                Some(handler) => handler(message),
+                None => eprintln!("{message}"),
+            };
+            maintain(
+                &database,
+                path,
+                options.keep_migration_backups,
+                options.backup_max_age_days,
+                now_millis(),
+                &mut report,
+            )?;
+        }
         Ok(())
     })();
     match prepared {
@@ -61,6 +104,53 @@ pub fn open_database(path: &Path, options: &OpenOptions) -> Result<Database, Led
             Err(error)
         }
     }
+}
+
+/// What one maintenance pass did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MaintenanceReport {
+    /// ANALYZE ran because `sqlite_stat1` was empty (a restored backup, or a ledger no migration analyzed).
+    pub analyzed: bool,
+    /// Backups the aged prune removed.
+    pub removed_backups: Vec<String>,
+}
+
+/// `PRAGMA analysis_limit = 1000; PRAGMA optimize`: refreshes the planner statistics of the tables that changed most.
+pub fn optimize(database: &Database) -> Result<(), LedgerError> {
+    database.exec(&format!(
+        "PRAGMA analysis_limit = {ANALYSIS_LIMIT}; PRAGMA optimize"
+    ))
+}
+
+/// The maintenance pass: ANALYZE (analysis limit 1000) when `sqlite_stat1` is empty, then [`optimize`], then the aged
+/// backup prune ([`prune_old_migration_backups`]).
+pub fn maintain(
+    database: &Database,
+    database_path: &Path,
+    keep: usize,
+    max_age_days: u64,
+    now_ms: i64,
+    on_error: &mut dyn FnMut(&str),
+) -> Result<MaintenanceReport, LedgerError> {
+    let has_stats: bool = database.connection().query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1')
+           AND EXISTS (SELECT 1 FROM sqlite_stat1)",
+        [],
+        |r| r.get(0),
+    )?;
+    let analyzed = !has_stats;
+    if analyzed {
+        database.exec(&format!(
+            "PRAGMA analysis_limit = {ANALYSIS_LIMIT}; ANALYZE"
+        ))?;
+    }
+    optimize(database)?;
+    let removed_backups =
+        prune_old_migration_backups(database_path, keep, max_age_days, now_ms, on_error);
+    Ok(MaintenanceReport {
+        analyzed,
+        removed_backups,
+    })
 }
 
 /// Opens an existing ledger read-only. A missing file is an error; it is never created.
@@ -207,6 +297,18 @@ pub fn prune_migration_backups(
     keep: usize,
     on_error: &mut dyn FnMut(&str),
 ) -> Vec<String> {
+    prune_old_migration_backups(database_path, keep, 0, 0, on_error)
+}
+
+/// [`prune_migration_backups`]'s keep-count rule plus: a backup whose name timestamp is more than `max_age_days` days
+/// before `now_ms` is removed too (0 = no age rule). The newest backup is never removed by the age rule.
+pub fn prune_old_migration_backups(
+    database_path: &Path,
+    keep: usize,
+    max_age_days: u64,
+    now_ms: i64,
+    on_error: &mut dyn FnMut(&str),
+) -> Vec<String> {
     let directory = match database_path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
@@ -242,7 +344,18 @@ pub fn prune_migration_backups(
         }
     }
     backups.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
-    for (name, _, _) in backups.into_iter().skip(keep) {
+    let age_ms = u128::from(max_age_days) * DAY_MS;
+    let doomed = backups
+        .into_iter()
+        .enumerate()
+        .filter(|(index, (_, _, at))| {
+            *index >= keep
+                || (max_age_days > 0
+                    && *index > 0
+                    && (now_ms.max(0) as u128).saturating_sub(*at) > age_ms)
+        })
+        .map(|(_, backup)| backup);
+    for (name, _, _) in doomed {
         let file = directory.join(&name);
         let removed = fs::symlink_metadata(&file).and_then(|meta| {
             if meta.is_file() {

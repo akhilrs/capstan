@@ -84,6 +84,16 @@ impl Core {
         }
     }
 
+    /// Statements the kernel connection has run: calls, not rows stepped.
+    pub fn statements_run(&self) -> u64 {
+        self.kernel.statements_run()
+    }
+
+    /// Calls of `Kernel::mutate` so far: calls, not rows written.
+    pub fn mutate_calls(&self) -> u64 {
+        self.kernel.mutate_calls()
+    }
+
     pub fn project_id(&self) -> &str {
         &self.kernel.project_id
     }

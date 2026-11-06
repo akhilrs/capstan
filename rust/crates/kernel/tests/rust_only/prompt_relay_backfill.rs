@@ -39,6 +39,8 @@ const ROLL_BACK: &str = "
   DELETE FROM transition_rules WHERE role = 'PM' AND entity_type = 'run_control';
   DELETE FROM capability_grants WHERE capability = 'run:control' AND actor_id IN (SELECT actor_id FROM actors WHERE role = 'PM');
   DELETE FROM role_capabilities WHERE role = 'PM' AND capability = 'run:control';
+  DROP INDEX mutation_requests_by_created;
+  DROP INDEX messages_by_body_head;
   DROP INDEX actors_by_seat_active;
   DROP INDEX assignments_by_seat_authority;
   DELETE FROM schema_migrations WHERE version >= 30;

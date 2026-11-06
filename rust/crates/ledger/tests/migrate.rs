@@ -139,6 +139,7 @@ fn keep_option_and_prune_error_handler() {
     let options = OpenOptions {
         keep_migration_backups: 1,
         on_prune_error: Some(Box::new(|m| panic!("{m}"))),
+        ..OpenOptions::default()
     };
     open_database(&file, &options).unwrap().close().unwrap();
     assert_eq!(backups(dir.path()).len(), 1);

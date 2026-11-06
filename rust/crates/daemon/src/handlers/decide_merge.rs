@@ -191,6 +191,12 @@ impl Run<'_> {
             if let Some(after_a) = &seams.after_a {
                 after_a();
             }
+            if seams.wait_for_close {
+                let limit = Instant::now() + Duration::from_secs(30);
+                while call.signal.reason().is_none() && Instant::now() < limit {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
         }
         if call.signal.reason().is_some() {
             return (None, None);
