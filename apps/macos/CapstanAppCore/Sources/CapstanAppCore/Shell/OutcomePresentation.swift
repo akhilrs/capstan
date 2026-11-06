@@ -90,3 +90,124 @@ public struct Presentation: Sendable, Equatable {
         }
     }
 }
+
+/// The result of an `op approve-as` in the words of the design: what was applied, or why nothing was.
+public enum ApprovePresentation: Sendable, Equatable {
+    public struct Applied: Sendable, Equatable {
+        /// "Approved once. The operator runs it now." and the like.
+        public let lead: String
+        /// The prefix as received, shown whole in its box (grant by prefix).
+        public let prefix: String?
+        /// "This exact command" for a grant by the exact command.
+        public let scopeText: String?
+        public let windowLine: String?
+        /// "Ends 16:58", from the time the host sent; nil when it sent none.
+        public let endsLine: String?
+        public let revokeLine: String?
+        public let pmLine: String
+    }
+
+    public struct Refused: Sendable, Equatable {
+        public enum Tone: Sendable, Equatable { case yellow, grey, red }
+        public let tone: Tone
+        public let text: String
+        /// "Nothing was approved."
+        public let nothing: String
+        public let code: String
+        /// The sheet closes on its own.
+        public let closesSheet: Bool
+        /// The primary stays live so the person may try again.
+        public let primaryLive: Bool
+        /// A button label, e.g. "Show the new command".
+        public let action: String?
+        /// The host's message is shown in an untrusted block.
+        public let showsHostMessage: Bool
+        /// The host's message (host text), set when `showsHostMessage` is true.
+        public let hostMessage: UntrustedText?
+    }
+
+    case sending
+    case applied(Applied)
+    case refused(Refused)
+    /// Any other state: use `Presentation.present`.
+    case other(Presentation)
+
+    /// `sent` is the choice that was sent; its prefix is the one the person chose.
+    public static func present(_ outcome: DecideOutcome?, sent: ApproveChoice, hostName: String) -> ApprovePresentation {
+        guard let outcome else { return .sending }
+        switch outcome {
+        case .applied(let result) where !result.isRepeat:
+            guard let approval = result.approval else { return .other(Presentation.present(outcome, hostName: hostName)) }
+            return .applied(applied(approval, sent: sent))
+        case .refused(let refusal, _):
+            if let refused = refused(refusal) { return .refused(refused) }
+            return .other(Presentation.present(outcome, hostName: hostName))
+        default:
+            return .other(Presentation.present(outcome, hostName: hostName))
+        }
+    }
+
+    private static func applied(_ approval: ApprovalResult, sent: ApproveChoice) -> Applied {
+        let ends = approval.expiresAt.map { ApproveStrings.resultEnds.replacingOccurrences(of: "{time}", with: hostClock($0)) }
+        func make(
+            _ lead: String, prefix: String? = nil, scope: String? = nil, window: String? = nil, ends: String? = nil,
+            revoke: String? = nil
+        ) -> Applied {
+            Applied(
+                lead: lead, prefix: prefix, scopeText: scope, windowLine: window, endsLine: ends, revokeLine: revoke,
+                pmLine: ApproveStrings.resultPm)
+        }
+        switch approval.choice {
+        case "exact": return make(ApproveStrings.resultGrant, scope: ApproveStrings.scopeExactTitle, ends: ends)
+        case "prefix":
+            if case .prefix(let raw) = sent { return make(ApproveStrings.resultGrant, prefix: raw, ends: ends) }
+            return make(ApproveStrings.resultGrant, ends: ends)
+        case "auto-hour", "auto-session":
+            let id = approval.windowId.map { ApproveStrings.resultWindowId.replacingOccurrences(of: "{windowId}", with: $0) }
+            return make(ApproveStrings.resultWindow, window: id, ends: ends, revoke: ApproveStrings.resultWindowRevoke)
+        default: return make(ApproveStrings.resultOnce)
+        }
+    }
+
+    /// The clock part of the host's time with the zone it was sent in (`2026-11-05T16:58:00+05:30` is
+    /// `16:58 +05:30`, `...Z` is `14:41 UTC`); the whole text, cut to a display size, when it has no clock.
+    /// Nothing is converted on this device, so the zone is named.
+    static func hostClock(_ iso: String) -> String {
+        if let t = iso.firstIndex(of: "T") {
+            let rest = iso[iso.index(after: t)...]
+            if rest.count >= 5, rest[rest.index(rest.startIndex, offsetBy: 2)] == ":" {
+                let clock = String(rest.prefix(5))
+                let tail = rest.dropFirst(5)
+                if tail.hasSuffix("Z") { return clock + " UTC" }
+                if let z = tail.lastIndex(where: { $0 == "+" || $0 == "-" }) {
+                    let zone = String(tail[z...])
+                    if zone.count >= 3, zone.dropFirst().allSatisfy({ $0.isNumber || $0 == ":" }) { return clock + " " + zone }
+                }
+                return clock
+            }
+        }
+        return TextBudget.displayPrefix(UntrustedText(raw: iso, verified: true, truncated: false).displayPlain, maxBytes: 64).text
+    }
+
+    private static func refused(_ refusal: DecideRefusal) -> Refused? {
+        func make(
+            _ tone: Refused.Tone, _ text: String, _ code: String, closes: Bool = false, live: Bool = false,
+            action: String? = nil, host: Bool = false
+        ) -> Refused {
+            Refused(
+                tone: tone, text: text, nothing: ApproveStrings.refusalNothing, code: code, closesSheet: closes,
+                primaryLive: live, action: action, showsHostMessage: host, hostMessage: host ? refusal.message : nil)
+        }
+        switch refusal.code {
+        case .other(let code) where code == "local-busy" || code == "busy":
+            return make(.yellow, ApproveStrings.refusalBusy, code, live: true)
+        case .notWaiting: return make(.grey, ApproveStrings.refusalNotWaiting, "not_waiting", closes: true)
+        case .hashMismatch:
+            return make(
+                .red, ApproveStrings.refusalHashMismatch, "hash_mismatch", action: ApproveStrings.refusalHashMismatchAction)
+        case .needsTerminal: return make(.red, ApproveStrings.refusalNeedsTerminal, "needs_terminal", host: true)
+        case .invalidRequest: return make(.red, ApproveStrings.refusalInvalidRequest, "invalid_request")
+        default: return nil
+        }
+    }
+}

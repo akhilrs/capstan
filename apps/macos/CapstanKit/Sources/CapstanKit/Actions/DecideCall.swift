@@ -1,6 +1,5 @@
 import Foundation
 
-/// What the person decided. Free text is checked and cleaned when the arguments are built.
 /// How a person approves an Operator proposal with `op approve-as`.
 public enum ApproveChoice: Sendable, Equatable, Codable {
     case once
@@ -22,6 +21,7 @@ public enum ApproveChoice: Sendable, Equatable, Codable {
     }
 }
 
+/// What the person decided. Free text is checked and cleaned when the arguments are built.
 public enum DecideVerb: Sendable, Equatable, Codable {
     case opDeny(note: String?)
     /// Sends the approval to the PM (`op approve`); only for a host that does not send `approveChoices`.

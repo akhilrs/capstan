@@ -1,0 +1,82 @@
+/* plan-153 approve: components added on top of ios.css / mac.css. Only existing tokens. */
+.chs{list-style:none;margin:0;padding:0;border-radius:22px;background:var(--cell);overflow:hidden}
+.chs > li + li .ch::before{content:"";position:absolute;top:0;left:16px;right:0;height:1px;background:var(--sep)}
+.ch{position:relative;display:grid;grid-template-columns:1fr 12px;gap:4px 12px;align-items:center;width:100%;min-height:56px;padding:12px 16px;border:0;background:transparent;font:inherit;color:var(--label);text-align:left;box-sizing:border-box}
+.ch .ct{grid-column:1;font-size:17px;font-weight:600;line-height:1.3}
+.ch .cd{grid-column:1;font-size:13px;line-height:1.4;color:var(--label2)}
+.ch .chev{grid-column:2;grid-row:1 / 3}
+.ch.des .ct{color:var(--red)}
+.ch.press{background:var(--fill2)}
+.ch.on{background:var(--accent-tint);box-shadow:inset 0 0 0 2px var(--accent)}
+.ch.off .ct,.ch.off .cd{color:var(--label2)}
+.ch .tag{grid-column:1;justify-self:start}
+.chs-h{margin:0;font-size:13px;font-weight:600;color:var(--label2);display:flex;justify-content:space-between;padding:4px 16px 0}
+.pfx{display:block;margin-top:4px;padding:4px 8px;border-radius:8px;background:var(--mono-bg);box-shadow:inset 0 0 0 1px var(--sep);font-family:ui-monospace,"SF Mono","IBM Plex Mono",monospace;font-size:15px;font-weight:500;line-height:1.5;color:var(--label);white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal}
+.pfx-cap{display:flex;gap:4px;align-items:center;font-size:13px;color:var(--label2);margin-top:4px}
+.pfx-cap .ico{width:14px;height:14px}
+.rd{position:relative;display:grid;grid-template-columns:24px 1fr;gap:4px 12px;align-items:start;width:100%;min-height:56px;padding:12px 16px;border:0;border-radius:22px;background:var(--cell);font:inherit;color:var(--label);text-align:left;box-sizing:border-box}
+.rd .rc{grid-row:1 / 4;width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--label2);box-sizing:border-box;margin-top:1px}
+.rd.on{background:var(--accent-tint);box-shadow:inset 0 0 0 2px var(--accent)}
+.rd.on .rc{box-shadow:inset 0 0 0 7px var(--accent)}
+.rd .ct{font-size:17px;font-weight:600}
+.rd .cd{font-size:13px;line-height:1.4;color:var(--label2)}
+.rds{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.step{font-size:13px;font-weight:600;color:var(--label2);font-variant-numeric:tabular-nums}
+.cov{border-radius:22px;background:var(--cell);padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.cov h3{margin:0;font-size:15px;font-weight:600}
+.cov p{margin:0;font-size:15px;line-height:1.45;color:var(--label)}
+.cov p.end{font-size:13px;color:var(--label2)}
+.res{display:grid;grid-template-columns:20px 1fr;gap:4px 12px;align-items:start;padding:12px 16px;border-radius:22px;font-size:15px;line-height:1.4}
+.res > .ico{margin-top:1px}
+.res b{font-weight:600}
+.res .rb{grid-column:2;display:flex;flex-direction:column;gap:6px;min-width:0}
+.res .rm{font-size:13px;color:var(--label2)}
+.r-green{background:var(--green-tint)}.r-green > .ico{color:var(--green)}
+.r-red{background:var(--red-tint)}.r-red > .ico{color:var(--red)}
+.r-yellow{background:var(--yellow-tint)}.r-yellow > .ico{color:var(--yellow)}
+.r-grey{background:var(--fill2)}
+.r-blue{background:var(--blue-tint)}.r-blue > .ico{color:var(--blue)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0;font-size:13px}
+.kv dt{color:var(--label2)}.kv dd{margin:0;font-variant-numeric:tabular-nums;color:var(--label)}
+.limit{display:grid;grid-template-columns:20px 1fr;gap:4px 12px;padding:12px 16px;border-radius:22px;background:var(--fill2);font-size:15px;line-height:1.4}
+.limit .lb{grid-column:2;display:flex;flex-direction:column;gap:6px}
+.limit .ico{color:var(--label2);margin-top:1px}
+.legend2{font-size:15px;line-height:1.5;color:#1c2024;margin:0;max-width:1700px}
+
+/* Mac sizes */
+.mac .chs{border-radius:12px;background:var(--fill)}
+.mac .ch{min-height:44px;padding:8px 12px;gap:2px 8px}
+.mac .ch .ct{font-size:13px}
+.mac .ch .cd{font-size:12px}
+.mac .chs > li + li .ch::before{left:12px}
+.mac .chs-h{font-size:12px;padding:0}
+.mac .pfx{font-size:12px;padding:2px 6px;border-radius:6px}
+.mac .pfx-cap{font-size:12px}
+.mac .rd{min-height:36px;padding:8px 12px;border-radius:12px;background:var(--fill);gap:2px 8px;grid-template-columns:18px 1fr}
+.mac .rd .rc{width:16px;height:16px}
+.mac .rd.on .rc{box-shadow:inset 0 0 0 5px var(--accent)}
+.mac .rd .ct{font-size:13px}
+.mac .rd .cd{font-size:12px}
+.mac .rds{gap:6px}
+.mac .cov{border-radius:12px;background:var(--fill);padding:10px 12px;gap:6px}
+.mac .cov h3{font-size:13px}
+.mac .cov p{font-size:12px}
+.mac .cov p.end{font-size:12px}
+.mac .res{border-radius:12px;font-size:12px;padding:10px 12px;grid-template-columns:16px 1fr;gap:2px 10px}
+.mac .res b{font-size:13px}
+.mac .res .rm{font-size:12px}
+.mac .limit{border-radius:12px;font-size:12px;padding:10px 12px;grid-template-columns:16px 1fr;gap:2px 10px}
+.mac .kv{font-size:12px}
+.mac .step{font-size:12px}
+.mac .insp{overflow:auto}
+.mac .insp > *{flex-shrink:0}
+.nest{display:flex;flex-direction:column;gap:6px;padding:6px 0 4px 26px}
+.btn .ico{color:currentColor}
+.btn.pri.dis{opacity:1;background:var(--fill2);color:var(--label2)}
+.res .btn.sm{height:44px;flex:none}
+.mac .res .btn.sm{height:28px}
+.ax .rd .ct{font-size:28px}
+.ax .rd{grid-template-columns:28px 1fr}
+.ax .shd .h3{display:none}
+.pfx{word-break:break-all;line-break:anywhere}
+.sheet .rd:not(.on){box-shadow:inset 0 0 0 1px var(--sep)}

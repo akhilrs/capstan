@@ -1,5 +1,6 @@
 import CapstanAppCore
 import CapstanKit
+import CapstanPhoneCore
 import SwiftUI
 import UIKit
 
@@ -69,6 +70,10 @@ struct ItemDetailScreen: View {
     @State private var toast = false
     @State private var merging = false
     @State private var confirmDiscard = false
+    @State private var approving = false
+    @State private var approveRefusal: ApproveRefusalLines?
+    /// The command the last approval was sent for, to word what it allowed once the item has left the snapshot.
+    @State private var approvedCommand = ""
 
     var body: some View {
         if let item = model.item(row) {
@@ -110,6 +115,9 @@ struct ItemDetailScreen: View {
                         outcome: outcome, hostName: ctx.hostName, receivedAt: receivedAt,
                         onRetry: { id in retry(id) },
                         onTryAgain: tryAgain)
+                    if let lines = approvalLines(outcome) {
+                        ApproveResultBlock(lines: lines)
+                    }
                 }
                 if ctx.item.kind != .integration {
                     DetailFacts(facts: facts(ctx))
@@ -141,6 +149,13 @@ struct ItemDetailScreen: View {
                 noteLabel: "Note to the operator (optional)",
                 footnote: "Deny is applied on the host at once and cannot be taken back from here.",
                 onConfirm: { note in run(.opDeny(note: note)) })
+        }
+        .sheet(isPresented: $approving) {
+            if case .sheet(let plan) = approveOffer(ctx, shown: shown) {
+                ApproveSheet(
+                    plan: plan, command: shown.text, projectName: ctx.projectName, sending: sending,
+                    refusal: approveRefusal, onSend: { runApprove($0, command: shown.text) }, onShowNew: { showNewVersion() })
+            }
         }
         .sheet(item: $forward) { item in
             ForwardConfirmSheet(title: item.title, text: item.text, confirmLabel: "Send to PM") { run(item.verb) }
@@ -181,6 +196,7 @@ struct ItemDetailScreen: View {
                 VStack(alignment: .leading, spacing: Tokens.space[3]) {
                     Text("No longer waiting").font(TypeStyle.title2)
                     OutcomeBanner(outcome: outcome, hostName: hostName, receivedAt: receivedAt)
+                    if let lines = approvalLines(outcome) { ApproveResultBlock(lines: lines) }
                 }
                 .padding(Tokens.margin)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -282,7 +298,12 @@ struct ItemDetailScreen: View {
                 waitingFor(ctx.item.kind == .op ? "The full command has not arrived yet." : "The full message has not arrived yet.")
             }
             if ctx.item.kind == .op, ctx.answerable, shown.whole, main.received {
-                footnote("Deny is applied on the host at once. Approve goes to the PM, who confirms with you and runs it.")
+                switch approveOffer(ctx, shown: shown) {
+                case .oldHost: footnote(ApproveStrings.oldhostNote)
+                case .sheet(let plan): approveNotes(plan)
+                case .denyOnly(let limit):
+                    if let text = approveDenyOnlyText(limit) { footnote(text) }
+                }
             }
             if ctx.item.kind == .message, ctx.answerable, main.received {
                 footnote("Your reply goes to the host as plain text, up to " + ProtocolLimits.reasonCap.formatted() + " bytes.")
@@ -389,18 +410,7 @@ struct ItemDetailScreen: View {
                     .buttonStyle(.capstanPrimary)
                     .keyboardShortcut(.return, modifiers: .command)
             case .op:
-                BarLayout(stacked: stacked) {
-                    Button { confirmDeny = true } label: { Text("Deny…") }
-                        .buttonStyle(.capstanDestructive)
-                        .disabled(sending || !isAvailable(.opDeny(note: nil)))
-                } primary: {
-                    Button { forwardApproval() } label: {
-                        if sending { SendingLabel() } else { Text("Send approval to PM") }
-                    }
-                        .buttonStyle(.capstanPrimary)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(sending || !isAvailable(.opApprove))
-                }
+                opBar(ctx, shown: shown, stacked: stacked)
             case .prompt(let allTerminal):
                 promptBar(ctx, allTerminal: allTerminal, stacked: stacked)
             case .design:
@@ -419,6 +429,59 @@ struct ItemDetailScreen: View {
         .padding(.top, Tokens.space[2])
         .padding(.bottom, Tokens.space[1])
         .background(Tokens.color(.ground))
+    }
+
+    @ViewBuilder
+    private func opBar(_ ctx: DetailContext, shown: ShownText, stacked: Bool) -> some View {
+        let deny = Button { confirmDeny = true } label: { Text(verbatim: ApproveStrings.denyAction) }
+            .buttonStyle(.capstanDestructive)
+            .disabled(sending || !isAvailable(.opDeny(note: nil)))
+        switch approveOffer(ctx, shown: shown) {
+        case .oldHost:
+            BarLayout(stacked: stacked) {
+                deny
+            } primary: {
+                Button { forwardApproval() } label: {
+                    if sending { SendingLabel() } else { Text(verbatim: ApproveStrings.oldhostAction) }
+                }
+                .buttonStyle(.capstanPrimary)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(sending || !isAvailable(.opApprove))
+            }
+        case .sheet(let plan):
+            BarLayout(stacked: stacked) {
+                deny
+            } primary: {
+                Button { approveRefusal = nil; approving = true } label: {
+                    if sending { SendingLabel() } else { Text(verbatim: ApproveStrings.answerAction) }
+                }
+                .buttonStyle(.capstanPrimary)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(sending || !isAvailable(.opApproveAs(plan.probe)))
+            }
+        case .denyOnly:
+            deny
+        }
+    }
+
+    /// What the host lets this phone do with the proposal. An old host keeps the forward flow; a cut or unverified
+    /// command offers no sheet.
+    private func approveOffer(_ ctx: DetailContext, shown: ShownText) -> ApproveOffer {
+        ApproveOffer.make(ctx.item.approveChoices, commandVerified: shown.verified, commandWhole: shown.whole)
+    }
+
+    /// The lines under the command when the host limits the choices.
+    @ViewBuilder
+    private func approveNotes(_ plan: ApprovePlan) -> some View {
+        if let text = plan.limitText {
+            footnote(ApproveStrings.limitedLead + " " + text)
+        }
+    }
+
+    /// What an applied `op approve-as` made, for the detail under the banner; nil for any other outcome.
+    private func approvalLines(_ outcome: DecideOutcome) -> ApproveResultLines? {
+        guard case .applied(let result) = outcome, !result.isRepeat, case .opApproveAs(let choice)? = lastVerb else { return nil }
+        return ApproveResultLines.make(approval: result.approval, chosen: choice, command: approvedCommand)
     }
 
     @ViewBuilder
@@ -520,6 +583,28 @@ struct ItemDetailScreen: View {
         outcome = nil
         Task {
             let result = await model.decide(verb, on: row)
+            received(result)
+        }
+    }
+
+    /// Sends `op approve-as` from the sheet. A refusal the sheet words stays in the sheet (nothing was approved);
+    /// anything else closes it and the detail shows the result.
+    private func runApprove(_ verb: DecideVerb, command: String) {
+        guard !sending else { return }
+        approvedCommand = command
+        lastVerb = verb
+        sending = true
+        outcome = nil
+        approveRefusal = nil
+        Task {
+            let result = await model.decide(verb, on: row)
+            if let lines = ApproveRefusalLines.make(result) {
+                sending = false
+                approveRefusal = lines
+                Haptics.play(.warning)
+                return
+            }
+            approving = false
             received(result)
         }
     }
@@ -633,6 +718,29 @@ private struct BarLayout<Secondary: View, Primary: View>: View {
                 primary
             }
         }
+    }
+}
+
+/// What an approval made: the grant or the window, in the design's words.
+private struct ApproveResultBlock: View {
+    let lines: ApproveResultLines
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.space[1]) {
+            Text(verbatim: lines.headline).font(TypeStyle.subheadline.weight(.semibold))
+            if let grant = lines.grantText {
+                Text(verbatim: grant).font(TypeStyle.mono).fixedSize(horizontal: false, vertical: true)
+            }
+            if let id = lines.windowId { Text(verbatim: id).font(TypeStyle.subheadline) }
+            if let ends = lines.ends { Text(verbatim: ends).font(TypeStyle.subheadline) }
+            if let revoke = lines.revoke { Text(verbatim: revoke).font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2)) }
+            Text(verbatim: lines.pm).font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Tokens.space[3])
+        .background(Tokens.color(.fill2), in: RoundedRectangle(cornerRadius: Tokens.radius.section))
+        .accessibilityElement(children: .combine)
     }
 }
 

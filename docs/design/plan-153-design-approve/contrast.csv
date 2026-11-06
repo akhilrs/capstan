@@ -1,0 +1,91 @@
+id,app,theme,use,foreground,background,kind,threshold,ratio,result
+T01,ios,light,"Sheet title, card titles, command text",label,cell,text,4.5,16.39,pass
+T01,ios,dark,"Sheet title, card titles, command text",label,cell,text,4.5,14.52,pass
+T02,ios,light,"Card details, notes, step count",label2,cell,text,4.5,6.88,pass
+T02,ios,dark,"Card details, notes, step count",label2,cell,text,4.5,7.45,pass
+T03,ios,light,Detail notes and meta labels on the ground,label2,ground,text,4.5,5.97,pass
+T03,ios,dark,Detail notes and meta labels on the ground,label2,ground,text,4.5,8.28,pass
+T04,ios,light,Back and Cancel (plain accent buttons),accent,cell,text,4.5,6.36,pass
+T04,ios,dark,Back and Cancel (plain accent buttons),accent,cell,text,4.5,7.76,pass
+T05,ios,light,"Primary button text (Answer…, Continue, Approve…)",on-accent,accent,text,4.5,6.36,pass
+T05,ios,dark,"Primary button text (Answer…, Continue, Approve…)",on-accent,accent,text,4.5,8.51,pass
+T06,ios,light,Selected card title,label,accent-tint over cell,text,4.5,13.57,pass
+T06,ios,dark,Selected card title,label,accent-tint over cell,text,4.5,10.73,pass
+T07,ios,light,Selected card detail,label2,accent-tint over cell,text,4.5,5.70,pass
+T07,ios,dark,Selected card detail,label2,accent-tint over cell,text,4.5,5.50,pass
+T08,ios,light,Prefix value in its box (selected card),label,mono-bg over accent-tint over cell,text,4.5,12.47,pass
+T08,ios,dark,Prefix value in its box (selected card),label,mono-bg over accent-tint over cell,text,4.5,9.20,pass
+T09,ios,light,"One value, shown whole (selected card)",label2,accent-tint over cell,text,4.5,5.70,pass
+T09,ios,dark,"One value, shown whole (selected card)",label2,accent-tint over cell,text,4.5,5.50,pass
+T10,ios,light,Deny… button text,red,fill2 over ground,text,4.5,5.58,pass
+T10,ios,dark,Deny… button text,red,fill2 over ground,text,4.5,7.60,pass
+T11,ios,light,Limit line and coverage text,label,fill2 over cell,text,4.5,14.01,pass
+T11,ios,dark,Limit line and coverage text,label,fill2 over cell,text,4.5,10.79,pass
+T12,ios,light,"Floor entry label, end text in coverage",label2,fill2 over cell,text,4.5,5.88,pass
+T12,ios,dark,"Floor entry label, end text in coverage",label2,fill2 over cell,text,4.5,5.54,pass
+T13,ios,light,Result lead on green tint,label,green-tint over ground,text,4.5,12.37,pass
+T13,ios,dark,Result lead on green tint,label,green-tint over ground,text,4.5,12.94,pass
+T14,ios,light,Result small print on green tint,label2,green-tint over ground,text,4.5,5.19,pass
+T14,ios,dark,Result small print on green tint,label2,green-tint over ground,text,4.5,6.63,pass
+T15,ios,light,Refusal lead on red tint,label,red-tint over cell,text,4.5,14.15,pass
+T15,ios,dark,Refusal lead on red tint,label,red-tint over cell,text,4.5,12.04,pass
+T16,ios,light,Refusal small print on red tint,label2,red-tint over cell,text,4.5,5.94,pass
+T16,ios,dark,Refusal small print on red tint,label2,red-tint over cell,text,4.5,6.18,pass
+T17,ios,light,busy lead on yellow tint,label,yellow-tint over cell,text,4.5,14.21,pass
+T17,ios,dark,busy lead on yellow tint,label,yellow-tint over cell,text,4.5,11.09,pass
+T18,ios,light,busy small print on yellow tint,label2,yellow-tint over cell,text,4.5,5.96,pass
+T18,ios,dark,busy small print on yellow tint,label2,yellow-tint over cell,text,4.5,5.69,pass
+T19,ios,light,Host message in its block on red tint,label,mono-bg over red-tint over cell,text,4.5,13.00,pass
+T19,ios,dark,Host message in its block on red tint,label,mono-bg over red-tint over cell,text,4.5,10.35,pass
+T20,ios,light,Denied result on grey,label2,fill2 over ground,text,4.5,5.12,pass
+T20,ios,dark,Denied result on grey,label2,fill2 over ground,text,4.5,6.37,pass
+U01,ios,light,"Radio ring, not chosen",label2,cell,ui,3.0,6.88,pass
+U01,ios,dark,"Radio ring, not chosen",label2,cell,ui,3.0,7.45,pass
+U02,ios,light,Selection border of the chosen card,accent,cell,ui,3.0,6.36,pass
+U02,ios,dark,Selection border of the chosen card,accent,cell,ui,3.0,7.76,pass
+U03,ios,light,Radio dot of the chosen card,accent,accent-tint over cell,ui,3.0,5.26,pass
+U03,ios,dark,Radio dot of the chosen card,accent,accent-tint over cell,ui,3.0,5.73,pass
+U04,ios,light,Focus ring on the sheet,focus,cell,ui,3.0,6.48,pass
+U04,ios,dark,Focus ring on the sheet,focus,cell,ui,3.0,7.69,pass
+U05,ios,light,Focus ring on the detail ground,focus,ground,ui,3.0,5.62,pass
+U05,ios,dark,Focus ring on the detail ground,focus,ground,ui,3.0,8.54,pass
+U06,ios,light,Primary button edge (accent fill),accent,cell,ui,3.0,6.36,pass
+U06,ios,dark,Primary button edge (accent fill),accent,cell,ui,3.0,7.76,pass
+D01,ios,light,"Disabled primary (Choose an answer, after a refusal)",label2,fill2 over cell,disabled,exempt,5.88,exempt
+D01,ios,dark,"Disabled primary (Choose an answer, after a refusal)",label2,fill2 over cell,disabled,exempt,5.54,exempt
+T21,mac,light,"Sheet title, radio titles, command text",label,win,text,4.5,15.14,pass
+T21,mac,dark,"Sheet title, radio titles, command text",label,win,text,4.5,14.52,pass
+T22,mac,light,"Radio details, notes, step count",label2,win,text,4.5,6.36,pass
+T22,mac,dark,"Radio details, notes, step count",label2,win,text,4.5,7.45,pass
+T23,mac,light,Radio row title on its fill,label,fill over win,text,4.5,14.03,pass
+T23,mac,dark,Radio row title on its fill,label,fill over win,text,4.5,13.03,pass
+T24,mac,light,Radio row detail on its fill,label2,fill over win,text,4.5,5.89,pass
+T24,mac,dark,Radio row detail on its fill,label2,fill over win,text,4.5,6.68,pass
+T25,mac,light,Primary button text,on-accent,accent,text,4.5,6.36,pass
+T25,mac,dark,Primary button text,on-accent,accent,text,4.5,8.51,pass
+T26,mac,light,"Secondary button text (Back, Cancel)",label,fill2 over win,text,4.5,12.97,pass
+T26,mac,dark,"Secondary button text (Back, Cancel)",label,fill2 over win,text,4.5,11.16,pass
+T27,mac,light,Deny… button text,red,fill2 over win,text,4.5,5.94,pass
+T27,mac,dark,Deny… button text,red,fill2 over win,text,4.5,6.82,pass
+T28,mac,light,Selected radio detail,label2,accent-tint over win,text,4.5,5.29,pass
+T28,mac,dark,Selected radio detail,label2,accent-tint over win,text,4.5,5.50,pass
+T29,mac,light,Prefix value in its box (selected row),label,mono-bg over accent-tint over win,text,4.5,11.60,pass
+T29,mac,dark,Prefix value in its box (selected row),label,mono-bg over accent-tint over win,text,4.5,9.20,pass
+T30,mac,light,Result small print on green tint,label2,green-tint over win,text,4.5,5.51,pass
+T30,mac,dark,Result small print on green tint,label2,green-tint over win,text,4.5,5.81,pass
+T31,mac,light,Refusal small print on red tint,label2,red-tint over win,text,4.5,5.50,pass
+T31,mac,dark,Refusal small print on red tint,label2,red-tint over win,text,4.5,6.18,pass
+T32,mac,light,busy small print on yellow tint,label2,yellow-tint over win,text,4.5,5.53,pass
+T32,mac,dark,busy small print on yellow tint,label2,yellow-tint over win,text,4.5,5.69,pass
+T33,mac,light,Limit line small print on grey,label2,fill2 over win,text,4.5,5.44,pass
+T33,mac,dark,Limit line small print on grey,label2,fill2 over win,text,4.5,5.72,pass
+U07,mac,light,"Radio ring, not chosen",label2,fill over win,ui,3.0,5.89,pass
+U07,mac,dark,"Radio ring, not chosen",label2,fill over win,ui,3.0,6.68,pass
+U08,mac,light,Selection border of the chosen row,accent,win,ui,3.0,5.87,pass
+U08,mac,dark,Selection border of the chosen row,accent,win,ui,3.0,7.76,pass
+U09,mac,light,Radio dot of the chosen row,accent,accent-tint over win,ui,3.0,4.89,pass
+U09,mac,dark,Radio dot of the chosen row,accent,accent-tint over win,ui,3.0,5.73,pass
+U10,mac,light,Focus ring,focus,win,ui,3.0,5.99,pass
+U10,mac,dark,Focus ring,focus,win,ui,3.0,7.69,pass
+D02,mac,light,"Disabled primary (after a refusal, while sending)",label2,fill2 over win,disabled,exempt,5.44,exempt
+D02,mac,dark,"Disabled primary (after a refusal, while sending)",label2,fill2 over win,disabled,exempt,5.72,exempt

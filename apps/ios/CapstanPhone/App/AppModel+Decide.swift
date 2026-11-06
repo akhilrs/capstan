@@ -4,8 +4,8 @@ import CapstanPhoneCore
 import Foundation
 
 /// Decisions, as on the Mac: routed by `DecideRouter`, one at a time per request, sent through the shared runner and
-/// kept in `PendingStore` when no answer came. A tap on the phone is never an approval: approvals and prompt answers
-/// are forwarded to the PM.
+/// kept in `PendingStore` when no answer came. A host that lists `approveChoices` takes an Operator approval from the
+/// approve sheet (`op approve-as`, applied on the host); every other approval and prompt answer is forwarded to the PM.
 extension AppModel {
     func decide(_ verb: DecideVerb, on row: InboxRowID) async -> DecideOutcome {
         await perform(verb, target: .row(key: row.key), hostId: row.hostId, projectId: row.projectId)

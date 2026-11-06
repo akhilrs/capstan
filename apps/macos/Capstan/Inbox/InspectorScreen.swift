@@ -11,6 +11,7 @@ struct InspectorScreen: View {
     @State private var outcome: DecideOutcome?
     @State private var sending = false
     @State private var lastVerb: DecideVerb?
+    @State private var sentChoice: ApproveChoice?
     @State private var showOutcome = false
     @State private var confirmDeny = false
     @State private var linkToConfirm: UntrustedText?
@@ -74,13 +75,7 @@ struct InspectorScreen: View {
                     Banner(tone: .grey, text: "This item can only be answered in a terminal")
                 }
                 kindBody(row, item, detail, mode)
-                if showOutcome {
-                    OutcomeView(
-                        outcome: outcome, hostName: hostName(row.hostId),
-                        onRefresh: { model.refresh(hostId: row.hostId, projectIds: [row.projectId]) },
-                        onRetry: { id in retry(id) },
-                        onTryAgain: { if let lastVerb { run(lastVerb, row) } })
-                }
+                if showOutcome { outcomeSection(row) }
             }
             .padding(Tokens.space[3])
         }
@@ -188,23 +183,57 @@ struct InspectorScreen: View {
                 Text("Full command not received yet").font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
             }
             if mode == .interactive {
-                let canApprove = (command?.verified ?? false) && isAvailable(.opApprove, row)
-                Text(verbatim: "Deny is applied on the host now. Approve goes to the project manager, who confirms with you and runs it.")
-                    .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
-                HStack {
-                    Spacer()
-                    Button { confirmDeny = true } label: { Text("Deny…") }
-                        .buttonStyle(.capstanQuiet)
-                        .disabled(sending || !isAvailable(.opDeny(note: nil), row))
-                    Button { run(.opApprove, row) } label: { Text("Send approval to PM") }
-                        .buttonStyle(.capstanPrimary)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(sending || !canApprove)
-                }
-                if !canApprove, command == nil {
-                    notReceived("Approve is available once the full command has arrived")
+                switch ApproveOffer.make(item, command: command) {
+                case .forward: forwardControls(row, command)
+                case let offer:
+                    ApprovePanel(
+                        offer: offer, sending: sending, denyAvailable: isAvailable(.opDeny(note: nil), row),
+                        answerAvailable: isAvailable(.opApproveAs(.once), row), outcome: outcome, sent: sentChoice,
+                        hostName: hostName(row.hostId), onDeny: { confirmDeny = true },
+                        onSend: { verb in run(verb, row) })
+                    if command == nil { notReceived("Approve is available once the full command has arrived") }
                 }
             }
+        }
+    }
+
+    /// A host without `approveChoices`: Deny, and the approval that goes to the PM.
+    @ViewBuilder
+    private func forwardControls(_ row: InboxRowID, _ command: UntrustedText?) -> some View {
+        let canApprove = (command?.verified ?? false) && isAvailable(.opApprove, row)
+        Text(verbatim: ApproveStrings.oldhostNote)
+            .font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+        HStack {
+            Spacer()
+            Button { confirmDeny = true } label: { Text(verbatim: ApproveStrings.denyAction) }
+                .buttonStyle(.capstanQuiet)
+                .disabled(sending || !isAvailable(.opDeny(note: nil), row))
+            Button { run(.opApprove, row) } label: { Text(verbatim: ApproveStrings.oldhostAction) }
+                .buttonStyle(.capstanPrimary)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(sending || !canApprove)
+        }
+        if !canApprove, command == nil {
+            notReceived("Approve is available once the full command has arrived")
+        }
+    }
+
+    /// The state of the last decision: for an approval with a choice, the result the host applied.
+    @ViewBuilder
+    private func outcomeSection(_ row: InboxRowID) -> some View {
+        let generic = OutcomeView(
+            outcome: outcome, hostName: hostName(row.hostId),
+            onRefresh: { model.refresh(hostId: row.hostId, projectIds: [row.projectId]) },
+            onRetry: { id in retry(id) },
+            onTryAgain: { if let lastVerb { run(lastVerb, row) } })
+        if case .opApproveAs(let choice)? = lastVerb {
+            switch ApprovePresentation.present(outcome, sent: choice, hostName: hostName(row.hostId)) {
+            case .applied(let applied): ApproveResultView(applied: applied)
+            case .refused(let refused): if refused.closesSheet { generic }
+            case .sending, .other: generic
+            }
+        } else {
+            generic
         }
     }
 
@@ -311,6 +340,7 @@ struct InspectorScreen: View {
     private func run(_ verb: DecideVerb, _ row: InboxRowID) {
         guard !sending else { return }
         lastVerb = verb
+        if case .opApproveAs(let choice) = verb { sentChoice = choice }
         sending = true
         outcome = nil
         showOutcome = true
