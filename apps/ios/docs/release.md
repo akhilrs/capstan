@@ -23,15 +23,18 @@ archives and uploads.
 In Xcode → the project → each target → **Signing & Capabilities**, with **Automatically manage signing** and your
 paid Team:
 
-- **CapstanPhone:** Background Modes → Background fetch (already on); **Time Sensitive Notifications** (the project
-  already names it in `CapstanPhone.entitlements`, so it must also be on the App ID); **App Groups**
+- **CapstanPhone:** Background Modes → Background fetch (already on); **App Groups**
   → `group.in.qusol.capstan` once the `widgets` package adds the widgets.
-- **Time Sensitive Notifications, your manual step.** Signing fails on a device or an archive until the capability
-  is on the App ID `in.qusol.capstan.phone` (developer.apple.com → Identifiers, or let Xcode do it: with
-  **Automatically manage signing** it adds the capability and makes a fresh provisioning profile). Download or let
-  Xcode refresh the profile before archiving. A build for the generic simulator does not show this failure. The file
-  holds that one key and nothing else; `scripts/check-xcodeproj.py` refuses any other key, and `aps-environment`
-  stays refused.
+- **Time Sensitive Notifications, opt-in (paid team only).** The default build has no such entitlement
+  (`CapstanPhone.entitlements` is empty), so a free personal team signs it as is; Time Sensitive notifications then
+  arrive at the normal level and Siri can still read them through Settings → Notifications → Announce Notifications →
+  CarPlay → Capstan. For a release or a paid-team build, set the build setting `CAPSTAN_TIME_SENSITIVE = YES` (Build
+  Settings, or `xcodebuild ... CAPSTAN_TIME_SENSITIVE=YES`); the app is then signed with
+  `CapstanPhone-TimeSensitive.entitlements`. Signing then fails on a device or an archive until the capability is on
+  the App ID `in.qusol.capstan.phone` (developer.apple.com → Identifiers, or let Xcode do it: with **Automatically
+  manage signing** it adds the capability and makes a fresh provisioning profile). A build for the generic simulator
+  does not show this failure. The opt-in file holds that one key and nothing else; `scripts/check-xcodeproj.py`
+  refuses any other key, and `aps-environment` stays refused.
 - **CapstanWidgets:** App Groups → the same group, with `widgets`.
 - Keychain needs no capability (the app uses its own access group). Live Activities need no capability: the app's
   Info.plist has `NSSupportsLiveActivities`.
