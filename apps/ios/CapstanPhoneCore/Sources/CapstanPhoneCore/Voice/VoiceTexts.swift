@@ -1,0 +1,171 @@
+import Foundation
+
+/// Every spoken text of the voice features, copied verbatim from `docs/design/plan-156-design-voice/strings.json`
+/// (`VoiceTextsTests` fails when the two differ). Placeholders are written in braces; `fill` replaces them.
+public enum VoiceTexts {
+    /// The fixed words of one spoken line, in characters (design: the two caps).
+    public static let LINE_CAP = 120
+    /// The item text alone (a command, a prefix or a project name), in characters.
+    public static let ITEM_CAP = 120
+
+    /// The text of a key. A key that is not in the table is a programming error caught by the drift test; the
+    /// empty string is returned so nothing crashes.
+    public static func text(_ key: String) -> String { table[key] ?? "" }
+
+    /// The text of a key with each `{name}` replaced by its value. Values are inserted once, left to right, so a
+    /// value that holds a brace word is not replaced again.
+    public static func fill(_ key: String, _ values: [String: String] = [:]) -> String {
+        let source = text(key)
+        var result = ""
+        var index = source.startIndex
+        while index < source.endIndex {
+            if source[index] == "{", let close = source[index...].firstIndex(of: "}") {
+                let name = String(source[source.index(after: index)..<close])
+                if let value = values[name] {
+                    result += value
+                    index = source.index(after: close)
+                    continue
+                }
+            }
+            result.append(source[index])
+            index = source.index(after: index)
+        }
+        return result
+    }
+
+    /// The whole table, for the drift test.
+    public static var all: [String: String] { table }
+
+    private static let table: [String: String] = [
+        "notify.op.title": "Command to approve",
+        "notify.op.body": "In {project}.",
+        "notify.prompt.title": "Permission prompt to answer",
+        "notify.prompt.body": "In {project}.",
+        "notify.design.title": "Design to review",
+        "notify.design.body": "In {project}.",
+        "notify.message.title": "Message to answer",
+        "notify.message.body": "In {project}.",
+        "notify.integration.title": "Ready to merge",
+        "notify.integration.body": "In {project}.",
+        "notify.other.title": "Item waiting",
+        "notify.other.body": "In {project}.",
+        "shortcut.list.title": "What's waiting",
+        "shortcut.approveOnce.title": "Approve once",
+        "shortcut.approve.title": "Approve",
+        "shortcut.deny.title": "Deny",
+        "phrase.list": "What's waiting in {app}",
+        "phrase.approveOnce": "Approve once in {app}",
+        "phrase.approve": "Approve in {app}",
+        "phrase.deny": "Deny in {app}",
+        "list.count.none": "Nothing waits in Capstan.",
+        "list.count.one": "1 item waits in Capstan.",
+        "list.count.many": "{n} items wait in Capstan.",
+        "list.item.plain": "{kind} in {where}, {age}.",
+        "list.item.long": "A command in {where}, {age}. Too long to read aloud.",
+        "list.item.unverified": "A command in {where}, {age}. Its text could not be checked.",
+        "list.more.one": "And 1 more.",
+        "list.more.many": "And {n} more.",
+        "list.hint": "To decide the command, say: approve in Capstan, or deny in Capstan.",
+        "list.unreachable": "{host} did not answer, so its items are missing.",
+        "list.unreachable.all": "No host answered, so Capstan could not check what waits.",
+        "list.item.unreadable": "A command in {where}, {age}. It can't be read aloud.",
+        "kind.op": "A command",
+        "kind.prompt": "A permission prompt",
+        "kind.design": "A design",
+        "kind.message": "A message",
+        "kind.integration": "A merge",
+        "kind.other": "An item",
+        "age.now": "just now",
+        "age.minute": "1 minute ago",
+        "age.minutes": "{n} minutes ago",
+        "age.hour": "1 hour ago",
+        "age.hours": "{n} hours ago",
+        "age.day": "1 day ago",
+        "age.days": "{n} days ago",
+        "where.project": "{project}",
+        "where.projectHost": "{project} on {host}",
+        "where.unreadable": "a project whose name can't be read aloud",
+        "frame.command": "The command is: {command}. End of command.",
+        "prompt.choice": "How do you want to approve it? Say the number.",
+        "prompt.choice.option": "{number}: {label}.",
+        "prompt.prefix": "Allow commands that start with which words? Say the number.",
+        "prompt.prefix.option": "Choice {number} is: {prefix}. End of choice {number}.",
+        "prompt.secondYes.hour": "Last check: auto-approve everything in {project} for 1 hour?",
+        "prompt.secondYes.session": "Last check: auto-approve everything in {project} until the host's limit?",
+        "choose.label.once": "once",
+        "choose.label.exact": "this exact command, for the session",
+        "choose.label.prefix": "commands that start the same way, for the session",
+        "choose.label.hour": "auto-approve everything for 1 hour",
+        "choose.label.session": "auto-approve everything for this session",
+        "choose.onlyOnce": "Only approve once is offered for this command.",
+        "choose.grantsOff": "Grants by voice is off, so only approve once is offered.",
+        "choose.oldHost": "{host} offers only approve once. Update Capstan there for more.",
+        "choose.unclear": "I didn't catch a number. Nothing was sent.",
+        "readback.approve": "Approve once in {where}.",
+        "readback.approveAnd": "Approve in {where}.",
+        "readback.deny": "Deny in {where}.",
+        "readback.skipped.one": "1 older command can't be approved by voice.",
+        "readback.skipped.many": "{n} older commands can't be approved by voice.",
+        "readback.exact": "And allow this exact command for this session, up to the host's grant limit.",
+        "readback.prefix": "And allow commands that start with choice {number}: {prefix}. End of choice {number}.",
+        "readback.prefix.rule": "A grant matches whole words. Pushes and deletes still ask.",
+        "readback.prefix.length": "It lasts for this session, up to the host's grant limit.",
+        "readback.hour": "And auto-approve for 1 hour, or less if the host's limit is shorter.",
+        "readback.session": "And auto-approve until the host's limit or a controller restart.",
+        "readback.coverage.all": "The window approves every Operator command and worker permission prompt, pushes and deletes included.",
+        "readback.coverage.floor": "Only the floor list still asks: deletes or writes outside the project, and a controller restart.",
+        "readback.coverage.scripts": "Scripts and shells are approved unchecked.",
+        "readback.coverage.tools": "Web fetch, MCP and other tool prompts are answered without a floor check.",
+        "confirm.approve": "Approve it?",
+        "confirm.approveAnd": "Approve and allow?",
+        "confirm.window": "Approve and open the window?",
+        "confirm.deny": "Deny it?",
+        "confirm.cancelled": "Nothing was sent.",
+        "result.approved": "Approved once in {project}.",
+        "result.exact": "Approved, and this exact command is allowed in {project} until {time}.",
+        "result.exact.noEnd": "Approved, and this exact command is allowed in {project} for this session.",
+        "result.prefix": "Approved, and commands that start with the chosen words are allowed in {project} until {time}.",
+        "result.prefix.noEnd": "Approved, and commands that start with the chosen words are allowed in {project} for this session.",
+        "result.window": "Approved. Auto-approve is on in {project} until {time}.",
+        "result.window.noEnd": "Approved. Auto-approve is on in {project} until the host's limit.",
+        "result.window.revoke": "Window {windowId}. End it at the terminal with cstan op revoke.",
+        "result.forwarded": "Sent to the PM of {project} as approve once.",
+        "result.denied": "Denied in {project}.",
+        "result.unknown": "Sent, but {host} did not answer. Check Capstan when you are parked.",
+        "refusal.changed": "That command changed or is gone. Nothing was decided.",
+        "refusal.unreachable": "Could not reach {host}. Nothing was sent, and Capstan won't retry.",
+        "refusal.timeout": "{host} took too long. Nothing was sent, and Capstan won't retry.",
+        "refusal.voiceOff": "Decide by voice is off. Turn it on in Capstan settings when you are parked.",
+        "refusal.denyOnly": "The command in {project} can only be denied by voice: {reason}.",
+        "refusal.notDecidable": "The command in {project} can't be decided by voice: {reason}.",
+        "refusal.tooLong": "The command in {project} is too long to read aloud, so it can't be decided by voice.",
+        "refusal.nothing": "No command waits for you.",
+        "refusal.readOnly.one": "1 item waits, but only commands can be decided by voice.",
+        "refusal.readOnly.many": "{n} items wait, but only commands can be decided by voice.",
+        "refusal.busy": "{host} is busy with another command. Nothing was decided. Try again soon.",
+        "refusal.needsTerminal": "The host now holds this back, so it needs the terminal. Nothing was decided.",
+        "refusal.limitReached": "Too many requests for this command. Nothing was sent.",
+        "refusal.noActivePm": "{project} has no active PM, so nothing was sent.",
+        "refusal.other": "{host} refused it. Nothing was decided.",
+        "refusal.locked": "This iPhone hasn't been unlocked since it started, so Capstan can't read its keys. Unlock it once. Nothing was sent.",
+        "refusal.notPaired": "This iPhone isn't paired with a Capstan host. Pair it when you are parked.",
+        "reason.floor": "the approval floor holds it back",
+        "reason.restart": "it restarts the controller",
+        "reason.truncated": "it is too long to show whole",
+        "reason.text_mismatch": "its text no longer matches",
+        "reason.not_checked": "the approval floor did not check it",
+        "reason.shell": "it chains, pipes or redirects commands",
+        "reason.multiline": "it has more than one line",
+        "reason.unverified": "its text could not be checked",
+        "reason.nonAscii": "it has characters that can't be read aloud",
+        "reason.project": "its project name can't be read aloud",
+        "settings.voice.header": "Siri and CarPlay",
+        "settings.voice.toggle": "Decide by voice",
+        "settings.grants.toggle": "Grants by voice",
+        "settings.voice.footer": "Siri can approve once or deny an Operator proposal after reading the command back to you. Works without Face ID, and on a locked iPhone after its first unlock. Other items are only read out.",
+        "settings.grants.footer": "Needs Decide by voice. Adds, for Operator proposals only: this exact command or a prefix for the session, and auto-approve for 1 hour or the session. Works without Face ID. Auto-approve asks twice.",
+        "settings.voice.phrases": "Say “What’s waiting in Capstan”, “Approve in Capstan”, “Approve once in Capstan” or “Deny in Capstan”.",
+        "settings.timeSensitive.header": "Time Sensitive",
+        "settings.timeSensitive.footer": "Time Sensitive notifications break through a Focus, so all kinds start off. In CarPlay, Siri reads them aloud when Announce Notifications is on for Capstan. They say the kind and the project, never the text.",
+    ]
+}
