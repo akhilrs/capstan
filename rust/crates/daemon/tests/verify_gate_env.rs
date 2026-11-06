@@ -354,6 +354,21 @@ impl World {
         GateLease::try_acquire(&self.entry_dir(), PROJECT, slot).is_some()
     }
 
+    /// Waits (up to 2 s) for the lease to be free. Parallel tests fork gate steps, and a child holds a copy of the
+    /// lease descriptor until its exec, so a released flock can look held for a few milliseconds.
+    fn wait_lease_free(&self, slot: usize) -> bool {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if self.lease_free(slot) {
+                return true;
+            }
+            if std::time::Instant::now() >= end {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     fn logged(&self, event: &str) -> Vec<Value> {
         self.logs
             .lock()
@@ -428,7 +443,7 @@ fn a_gate_builds_in_its_slot_directory_and_the_verify_env_wins() {
         agent["CARGO_TARGET_DIR"].ends_with("cargo-target"),
         "{agent:?}"
     );
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
 }
 
 /// A behaviour: `build` always passes; `test` fails once, wiping the slot's target as it does.
@@ -449,7 +464,7 @@ fn a_step_that_wipes_the_slot_and_fails_reruns_the_list_once_from_step_one() {
     let run = world.run_to_end();
     assert_eq!(run["state"], "passed", "{run}");
     assert_eq!(world.commands_run(), ["build", "test", "build", "test"]);
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
 }
 
 #[test]
@@ -528,7 +543,7 @@ fn a_second_infrastructure_failure_is_an_error_with_the_original_tail() {
         "{tail}"
     );
     assert!(tail.contains("first tail"), "{tail}");
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
 }
 
 #[test]
@@ -569,7 +584,7 @@ fn a_rerun_past_the_deadline_ends_as_timeout() {
     let world = World::new(c, behave, nothing);
     let run = world.run_to_end();
     assert_eq!(run["state"], "timeout", "{run}");
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
 }
 
 #[test]
@@ -632,10 +647,10 @@ fn the_lease_is_free_after_pass_failure_abort_and_panics() {
         Arc::new(|command, _, _| if command == "bad" { failed("no") } else { ok() });
     let world = World::new(cfg(&["good"]), behave.clone(), nothing);
     assert_eq!(world.run_to_end()["state"], "passed");
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
     let world = World::new(cfg(&["bad"]), behave, nothing);
     assert_eq!(world.run_to_end()["state"], "failed");
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
     // abort: a step that waits for the abort flag
     let started = Arc::new(AtomicBool::new(false));
     let slow: Behave = {
@@ -656,7 +671,7 @@ fn the_lease_is_free_after_pass_failure_abort_and_panics() {
     assert!(!world.lease_free(0), "held while the step runs");
     world.call("operator", "verify", &["cancel", &id]);
     assert_eq!(world.finished(&id)["state"], "interrupted");
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
     // panics
     for next_run in [true, false] {
         let world = World::new(cfg(&["good"]), passing(), |s| {
@@ -668,7 +683,7 @@ fn the_lease_is_free_after_pass_failure_abort_and_panics() {
         });
         let run = world.run_to_end();
         assert_eq!(run["state"], "error", "{run}");
-        assert!(world.lease_free(0), "next_run={next_run}");
+        assert!(world.wait_lease_free(0), "next_run={next_run}");
     }
 }
 
@@ -710,7 +725,7 @@ fn a_panicking_run_tears_down_under_its_lease_with_the_slot_environment() {
     let text = std::fs::read_to_string(&env_file).unwrap();
     let want = format!("CARGO_TARGET_DIR={}", world.slot_target(0).display());
     assert!(text.lines().any(|l| l == want), "{text}");
-    assert!(world.lease_free(0));
+    assert!(world.wait_lease_free(0));
 }
 
 #[test]

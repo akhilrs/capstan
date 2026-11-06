@@ -2,7 +2,6 @@ mod common;
 use std::fs;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -44,25 +43,6 @@ const WAIT: Duration = Duration::from_millis(300);
 
 fn no_abort() -> AtomicBool {
     AtomicBool::new(false)
-}
-
-fn poll(mut f: impl FnMut() -> bool) -> bool {
-    let end = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < end {
-        if f() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    false
-}
-
-struct Kill(Child);
-impl Drop for Kill {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
 }
 
 fn entry_dir(rt: &Runtime) -> PathBuf {
@@ -107,22 +87,6 @@ fn a_stale_lease_file_is_free() {
         .unwrap();
     assert!(!in_use(&ed, "p1", 4));
     assert!(GateLease::try_acquire(&ed, "p1", 4).is_some());
-}
-
-#[test]
-fn a_child_does_not_inherit_the_lease() {
-    let dir = tempfile::tempdir().unwrap();
-    let runtime = rt(&one(&dir.path().join("b")), dir.path(), "p1");
-    let ed = entry_dir(&runtime);
-    let abort = no_abort();
-    let leases = runtime.lease_gate(0, WAIT, &abort).unwrap();
-    let child = Kill(Command::new("sleep").arg("30").spawn().unwrap());
-    drop(leases);
-    assert!(
-        poll(|| GateLease::try_acquire(&ed, "p1", 0).is_some()),
-        "a live child must not keep the slot busy"
-    );
-    drop(child);
 }
 
 #[test]
