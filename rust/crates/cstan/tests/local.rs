@@ -177,6 +177,8 @@ fn replay_in(
         cwd: cwd.clone(),
         now_ms,
         terminal: Some(terminal),
+        trust: Some((scratch.0.join("proj"), trust_dir_of(&scratch.0))),
+        no_trust: transcript.get("no_trust").and_then(Value::as_bool) == Some(true),
     };
     for step in &before {
         let step_env = match step.get("env") {

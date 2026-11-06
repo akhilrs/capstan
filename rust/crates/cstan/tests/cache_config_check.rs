@@ -1,5 +1,6 @@
 //! `cstan config check` on a `capstan.toml` with a `[cache]` section: a valid one passes and prints the resolved cache, an
 //! invalid entry exits non-zero and says why.
+mod support;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -12,6 +13,7 @@ fn check(label: &str, cache: &str) -> std::process::Output {
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("capstan.toml"), format!("{BASE}{cache}")).unwrap();
+    support::trust_beside(&dir);
     let output = Command::new(env!("CARGO_BIN_EXE_cstan"))
         .args(["config", "check"])
         .current_dir(&dir)
@@ -21,6 +23,7 @@ fn check(label: &str, cache: &str) -> std::process::Output {
         .output()
         .expect("cstan runs");
     std::fs::remove_dir_all(&dir).ok();
+    support::forget_beside(&dir);
     output
 }
 

@@ -64,3 +64,32 @@ impl PrivateDir {
         self.dir.path()
     }
 }
+
+/// Records the checked keys of the `capstan.toml` in `root` as trusted in `store`, so a gated load of it succeeds. Call it
+/// after the last write of the configuration; a rewrite needs a new call. Use `capstan_config::fixture_store(temp)` for
+/// the store, which is the current user's store inside the trust dry run.
+pub fn trusted_project(root: &Path, store: &capstan_config::TrustStore) {
+    capstan_config::record_current(root, store).unwrap_or_else(|e| {
+        panic!("trusting the project {}: {e:?}", root.display());
+    });
+}
+
+/// `trusted_project` with the store in its own temporary folder, kept until the test process ends, so no trust record
+/// lands in `root`: use it where `root` is committed to git afterwards and the commit ids must not change. In the trust
+/// dry run the store is the current user's, as for `capstan_config::fixture_store`.
+pub fn trusted_project_outside(root: &Path) {
+    static STORES: std::sync::Mutex<Vec<PrivateDir>> = std::sync::Mutex::new(Vec::new());
+    let holder = private_tempdir();
+    let store = capstan_config::fixture_store(holder.path());
+    STORES.lock().unwrap().push(holder);
+    trusted_project(root, &store);
+}
+
+/// Writes `text` as the `capstan.toml` in `root` (mode 0600) and records nothing, so the project reads as not trusted
+/// when the text has a key the trust gate checks.
+pub fn write_config_untrusted(root: &Path, text: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let file = root.join("capstan.toml");
+    std::fs::write(&file, text).expect("the configuration is written");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+}

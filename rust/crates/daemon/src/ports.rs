@@ -598,6 +598,7 @@ pub fn wiring(options: &DaemonOptions, input: WiringInput) -> Result<Wiring, Run
                 .unwrap_or_else(|| state_dir.join("operator.key")),
             health_timeout_seconds: operator.restart_health_timeout_seconds.max(0) as u64,
             idle_wait_seconds: operator.restart_idle_wait_seconds.max(0) as u64,
+            trust_store: deps.options.trust_store.clone(),
             busy: {
                 let (deps, launcher) = (deps.clone(), Arc::clone(&launcher));
                 Box::new(move || {

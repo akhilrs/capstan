@@ -273,6 +273,7 @@ fn the_coordinator_refuses_with_nodes_texts() {
             credential_file: scratch.path().join("operator.key"),
             health_timeout_seconds: 1,
             idle_wait_seconds: 0,
+            trust_store: capstan_config::TrustStore::at(scratch.path()),
             busy: Box::new(move || busy.clone()),
             notify_pm: Box::new(move |body, action, _| {
                 sink.lock().unwrap().push(format!(

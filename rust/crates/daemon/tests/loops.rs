@@ -1071,6 +1071,7 @@ fn role_config(dir: &Path) -> capstan_config::RoleConfig {
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    common::trusted_project(dir, &capstan_config::fixture_store(dir));
     capstan_config::load_role_config(dir).expect("the configuration loads")
 }
 

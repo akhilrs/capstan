@@ -52,6 +52,7 @@ fn project(label: &str, index: usize, with_toml: bool) -> Project {
         "modes": {"proj/.capstan": "0700", "proj/.capstan/state": "0700"},
     });
     make_layout(&layout, &scratch.0, &root);
+    support::trust_beside(&scratch.0.join("proj"));
     let daemon = FakeDaemon::start(
         &scratch.0.join("proj/.capstan/state/control.sock"),
         &json!({"kind": "line", "text": "{\"ok\":true,\"result\":{\"pong\":true,\"pid\":4242}}"}),
@@ -83,6 +84,7 @@ fn context(project: &Project, args: &[&str], env: &[(&str, String)], cli_path: P
         now_ms: 0.0,
         cli_path,
         terminal: Some(true),
+        trust: Default::default(),
     }
 }
 

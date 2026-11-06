@@ -361,6 +361,7 @@ pub fn daemon_options(cwd: &Path) -> Result<(DaemonOptions, Vec<String>), RunErr
         options.capstan = Some(Arc::new(capstan));
     }
     options.cli_path = std::env::current_exe().ok();
+    options.trust_store = capstan_config::TrustStore::for_user();
     Ok((options, warnings))
 }
 
@@ -820,6 +821,16 @@ mod tests {
             r#"{{"schemaVersion":1,"projectId":"p1","name":"n","stateDirectory":"{}","maxSlices":4,"maxRunMs":3600000,"maxDispatches":16}}"#,
             dir.join(".capstan").join("state").display()
         )
+    }
+
+    #[test]
+    fn daemon_options_carry_the_users_trust_store() {
+        let dir = project_dir("", "");
+        std::fs::write(dir.path().join(CONFIG_NAME), config_for(dir.path())).unwrap();
+        std::fs::write(dir.path().join(KEY_NAME), format!("{}\n", "k".repeat(40))).unwrap();
+        let (options, _) = daemon_options(dir.path()).unwrap();
+        assert_eq!(options.trust_store, capstan_config::TrustStore::for_user());
+        assert_ne!(options.trust_store, capstan_config::TrustStore::unset());
     }
 
     #[test]

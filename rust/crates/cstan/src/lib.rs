@@ -23,6 +23,7 @@ pub mod recent;
 pub mod render;
 pub mod routed;
 pub mod status;
+pub mod trust_seam;
 pub mod usage;
 pub mod watch;
 
@@ -49,6 +50,8 @@ pub struct Context {
     pub cli_path: PathBuf,
     /// Whether standard input and output are a terminal; `None` asks the process. A test sets it.
     pub terminal: Option<bool>,
+    /// The trust store; unread until the readers take it from here.
+    pub trust: trust_seam::TrustSeam,
 }
 
 /// A program to replace this process with.

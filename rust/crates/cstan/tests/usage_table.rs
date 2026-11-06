@@ -22,6 +22,8 @@ fn run(args: &[&str]) -> (String, String, i32) {
         cwd: std::env::temp_dir(),
         now_ms: 0.0,
         terminal: Some(false),
+        trust: None,
+        no_trust: false,
     };
     let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
     let observed = run_once(&args, &settings);

@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use capstan_config::{fixture_store, record_current, TrustStore};
 use cstan_front::watch::watch_status;
 use cstan_front::{run, Context, Outcome, VERSION};
 use regex::Regex;
@@ -76,6 +77,7 @@ impl Drop for Scratch {
             .args(["-R", "u+rwx"])
             .arg(&self.0)
             .status();
+        let _ = std::fs::remove_dir_all(trust_dir_of(&self.0));
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -324,11 +326,61 @@ pub struct Settings {
     pub cwd: PathBuf,
     pub now_ms: f64,
     pub terminal: Option<bool>,
+    /// The project root and the directory of the trust store (outside the root): before the run, the root's current
+    /// `capstan.toml` is recorded as trusted. `None` trusts nothing.
+    pub trust: Option<(PathBuf, PathBuf)>,
+    /// Per-transcript opt-out of that trusting (the `no_trust` flag of a transcript); off by default.
+    pub no_trust: bool,
+}
+
+/// The trust store directory of a scratch directory: beside it, so a snapshot of the scratch never sees a record.
+pub fn trust_dir_of(scratch: &Path) -> PathBuf {
+    let mut name = scratch.file_name().unwrap().to_os_string();
+    name.push("-trust");
+    scratch.with_file_name(name)
+}
+
+/// A configuration with checked keys, for the fixtures below.
+pub const TRUST_FIXTURE_TOML: &str = "[cache]\nmax_size_gb = 5\n[roles.dev]\nmodel = \"m1\"\n";
+
+/// Writes `toml` as `root/capstan.toml` without trusting it (the root is created when missing).
+pub fn write_config_untrusted(root: &Path, toml: &str) {
+    std::fs::create_dir_all(root).unwrap();
+    let file = root.join("capstan.toml");
+    std::fs::write(&file, toml).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+/// Makes `root` a project whose `capstan.toml` is recorded as trusted in `store`.
+pub fn trusted_project(root: &Path, store: &TrustStore) {
+    write_config_untrusted(root, TRUST_FIXTURE_TOML);
+    record_current(root, store).expect("record the fixture as trusted");
+}
+
+/// `trust_current` against a store beside `root` (see `trust_dir_of`).
+pub fn trust_beside(root: &Path) {
+    trust_current(root, &fixture_store(&trust_dir_of(root)));
+}
+
+/// Removes the store `trust_beside` made.
+pub fn forget_beside(root: &Path) {
+    let _ = std::fs::remove_dir_all(trust_dir_of(root));
+}
+
+/// Records the current `capstan.toml` of `root` as trusted when there is one; a refusal is ignored (a transcript may
+/// write invalid text on purpose).
+pub fn trust_current(root: &Path, store: &TrustStore) {
+    if root.join("capstan.toml").is_file() {
+        let _ = record_current(root, store);
+    }
 }
 
 /// One command, in this process: what `main` would do, except that a watch stops after its first frame and `cstan-dash`
 /// is not started (the program and arguments it would get are the output).
 pub fn run_once(argv: &[String], settings: &Settings) -> Observed {
+    if let (Some((root, temp)), false) = (&settings.trust, settings.no_trust) {
+        trust_current(root, &fixture_store(temp));
+    }
     let outcome = run(&Context {
         args: argv.iter().map(OsString::from).collect(),
         env: settings.env.clone(),
@@ -336,6 +388,7 @@ pub fn run_once(argv: &[String], settings: &Settings) -> Observed {
         now_ms: settings.now_ms,
         cli_path: PathBuf::from(FRONT),
         terminal: settings.terminal,
+        trust: Default::default(),
     });
     let text = |bytes: Vec<u8>| String::from_utf8_lossy(&bytes).into_owned();
     match outcome {
@@ -422,6 +475,8 @@ pub fn stop_scratch_daemon(scratch: &Path, settings: &Settings) {
         cwd: settings.cwd.clone(),
         now_ms: settings.now_ms,
         terminal: Some(false),
+        trust: settings.trust.clone(),
+        no_trust: settings.no_trust,
     };
     let _ = run_once(&["stop".to_string()], &stop);
     kill_daemons_of(&project);

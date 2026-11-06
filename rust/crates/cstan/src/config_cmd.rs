@@ -14,14 +14,7 @@ impl Cli<'_> {
     /// `loadRoleConfig`: a refusal of the configuration is invalid input (exit 3); a file that cannot be read is the
     /// operating system's error (exit 5).
     pub fn load_role_config(&self) -> Result<RoleConfig, Fail> {
-        load_role_config(&self.ctx.cwd).map_err(|error| match error {
-            ConfigError::Invalid(message) => invalid(message),
-            ConfigError::Parse(parse) => invalid(format!(
-                "{CONFIG_FILE_NAME} is not valid TOML ({})",
-                parse.detail
-            )),
-            ConfigError::Unreadable(message) => runtime(message),
-        })
+        load_role_config(&self.ctx.cwd).map_err(config_fail)
     }
 
     pub fn config(&mut self, rest: &[String]) -> Result<Flow, Fail> {
@@ -171,4 +164,34 @@ fn sync_configured_roles(
         }
     }
     unreachable!("the loop returns")
+}
+
+/// How a refused configuration ends a command: the text's own refusal and a distrusted configuration are invalid input
+/// (exit 3); a file that cannot be read is the operating system's error (exit 5).
+fn config_fail(error: ConfigError) -> Fail {
+    match error {
+        ConfigError::Invalid(message) | ConfigError::Untrusted(message) => invalid(message),
+        ConfigError::Parse(parse) => invalid(format!(
+            "{CONFIG_FILE_NAME} is not valid TOML ({})",
+            parse.detail
+        )),
+        ConfigError::Unreadable(message) => runtime(message),
+    }
+}
+
+#[cfg(test)]
+mod config_fail_tests {
+    use super::*;
+    use crate::jsops::JsError;
+
+    #[test]
+    fn an_untrusted_configuration_exits_3() {
+        match config_fail(ConfigError::Untrusted("not trusted".to_string())) {
+            Fail::Error(JsError { exit, message }) => {
+                assert_eq!(exit, 3);
+                assert_eq!(message.to_utf8_lossy(), "not trusted");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
 }

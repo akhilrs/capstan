@@ -32,6 +32,7 @@ fn main() {
             .map_or(0.0, |d| d.as_millis() as f64),
         cli_path,
         terminal: None,
+        trust: Default::default(),
     };
     match run(&context) {
         Outcome::Done {

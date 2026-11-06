@@ -1,5 +1,8 @@
 //! The `[ntfy]` section: defaults, every key and rule, the per-event styles, the JSON and the secret reader.
+mod common;
+
 use capstan_config::*;
+use common::{load_trusted, temp_store};
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::Path;
 use std::str::FromStr;
@@ -30,6 +33,7 @@ fn absent_section_is_default_and_bad_one_fails_the_full_path() {
         refused("[ntfy]\nenabled = true\nserver = \"https://h.example\"\n").contains("ntfy.topic")
     );
     let dir = tempfile::tempdir().unwrap();
+    let (_holder, store) = temp_store();
     let file = dir.path().join("capstan.toml");
     std::fs::write(&file, BASE).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -37,7 +41,7 @@ fn absent_section_is_default_and_bad_one_fails_the_full_path() {
     let local = dir.path().join("capstan.local.toml");
     std::fs::write(&local, on("retries = 4\n")).unwrap();
     std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let config = load_role_config(dir.path()).unwrap();
+    let config = load_trusted(dir.path(), &store).unwrap();
     assert_eq!(config.ntfy.retries, 4);
     assert_eq!(config.ntfy.server, "https://h.example");
 }

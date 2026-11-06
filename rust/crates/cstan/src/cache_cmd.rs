@@ -53,14 +53,7 @@ impl Cli<'_> {
     /// The runtime of the project's `[cache]` section; `Ok(None)` when it has none.
     fn cache_runtime(&self) -> Result<Option<Runtime>, Fail> {
         let root = self.cache_project_root();
-        let config = load_role_config(&root).map_err(|error| match error {
-            ConfigError::Invalid(message) => invalid(message),
-            ConfigError::Parse(parse) => invalid(format!(
-                "{CONFIG_FILE_NAME} is not valid TOML ({})",
-                parse.detail
-            )),
-            ConfigError::Unreadable(message) => runtime(message),
-        })?;
+        let config = load_role_config(&root).map_err(config_fail)?;
         if config.cache.is_none() {
             return Ok(None);
         }
@@ -149,6 +142,36 @@ impl Cli<'_> {
             for line in render::cache_lines(Some(&value), self.ctx.now_ms) {
                 self.io.out_line(&line);
             }
+        }
+    }
+}
+
+/// How a refused configuration ends a command: the text's own refusal and a distrusted configuration are invalid input
+/// (exit 3); a file that cannot be read is the operating system's error (exit 5).
+fn config_fail(error: ConfigError) -> Fail {
+    match error {
+        ConfigError::Invalid(message) | ConfigError::Untrusted(message) => invalid(message),
+        ConfigError::Parse(parse) => invalid(format!(
+            "{CONFIG_FILE_NAME} is not valid TOML ({})",
+            parse.detail
+        )),
+        ConfigError::Unreadable(message) => runtime(message),
+    }
+}
+
+#[cfg(test)]
+mod config_fail_tests {
+    use super::*;
+    use crate::jsops::JsError;
+
+    #[test]
+    fn an_untrusted_configuration_exits_3() {
+        match config_fail(ConfigError::Untrusted("not trusted".to_string())) {
+            Fail::Error(JsError { exit, message }) => {
+                assert_eq!(exit, 3);
+                assert_eq!(message.to_utf8_lossy(), "not trusted");
+            }
+            other => panic!("unexpected {other:?}"),
         }
     }
 }

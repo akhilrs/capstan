@@ -1,8 +1,9 @@
 //! `capstan.local.toml` laid over `capstan.toml`: the merge rules, the file a refusal names, and `[remote]` in the tracked
 //! file.
-use capstan_config::{
-    load_role_config, parse_layered_config, parse_layered_config_with, ConfigError, RoleConfig,
-};
+use capstan_config::{parse_layered_config, parse_layered_config_with, ConfigError, RoleConfig};
+mod common;
+
+use common::{load_trusted, temp_store};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
@@ -151,24 +152,26 @@ fn write(dir: &Path, name: &str, text: &str) {
 #[test]
 fn the_loader_reads_the_local_file_next_to_the_tracked_one() {
     let dir = tempfile::tempdir().unwrap();
+    let (_holder, store) = temp_store();
     write(dir.path(), "capstan.toml", BASE);
-    let plain = load_role_config(dir.path()).unwrap();
+    let plain = load_trusted(dir.path(), &store).unwrap();
     assert!(!plain.remote.merge);
     write(dir.path(), "capstan.local.toml", "[remote]\nmerge = true\n");
-    assert!(load_role_config(dir.path()).unwrap().remote.merge);
+    assert!(load_trusted(dir.path(), &store).unwrap().remote.merge);
     // The tracked file alone with merge = true is refused by the loader too.
     write(
         dir.path(),
         "capstan.toml",
         &format!("{BASE}[remote]\nmerge = true\n"),
     );
-    let error = load_role_config(dir.path()).unwrap_err().to_string();
+    let error = load_trusted(dir.path(), &store).unwrap_err().to_string();
     assert!(error.contains("capstan.local.toml"), "{error}");
 }
 
 #[test]
 fn a_local_file_that_is_not_private_is_refused_by_name() {
     let dir = tempfile::tempdir().unwrap();
+    let (_holder, store) = temp_store();
     write(dir.path(), "capstan.toml", BASE);
     write(dir.path(), "capstan.local.toml", "");
     std::fs::set_permissions(
@@ -176,7 +179,7 @@ fn a_local_file_that_is_not_private_is_refused_by_name() {
         std::fs::Permissions::from_mode(0o666),
     )
     .unwrap();
-    let error = load_role_config(dir.path()).unwrap_err().to_string();
+    let error = load_trusted(dir.path(), &store).unwrap_err().to_string();
     assert!(
         error.starts_with("capstan.local.toml must not be writable"),
         "{error}"
@@ -271,6 +274,7 @@ fn git_add(dir: &Path, path: &str) {
 #[test]
 fn a_local_file_that_git_tracks_is_refused_and_an_untracked_one_is_honoured() {
     let dir = tempfile::tempdir().unwrap();
+    let (_holder, store) = temp_store();
     git_repo(dir.path());
     write(dir.path(), "capstan.toml", BASE);
     write(
@@ -278,10 +282,10 @@ fn a_local_file_that_git_tracks_is_refused_and_an_untracked_one_is_honoured() {
         "capstan.local.toml",
         "[remote]\nmerge = true\npush = true\npush_url = \"ssh://h/r\"\n",
     );
-    let honoured = load_role_config(dir.path()).unwrap();
+    let honoured = load_trusted(dir.path(), &store).unwrap();
     assert!(honoured.remote.merge && honoured.remote.push);
     git_add(dir.path(), "capstan.local.toml");
-    let error = load_role_config(dir.path()).unwrap_err().to_string();
+    let error = load_trusted(dir.path(), &store).unwrap_err().to_string();
     assert!(
         error.contains("capstan.local.toml is tracked in git"),
         "{error}"
@@ -295,9 +299,10 @@ fn a_local_file_that_git_tracks_is_refused_and_an_untracked_one_is_honoured() {
 #[test]
 fn a_local_file_outside_any_git_work_tree_is_honoured() {
     let dir = tempfile::tempdir().unwrap();
+    let (_holder, store) = temp_store();
     write(dir.path(), "capstan.toml", BASE);
     write(dir.path(), "capstan.local.toml", "[remote]\nmerge = true\n");
-    assert!(load_role_config(dir.path()).unwrap().remote.merge);
+    assert!(load_trusted(dir.path(), &store).unwrap().remote.merge);
 }
 
 const NTFY_LOCAL_ONLY: [(&str, &str); 8] = [

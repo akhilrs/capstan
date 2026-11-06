@@ -1,5 +1,6 @@
 #![cfg(debug_assertions)]
 #![allow(dead_code)]
+mod support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::fs::PermissionsExt;
@@ -132,6 +133,7 @@ fn project(label: &str, seed: impl FnOnce(&Core, &Creds)) -> (Project, Creds) {
          [architect]\nenabled = true\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n";
     std::fs::write(root.join("capstan.toml"), toml).unwrap();
     private(&root.join("capstan.toml"), 0o600);
+    support::trust_beside(&root);
     let project = Project { base, root };
 
     let initial = capstan_kernel::types::InitialProject {

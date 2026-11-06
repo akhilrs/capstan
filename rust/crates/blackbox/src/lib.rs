@@ -36,8 +36,11 @@ pub use serde_json;
 /// The `cstan` under test.
 pub fn cstan_binary() -> PathBuf {
     static BUILD: Once = Once::new();
-    if let Some(named) = std::env::var_os("CSTAN_BIN") {
-        let named = PathBuf::from(named);
+    let named = binary_choice(
+        std::env::var_os("CAPSTAN_TRUST_ENFORCE").as_deref(),
+        std::env::var_os("CSTAN_BIN"),
+    );
+    if let Some(named) = named {
         assert!(
             named.is_file(),
             "CSTAN_BIN names no file: {}",
@@ -74,6 +77,58 @@ pub fn cstan_binary() -> PathBuf {
         own.display()
     );
     own
+}
+
+/// The binary named by the environment: `CSTAN_BIN` when set. With `CAPSTAN_TRUST_ENFORCE=1` and no `CSTAN_BIN` the
+/// gate would test a stale or unbuilt binary, so it panics: the dry run goes through `scripts/trust-dry-run.sh`.
+pub fn binary_choice(
+    enforce: Option<&std::ffi::OsStr>,
+    named: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    match named {
+        Some(named) => Some(PathBuf::from(named)),
+        None if enforce == Some(std::ffi::OsStr::new("1")) => panic!(
+            "CAPSTAN_TRUST_ENFORCE is set: run through scripts/trust-dry-run.sh, which sets CSTAN_BIN"
+        ),
+        None => None,
+    }
+}
+
+/// The trust store of a scratch root: `<root>/trust`.
+pub fn trust_dir_of(root: &Path) -> PathBuf {
+    root.join("trust")
+}
+
+/// Records the current `capstan.toml` and `capstan.local.toml` of the project at `root` as trusted in the blackbox store,
+/// `<scratch root>/trust`. The harness overrides `CAPSTAN_TRUST_DIR` for every process it starts, so a test's own value
+/// is not used.
+pub fn trust_project(root: &Path) {
+    let dir = trust_store_for(root);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let store = capstan_config::TrustStore::at(dir);
+    capstan_config::record_current(root, &store)
+        .unwrap_or_else(|e| panic!("trusting {}: {e}", root.display()));
+}
+
+/// Writes `capstan.toml` (mode 0600) without trusting it, so the gate refuses it.
+pub fn write_config_untrusted(root: &Path, text: &str) {
+    let file = root.join("capstan.toml");
+    std::fs::write(&file, text).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+/// The store for a project directory: `trust` in the scratch root of its `World`, the nearest ancestor named
+/// `capstan-suites-core-*`.
+fn trust_store_for(project: &Path) -> PathBuf {
+    project
+        .ancestors()
+        .find(|dir| {
+            dir.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("capstan-suites-core-"))
+        })
+        .map(trust_dir_of)
+        .unwrap_or_else(|| panic!("{} is not inside a World's scratch root", project.display()))
 }
 
 /// `cstan-dash`, when `CSTAN_DASH_BIN` names it.
@@ -531,6 +586,9 @@ impl World {
             world.git_init();
         }
         if !bare {
+            trust_project(&world.project);
+        }
+        if !bare {
             world.seed(&builder.agents, &config);
             if builder.launch && builder.git && builder.panes {
                 // A launching daemon ends an agent that has no pane row (a crashed spawn), as it should.
@@ -885,6 +943,11 @@ impl World {
             env.push(("CAPSTAN_LAUNCH".to_string(), "off".to_string()));
         }
         env.extend(self.env.iter().cloned());
+        // Last, so it wins over a test's own value and over the script's.
+        env.push((
+            "CAPSTAN_TRUST_DIR".to_string(),
+            trust_dir_of(&self.root).to_string_lossy().into_owned(),
+        ));
         env
     }
 
@@ -1011,6 +1074,7 @@ impl World {
         for (name, value) in extra {
             command.env(name, value);
         }
+        command.env("CAPSTAN_TRUST_DIR", trust_dir_of(&self.root));
         command.stdin(if stdin.is_some() {
             Stdio::piped()
         } else {

@@ -11,6 +11,8 @@ pub enum ConfigError {
     Parse(ParseError),
     /// The file could not be read for a reason the Node loader would word as the operating system does.
     Unreadable(String),
+    /// The configuration parses, but its checked keys are not trusted on this machine (the trust gate).
+    Untrusted(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,7 +23,9 @@ pub struct ParseError {
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigError::Invalid(text) | ConfigError::Unreadable(text) => f.write_str(text),
+            ConfigError::Invalid(text)
+            | ConfigError::Unreadable(text)
+            | ConfigError::Untrusted(text) => f.write_str(text),
             ConfigError::Parse(error) => {
                 write!(f, "capstan.toml is not valid TOML ({})", error.detail)
             }

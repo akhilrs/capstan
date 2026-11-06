@@ -548,4 +548,5 @@ fn write_config(dir: &Path, scratch: &Path, merge: bool, commands: &[String]) {
         std::fs::write(&file, body).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
+    super::trusted_project_outside(dir);
 }

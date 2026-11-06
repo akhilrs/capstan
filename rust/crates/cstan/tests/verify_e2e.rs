@@ -2,6 +2,7 @@
 //! section. The gate is two portable shell commands. The test seeds the ledger with an agent, a report and an approved plan
 //! package the way the daemon would have recorded them, then asks for a run, reads it back, and checks the three places a
 //! run shows: `cstan verify show`, the verify section of `cstan status` and the gate of `cstan plan show --brief`.
+mod support;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -113,6 +114,7 @@ fn project(label: &str, verify: &str) -> Project {
     );
     std::fs::write(root.join("capstan.toml"), toml).unwrap();
     private(&root.join("capstan.toml"), 0o600);
+    support::trust_beside(&root);
     let project = Project { base, root, commit };
     seed(&project, &state);
     project
@@ -322,6 +324,7 @@ fn a_failing_gate_shows_its_step_and_a_project_without_verify_refuses_the_comman
     let cut = bare.find("[verify]").unwrap();
     project.out(&["stop"]);
     std::fs::write(project.root.join("capstan.toml"), &bare[..cut]).unwrap();
+    support::trust_beside(&project.root);
     let refused = project.cstan(&["verify", "report-1"]);
     assert!(!refused.status.success());
     let text = format!(

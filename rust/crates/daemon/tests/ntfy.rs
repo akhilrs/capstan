@@ -1514,6 +1514,7 @@ impl World {
         let local = dir.path().join("capstan.local.toml");
         std::fs::write(&local, ntfy_toml).unwrap();
         std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o600)).unwrap();
+        common::trusted_project(dir.path(), &capstan_config::fixture_store(dir.path()));
         let kernel = {
             let (state, project, root) = (
                 state.clone(),

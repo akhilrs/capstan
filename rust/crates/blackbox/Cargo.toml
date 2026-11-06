@@ -14,6 +14,7 @@ path = "src/lib.rs"
 # Test-only: the harness seeds a scratch ledger through the kernel (what `cstan spawn` does in a real run) and then talks to
 # the real binary. Versions are the ones the other crates already pin.
 [dependencies]
+capstan-config = { path = "../config" }
 capstan-kernel = { path = "../kernel" }
 capstan-daemon = { path = "../daemon" }
 capstan-testkit = { path = "../testkit" }

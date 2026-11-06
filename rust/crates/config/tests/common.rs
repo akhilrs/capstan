@@ -4,6 +4,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use capstan_config::{
+    load_role_config_with, record_current, trust_status_with, RoleConfig, TrustStatus, TrustStore,
+};
 use capstan_wire::js::{self, Value};
 use sha2::{Digest, Sha256};
 
@@ -99,4 +102,32 @@ pub fn materialize(entries: &[Value], directory: &Path) {
             fs::set_permissions(&target, fs::Permissions::from_mode(mode)).unwrap();
         }
     }
+}
+
+/// A private trust store in its own temp directory, apart from any project folder; keep the guard alive while it is used.
+pub fn temp_store() -> (tempfile::TempDir, TrustStore) {
+    let holder = tempfile::tempdir().unwrap();
+    let dir = holder.path().join("trust");
+    fs::create_dir(&dir).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    let store = TrustStore::at(&dir);
+    (holder, store)
+}
+
+/// Records the current configuration of `root` as trusted in `store` and checks that it reads so (`NotNeeded` when it
+/// holds no checked key).
+pub fn trusted_project(root: &Path, store: &TrustStore) {
+    record_current(root, store).unwrap_or_else(|e| panic!("trusting {}: {e}", root.display()));
+    let status = trust_status_with(root, store);
+    assert!(
+        matches!(status, TrustStatus::Trusted | TrustStatus::NotNeeded),
+        "{status:?}"
+    );
+}
+
+/// `load_role_config_with` after a best-effort trust of the files as they are now: a configuration the loader refuses
+/// for its own reasons (a syntax error, a tracked local file) cannot be trusted and still gets the loader's answer.
+pub fn load_trusted(root: &Path, store: &TrustStore) -> capstan_config::Result<RoleConfig> {
+    let _ = record_current(root, store);
+    load_role_config_with(root, store)
 }

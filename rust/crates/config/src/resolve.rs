@@ -98,31 +98,29 @@ pub fn parse_layered_config_with(
         Some(local) => decode_document(local, LOCAL_CONFIG_FILE_NAME)?,
         None => Table::empty(),
     };
-    if let Some(Item::Table(remote)) = base.get("remote") {
-        for key in ["merge", "push"] {
-            if remote.get(key) == Some(&Item::Bool(true)) {
-                return invalid(tracked_remote_refusal(key));
+    for path in local_only_paths() {
+        let Some((table, key)) = path.split_once('.') else {
+            continue;
+        };
+        let Some(Item::Table(section)) = base.get(table) else {
+            continue;
+        };
+        let value = section.get(key);
+        let refusal = match (table, key) {
+            ("remote", "merge" | "push") if value == Some(&Item::Bool(true)) => {
+                Some(tracked_remote_refusal(key))
             }
-        }
-        for key in LOCAL_ONLY_REMOTE_VALUES {
-            if remote.get(key).is_some() {
-                return invalid(tracked_remote_refusal(key));
+            ("remote", "merge" | "push") => None,
+            ("remote", _) if value.is_some() => Some(tracked_remote_refusal(key)),
+            ("ntfy", "enabled") if value == Some(&Item::Bool(true)) => {
+                Some(tracked_local_only_refusal("ntfy.enabled = true"))
             }
-        }
-    }
-    if let Some(Item::Table(ntfy)) = base.get("ntfy") {
-        if ntfy.get("enabled") == Some(&Item::Bool(true)) {
-            return invalid(tracked_local_only_refusal("ntfy.enabled = true"));
-        }
-        for key in LOCAL_ONLY_NTFY_VALUES {
-            if ntfy.get(key).is_some() {
-                return invalid(tracked_local_only_refusal(&format!("ntfy.{key}")));
-            }
-        }
-    }
-    if let Some(Item::Table(env)) = base.get("env") {
-        if env.get("pass").is_some() {
-            return invalid(tracked_local_only_refusal("env.pass"));
+            ("ntfy", "enabled") => None,
+            _ if value.is_some() => Some(tracked_local_only_refusal(&path)),
+            _ => None,
+        };
+        if let Some(text) = refusal {
+            return invalid(text);
         }
     }
     if !local_confirmed_untracked {
@@ -168,6 +166,26 @@ pub fn parse_layered_config_with(
         Some(_) => name_source(error, &base, &over),
         None => error,
     })
+}
+
+/// The accepted key paths honoured only from the untracked local file: `remote.merge`, `remote.push` and the
+/// `LOCAL_ONLY_REMOTE_VALUES`, `ntfy.enabled` and the `LOCAL_ONLY_NTFY_VALUES`, and `env.pass`. The trust record
+/// leaves these out and the tracked file may not set them.
+pub(crate) fn local_only_paths() -> Vec<String> {
+    let mut paths: Vec<String> = ["remote.merge", "remote.push"].map(String::from).into();
+    paths.extend(
+        LOCAL_ONLY_REMOTE_VALUES
+            .iter()
+            .map(|key| format!("remote.{key}")),
+    );
+    paths.push("ntfy.enabled".to_string());
+    paths.extend(
+        LOCAL_ONLY_NTFY_VALUES
+            .iter()
+            .map(|key| format!("ntfy.{key}")),
+    );
+    paths.push("env.pass".to_string());
+    paths
 }
 
 /// The `[remote]` keys that carry a destination and are honoured only from the local file in any form.
@@ -1917,5 +1935,63 @@ fn class_name(text: &str) -> MessageClassName {
         MessageClassName::Info
     } else {
         MessageClassName::Action
+    }
+}
+
+#[cfg(test)]
+mod trust_parity_tests {
+    use super::*;
+    use crate::trust::accepted_path_of;
+    use crate::trust_classes::is_checked;
+
+    #[test]
+    fn local_only_list_matches_the_consts() {
+        let mut want: Vec<String> = ["remote.merge", "remote.push", "ntfy.enabled", "env.pass"]
+            .map(String::from)
+            .into();
+        want.extend(
+            LOCAL_ONLY_REMOTE_VALUES
+                .iter()
+                .map(|k| format!("remote.{k}")),
+        );
+        want.extend(LOCAL_ONLY_NTFY_VALUES.iter().map(|k| format!("ntfy.{k}")));
+        let mut have = local_only_paths();
+        want.sort();
+        have.sort();
+        assert_eq!(have, want);
+        assert_eq!(have.len(), 14);
+    }
+
+    #[test]
+    fn every_local_only_path_set_in_the_tracked_file_is_refused() {
+        for path in local_only_paths() {
+            let (table, key) = path.split_once('.').unwrap();
+            let value = if matches!(
+                path.as_str(),
+                "remote.merge" | "remote.push" | "ntfy.enabled"
+            ) {
+                "true"
+            } else {
+                "\"x\""
+            };
+            let text = format!("[{table}]\n{key} = {value}\n");
+            let result = parse_layered_config(text.as_bytes(), None, Path::new("/tmp"), None);
+            let error = result.expect_err(&path).to_string();
+            assert!(error.contains("not honoured in"), "{path}: {error}");
+            assert!(!is_checked(&path), "{path}");
+        }
+    }
+
+    #[test]
+    fn similar_names_are_still_checked() {
+        for real in [
+            "hosts.max_active.command",
+            "roles.max_active.model",
+            "roles.max_active",
+        ] {
+            // A real path no accepted path fits is checked as well (see `trust::build_subset`).
+            let checked = accepted_path_of(real).is_none_or(|accepted| is_checked(&accepted));
+            assert!(checked, "{real}");
+        }
     }
 }

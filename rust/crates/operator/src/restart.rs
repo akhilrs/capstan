@@ -250,6 +250,8 @@ pub struct RestartCoordinatorOptions {
     pub credential_file: PathBuf,
     pub health_timeout_seconds: u64,
     pub idle_wait_seconds: u64,
+    /// Where trust records live. Nothing reads it yet.
+    pub trust_store: capstan_config::TrustStore,
     pub busy: Box<dyn Fn() -> Vec<String> + Send + Sync>,
     pub notify_pm: PmNotifier,
     /// The same graceful stop as the `shutdown` route.

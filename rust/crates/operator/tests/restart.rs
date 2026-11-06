@@ -106,6 +106,7 @@ fn coordinator(project: &Project, binary: &Path, argv: Vec<String>) -> Coordinat
         credential_file: project.key(),
         health_timeout_seconds: 7,
         idle_wait_seconds: 0,
+        trust_store: capstan_config::TrustStore::at(project.root.clone()),
         busy: Box::new(move || b.lock().unwrap().clone()),
         notify_pm: Box::new(move |body, _, _| n.lock().unwrap().push(body.to_string())),
         request_stop: Box::new(move || {

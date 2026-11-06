@@ -1,6 +1,7 @@
 //! `cstan notify test`, the `ntfy:` line of `cstan status` and the ntfy guide. The end-to-end test runs the real binary
 //! (which embeds the daemon) against a listener on a local port; it needs `curl` and prints `skipped: curl not found`
 //! without it, unless `CAPSTAN_REQUIRE_CURL=1`, which turns a missing curl into a failure.
+mod support;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
@@ -270,6 +271,7 @@ fn project(label: &str, extra: &str) -> Project {
          [architect]\nenabled = true\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n";
     std::fs::write(root.join("capstan.toml"), toml).unwrap();
     private(&root.join("capstan.toml"), 0o600);
+    support::trust_beside(&root);
     // `[ntfy]` connection keys are honoured only from the untracked local file.
     std::fs::write(root.join("capstan.local.toml"), format!("{extra}\n")).unwrap();
     private(&root.join("capstan.local.toml"), 0o600);

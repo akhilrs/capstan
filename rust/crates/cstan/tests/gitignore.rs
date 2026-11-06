@@ -1,4 +1,5 @@
 //! The managed `.gitignore` block and the `cstan config check` ignore warnings.
+mod support;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -81,6 +82,7 @@ fn scratch(label: &str) -> PathBuf {
     let dir =
         std::env::temp_dir().join(format!("capstan-gitignore-{label}-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
+    support::forget_beside(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -102,6 +104,7 @@ fn write_reports_what_it_did() {
     std::fs::write(&path, format!("{BLOCK_BEGIN}\n")).unwrap();
     assert!(gitignore::write(&dir, false).is_err());
     std::fs::remove_dir_all(&dir).ok();
+    support::forget_beside(&dir);
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -145,6 +148,7 @@ fn config_check_warns_until_the_block_is_written() {
     let dir = scratch("check");
     git(&dir, &["init", "-q"]);
     std::fs::write(dir.join("capstan.toml"), TOML).unwrap();
+    support::trust_beside(&dir);
     let before = warnings(&dir);
     assert!(
         before.contains("warning: .capstan/ is not ignored by git"),
@@ -180,14 +184,17 @@ fn config_check_warns_until_the_block_is_written() {
     );
     assert!(!tracked.contains("not ignored by git"), "{tracked}");
     std::fs::remove_dir_all(&dir).ok();
+    support::forget_beside(&dir);
 }
 
 #[test]
 fn config_check_is_silent_outside_a_git_repository() {
     let dir = scratch("nogit");
     std::fs::write(dir.join("capstan.toml"), TOML).unwrap();
+    support::trust_beside(&dir);
     assert!(!warnings(&dir).contains("not ignored by git"));
     std::fs::remove_dir_all(&dir).ok();
+    support::forget_beside(&dir);
 }
 
 fn check_output(dir: &Path) -> String {
@@ -216,6 +223,7 @@ fn config_check_refuses_a_tracked_local_file() {
     let dir = scratch("tracked-local");
     git(&dir, &["init", "-q"]);
     std::fs::write(dir.join("capstan.toml"), TOML).unwrap();
+    support::trust_beside(&dir);
     let local = dir.join("capstan.local.toml");
     std::fs::write(&local, "[remote]\nmerge = true\n").unwrap();
     std::fs::set_permissions(&local, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
@@ -230,4 +238,5 @@ fn config_check_refuses_a_tracked_local_file() {
     let text = check_output(&dir);
     assert!(!text.contains("is tracked in git"), "{text}");
     std::fs::remove_dir_all(&dir).ok();
+    support::forget_beside(&dir);
 }

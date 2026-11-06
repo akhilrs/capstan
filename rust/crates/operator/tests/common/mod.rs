@@ -218,3 +218,19 @@ pub fn operator_config(overrides: impl FnOnce(&mut Operator)) -> Operator {
 pub fn path_str(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
+
+/// Records the checked keys of the `capstan.toml` in `root` as trusted in `store`, so a gated load of it succeeds. Use
+/// `capstan_config::fixture_store(temp)` for the store.
+pub fn trusted_project(root: &Path, store: &capstan_config::TrustStore) {
+    capstan_config::record_current(root, store).unwrap_or_else(|e| {
+        panic!("trusting the project {}: {e:?}", root.display());
+    });
+}
+
+/// Writes `text` as the `capstan.toml` in `root` (mode 0600) and records nothing, so the project reads as not trusted
+/// when the text has a key the trust gate checks.
+pub fn write_config_untrusted(root: &Path, text: &str) {
+    let file = root.join("capstan.toml");
+    std::fs::write(&file, text).expect("the configuration is written");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+}

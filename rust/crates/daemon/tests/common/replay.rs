@@ -294,6 +294,7 @@ fn prepare(scenario: &Value) -> Result<Scratch, String> {
         std::fs::write(&file, config).map_err(|e| format!("capstan.toml: {e}"))?;
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("capstan.toml: {e}"))?;
+        super::trusted_project_outside(dir.path());
     }
     if scenario.get("repo").is_some() {
         let heads = build_repo(dir.path(), &scenario["repo"]);

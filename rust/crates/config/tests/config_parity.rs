@@ -5,7 +5,7 @@ mod common;
 
 use std::collections::HashMap;
 
-use capstan_config::{load_role_config, ConfigError};
+use capstan_config::ConfigError;
 use capstan_wire::js;
 use common::*;
 
@@ -57,6 +57,7 @@ fn every_corpus_case_gives_the_result_node_gave() {
     // The cases built by the exporter itself are in the expectations only; their files are rebuilt here from the same
     // list, so they are read from the second corpus file.
     cases.extend(items(&read_json("config-edge-cases.json")).iter().cloned());
+    let (_store_holder, store) = temp_store();
     let mut failures = Vec::new();
     let mut checked = 0;
     for case in &cases {
@@ -71,7 +72,7 @@ fn every_corpus_case_gives_the_result_node_gave() {
             _ => panic!("entries"),
         };
         materialize(entries, &root);
-        let got = load_role_config(&root);
+        let got = load_trusted(&root, &store);
         checked += 1;
         let kind = text(want, "kind").unwrap();
         let restore = |s: &str| s.replace(root.to_str().unwrap(), "$ROOT");

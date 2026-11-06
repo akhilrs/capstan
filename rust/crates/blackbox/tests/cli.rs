@@ -89,6 +89,7 @@ fn the_scratch_environment_has_no_node_and_the_native_cli_needs_none() {
     );
     // The commands an operator runs first all work.
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     w.op(&["config", "check"]).ok();
     w.op(&["herdr-config"]).ok();
     w.op(&["status", "--json"]).ok();
@@ -154,6 +155,7 @@ fn init_keeps_an_existing_capstan_toml_and_a_dangling_symlink() {
         "# mine\nschema_version = 1\n",
     )
     .unwrap();
+    trust_project(&w.project);
     let created = w.op(&["init"]).ok();
     assert!(
         !created.stdout.contains("Wrote starter capstan.toml"),
@@ -213,6 +215,7 @@ fn config_check_warns_about_roles_that_run_unattended_on_another_host() {
         "schema_version = 1\n[hosts.claude]\nkind = \"claude\"\n[hosts.codex]\nkind = \"codex\"\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"codex\"\npermission_mode = \"acceptEdits\"\n",
     )
     .unwrap();
+    trust_project(&w.project);
     let check = w.op(&["config", "check"]).ok();
     let resolved = check.json();
     assert_eq!(resolved["roles"].as_array().unwrap().len(), 2);
@@ -229,11 +232,13 @@ const DAEMON_CONFIG: &str = "schema_version = 1\n[hosts.claude]\nkind = \"claude
 fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
     let w = World::builder("daemon-table").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     std::fs::write(
         w.project.join("capstan.toml"),
         format!("{DAEMON_CONFIG}implementation = \"rust\"\n"),
     )
     .unwrap();
+    trust_project(&w.project);
     let check = w.op(&["config", "check"]).ok();
     let daemon = check
         .json()
@@ -275,6 +280,7 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
         format!("{DAEMON_CONFIG}implementation = \"node\"\n"),
     )
     .unwrap();
+    trust_project(&w.project);
     let node = w.op(&["config", "check"]);
     assert_eq!(node.code, 3, "{}", node.text());
     assert!(
@@ -292,6 +298,7 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
         format!("{DAEMON_CONFIG}binary = \"x\"\n"),
     )
     .unwrap();
+    trust_project(&w.project);
     let unknown = w.op(&["config", "check"]);
     assert_eq!(unknown.code, 3, "{}", unknown.text());
     assert!(unknown.has("daemon has 1 unknown key(s); allowed: implementation, status_cache_ms, driver_read_first, snapshot_reads_per_minute"));
@@ -301,6 +308,7 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
 fn cstan_daemon_node_is_refused_and_rust_warns() {
     let w = World::builder("daemon-env").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let node = w.cstan_with(
         &w.project,
         None,
@@ -343,6 +351,7 @@ fn cstan_daemon_node_is_refused_and_rust_warns() {
 fn config_sync_writes_the_roles_once_and_a_second_run_writes_nothing() {
     let w = World::builder("sync").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     // The daemon creates the controller record and syncs the starter roles; the ledger is the CLI's again once it stopped.
     w.op(&["start"]).ok();
     w.op(&["stop"]).ok();
@@ -354,6 +363,7 @@ fn config_sync_writes_the_roles_once_and_a_second_run_writes_nothing() {
     let mut config = std::fs::read_to_string(w.project.join("capstan.toml")).unwrap();
     config.push_str("\n[roles.extra]\nkind = \"Developer\"\nhost = \"claude\"\n");
     std::fs::write(w.project.join("capstan.toml"), config).unwrap();
+    trust_project(&w.project);
     let first = w.op(&["config", "sync"]).ok().json();
     assert_eq!(first["changed"], true, "{first}");
     assert_eq!(
@@ -375,6 +385,7 @@ fn config_sync_writes_the_roles_once_and_a_second_run_writes_nothing() {
 fn start_ping_and_stop_manage_one_daemon_per_project() {
     let w = World::builder("startstop").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let started = w.op(&["start", "--json"]).ok();
     assert_eq!(started.json()["started"], true);
     let pid = pid_of(&started);
@@ -406,6 +417,7 @@ fn start_ping_and_stop_manage_one_daemon_per_project() {
 fn two_starts_at_once_end_with_one_daemon_and_both_succeed() {
     let w = World::builder("racing").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let (a, b) = std::thread::scope(|scope| {
         let a = scope.spawn(|| w.op(&["start", "--json"]));
         let b = scope.spawn(|| w.op(&["start", "--json"]));
@@ -428,6 +440,7 @@ fn two_starts_at_once_end_with_one_daemon_and_both_succeed() {
 fn sigterm_stops_the_daemon_cleanly_and_the_next_start_needs_no_recovery() {
     let w = World::builder("sigterm").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let pid = pid_of(&w.op(&["start", "--json"]).ok());
     // SAFETY: the pid is the scratch daemon this test started.
     unsafe { libc_kill(pid as i32, 15) };
@@ -447,6 +460,7 @@ fn sigterm_stops_the_daemon_cleanly_and_the_next_start_needs_no_recovery() {
 fn after_kill_9_status_still_reads_the_ledger_and_start_replaces_the_dead_daemons_files() {
     let w = World::builder("kill9").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let pid = pid_of(&w.op(&["start", "--json"]).ok());
     let before = w.op(&["status", "--json"]).ok().json();
     // SAFETY: the pid is the scratch daemon the start command started.
@@ -477,11 +491,13 @@ fn after_kill_9_status_still_reads_the_ledger_and_start_replaces_the_dead_daemon
 fn a_broken_capstan_toml_stops_the_daemon_at_start_with_the_loaders_message() {
     let w = World::builder("brokenstart").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     std::fs::write(
         w.project.join("capstan.toml"),
         "schema_version = 1\n[roles.pm]\nkind = \"Nonsense\"\nhost = \"claude\"\n",
     )
     .unwrap();
+    trust_project(&w.project);
     let start = w.op(&["start"]);
     assert_ne!(start.code, 0, "{}", start.text());
     assert!(
@@ -496,6 +512,7 @@ fn a_broken_capstan_toml_stops_the_daemon_at_start_with_the_loaders_message() {
 fn a_restrictive_umask_does_not_stop_a_start_and_the_log_stays_private() {
     let w = World::builder("umask").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let cstan = cstan_binary();
     let out = std::process::Command::new("/bin/sh")
         .args(["-c", "umask 0277; exec \"$0\" start --json"])
@@ -669,6 +686,7 @@ fn a_bare_world_is_marked_undiscoverable_before_its_first_daemon_start() {
     let w = World::builder("bare-marker").bare().build();
     assert!(!w.project.join(".capstan").exists());
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     // `init` refuses an existing `.capstan` and starts no daemon, so the marker follows it: any spawn takes its environment
     // from the world, which writes the marker first.
     assert!(!w.project.join(".capstan/undiscoverable").exists());
@@ -683,6 +701,7 @@ fn a_bare_world_is_marked_undiscoverable_before_its_first_daemon_start() {
 fn restart_replaces_the_running_daemon_and_the_new_one_answers() {
     let w = World::builder("restart-running").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let pid = pid_of(&w.op(&["start", "--json"]).ok());
     let restarted = w.op(&["restart", "--json"]).ok().json();
     assert_eq!(restarted["restarted"], true, "{restarted}");
@@ -700,6 +719,7 @@ fn restart_replaces_the_running_daemon_and_the_new_one_answers() {
 fn restart_without_a_daemon_only_starts_one() {
     let w = World::builder("restart-none").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     let started = w.op(&["restart", "--json"]).ok().json();
     assert_eq!(started["restarted"], false, "{started}");
     assert!(started["oldPid"].is_null(), "{started}");
@@ -716,6 +736,7 @@ fn restart_without_a_daemon_only_starts_one() {
 fn restart_reports_a_daemon_that_does_not_start_again() {
     let w = World::builder("restart-fails").bare().build();
     w.op(&["init"]).ok();
+    trust_project(&w.project);
     w.op(&["start"]).ok();
     std::fs::write(w.project.join("capstan.toml"), "this is [not toml\n").unwrap();
     let failed = w.op(&["restart"]);

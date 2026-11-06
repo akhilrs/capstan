@@ -5,7 +5,7 @@
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub mod cache;
 pub mod design;
@@ -28,6 +28,9 @@ mod smol;
 mod smol_date;
 pub mod starter;
 mod text;
+mod trust;
+mod trust_classes;
+mod trust_display;
 mod types;
 mod value;
 pub mod verify;
@@ -38,6 +41,9 @@ pub use cache::{
 };
 pub use design::{Design, GuidanceMode, GuidanceRules, RecordMode};
 pub use error::{ConfigError, ParseError, Result};
+#[doc(hidden)]
+pub use git_track::local_file_tracking_with;
+pub use git_track::Tracking as LocalTracking;
 pub use impact::{ImpactConfig, NextStep};
 pub use json::{digest_json, sha256};
 pub use keys::{accepted_keys, KeyPath};
@@ -57,22 +63,62 @@ pub use resolve::{
 };
 pub use review::Review;
 pub use smol::{refusal as toml_refusal, Position as TomlPosition};
+pub use trust::{
+    checked_subset, read_config_pair, record_current, record_trust, trust_status,
+    trust_status_of_bytes, trust_status_with, ConfigPair, KeyChange, TrustChange, TrustError,
+    TrustStatus, TrustStore, TrustWritten,
+};
 pub use types::*;
 pub use verify::{path_matches, step_runs, Verify};
 
 /// `loadCapstanConfig` / `loadRoleConfig`: reads `capstan.toml` in `cwd`, lays `capstan.local.toml` over it when that
 /// file exists, and resolves the result. Every reader of the project configuration comes through here.
 pub fn load_role_config(cwd: &Path) -> Result<RoleConfig> {
-    let tracked = read_config_file(cwd, CONFIG_FILE_NAME)?
-        .ok_or_else(|| ConfigError::Invalid(format!("{CONFIG_FILE_NAME} does not exist")))?;
-    let local = read_config_file(cwd, LOCAL_CONFIG_FILE_NAME)?;
+    load_role_config_with(cwd, &TrustStore::for_user())
+}
+
+/// `load_role_config` against the given trust store. The trust gate is on only when `CAPSTAN_TRUST_ENFORCE` is `1`.
+#[doc(hidden)]
+pub fn load_role_config_with(cwd: &Path, store: &TrustStore) -> Result<RoleConfig> {
+    let enforce = enforce_from(std::env::var_os("CAPSTAN_TRUST_ENFORCE").as_deref());
+    load_role_config_inner(cwd, store, enforce)
+}
+
+/// True only for exactly `1`. An undocumented switch that can only make loading stricter.
+#[doc(hidden)]
+pub fn enforce_from(value: Option<&std::ffi::OsStr>) -> bool {
+    value == Some(std::ffi::OsStr::new("1"))
+}
+
+/// The load with the gate chosen by the caller: off is the plain load, on is `load_role_config_gated`.
+#[doc(hidden)]
+pub fn load_role_config_inner(cwd: &Path, store: &TrustStore, enforce: bool) -> Result<RoleConfig> {
+    let pair = pair_of(cwd)?;
+    let config = parse_pair(&pair, cwd)?;
+    if enforce {
+        check_trusted(cwd, &pair, store)?;
+    }
+    Ok(config)
+}
+
+/// The load that refuses a configuration whose checked keys are not trusted in `store`. The pair is read once; a
+/// refusal of the text itself comes back unchanged, and trust is judged on the very bytes that were parsed.
+#[doc(hidden)]
+pub fn load_role_config_gated(cwd: &Path, store: &TrustStore) -> Result<RoleConfig> {
+    load_role_config_inner(cwd, store, true)
+}
+
+fn pair_of(cwd: &Path) -> Result<ConfigPair> {
+    read_config_pair(cwd)?
+        .ok_or_else(|| ConfigError::Invalid(format!("{CONFIG_FILE_NAME} does not exist")))
+}
+
+fn parse_pair(pair: &ConfigPair, cwd: &Path) -> Result<RoleConfig> {
     let mut confirmed_untracked = true;
-    if local.is_some() {
-        match git_track::local_file_tracking(cwd) {
+    if pair.local.is_some() {
+        match pair.tracking {
             git_track::Tracking::Tracked => {
-                return Err(ConfigError::Invalid(format!(
-                    "{LOCAL_CONFIG_FILE_NAME} is tracked in git and is not honoured: it holds machine settings and must never be committed; untrack it with `git rm --cached {LOCAL_CONFIG_FILE_NAME}`"
-                )))
+                return Err(ConfigError::Invalid(tracked_local_refusal()))
             }
             git_track::Tracking::Untracked | git_track::Tracking::NoRepository => {}
             // Fail closed: the file's [remote] merge/push/push_url/merge_branch are refused (see `parse_layered_config_with`).
@@ -81,16 +127,83 @@ pub fn load_role_config(cwd: &Path) -> Result<RoleConfig> {
     }
     let home = std::env::var("HOME").ok();
     parse_layered_config_with(
-        &tracked,
-        local.as_deref(),
+        &pair.main,
+        pair.local.as_deref(),
         cwd,
         home.as_deref(),
         confirmed_untracked,
     )
 }
 
+fn check_trusted(cwd: &Path, pair: &ConfigPair, store: &TrustStore) -> Result<()> {
+    let (keys, dir): (Vec<String>, Option<PathBuf>) = match trust_status_of_bytes(cwd, pair, store)
+    {
+        TrustStatus::NotNeeded | TrustStatus::Trusted => return Ok(()),
+        TrustStatus::Needed {
+            changes, store_dir, ..
+        } => (
+            changes.into_iter().map(|change| change.key).collect(),
+            Some(store_dir),
+        ),
+        TrustStatus::Unavailable { reason, store_dir } => {
+            let keys = checked_subset(pair)
+                .map(|subset| subset.into_keys().collect())
+                .unwrap_or_default();
+            return Err(ConfigError::Untrusted(untrusted_text(
+                keys,
+                store_dir,
+                Some(&reason),
+            )));
+        }
+    };
+    Err(ConfigError::Untrusted(untrusted_text(keys, dir, None)))
+}
+
+fn untrusted_text(keys: Vec<String>, dir: Option<PathBuf>, reason: Option<&str>) -> String {
+    let place = match dir {
+        Some(dir) => format!("trust store {}", dir.display()),
+        None => format!("no trust store: {}", reason.unwrap_or("none is set")),
+    };
+    format!(
+        "{CONFIG_FILE_NAME} has {} key(s) not trusted on this machine: {} ({place})",
+        keys.len(),
+        keys.join(", ")
+    )
+}
+
+/// A store for a test: the current user's store when the dry run asked for it (`CAPSTAN_TRUST_DRY_RUN=1` with
+/// `CAPSTAN_TRUST_DIR` set, as `scripts/trust-dry-run.sh` does), else a store inside `temp`.
+#[doc(hidden)]
+pub fn fixture_store(temp: &Path) -> TrustStore {
+    fixture_store_with(
+        temp,
+        std::env::var_os("CAPSTAN_TRUST_DRY_RUN").as_deref() == Some(std::ffi::OsStr::new("1")),
+        std::env::var_os("CAPSTAN_TRUST_DIR"),
+    )
+}
+
+/// `fixture_store` with its two inputs given.
+#[doc(hidden)]
+pub fn fixture_store_with(
+    temp: &Path,
+    dry_run: bool,
+    trust_dir: Option<std::ffi::OsString>,
+) -> TrustStore {
+    match (dry_run, trust_dir) {
+        (true, Some(dir)) => TrustStore::for_user_with(|_| None, Some(dir)),
+        _ => TrustStore::at(temp),
+    }
+}
+
+/// The refusal for a committed `capstan.local.toml`.
+pub(crate) fn tracked_local_refusal() -> String {
+    format!(
+        "{LOCAL_CONFIG_FILE_NAME} is tracked in git and is not honoured: it holds machine settings and must never be committed; untrack it with `git rm --cached {LOCAL_CONFIG_FILE_NAME}`"
+    )
+}
+
 /// A config file of `cwd` read under the loader's checks; `None` when it does not exist.
-fn read_config_file(cwd: &Path, name: &str) -> Result<Option<Vec<u8>>> {
+pub(crate) fn read_config_file(cwd: &Path, name: &str) -> Result<Option<Vec<u8>>> {
     let file = cwd.join(name);
     let mut descriptor = match fs::OpenOptions::new()
         .read(true)
@@ -139,4 +252,22 @@ fn read_config_file(cwd: &Path, name: &str) -> Result<Option<Vec<u8>>> {
         .read_to_end(&mut bytes)
         .map_err(|error| ConfigError::Unreadable(error.to_string()))?;
     Ok(Some(bytes))
+}
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::*;
+
+    #[test]
+    fn fixture_store_follows_the_dry_run_inputs() {
+        let temp = Path::new("/tmp/fixture-temp");
+        let dir = || Some(std::ffi::OsString::from("/tmp/fixture-dir"));
+        assert_eq!(
+            fixture_store_with(temp, true, dir()),
+            TrustStore::at("/tmp/fixture-dir")
+        );
+        assert_eq!(fixture_store_with(temp, true, None), TrustStore::at(temp));
+        assert_eq!(fixture_store_with(temp, false, dir()), TrustStore::at(temp));
+        assert_eq!(fixture_store_with(temp, false, None), TrustStore::at(temp));
+    }
 }

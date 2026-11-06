@@ -42,6 +42,7 @@ fn set_merge(w: &World, merge: bool) {
     let file = w.project.join("capstan.local.toml");
     std::fs::write(&file, local_config(merge)).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    trust_project(&w.project);
 }
 
 /// The first 12 characters of the hash the feed holds for `request`.

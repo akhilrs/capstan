@@ -1,5 +1,6 @@
 //! `cstan cache status|prune|clear` and the cache line of `cstan status`, through the real binary on a scratch git project
 //! and a cache root of sparse files. No daemon runs: the commands work from capstan.toml and `.capstan/project.json`.
+mod support;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -87,6 +88,7 @@ fn project(label: &str, cache: Option<&str>) -> Project {
     }
     std::fs::write(root.join("capstan.toml"), toml).unwrap();
     private(&root.join("capstan.toml"), 0o600);
+    support::trust_beside(&root);
     Project {
         root,
         cache: cache_dir,

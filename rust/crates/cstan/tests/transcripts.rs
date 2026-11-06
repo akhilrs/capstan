@@ -91,6 +91,8 @@ fn replay_in(
         cwd,
         now_ms: transcript.get("now").and_then(Value::as_f64).unwrap(),
         terminal: Some(false),
+        trust: Some((scratch.0.join("proj"), trust_dir_of(&scratch.0))),
+        no_trust: transcript.get("no_trust").and_then(Value::as_bool) == Some(true),
     };
     let observed = run_once(&args, &settings);
     let request = daemon.and_then(FakeDaemon::finish);
@@ -227,6 +229,8 @@ fn the_version_transcripts_replay_with_any_version() {
             cwd: std::env::temp_dir(),
             now_ms: 0.0,
             terminal: Some(false),
+            trust: None,
+            no_trust: false,
         },
     );
     let transcript: Value = serde_json::from_str(

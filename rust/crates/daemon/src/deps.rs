@@ -599,6 +599,8 @@ pub struct DaemonOptions {
     pub cli_path: Option<PathBuf>,
     /// The announcements `ready`, `lock_released` and `socket_removed` (one JSON line each on the process's output).
     pub announce: Option<Announce>,
+    /// Where trust records live. Nothing reads it yet; `daemon_options` sets the current user's store.
+    pub trust_store: capstan_config::TrustStore,
 }
 
 impl DaemonOptions {
@@ -612,6 +614,7 @@ impl DaemonOptions {
             supervision_tick_ms: None,
             cli_path: None,
             announce: None,
+            trust_store: capstan_config::TrustStore::unset(),
         }
     }
 
