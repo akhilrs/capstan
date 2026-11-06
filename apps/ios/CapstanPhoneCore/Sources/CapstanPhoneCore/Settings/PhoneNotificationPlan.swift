@@ -39,6 +39,31 @@ public struct PhoneNotificationPlan: Equatable, Sendable {
             .url?.absoluteString
     }
 
+    /// The category of the stuck-PM notification.
+    public static let pmStuckCategory = "pm.stuck"
+
+    /// A stuck PM: the Mac's title and project name, no agent text. nil when every kind is switched off.
+    public init?(
+        pmStuck hostId: UUID, projectId: String, episodeId: String, projectName: String, settings: PhoneSettings,
+        fileCheck: (String) -> Bool = { _ in true }
+    ) {
+        guard !settings.notifyKinds.isEmpty else { return nil }
+        let candidate = NotifyCandidate(
+            hostId: hostId, projectId: projectId, kind: .other("pm_stuck"), key: episodeId,
+            topic: .pmStuck(episodeId: episodeId))
+        let base = NotificationPlan(
+            pmStuck: candidate, settings: AppSettings(), projectName: projectName, preferences: settings.sounds,
+            fileCheck: fileCheck)
+        identifier = base.identifier
+        category = PhoneNotificationPlan.pmStuckCategory
+        title = base.title
+        body = base.subtitle
+        threadIdentifier = "project.\(hostId.uuidString).\(projectId)"
+        timeSensitive = false
+        sound = base.sound
+        deepLink = DeepLink.conversation(hostId: hostId, projectId: projectId).url?.absoluteString
+    }
+
     public static func category(_ kind: WaitingKind) -> String {
         switch kind {
         case .other: return "waiting.other"
@@ -48,4 +73,5 @@ public struct PhoneNotificationPlan: Equatable, Sendable {
 
     /// The categories to register at launch.
     public static let categories = ["op", "prompt", "design", "message", "integration", "other"].map { "waiting." + $0 }
+        + [pmStuckCategory]
 }

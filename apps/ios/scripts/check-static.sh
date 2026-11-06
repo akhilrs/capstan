@@ -130,6 +130,19 @@ run_checks() {
     fi
   fi
 
+  # (10) the PM card is wired: the overview screen draws PmCardView, the app model builds the card with
+  # PmCardModel.make, and the glance withdraws the notifications of ended stuck episodes (pass.withdraw)
+  local wire
+  for wire in "CapstanPhone/Overview/ProjectOverviewScreen.swift|PmCardView|ProjectOverviewScreen does not reference PmCardView" \
+    "CapstanPhone/App/AppModel+Overview.swift|PmCardModel\\.make|AppModel+Overview does not call PmCardModel.make" \
+    "CapstanPhone/App/AppModel+Glance.swift|pass\\.withdraw|AppModel+Glance does not use pass.withdraw"; do
+    local wfile wpattern wmessage
+    IFS='|' read -r wfile wpattern wmessage <<< "$wire"
+    if [ ! -f "$ios/$wfile" ] || ! grep -qE "$wpattern" "$ios/$wfile"; then
+      echo "apps/ios/$wfile:1: [pm-card] $wmessage"; found=1
+    fi
+  done
+
   return $found
 }
 
@@ -188,6 +201,24 @@ self_test() {
       echo "self-test: '$name' was not caught" >&2; rc=1
     elif ! grep -q 'Planted.swift:[12]:' "$tmp/case.out"; then
       echo "self-test: '$name' failed without a file:line finding" >&2; cat "$tmp/case.out" >&2; rc=1
+    fi
+  done
+
+  # Each wiring of the PM card is checked: removing it from its file is a finding.
+  local wiring=(
+    "Overview/ProjectOverviewScreen.swift|PmCardView"
+    "App/AppModel+Overview.swift|PmCardModel.make"
+    "App/AppModel+Glance.swift|pass.withdraw"
+  )
+  local w wf wt
+  for w in "${wiring[@]}"; do
+    IFS='|' read -r wf wt <<< "$w"
+    fresh
+    WT=$wt perl -0pi -e 's/\Q$ENV{WT}\E/removed/g' "$tmp/repo/apps/ios/CapstanPhone/$wf"
+    if run_checks "$tmp/repo" >"$tmp/wire.out" 2>&1; then
+      echo "self-test: a missing '$wt' in $wf was not caught" >&2; rc=1
+    elif ! grep -q "$wf:1: \[pm-card\]" "$tmp/wire.out"; then
+      echo "self-test: a missing '$wt' failed without a pm-card finding" >&2; cat "$tmp/wire.out" >&2; rc=1
     fi
   done
 

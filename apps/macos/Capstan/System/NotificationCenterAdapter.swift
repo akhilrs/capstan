@@ -34,4 +34,11 @@ struct NotificationCenterAdapter: NotificationPort {
         let request = UNNotificationRequest(identifier: plan.identifier, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
+
+    func remove(identifiers: [String]) async {
+        guard !identifiers.isEmpty else { return }
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
 }

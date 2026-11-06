@@ -149,4 +149,86 @@ final class PmCardModelTests: XCTestCase {
         XCTAssertEqual(PmCardModel.duration(2 * 3600), "2 h")
         XCTAssertEqual(PmCardModel.duration(26 * 3600), "1 d 2 h")
     }
+
+    // MARK: You sent: the host's entry and the local sent log
+
+    private func make(_ project: ProjectModel, sent: [SentMessage]) throws -> PmCardModel {
+        let now = try date("2026-10-30T12:21:00Z")
+        let fresh = ProjectFreshness(currentAsOf: now, lastKnownAt: now)
+        return try XCTUnwrap(
+            PmCardModel.make(
+                project: project, projectName: "payments-api", freshness: fresh, now: now, calendar: calendar,
+                sent: sent))
+    }
+
+    private func local(
+        _ body: String, at time: String, state: SentMessage.State = .sending, delivery: SentMessage.Delivery? = nil
+    ) throws -> SentMessage {
+        SentMessage(
+            hostId: UUID(), projectId: "p1", text: body, sentAt: try date(time), state: state, delivery: delivery)
+    }
+
+    private func hostSent(at time: String = "2026-10-30T12:03:00Z", id: String = "m") -> PmCard {
+        PmCard(
+            agentId: "pm-1",
+            fromUser: PmCard.FromUser(
+                messageId: id, createdAt: time, state: "sent", stateSince: time, delivery: "queued",
+                body: text("From host")))
+    }
+
+    func testYouSentFromTheHostOnly() throws {
+        let card = try make(project(pm: hostSent()), sent: [])
+        XCTAssertEqual(card.youSent?.text, "\u{2068}From host\u{2069}")
+    }
+
+    func testYouSentFromTheLocalLogOnly() throws {
+        let card = try make(
+            project(pm: PmCard(agentId: "pm-1")), sent: [try local("Hello\nthere", at: "2026-10-30T12:10:00Z")])
+        XCTAssertEqual(card.youSent?.text, "Hello there", "the person's own text: cleaned, not marked")
+        XCTAssertEqual(card.youSent?.time, "12:10")
+        XCTAssertEqual(card.delivery?.text, "Queued: the PM gets it when it is free")
+    }
+
+    func testALocalMessageNewerThanTheHostEntryWins() throws {
+        let card = try make(project(pm: hostSent()), sent: [try local("Newer", at: "2026-10-30T12:10:00Z")])
+        XCTAssertEqual(card.youSent?.text, "Newer")
+    }
+
+    func testAHostEntryNewerThanTheLocalMessageWins() throws {
+        let card = try make(project(pm: hostSent()), sent: [try local("Older", at: "2026-10-30T11:00:00Z")])
+        XCTAssertEqual(card.youSent?.text, "\u{2068}From host\u{2069}")
+    }
+
+    func testTheSameMessageIdTakesTheHostEntry() throws {
+        let sameId = try local("Local copy", at: "2026-10-30T12:04:00Z", state: .sent(messageId: "m"))
+        let card = try make(project(pm: hostSent()), sent: [sameId])
+        XCTAssertEqual(card.youSent?.text, "\u{2068}From host\u{2069}")
+        XCTAssertEqual(card.delivery?.text, "Queued: the PM gets it when it is free")
+    }
+
+    func testEachLocalDeliveryWord() throws {
+        let at = try date("2026-10-30T12:05:00Z")
+        let cases: [(SentMessage.State, SentMessage.Delivery?, String, Bool)] = [
+            (.sending, nil, "Queued: the PM gets it when it is free", false),
+            (.sent(messageId: "x"), .queued(since: at), "Queued: the PM gets it when it is free", false),
+            (.sent(messageId: "x"), .delivered(at: at), "Delivered to the PM · 12:05", false),
+            (.sent(messageId: "x"), .read(at: at), "Read by the PM · 12:05", false),
+            (.sent(messageId: "x"), .dropped(state: "expired", at: at), "Not delivered (expired)", true),
+            (.sent(messageId: "x"), .dropped(state: "odd", at: at), "Not delivered", true),
+            (.notSent(reason: "no answer", pendingId: nil), nil, "Not delivered", true),
+        ]
+        for (state, delivery, word, failed) in cases {
+            let card = try make(
+                project(pm: PmCard(agentId: "pm-1")),
+                sent: [try local("Hi", at: "2026-10-30T12:00:00Z", state: state, delivery: delivery)])
+            XCTAssertEqual(card.delivery?.text, word)
+            XCTAssertEqual(card.delivery?.failed, failed, word)
+        }
+    }
+
+    func testALongLocalMessageIsCut() throws {
+        let long = String(repeating: "a", count: 1000)
+        let card = try make(project(pm: PmCard(agentId: "pm-1")), sent: [try local(long, at: "2026-10-30T12:00:00Z")])
+        XCTAssertLessThanOrEqual(card.youSent?.text?.utf8.count ?? 0, PmCardModel.previewCap + 4)
+    }
 }

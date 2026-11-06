@@ -16,6 +16,24 @@ final class RowTextTests: XCTestCase {
             forwarded: false, stale: false, requestId: "r", contentHash: "aaaaaaaaaaaa")
     }
 
+    private func pmProject(
+        availability: ProjectAvailability = .ready, stuck: Bool, pm: Bool = true
+    ) -> ProjectModel {
+        let card = PmCard(
+            agentId: "pm-1",
+            stuck: stuck ? PmCard.Stuck(episodeId: "e1", reason: "no_progress", since: nil, alert: true) : nil)
+        let run = StoredRun(requestId: "r", state: "running", paused: false, contentHash: "h", pm: pm ? card : nil)
+        return ProjectModel(projectId: "p", root: "/p", availability: availability, run: run, snapshotComplete: true)
+    }
+
+    func test_SidebarPmStuck() {
+        XCTAssertEqual(SidebarText.pmStuck(pmProject(stuck: true)), "PM stuck")
+        XCTAssertNil(SidebarText.pmStuck(pmProject(stuck: false)))
+        XCTAssertNil(SidebarText.pmStuck(pmProject(availability: .silent, stuck: true)))
+        XCTAssertNil(SidebarText.pmStuck(pmProject(stuck: true, pm: false)))
+        XCTAssertNil(SidebarText.pmStuck(ProjectModel(projectId: "p", root: "/p", snapshotComplete: true)))
+    }
+
     func test_Title_perKind() {
         XCTAssertEqual(RowText.title(row(.op)), "payments-api · operator")
         XCTAssertEqual(RowText.title(row(.prompt)), "payments-api · an agent asks for permission")

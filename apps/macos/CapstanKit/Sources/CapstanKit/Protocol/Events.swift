@@ -12,6 +12,7 @@ public enum FeedEventType {
         "finding.raised", "finding.resolved",
         "agent.registered", "agent.lost", "agent.paused", "agent.resumed", "agent.ended", "agent.blocked",
         "agent.activity",
+        "pm.stuck", "pm.recovered",
         "run.changed", "integration.finished", "decision.remote", "snapshot.invalidated",
     ]
 }
@@ -99,6 +100,24 @@ public struct RunBody: Sendable, Equatable {
     public let state: String
     public let paused: Bool
     public let reason: UntrustedText
+}
+
+/// `pm.stuck`: an episode of a stuck PM opened. `reason` stays the host's string, so a reason a newer host adds is kept.
+public struct PmStuckBody: Sendable, Equatable {
+    public let agentId: String
+    public let reason: String
+    public let since: String?
+    public let minutes: Int64?
+    public let episodeId: String
+    /// False when an alerting episode of the same agent opened in the last 30 minutes: no notification.
+    public let alert: Bool
+}
+
+/// `pm.recovered`: the episode ended (`recovered`, `paused`, `replaced`, `ended`, or a newer host's reason).
+public struct PmRecoveredBody: Sendable, Equatable {
+    public let agentId: String
+    public let episodeId: String
+    public let reason: String
 }
 
 public struct DesignBody: Sendable, Equatable {
@@ -210,6 +229,22 @@ public struct EventBody: Sendable, Equatable {
     public var runBody: RunBody? {
         guard type == "run.changed", let state = try? raw.string("state"), let paused = try? raw.bool("paused") else { return nil }
         return RunBody(state: state, paused: paused, reason: text("reason"))
+    }
+
+    public var pmStuckBody: PmStuckBody? {
+        guard type == "pm.stuck", let agentId = try? raw.string("agentId"), let reason = try? raw.string("reason"),
+              let episodeId = try? raw.string("episodeId"), !episodeId.isEmpty else { return nil }
+        return PmStuckBody(
+            agentId: agentId, reason: reason, since: try? raw.optionalString("since"),
+            minutes: try? raw.optionalInt64("minutes"), episodeId: episodeId,
+            alert: (try? raw.bool("alert")) ?? false)
+    }
+
+    public var pmRecoveredBody: PmRecoveredBody? {
+        guard type == "pm.recovered", let agentId = try? raw.string("agentId"),
+              let episodeId = try? raw.string("episodeId"), !episodeId.isEmpty,
+              let reason = try? raw.string("reason") else { return nil }
+        return PmRecoveredBody(agentId: agentId, episodeId: episodeId, reason: reason)
     }
 
     public var designBody: DesignBody? {

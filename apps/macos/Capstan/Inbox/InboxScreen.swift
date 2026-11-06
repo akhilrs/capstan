@@ -248,7 +248,8 @@ private struct OverviewHost<Waiting: View>: View {
                 content: content, projectName: HostLabel.projectName(project),
                 anythingWaiting: !project.waiting.isEmpty, selectedOutcome: model.overview.selectedOutcomeId,
                 actions: actions, pmCard: model.pmCard(hostId: hostId, projectId: projectId),
-                pmActions: pmActions(project), waiting: waiting)
+                pmActions: pmActions(project), pmLoading: model.pmCardLoading(hostId: hostId, projectId: projectId),
+                hostName: model.hosts.first { $0.id == hostId }.map(HostLabel.hostName) ?? "", waiting: waiting)
             .sheet(item: $pausing) { stuck in
                 ConfirmSheet(
                     title: "Pause the project?", detail: nil, noteLimit: ProtocolLimits.reasonCap,

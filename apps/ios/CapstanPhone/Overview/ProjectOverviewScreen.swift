@@ -11,6 +11,8 @@ struct ProjectOverviewScreen: View {
     let projectId: String
 
     @State private var confirmPause = false
+    /// The reason the pause sheet starts with: the stuck banner fills it in, the menu leaves it empty.
+    @State private var pauseReason = ""
     @State private var sending = false
     @State private var outcome: DecideOutcome?
     @State private var receivedAt = Date()
@@ -58,6 +60,7 @@ struct ProjectOverviewScreen: View {
                         .truncationMode(.middle)
                 }
                 statusCard(content)
+                pmSection(project, runPaused: runPaused)
                 if let outcome, !sending {
                     OutcomeBanner(outcome: outcome, hostName: hostName, receivedAt: receivedAt)
                 }
@@ -106,6 +109,7 @@ struct ProjectOverviewScreen: View {
                 title: "Pause " + name + "?", detail: nil, noteLimit: ProtocolLimits.reasonCap,
                 destructiveLabel: "Pause project", noteLabel: "Reason (optional)",
                 footnote: "Every agent of " + name + " stops after its current step and keeps its task and branch. Resume the project from here or with cstan resume on the host.",
+                initialNote: pauseReason,
                 onConfirm: { reason in send(.runPause(reason: reason)) })
         }
     }
@@ -129,6 +133,37 @@ struct ProjectOverviewScreen: View {
         .background(Tokens.color(.cell), in: RoundedRectangle(cornerRadius: Tokens.radius.section))
         .accessibilityElement(children: .combine)
         .accessibilityValue(Text(verbatim: content.accessibilityValue))
+    }
+
+    /// The Project manager section: the card, its skeleton while the first snapshot is read, or nothing when the app
+    /// has no card to draw.
+    @ViewBuilder
+    private func pmSection(_ project: ProjectModel, runPaused: Bool) -> some View {
+        if let card = model.pmCard(hostId: hostId, projectId: projectId) {
+            let key = BusyKey(hostId: hostId, projectId: projectId, requestId: project.run?.requestId ?? Self.runKey)
+            let control = ProjectPauseControl(
+                capabilities: model.capabilities[hostId], busy: model.busy.keys, key: key, runPaused: runPaused,
+                hashKnown: project.run?.hashKnown ?? true)
+            PmCardView(
+                card: card,
+                actions: PmCardActions(
+                    open: openPmLink, pause: { stuck in
+                        pauseReason = stuck.pauseReason
+                        confirmPause = true
+                    },
+                    canPause: !runPaused && !sending && control.state.isEnabled))
+        } else if model.pmCardLoading(hostId: hostId, projectId: projectId) {
+            PmCardSkeleton(hostName: hostName)
+        }
+    }
+
+    /// A row of the card opens the PM conversation, the plans, or what waits; a kind the app does not know has no link.
+    private func openPmLink(_ link: PmCardLink) {
+        switch link {
+        case .conversation: model.open(deepLink: .conversation(hostId: hostId, projectId: projectId))
+        case .plans: model.navigation.show(.plans, [])
+        case .waiting: model.navigation.show(.waiting, [])
+        }
     }
 
     @ViewBuilder
@@ -250,7 +285,7 @@ struct ProjectOverviewScreen: View {
                 Button { send(.runResume(reason: nil)) } label: { Label("Resume project", systemImage: "play") }
                     .disabled(sending || !control.state.isEnabled)
             } else {
-                Button(role: .destructive) { confirmPause = true } label: { Label("Pause project…", systemImage: "pause") }
+                Button(role: .destructive) { pauseReason = ""; confirmPause = true } label: { Label("Pause project…", systemImage: "pause") }
                     .disabled(sending || !control.state.isEnabled)
             }
         } label: {

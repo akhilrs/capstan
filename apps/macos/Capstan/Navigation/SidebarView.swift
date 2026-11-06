@@ -132,17 +132,33 @@ struct SidebarView: View {
     private func projectRow(host: HostConfig, project: ProjectModel, counts: SidebarCounts, current: NavItem) -> some View {
         let waiting = counts.perProject[ProjectKey(hostId: host.id, projectId: project.projectId)] ?? 0
         let item = NavItem.project(hostId: host.id, projectId: project.projectId)
+        let status = SidebarText.projectStatus(project.availability)
+        let stuck = status == nil ? SidebarText.pmStuck(project) : nil
+        let name = HostLabel.projectName(project)
+        var spoken = name
+        if let status { spoken += ", " + status }
+        if let stuck { spoken += ", " + stuck }
+        if status == nil, waiting > 0 { spoken += ", \(waiting) waiting" }
         return row(item, current: current) {
             HStack(spacing: Tokens.space[1]) {
-                Text(verbatim: HostLabel.projectName(project)).lineLimit(1)
+                if stuck != nil {
+                    Circle().strokeBorder(Tokens.color(.yellow), lineWidth: 1.5)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                }
+                Text(verbatim: name).lineLimit(1)
                 Spacer(minLength: Tokens.space[0])
-                if let word = SidebarText.projectStatus(project.availability) {
-                    Text(verbatim: word).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                if let status {
+                    Text(verbatim: status).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                } else if let stuck {
+                    Text(verbatim: stuck).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
                 } else if waiting > 0 {
                     Count(value: waiting, selected: item == current)
                 }
             }
             .padding(.leading, Tokens.space[3])
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: spoken)) // static-text
         }
         .contextMenu {
             if ProjectRemovalPrompt.isOffered(project.availability) {

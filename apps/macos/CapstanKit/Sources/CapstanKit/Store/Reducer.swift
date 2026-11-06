@@ -1,18 +1,36 @@
 import Foundation
 
-/// A waiting item that is new to the person. It holds no text: the app reads the text from the model when it
-/// builds the notification.
+/// What a notify candidate is about.
+public enum NotifyTopic: Sendable, Equatable {
+    /// A waiting item that is new to the person.
+    case waiting
+    /// An alerting stuck episode of the PM opened.
+    case pmStuck(episodeId: String)
+    /// An episode that was announced has ended; its notification is withdrawn.
+    case pmRecovered(episodeId: String)
+}
+
+/// A waiting item that is new to the person, or a PM episode to announce or withdraw. It holds no text: the app reads
+/// the text from the model when it builds the notification.
 public struct NotifyCandidate: Sendable, Equatable {
     public let hostId: UUID
     public let projectId: String
     public let kind: WaitingKind
     public let key: String
+    public let topic: NotifyTopic
 
-    public init(hostId: UUID, projectId: String, kind: WaitingKind, key: String) {
+    public init(hostId: UUID, projectId: String, kind: WaitingKind, key: String, topic: NotifyTopic = .waiting) {
         self.hostId = hostId
         self.projectId = projectId
         self.kind = kind
         self.key = key
+        self.topic = topic
+    }
+
+    /// The candidate of a stuck episode: kind `pm_stuck`, key the episode id.
+    static func pm(hostId: UUID, projectId: String, topic: NotifyTopic, episodeId: String) -> NotifyCandidate {
+        NotifyCandidate(
+            hostId: hostId, projectId: projectId, kind: .other("pm_stuck"), key: episodeId, topic: topic)
     }
 }
 
@@ -45,6 +63,11 @@ public struct Staging: Sendable, Equatable {
     var pending: [String: Pending] = [:]
     /// Absent for a project that has no complete snapshot yet, in memory or loaded.
     var knownKeys: [String: Set<String>] = [:]
+    /// The stuck episodes announced (a live `pm.stuck` with alert true) and not yet seen ending, by project.
+    var announcedEpisodes: [String: Set<String>] = [:]
+    /// True from a `hello` to the next `cursor` line: what arrives between them is the snapshot and the catch-up of a
+    /// new stream, history that announces nothing.
+    var catchingUp = false
 
     public init() {}
 
@@ -73,6 +96,7 @@ public enum StoreReducer {
                 version: plain(hello.version), host: plain(hello.host), projects: hello.projects)
             // A new stream starts every snapshot again.
             staging.pending = [:]
+            staging.catchingUp = true
         case .project(let project):
             applyProject(project, to: &host, now: now)
         case .snapshot(let snapshot):
@@ -88,6 +112,7 @@ public enum StoreReducer {
             applyEvent(event, projectId: projectId, host: &host, staging: &staging, output: &output, now: now)
         case .cursor(let cursor):
             host.cursor = cursor
+            staging.catchingUp = false
         case .resync(let projectId, _):
             if let projectId {
                 drop(projectId, from: &host, staging: &staging)
@@ -151,6 +176,17 @@ public enum StoreReducer {
             }
         }
         staging.knownKeys[projectId] = keys
+        // An announced episode the run item no longer holds ended while the client was away.
+        if let announced = staging.announcedEpisodes[projectId], !announced.isEmpty {
+            let open = pending.run?.pm?.stuck?.episodeId
+            for episode in announced.sorted() where episode != open {
+                output.notify.append(
+                    .pm(hostId: host.hostId, projectId: projectId, topic: .pmRecovered(episodeId: episode), episodeId: episode))
+            }
+            var kept: Set<String> = []
+            if let open, announced.contains(open) { kept.insert(open) }
+            staging.announcedEpisodes[projectId] = kept
+        }
         model.waiting = pending.waiting
         model.agents = pending.agents
         model.plans = pending.plans
@@ -197,6 +233,7 @@ public enum StoreReducer {
         output: inout ReduceOutput, now: Date
     ) {
         guard var model = host.projects[projectId] else { return }
+        let priorHead = model.head
         if let head = model.head {
             if event.seq > head { model.head = event.seq }
         } else {
@@ -234,6 +271,9 @@ public enum StoreReducer {
             noteDetail(effect, of: event, in: &model)
         }
         if !unknown {
+            noteEpisode(
+                event, hostId: host.hostId, projectId: projectId, priorHead: priorHead, staging: &staging,
+                output: &output)
             applyRunChange(event, to: &model)
             model.markFreshness { $0.noteEvent(at: now) }
         }
@@ -241,6 +281,31 @@ public enum StoreReducer {
         if unknown {
             drop(projectId, from: &host, staging: &staging)
             output.refresh.insert(projectId)
+        }
+    }
+
+    /// A live `pm.stuck` with alert true announces its episode once; `pm.recovered` ends an announced one. An event the
+    /// held snapshot already covers (seq not above its head), one in the catch-up of a new stream (after a `hello`, before
+    /// the `cursor` line) and one for a project without a complete snapshot are history and announce nothing. A recovery
+    /// still withdraws an episode announced earlier.
+    private static func noteEpisode(
+        _ event: FeedEvent, hostId: UUID, projectId: String, priorHead: Int64?, staging: inout Staging,
+        output: inout ReduceOutput
+    ) {
+        if let stuck = event.body.pmStuckBody {
+            guard stuck.alert, !staging.catchingUp, staging.knownKeys[projectId] != nil, staging.pending[projectId] == nil,
+                  let head = priorHead, event.seq > head else { return }
+            var announced = staging.announcedEpisodes[projectId] ?? []
+            guard announced.insert(stuck.episodeId).inserted else { return }
+            staging.announcedEpisodes[projectId] = announced
+            output.notify.append(
+                .pm(hostId: hostId, projectId: projectId, topic: .pmStuck(episodeId: stuck.episodeId), episodeId: stuck.episodeId))
+        } else if let recovered = event.body.pmRecoveredBody {
+            guard var announced = staging.announcedEpisodes[projectId],
+                  announced.remove(recovered.episodeId) != nil else { return }
+            staging.announcedEpisodes[projectId] = announced
+            output.notify.append(
+                .pm(hostId: hostId, projectId: projectId, topic: .pmRecovered(episodeId: recovered.episodeId), episodeId: recovered.episodeId))
         }
     }
 

@@ -35,6 +35,38 @@ public struct NotificationPlan: Equatable, Sendable {
         ]
     }
 
+    /// The notification of a stuck PM: a fixed title, the project name and no body. The identifier names the episode, so
+    /// one episode is one notification and its end can withdraw it. `userInfo` holds no `key`: it is not a row.
+    public init(
+        pmStuck candidate: NotifyCandidate, settings: AppSettings, projectName: String,
+        preferences: SoundPreferences = SoundPreferences(), fileCheck: (String) -> Bool = { _ in true }
+    ) {
+        identifier = NotificationPlan.pmStuckIdentifier(
+            hostId: candidate.hostId, projectId: candidate.projectId, episodeId: candidate.key)
+        title = NotificationPlan.pmStuckTitle
+        let plain = UntrustedText(raw: projectName, verified: true, truncated: false).displayPlain
+        subtitle = String(plain.prefix(NotificationPlan.subtitleCap))
+        interruption = .active
+        sound = preferences.resolve(.message, fileCheck: fileCheck)
+        userInfo = [
+            "hostId": candidate.hostId.uuidString, "projectId": candidate.projectId, "pmStuck": candidate.key,
+        ]
+    }
+
+    public static let pmStuckTitle = "PM looks stuck"
+
+    public static func pmStuckIdentifier(hostId: UUID, projectId: String, episodeId: String) -> String {
+        "pmstuck.\(hostId.uuidString).\(projectId).\(episodeId)"
+    }
+
+    /// The project a stuck-PM notification names; nil for any other notification.
+    public static func pmStuckProject(fromUserInfo info: [AnyHashable: Any]) -> (UUID, String)? {
+        guard info["pmStuck"] as? String != nil, let host = info["hostId"] as? String,
+            let hostId = UUID(uuidString: host), let projectId = info["projectId"] as? String
+        else { return nil }
+        return (hostId, projectId)
+    }
+
     public static func title(_ kind: WaitingKind) -> String {
         switch kind {
         case .op: return "Command proposal waiting"

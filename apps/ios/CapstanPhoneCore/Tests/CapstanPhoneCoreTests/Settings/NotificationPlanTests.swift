@@ -71,7 +71,28 @@ final class NotificationPlanTests: XCTestCase {
 
     func testCategories() {
         XCTAssertEqual(PhoneNotificationPlan.category(.other("future")), "waiting.other")
-        XCTAssertEqual(PhoneNotificationPlan.categories.count, 6)
+        XCTAssertEqual(PhoneNotificationPlan.categories.count, 7)
         XCTAssertTrue(PhoneNotificationPlan.categories.contains("waiting.integration"))
+    }
+
+    func testPmStuckPlan() throws {
+        let made = try XCTUnwrap(
+            PhoneNotificationPlan(
+                pmStuck: host, projectId: "p1", episodeId: "ep1", projectName: "Capstan", settings: PhoneSettings()))
+        XCTAssertEqual(made.identifier, "pmstuck.\(host.uuidString).p1.ep1")
+        XCTAssertEqual(made.title, "PM looks stuck")
+        XCTAssertEqual(made.body, "Capstan")
+        XCTAssertEqual(made.category, "pm.stuck")
+        XCTAssertEqual(made.threadIdentifier, "project.\(host.uuidString).p1")
+        XCTAssertFalse(made.timeSensitive)
+        XCTAssertEqual(made.deepLink, "capstan://conversation/\(host.uuidString.lowercased())/p1")
+        XCTAssertTrue(PhoneNotificationPlan.categories.contains("pm.stuck"))
+    }
+
+    func testPmStuckPlanIsNilWhenNotificationsAreOff() {
+        let off = PhoneSettings(notifyKinds: [])
+        XCTAssertNil(
+            PhoneNotificationPlan(
+                pmStuck: host, projectId: "p1", episodeId: "ep1", projectName: "Capstan", settings: off))
     }
 }

@@ -71,6 +71,38 @@ final class SystemTests: XCTestCase {
         XCTAssertNil(NotificationPlan.row(fromUserInfo: bad))
     }
 
+    func test_pmStuckPlanHasNoBodyAndNoKey() {
+        let stuck = NotifyCandidate(
+            hostId: host, projectId: "proj", kind: .other("pm_stuck"), key: "ep-1", topic: .pmStuck(episodeId: "ep-1"))
+        let p = NotificationPlan(pmStuck: stuck, settings: AppSettings(), projectName: "Alpha")
+        XCTAssertEqual(p.identifier, "pmstuck.\(host.uuidString).proj.ep-1")
+        XCTAssertEqual(p.title, "PM looks stuck")
+        XCTAssertEqual(p.subtitle, "Alpha")
+        XCTAssertEqual(p.interruption, .active)
+        XCTAssertEqual(Set(p.userInfo.keys), ["hostId", "projectId", "pmStuck"])
+        XCTAssertNil(p.userInfo["key"])
+        XCTAssertNil(NotificationPlan.row(fromUserInfo: p.userInfo))
+        let target = NotificationPlan.pmStuckProject(fromUserInfo: p.userInfo)
+        XCTAssertEqual(target?.0, host)
+        XCTAssertEqual(target?.1, "proj")
+        XCTAssertNil(NotificationPlan.pmStuckProject(fromUserInfo: plan().userInfo))
+    }
+
+    func test_pmStuckSubtitleIsCut() {
+        let stuck = NotifyCandidate(hostId: host, projectId: "proj", kind: .other("pm_stuck"), key: "ep-1")
+        let p = NotificationPlan(pmStuck: stuck, settings: AppSettings(), projectName: String(repeating: "x", count: 100))
+        XCTAssertEqual(p.subtitle.count, 64)
+    }
+
+    func test_removeIsANoOpByDefault() async {
+        struct Port: NotificationPort {
+            func authorizationStatus() async -> AuthStatus { .notDetermined }
+            func requestAuthorization() async -> Bool { false }
+            func add(_ plan: NotificationPlan) async {}
+        }
+        await Port().remove(identifiers: ["a"])
+    }
+
     // MARK: SoundCatalog
 
     func test_catalogOrderAndFiltering() {
