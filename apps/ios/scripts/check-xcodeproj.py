@@ -21,6 +21,8 @@ PRODUCTS = ("CapstanKit", "CapstanAppCore", "CapstanPhoneCore", "CapstanSSH")
 INFO_PLIST = "CapstanPhone/Info.plist"
 WIDGETS_PLIST = "CapstanWidgets/Info.plist"
 BUNDLE_ID = "in.qusol.capstan.phone"
+ENTITLEMENTS = "CapstanPhone.entitlements"
+TIME_SENSITIVE_KEY = "com.apple.developer.usernotifications.time-sensitive"
 ID = re.compile(r"\b[0-9A-F]{24}\b")
 
 
@@ -161,12 +163,32 @@ def check_project(project):
             ):
                 m = re.search(r"\b" + key + r" = ([^;]+);", settings)
                 need(m and m.group(1).strip().strip('"') == want, f"{key} is not {want} in {name} configuration {cid}")
+            m = re.search(r"\bCODE_SIGN_ENTITLEMENTS = ([^;]+);", settings)
+            if name == "CapstanPhone":
+                need(m and m.group(1).strip().strip('"') == ENTITLEMENTS,
+                     f"CODE_SIGN_ENTITLEMENTS is not {ENTITLEMENTS} in {name} configuration {cid}")
+            else:
+                need(not m, f"CODE_SIGN_ENTITLEMENTS is set on {name} configuration {cid}; only the app target has it")
     targets = [app_id]
 
-    # no sandbox setting and no entitlements, so no push entitlement (D8)
+    # no sandbox setting, and one entitlements file with Time Sensitive only, so no push entitlement (D8)
     need("ENABLE_APP_SANDBOX" not in pbx, "ENABLE_APP_SANDBOX is set")
-    need("CODE_SIGN_ENTITLEMENTS" not in pbx, "CODE_SIGN_ENTITLEMENTS is set")
+    need(len(re.findall(r"\bCODE_SIGN_ENTITLEMENTS\b", pbx)) == 2,
+         "CODE_SIGN_ENTITLEMENTS must be set exactly in the two configurations of the app target")
     need("aps-environment" not in pbx, "the project names aps-environment")
+    ent_path = os.path.join(base, ENTITLEMENTS)
+    try:
+        with open(ent_path, "rb") as f:
+            ent = plistlib.load(f)
+    except (OSError, plistlib.InvalidFileException, ValueError) as e:
+        raise Finding(f"{ENTITLEMENTS} is not a readable plist: {e}")
+    need(ent == {TIME_SENSITIVE_KEY: True},
+         f"{ENTITLEMENTS} must hold exactly {TIME_SENSITIVE_KEY} = true, found keys {sorted(ent)}")
+    for folder in ("CapstanPhone", "CapstanWidgets"):
+        for dirpath, _dirs, files in os.walk(os.path.join(base, folder)):
+            for name in files:
+                need(not name.endswith(".entitlements"),
+                     f"{os.path.join(folder, name)} sits in a synchronized folder and would be copied as a resource")
 
     # Info.plist: the usage strings, background fetch only, the capstan URL scheme
     info_path = os.path.join(base, INFO_PLIST)
@@ -228,7 +250,12 @@ def mutations():
         ("deployment target 25", pbx, sub("IPHONEOS_DEPLOYMENT_TARGET = 26.0;\n\t\t\t\tLD_RUNPATH", "IPHONEOS_DEPLOYMENT_TARGET = 25.0;\n\t\t\t\tLD_RUNPATH")),
         ("macOS sdk", pbx, sub("SDKROOT = iphoneos;\n\t\t\t\tSWIFT_VERSION = 6.0;\n\t\t\t\tTARGETED", "SDKROOT = macosx;\n\t\t\t\tSWIFT_VERSION = 6.0;\n\t\t\t\tTARGETED")),
         ("sandbox set", pbx, sub("ENABLE_PREVIEWS = YES;", "ENABLE_PREVIEWS = YES;\n\t\t\t\tENABLE_APP_SANDBOX = NO;")),
-        ("entitlements", pbx, sub("ENABLE_PREVIEWS = YES;", "ENABLE_PREVIEWS = YES;\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = CapstanPhone/App.entitlements;")),
+        ("entitlements naming another file", pbx, sub("CODE_SIGN_ENTITLEMENTS = CapstanPhone.entitlements;", "CODE_SIGN_ENTITLEMENTS = CapstanPhone/App.entitlements;")),
+        ("entitlements on the widget target", pbx, sub("\t\t\tbuildSettings = {\n\t\t\t\tCODE_SIGN_STYLE = Automatic;\n\t\t\t\tCURRENT_PROJECT_VERSION = 1;\n\t\t\t\tDEVELOPMENT_TEAM = \"\";\n\t\t\t\tGENERATE_INFOPLIST_FILE = YES;", "\t\t\tbuildSettings = {\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = CapstanPhone.entitlements;\n\t\t\t\tCODE_SIGN_STYLE = Automatic;\n\t\t\t\tCURRENT_PROJECT_VERSION = 1;\n\t\t\t\tDEVELOPMENT_TEAM = \"\";\n\t\t\t\tGENERATE_INFOPLIST_FILE = YES;")),
+        ("extra key in the entitlements", ENTITLEMENTS, sub("</dict>", "\t<key>com.apple.security.application-groups</key>\n\t<array/>\n</dict>")),
+        ("aps-environment in the entitlements", ENTITLEMENTS, sub("</dict>", "\t<key>aps-environment</key>\n\t<string>production</string>\n</dict>")),
+        ("time-sensitive false", ENTITLEMENTS, sub("<true/>", "<false/>")),
+        ("entitlements file in the synchronized folder", "CapstanPhone/Extra.entitlements", None),
         ("Info.plist as a resource", pbx, sub("\t\t\texceptions = (\n\t\t\t\tB10000000000000000000033 /* Exceptions for \"CapstanPhone\" folder in \"CapstanPhone\" target */,\n\t\t\t);\n", "")),
         ("product not linked", pbx, sub("\t\t\t\tB10000000000000000000032 /* CapstanSSH in Frameworks */,\n", "")),
         ("scheme without CapstanPhone", "CapstanPhone.xcodeproj/xcshareddata/xcschemes/CapstanPhone.xcscheme",
@@ -261,12 +288,16 @@ def self_test(project):
             shutil.copy(os.path.join(ios, INFO_PLIST), os.path.join(copy_ios, INFO_PLIST))
             os.makedirs(os.path.join(copy_ios, "CapstanWidgets"))
             shutil.copy(os.path.join(ios, WIDGETS_PLIST), os.path.join(copy_ios, WIDGETS_PLIST))
+            shutil.copy(os.path.join(ios, ENTITLEMENTS), os.path.join(copy_ios, ENTITLEMENTS))
             for p in ("CapstanPhoneCore", "CapstanSSH"):
                 os.symlink(os.path.join(ios, p), os.path.join(copy_ios, p))
             os.makedirs(os.path.join(tmp, "macos"))
             for p in ("CapstanKit", "CapstanAppCore"):
                 os.symlink(os.path.join(ios, "..", "macos", p), os.path.join(tmp, "macos", p))
             target = os.path.join(copy_ios, rel)
+            if mutate is None:  # a file the case adds: the time-sensitive file, placed inside the synchronized folder
+                shutil.copy(os.path.join(ios, ENTITLEMENTS), target)
+                mutate = lambda text: text
             try:
                 with open(target, encoding="utf-8") as f:
                     text = f.read()

@@ -18,6 +18,10 @@ public struct PhoneSettings: Codable, Equatable, Sendable {
     public var sounds: SoundPreferences
     /// The kinds whose notifications are Time Sensitive; none until the person switches one on.
     public var timeSensitiveKinds: Set<WaitingKind>
+    /// Siri may approve once or deny an Operator proposal by voice; off until the person switches it on.
+    public var voiceDecisions: Bool
+    /// Siri may also offer grants and auto-approve; no effect while `voiceDecisions` is false.
+    public var voiceGrants: Bool
     /// Off until the person allows the Live Activity.
     public var liveActivityAllowed: Bool
     /// The `--client` label of decisions sent from this phone.
@@ -27,7 +31,8 @@ public struct PhoneSettings: Codable, Equatable, Sendable {
         faceID: Bool = true, pollMs: Int = 2000, heartbeatPulse: Bool = true,
         notifyKinds: Set<WaitingKind> = [.op, .prompt, .design, .message, .integration],
         sounds: SoundPreferences = SoundPreferences(), timeSensitiveKinds: Set<WaitingKind> = [],
-        liveActivityAllowed: Bool = false, clientLabel: String = "iPhone"
+        liveActivityAllowed: Bool = false, clientLabel: String = "iPhone", voiceDecisions: Bool = false,
+        voiceGrants: Bool = false
     ) {
         version = PhoneSettings.currentVersion
         self.faceID = faceID
@@ -38,6 +43,8 @@ public struct PhoneSettings: Codable, Equatable, Sendable {
         self.timeSensitiveKinds = timeSensitiveKinds
         self.liveActivityAllowed = liveActivityAllowed
         self.clientLabel = clientLabel
+        self.voiceDecisions = voiceDecisions
+        self.voiceGrants = voiceGrants
     }
 
     /// A key that is missing takes its default; keys this version does not know are ignored.
@@ -54,6 +61,8 @@ public struct PhoneSettings: Codable, Equatable, Sendable {
             ?? base.timeSensitiveKinds
         liveActivityAllowed = try c.decodeIfPresent(Bool.self, forKey: .liveActivityAllowed) ?? base.liveActivityAllowed
         clientLabel = try c.decodeIfPresent(String.self, forKey: .clientLabel) ?? base.clientLabel
+        voiceDecisions = try c.decodeIfPresent(Bool.self, forKey: .voiceDecisions) ?? base.voiceDecisions
+        voiceGrants = try c.decodeIfPresent(Bool.self, forKey: .voiceGrants) ?? base.voiceGrants
     }
 }
 

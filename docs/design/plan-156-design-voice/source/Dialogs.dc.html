@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Siri dialogs</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="voice.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=IBM+Plex+Mono:wght@400&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board light" id="dialogs" style="width: 2400px; height: 2080px;">
+<div class="bh">
+<h1>Siri dialogs · every line</h1>
+<p>One sentence per line, fixed words at most LINE_CAP = 120 characters with long project and host names. The command, a prefix and the project name are untrusted: read only when verified, whole, printable ASCII and at most ITEM_CAP = 120 characters; the command always inside “The command is: … End of command.”, and the question after it is fixed app text. Siri shows its own working indicator while hosts are read (8 s budget).</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; align-items: start;">
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<section class="script" style="width: auto;" aria-label="What's waiting">
+<h2>What's waiting · “What's waiting in Capstan”</h2>
+<h3>Nothing waits (empty)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Nothing waits in Capstan.<span class="k">list.count.none</span></p></div>
+<h3>One item</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">1 item waits in Capstan.<span class="k">list.count.one</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A message in payments-api, just now.<span class="k">list.item.plain · age.now</span></p></div>
+<h3>Several items, oldest first, at most 3 read</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">5 items wait in Capstan.<span class="k">list.count.many</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A command in payments-api, 4 minutes ago. The command is: <span class="cmd">git push origin main</span>. End of command.<span class="k">list.item.plain · frame.command · kind.op · age.minutes</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A design in site, 1 hour ago.<span class="k">list.item.plain · kind.design · age.hour (designs: kind, project and age only)</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A permission prompt in infra, 2 hours ago.<span class="k">list.item.plain · kind.prompt · age.hours</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">And 2 more.<span class="k">list.more.many (list.more.one for 1)</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">To decide the command, say: approve in Capstan, or deny in Capstan.<span class="k">list.hint · only with Decide by voice on and a decidable command</span></p></div>
+<h3>Text that is not read</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A command in infra, 3 days ago. Too long to read aloud.<span class="k">list.item.long · command over ITEM_CAP, 120 characters</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A command in infra, 1 day ago. Its text could not be checked.<span class="k">list.item.unverified · not verified, cut or empty</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A command in infra, 2 days ago. It can't be read aloud.<span class="k">list.item.unreadable · a character outside printable ASCII: newline, control, bidi, non-ASCII letter</span></p></div>
+<h3>Hosts that do not answer (error)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">build-host did not answer, so its items are missing.<span class="k">list.unreachable · after the count</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">No host answered, so Capstan could not check what waits.<span class="k">list.unreachable.all</span></p></div>
+</section>
+<section class="script" style="width: auto;" aria-label="Approve once">
+<h2>Approve once · “Approve once in Capstan”</h2>
+<h3>New host: op approve-as once (also “Approve in Capstan” → 1)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approve once in payments-api. The command is: <span class="cmd">git push origin main</span>. End of command.<span class="k">readback.approve · frame.command · {where} = project, or “project on host” when two hosts share the name</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approve it?<span class="k">confirm.approve · Siri's yes / no</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approved once in payments-api.<span class="k">result.approved</span></p></div>
+<h3>An older command was skipped</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">1 older command can't be approved by voice.<span class="k">readback.skipped.one / .many · before the read-back</span></p></div>
+<h3>Old host: forwarded op approve</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Sent to the PM of payments-api as approve once.<span class="k">result.forwarded</span></p></div>
+<h3>You say no</h3>
+<div class="ln you"><span class="who">You</span><p class="say">No.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Nothing was sent.<span class="k">confirm.cancelled</span></p></div>
+<h3>Deny-only command (limit is set)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">The command in infra can only be denied by voice: the approval floor holds it back.<span class="k">refusal.denyOnly · reason.floor</span></p></div>
+<p class="k">Other reasons: reason.restart “it restarts the controller” · reason.not_checked “the approval floor did not check it” · reason.text_mismatch “its text no longer matches” · reason.shell “it chains, pipes or redirects commands” (|, &amp;&amp;, ;, &gt;)</p>
+</section>
+</div>
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<section class="script" style="width: auto;" aria-label="Deny">
+<h2>Deny · “Deny in Capstan”</h2>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Deny in infra. The command is: <span class="cmd">systemctl restart capstan</span>. End of command.<span class="k">readback.deny · frame.command · works for every limit</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Deny it?<span class="k">confirm.deny</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Denied in infra.<span class="k">result.denied</span></p></div>
+<h3>Not decidable by voice at all</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">The command in infra is too long to read aloud, so it can't be decided by voice.<span class="k">refusal.tooLong · over 120 characters, and every truncated command</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">The command in infra can't be decided by voice: it has characters that can't be read aloud.<span class="k">refusal.notDecidable · reason.nonAscii (also reason.multiline, reason.unverified, reason.project)</span></p></div>
+</section>
+<section class="script" style="width: auto;" aria-label="Refusals and results">
+<h2>Refusals and results (approve and deny)</h2>
+<div class="ln siri"><span class="who">Siri</span><p class="say">This iPhone hasn't been unlocked since it started, so Capstan can't read its keys. Unlock it once. Nothing was sent.<span class="k">refusal.locked · every voice intent, before the first unlock</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">This iPhone isn't paired with a Capstan host. Pair it when you are parked.<span class="k">refusal.notPaired</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Decide by voice is off. Turn it on in Capstan settings when you are parked.<span class="k">refusal.voiceOff · listing still works</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">No command waits for you.<span class="k">refusal.nothing</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">2 items wait, but only commands can be decided by voice.<span class="k">refusal.readOnly.many / .one</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">That command changed or is gone. Nothing was decided.<span class="k">refusal.changed · hash_mismatch, not_waiting</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Could not reach build-host. Nothing was sent, and Capstan won't retry.<span class="k">refusal.unreachable</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">build-host took too long. Nothing was sent, and Capstan won't retry.<span class="k">refusal.timeout · 8 s budget, before sending</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Sent, but build-host did not answer. Check Capstan when you are parked.<span class="k">result.unknown · after sending, or a malformed answer</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">build-host is busy with another command. Nothing was decided. Try again soon.<span class="k">refusal.busy</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">The host now holds this back, so it needs the terminal. Nothing was decided.<span class="k">refusal.needsTerminal · e.g. a floor entry added since</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Too many requests for this command. Nothing was sent.<span class="k">refusal.limitReached</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">payments-api has no active PM, so nothing was sent.<span class="k">refusal.noActivePm · old host forward</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">build-host refused it. Nothing was decided.<span class="k">refusal.other · invalid_request and any other code</span></p></div>
+</section>
+</div>
+<div style="display: flex; flex-direction: column; gap: 32px;">
+<section class="script" style="width: auto;" aria-label="Approve with a choice">
+<h2>Approve with a choice · “Approve in Capstan”</h2>
+<p class="k">Needs Decide by voice and Grants by voice. Only the choices approveChoices offers are read, numbered in this order.</p>
+<h3>The choice</h3>
+<div class="ln you"><span class="who">You</span><p class="say">Approve in Capstan.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approve in payments-api. The command is: <span class="cmd">git push origin main</span>. End of command.<span class="k">readback.approveAnd · frame.command</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">How do you want to approve it? Say the number.<span class="k">prompt.choice</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">1: once. 2: this exact command, for the session. 3: commands that start the same way, for the session.<span class="k">prompt.choice.option · choose.label.* (one line each)</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">4: auto-approve everything for 1 hour. 5: auto-approve everything for this session.<span class="k">prompt.choice.option · choose.label.hour / .session</span></p></div>
+<h3>2 · This exact command</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">And allow this exact command for this session, up to the host's grant limit. Approve and allow?<span class="k">readback.exact · confirm.approveAnd</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approved, and this exact command is allowed in payments-api until 16:58.<span class="k">result.exact (.noEnd without expiresAt)</span></p></div>
+<h3>3 · Commands that start the same way</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Allow commands that start with which words? Say the number.<span class="k">prompt.prefix</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Choice 1 is: <span class="cmd">git push</span>. End of choice 1. Choice 2 is: <span class="cmd">git push origin</span>. End of choice 2.<span class="k">prompt.prefix.option · shortest first, at most 3, word for word</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Two.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">And allow commands that start with choice 2: <span class="cmd">git push origin</span>. End of choice 2.<span class="k">readback.prefix</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A grant matches whole words. Pushes and deletes still ask. It lasts for this session, up to the host's grant limit.<span class="k">readback.prefix.rule · readback.prefix.length</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approve and allow?<span class="k">confirm.approveAnd</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approved, and commands that start with the chosen words are allowed in payments-api until 16:58.<span class="k">result.prefix</span></p></div>
+<h3>4 / 5 · Auto-approve (two yeses)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">And auto-approve for 1 hour, or less if the host's limit is shorter.<span class="k">readback.hour (readback.session: until the host's limit or a controller restart)</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">The window approves every Operator command and worker permission prompt, pushes and deletes included.<span class="k">readback.coverage.all</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Only the floor list still asks: deletes or writes outside the project, and a controller restart.<span class="k">readback.coverage.floor</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Scripts and shells are approved unchecked. Web fetch, MCP and other tool prompts are answered without a floor check.<span class="k">readback.coverage.scripts · .tools</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approve and open the window?<span class="k">confirm.window</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Last check: auto-approve everything in payments-api for 1 hour?<span class="k">prompt.secondYes.hour / .session · the second yes</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approved. Auto-approve is on in payments-api until 15:41. Window win-7. End it at the terminal with cstan op revoke.<span class="k">result.window · result.window.revoke</span></p></div>
+<h3>Fewer choices</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Grants by voice is off, so only approve once is offered.<span class="k">choose.grantsOff · then the approve once read-back</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Only approve once is offered for this command.<span class="k">choose.onlyOnce · nothing else offered</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">build-host offers only approve once. Update Capstan there for more.<span class="k">choose.oldHost · then the forward</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">I didn't catch a number. Nothing was sent.<span class="k">choose.unclear</span></p></div>
+</section>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2400,"height":2080}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

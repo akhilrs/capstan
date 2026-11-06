@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Direction A: short lines</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="voice.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=IBM+Plex+Mono:wght@400&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board light" style="width: 1568px; height: 1120px;">
+<div class="bh">
+<h1>Direction A · Short lines (picked)</h1>
+<p>Siri says the fewest words that still name the project and the exact command. One sentence per line; the command read whole inside “The command is: … End of command.”, then Siri's own yes or no. Catalog: Control Room + Plain Speech.</p>
+</div>
+<div class="row2">
+<section class="script" aria-label="Spoken script">
+<h2>In the car</h2>
+<h3>Announcement (Time Sensitive notification)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Capstan: Command to approve. In payments-api.<span class="k">notify.op.title · notify.op.body</span></p></div>
+<h3>What waits</h3>
+<div class="ln you"><span class="who">You</span><p class="say">What's waiting in Capstan?</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">3 items wait in Capstan.<span class="k">list.count.many</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A command in payments-api, 4 minutes ago. The command is: <span class="cmd">git push origin main</span>. End of command.<span class="k">list.item.plain · frame.command</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A design in site, 1 hour ago.<span class="k">list.item.plain</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">A permission prompt in infra, 2 hours ago.<span class="k">list.item.plain</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">To decide the command, say: approve in Capstan, or deny in Capstan.<span class="k">list.hint</span></p></div>
+<h3>Approve once</h3>
+<div class="ln you"><span class="who">You</span><p class="say">Approve once in Capstan.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approve once in payments-api. The command is: <span class="cmd">git push origin main</span>. End of command. Approve it?<span class="k">readback.approve · frame.command · confirm.approve</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Approved once in payments-api.<span class="k">result.approved</span></p></div>
+<h3>Also: “Approve in Capstan” offers exact, prefix, 1 hour and session (Siri dialogs board)</h3>
+<h3>A refusal</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">That command changed or is gone. Nothing was decided.<span class="k">refusal.changed</span></p></div>
+</section>
+<div class="phone" role="img" aria-label="Settings with the Decide by voice row, off">
+<div class="sbar"><span>9:41</span><span></span></div>
+<div class="nav"><button class="back" type="button">‹ Hosts</button></div>
+<div class="lt">Settings</div>
+<div class="sec"><div class="sh">Connection</div>
+<div class="grp"><div class="cellrow">Hosts<span class="v">2</span></div><div class="cellrow">Require Face ID<span class="sw on"></span></div></div></div>
+<div class="sec"><div class="sh">Siri and CarPlay</div>
+<div class="grp"><div class="cellrow">Decide by voice<span class="sw"></span></div><div class="cellrow dis">Grants by voice<span class="sw dis"></span></div></div>
+<p class="ft">Siri can approve once or deny an Operator proposal after reading the command back to you. Works without Face ID, and on a locked iPhone after its first unlock. Other items are only read out.</p>
+<p class="ft">Needs Decide by voice. Adds, for Operator proposals only: this exact command or a prefix for the session, and auto-approve for 1 hour or the session. Works without Face ID. Auto-approve asks twice.</p></div>
+</div>
+<div class="phone" role="img" aria-label="Notifications settings, Time Sensitive section">
+<div class="sbar"><span>9:41</span><span></span></div>
+<div class="nav"><button class="back" type="button">‹ Settings</button></div>
+<div class="lt">Notifications</div>
+<div class="sec"><div class="sh">Time Sensitive</div>
+<div class="grp">
+<div class="cellrow">Command proposals<span class="sw"></span></div>
+<div class="cellrow">Permission prompts<span class="sw"></span></div>
+<div class="cellrow">Design approvals<span class="sw"></span></div>
+<div class="cellrow">Messages from a PM<span class="sw"></span></div>
+<div class="cellrow">Ready to merge<span class="sw"></span></div>
+</div>
+<p class="ft">Time Sensitive notifications break through a Focus, so all kinds start off. In CarPlay, Siri reads them aloud when Announce Notifications is on for Capstan. They say the kind and the project, never the text.</p></div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1568,"height":1120}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

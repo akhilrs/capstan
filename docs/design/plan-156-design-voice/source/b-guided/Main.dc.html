@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Direction B: guided</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="voice.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=IBM+Plex+Mono:wght@400&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board light" style="width: 1568px; height: 1240px;">
+<div class="bh">
+<h1>Direction B · Guided</h1>
+<p>Siri explains as it goes: the count by kind, what an answer does, and what to say next. Longer lines, fewer surprises for someone new to it. Catalog: Plain Speech + Conversation.</p>
+</div>
+<div class="row2">
+<section class="script" aria-label="Spoken script">
+<h2>In the car</h2>
+<h3>Announcement (Time Sensitive notification)</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Capstan: A command waits for your approval. In payments-api.<span class="k">notify.op.title · notify.body</span></p></div>
+<h3>What waits</h3>
+<div class="ln you"><span class="who">You</span><p class="say">What's waiting in Capstan?</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">3 items wait in Capstan: 1 command, 1 design and 1 permission prompt. I'll read them, oldest first.<span class="k">list.count.many · list.byKind</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">First, a command in payments-api. It has waited 4 minutes. It reads: <span class="cmd">git push origin main</span>.<span class="k">list.item.text</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Next, a design in site. It has waited 1 hour. It is called: Pricing page, dark theme.<span class="k">list.item.text</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Last, a permission prompt in infra. It has waited 2 hours. Answer it in the app.<span class="k">list.item.plain</span></p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">You can approve the command once or deny it. Say “Approve once in Capstan” or “Deny in Capstan”.<span class="k">list.hint</span></p></div>
+<h3>Approve once</h3>
+<div class="ln you"><span class="who">You</span><p class="say">Approve once in Capstan.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">The oldest command waits in payments-api. It reads: <span class="cmd">git push origin main</span>. Approving runs it this one time and allows nothing else. Do you want to approve it once?<span class="k">readback.approve · confirm.approve</span></p></div>
+<div class="ln you"><span class="who">You</span><p class="say">Yes.</p></div>
+<div class="ln siri"><span class="who">Siri</span><p class="say">Done. The command in payments-api is approved once. It runs now.<span class="k">result.approved</span></p></div>
+<h3>A refusal</h3>
+<div class="ln siri"><span class="who">Siri</span><p class="say">I didn't send anything. The command changed or was answered while I was reading it. Ask me again to hear what waits now.<span class="k">refusal.changed</span></p></div>
+</section>
+<div class="phone" role="img" aria-label="Settings with the Decide by voice row, off">
+<div class="sbar"><span>9:41</span><span></span></div>
+<div class="nav"><button class="back" type="button">‹ Hosts</button></div>
+<div class="lt">Settings</div>
+<div class="sec"><div class="sh">Connection</div>
+<div class="grp"><div class="cellrow">Hosts<span class="v">2</span></div><div class="cellrow">Require Face ID<span class="sw on"></span></div></div></div>
+<div class="sec"><div class="sh">Siri and CarPlay</div>
+<div class="grp"><div class="cellrow">Decide by voice<span class="sw"></span></div></div>
+<p class="ft">Siri can approve once or deny an Operator proposal after reading the command back to you. This works without Face ID. Other items are only read out.</p>
+<p class="ft">Say “What’s waiting in Capstan”, “Approve once in Capstan” or “Deny in Capstan”.</p></div>
+<div class="sec"><div class="sh">Alerts</div>
+<div class="grp"><div class="cellrow">Notifications and sounds<span class="v">On ›</span></div></div></div>
+</div>
+<div class="phone" role="img" aria-label="Notifications settings, Time Sensitive section">
+<div class="sbar"><span>9:41</span><span></span></div>
+<div class="nav"><button class="back" type="button">‹ Settings</button></div>
+<div class="lt">Notifications</div>
+<div class="sec"><div class="sh">Time Sensitive</div>
+<div class="grp">
+<div class="cellrow">Command proposals<span class="sw on"></span></div>
+<div class="cellrow">Permission prompts<span class="sw on"></span></div>
+<div class="cellrow">Design approvals<span class="sw"></span></div>
+<div class="cellrow">Messages from a PM<span class="sw"></span></div>
+<div class="cellrow">Ready to merge<span class="sw"></span></div>
+</div>
+<p class="ft">Time Sensitive notifications can break through a Focus. In CarPlay, Siri reads them aloud when Announce Notifications is on for Capstan. They say the kind and the project, never the text.</p></div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1568,"height":1240}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

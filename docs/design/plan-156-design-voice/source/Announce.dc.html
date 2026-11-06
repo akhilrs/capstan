@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Announcements per kind</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="voice.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=IBM+Plex+Mono:wght@400&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 1350px; display: flex;">
+<div class="board light" id="announce-light" style="width: 675px; height: 1040px;">
+<div class="bh"><h1>Announcements · Light</h1><p>Title per kind, body “In {project}.” Siri says the app name first. Time Sensitive starts off for every kind; drawn here with commands and prompts turned on. Kind and project only: no command, no agent, no host text.</p></div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now · Time Sensitive</span></span><b>Command to approve</b><span>In payments-api.</span><span class="k">notify.op.* · Siri: “Capstan: Command to approve. In payments-api.”</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now · Time Sensitive</span></span><b>Permission prompt to answer</b><span>In infra.</span><span class="k">notify.prompt.* · Siri: “Capstan: Permission prompt to answer. In infra.”</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Design to review</b><span>In site.</span><span class="k">notify.design.* · Time Sensitive off</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Message to answer</b><span>In payments-api.</span><span class="k">notify.message.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Ready to merge</b><span>In site.</span><span class="k">notify.integration.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Item waiting</b><span>In infra.</span><span class="k">notify.other.* · a kind this app does not know</span></div>
+</div>
+</div>
+<div class="board dark" id="announce-dark" style="width: 675px; height: 1040px;">
+<div class="bh"><h1>Announcements · Dark</h1><p>The same six notifications in dark. Siri only announces the Time Sensitive ones while driving, and only with Announce Notifications on for Capstan.</p></div>
+<div style="display: flex; flex-direction: column; gap: 12px;">
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now · Time Sensitive</span></span><b>Command to approve</b><span>In payments-api.</span><span class="k">notify.op.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now · Time Sensitive</span></span><b>Permission prompt to answer</b><span>In infra.</span><span class="k">notify.prompt.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Design to review</b><span>In site.</span><span class="k">notify.design.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Message to answer</b><span>In payments-api.</span><span class="k">notify.message.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Ready to merge</b><span>In site.</span><span class="k">notify.integration.*</span></div>
+<div class="lock"><span class="app"><span>CAPSTAN</span><span>now</span></span><b>Item waiting</b><span>In infra.</span><span class="k">notify.other.*</span></div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1350,"height":1040}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
