@@ -2,6 +2,27 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.21.0 (2026-11-06)
+
+### Upgrade note
+
+Before restarting a controller on 0.21.0, move `[remote]` and the `[ntfy]` connection keys from `capstan.toml` into `capstan.local.toml` (mode 0600), or the controller refuses `capstan.toml`.
+
+### Features
+
+- feat: Phone Operator approvals: scope and auto-approve window (a96d2d58). `op approve-as` takes the scope and auto-approve window choices from the phone, and the PM prompt does not ask again.
+- feat: Capstan in CarPlay via Siri: announced notifications and voice (48e908b3). Time Sensitive speakable notifications and the voice design.
+- Config split (merged integration, 15493dd3): `capstan.local.toml` is layered over `capstan.toml`; `[remote]`, the `[ntfy]` connection keys and `[env] pass` are honoured only from the local file; tracking `capstan.toml` stays opt-in.
+
+### Bug fixes
+
+- fix(cstan): keep tracking capstan.toml opt-in until the trust check (15493dd3)
+- test(wire): fix clippy findings in socket_path tests (bea7c7ef). Fixes the CI `socket_path` test race.
+
+### Other changes
+
+- docs(macos): Mac app parity with the recent iPhone app changes (b30977ca). The plan-149 parity checklist.
+
 ## 0.20.0 (2026-11-05)
 
 ### Features
