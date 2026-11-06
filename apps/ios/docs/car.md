@@ -3,8 +3,15 @@
 **Time Sensitive kinds are off by default. Nothing is announced until you turn kinds on** in Capstan → Settings →
 Notifications → Time Sensitive.
 
-**Before the first build:** Time Sensitive Notifications must be on the App ID, and the provisioning profile must be
-new. Signing fails on a device or an archive without it; see [release.md](release.md).
+**Personal (free) Apple team: nothing to do.** The project builds with no Time Sensitive entitlement by default, so a
+personal team signs it without edits. The Time Sensitive setting in the app is then harmless: iOS delivers those
+notifications at the normal (active) level, with no error and no warning. To still have Siri read them in the car,
+turn on **Settings → Notifications → Announce Notifications** and switch on **Capstan** under **CarPlay** (step 1 below).
+
+**Paid Apple Developer team: Time Sensitive is opt-in.** Set the build setting `CAPSTAN_TIME_SENSITIVE` to `YES` (Xcode →
+the CapstanPhone target → Build Settings → search "Time Sensitive", or `xcodebuild ... CAPSTAN_TIME_SENSITIVE=YES`).
+That signs the app with `CapstanPhone-TimeSensitive.entitlements`. The capability must be on the App ID and the
+provisioning profile must be new; see [release.md](release.md).
 
 ## Your one-time steps
 
@@ -12,7 +19,7 @@ new. Signing fails on a device or an archive without it; see [release.md](releas
    **Capstan**.
 2. In **Capstan → Settings → Notifications → Time Sensitive**, switch on the kinds you want read aloud (a command to
    approve, a permission prompt and so on). Each kind starts off.
-3. Allow Time Sensitive for Capstan in iOS **Settings → Notifications → Capstan** if iOS offers the choice.
+3. With the entitlement on (paid team), allow Time Sensitive for Capstan in iOS **Settings → Notifications → Capstan** if iOS offers the choice.
 
 ## What is announced, and when
 
@@ -20,7 +27,8 @@ new. Signing fails on a device or an archive without it; see [release.md](releas
   kind and the project only ("Command to approve. In payments-api."), never the command or any agent text.
 - These are local notifications. Capstan has no server and no push (D8), so one is made only while the app is running
   or a background refresh runs. If iOS does not wake the app, nothing is announced.
-- Only the kinds you switched on are Time Sensitive; the others arrive at the normal level.
+- Only the kinds you switched on are Time Sensitive; the others arrive at the normal level. Without the entitlement
+  (the default build) all of them arrive at the normal level.
 - Apple may still not announce a third-party Time Sensitive notification in some cars; the car pass records what each
   car does.
 
