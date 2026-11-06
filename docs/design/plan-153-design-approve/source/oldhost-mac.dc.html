@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>oldhost — Mac</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="approve.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board mac" style="width:1360px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">old host · no approveChoices: the approved inspector with Send approval to PM, unchanged — {{a.label}}</p><div class="{{a.cls}} desk"><div class="win" style="height:760px"><nav class="side glass" aria-label="Sidebar"><div class="lights" aria-hidden="true"><span></span><span></span><span></span></div><ul class="nav"><li><a class="on" href="#inbox" aria-current="page">Waiting for you<span class="badge">5</span></a></li><li><a href="#agents">Agents<span class="badge">12</span></a></li><li><a href="#plans">Plans<span class="badge">4</span></a></li><li><a href="#messages">Messages to PM</a></li></ul><div class="sh">Hosts</div><ul class="nav"><li><a href="#h1"><span class="dot s-live" aria-hidden="true"></span>build-host<span class="sub">live</span></a></li><li><a class="in" href="#p1">payments-api<span class="badge">3</span></a></li><li><a class="in" href="#p2">docs-site<span class="badge">2</span></a></li></ul></nav><section class="mid" aria-label="Waiting for you"><div class="scroll"><h2 class="grp" style="margin:0">Command proposals · 2</h2><ul class="rows"><li class="row sel"><span class="k">payments-api · operator</span><span class="t">6 min</span><span class="m"><code>git push origin fix/PM-412-retry-timeouts</code></span></li><li class="row"><span class="k">docs-site · operator</span><span class="t">21 min</span><span class="m"><code>npm run build</code></span></li></ul><h2 class="grp" style="margin:0">Permission prompts · 2</h2><ul class="rows"><li class="row"><span class="k">docs-site · dev-3 asks to run a command</span><span class="t">2 min</span><span class="m"><code>rm -rf build/ &amp;&amp; npm run build</code></span></li></ul></div><div class="tb"><div class="capg glass"><h1 class="title" style="margin:0">Waiting for you</h1></div></div><div class="status glass"><span class="dot s-live" aria-hidden="true"></span>build-host live · heartbeat 3 s ago</div></section><aside class="insp" aria-label="Inspector"><div class="eyebrow"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="3" width="13" height="10" rx="2"/><path d="m4.5 6.5 2 1.5-2 1.5M8.5 10h3"/></svg>Command proposal · payments-api</div><h1 class="h2">The operator wants to run a command</h1><dl class="meta"><dt>Host</dt><dd>build-host</dd><dt>Proposed</dt><dd>12:41, 6 min ago</dd><dt>Request</dt><dd><span class="mono">op:18</span> · <span class="mono">fa78fb90bf4b</span></dd></dl><div class="ut "><div class="ut-h"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.5M8 11.6v.4"/></svg>Command · untrusted, shown as written</div><pre class="ut-b">git push origin fix/PM-412-retry-timeouts</pre></div><div class="ut"><div class="ut-h">Reason · untrusted text</div><pre class="ut-b">The fix branch passed review and verify. Pushing it opens the merge request the release needs.</pre></div><div class="acts"><p class="note">Deny is applied on the host now. Approve goes to the project manager, who confirms with you and runs it.</p><div class="btnrow"><button class="btn des" type="button">Deny…</button><button class="btn pri" type="button">Send approval to PM</button></div></div></aside></div></div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":1872}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

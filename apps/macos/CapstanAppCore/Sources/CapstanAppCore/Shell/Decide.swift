@@ -150,3 +150,29 @@ public enum ForwardPill {
         return item.contentHash == record.contentHash
     }
 }
+
+/// What the op body of the inspector offers for an Operator proposal.
+public enum ApproveOffer: Sendable, Equatable {
+    /// The host does not send `approveChoices`: the one button that sends the approval to the PM.
+    case forward
+    /// The host sends `approveChoices` and the command is shown whole and checked: the Answer… sheet.
+    case sheet(ApproveFlow)
+    /// The host sends `approveChoices` but nothing may be approved from here (the command is cut, does not match
+    /// its hash, is not here yet, or is not checked); Deny stays.
+    case denyOnly(ApproveLimit?)
+
+    public static func make(_ item: StoredWaiting, command: UntrustedText?) -> ApproveOffer {
+        guard let choices = item.approveChoices else { return .forward }
+        let whole = command.map { $0.verified && !$0.truncated } ?? false
+        if let flow = ApproveFlow(choices: choices, commandVerified: whole) { return .sheet(flow) }
+        return .denyOnly(ApproveLimit.make(choices) ?? appLimit(choices, command: command))
+    }
+
+    /// Why the app itself holds the approval back when the host named no limit: the command it has is cut or
+    /// not checked. nil while the command has not arrived (the inspector says so).
+    private static func appLimit(_ choices: ApproveChoices, command: UntrustedText?) -> ApproveLimit? {
+        guard let command else { return nil }
+        let reason = command.verified ? ApproveStrings.limitedTruncated : ApproveStrings.limitedTextMismatch
+        return ApproveLimit(lead: nil, reason: reason, floorEntry: nil)
+    }
+}

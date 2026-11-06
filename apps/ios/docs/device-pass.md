@@ -61,4 +61,22 @@ Run on a device or simulator against a host with a PM. Set `pm_stuck_minutes = 2
 | 28 | Suspended app | Background the app, let an episode end. | The notification may stay until the next refresh: iOS runs background refresh when it chooses, and ntfy is the timely channel. Not a failure. | |
 | 29 | Look | Items 17, 23 and 24 in light, dark and at AX3 (Settings → Accessibility → Display & Text Size → Larger Text). | Rows stack the value under the label with the chevron spanning both; banner buttons one per row; text never cut except the two-line previews. Attach the screenshots. | |
 
+## Approve sheet for Operator proposals (plan-153)
+
+Run against a host that sends `approveChoices` (the plan-153 host), with an Operator proposal waiting each time. Compare each screen with the boards `choices-ios-*`, `scope-ios-*`, `auto-ios-*`, `limited-ios-*`, `result-ios-*`, `refusal-ios-*` and `oldhost-ios-*` in `docs/design/plan-153-design-approve/`; the words are those of its `strings.json`. After each approval check on the host with `cstan op grants` and `cstan op windows` that exactly what the result lines say was made, and that the PM was told and does not ask again.
+
+| # | Area | Steps | Expected | Observed |
+|---|---|---|---|---|
+| 30 | Approve once | Open the proposal, Answer…, pick Approve once, Approve once. | Applies from step 1 with no count; the sheet closes; "Approved once. The operator runs it now." and no grant or window line. The next command asks again. | |
+| 31 | Approve exact | Answer…, Approve + allow similar, Continue, This exact command, Approve and allow. | "Approved, and allowed for this session:" with the exact command. The same command proposed again is approved by the grant; another command asks. | |
+| 32 | Approve prefix | Answer…, Approve + allow similar, Continue, pick a "Commands that start with" row, Approve and allow. Then have the operator propose another command that begins with that prefix. | Result shows the prefix exactly as offered. The next matching proposal is approved by the grant without asking; a command that does not begin with the prefix, and a push or delete, still ask. | |
+| 33 | Auto, 1 hour | Answer…, Auto-approve all, Continue, For 1 hour, Continue, Open window and approve. | The confirm step names the coverage and its default is Cancel; the result shows the window id and "Ends <host time>" (an hour from now, or less if the host's limit is shorter) and the revoke line. `cstan op revoke` closes it. | |
+| 34 | Auto, session | Same, For this session. | Window id and its end per the host's limit; no window opens before the confirm (Cancel on the confirm leaves nothing open). | |
+| 35 | Floor command | Have the operator propose a command on the host's floor list (a delete outside the project). | The sheet offers Approve once only, with the floor entry and "This command matches the host's floor list…". No similar and no auto row. | |
+| 36 | Deny | Deny… on the detail, confirm. | The deny sheet is the existing one; "Denied. The operator was told."; nothing was approved. | |
+| 37 | PM picker closing | With the sheet open on the detail, answer the same proposal from the PM's picker (or the terminal). Then tap the sheet's primary. | The sheet says the proposal is no longer waiting and offers only Back; nothing was approved twice. | |
+| 38 | Changed command | Open the sheet, change the proposal on the host (new text, same id), tap the primary. | "Nothing was approved." with the changed-command text; Show the new command closes the sheet and reads it again. | |
+| 39 | Old host | Use a host older than `approve-as` (no `approveChoices`). | No sheet. The bar offers Deny… and "Send approval to PM"; the note under the command is the old-host note; Send approval to PM works as before. | |
+| 40 | Largest type | Settings → Accessibility → Larger Text at the largest size. Open the sheet on a proposal with a long prefix (60 or more characters, with spaces) and go to the scope step. | The prefix is shown whole and wrapped on several lines, not cut or ellipsized, in mono, character for character as offered; buttons stack and stay reachable; every step scrolls. | |
+
 Paste with the iPhone model, the iOS version and the commit (`git log --oneline -1`).
