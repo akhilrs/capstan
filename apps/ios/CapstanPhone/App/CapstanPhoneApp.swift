@@ -1,14 +1,23 @@
+import AppIntents
 import CapstanKit
 import CapstanPhoneCore
 import BackgroundTasks
 import CapstanSSH
 import SwiftUI
 import UIKit
+import os
 
 @main
 struct CapstanPhoneApp: App {
-    @State private var shell = AppShell()
+    @State private var shell: AppShell
     @Environment(\.scenePhase) private var scenePhase
+
+    /// The shell is made and registered here, before any scene: Siri may start the app cold with no window.
+    init() {
+        let made = AppShell()
+        _shell = State(initialValue: made)
+        AppDependencyManager.shared.add(dependency: made)
+    }
 
     var body: some Scene {
         let shell = self.shell
@@ -54,6 +63,12 @@ final class AppShell {
     /// The Face ID sheet itself makes the scene inactive and active again; one prompt at a time.
     private var prompting = false
     private let gate: any BiometricGate = FaceIDGate()
+    /// The voice runs that hold the sessions open (design: the first starts them, the last stops them in the
+    /// background).
+    private let lease = SessionLeaseBox()
+    /// Whether the app is in the background; true until a scene says otherwise (a cold start from Siri has none).
+    private let backgroundFlag = OSAllocatedUnfairLock(initialState: true)
+    nonisolated var isBackground: Bool { backgroundFlag.withLock { $0 } }
 
     init() {
         let directory = AppShell.supportDirectory()
@@ -73,33 +88,73 @@ final class AppShell {
         made.notifier.onOpen = { [weak made] url in made?.handle(url: url) }
     }
 
-    /// A background refresh (plan 7.4): start the sessions, wait until every host read is live with a complete
-    /// snapshot or the budget is spent, publish the glance (badge, Live Activity, notifications), and stop again if
-    /// the app is still in the background. It never asks for Face ID and never decides anything.
-    func backgroundRefresh() async {
+    /// Starts the sessions without the lifecycle: no lock, no Face ID prompt and no notification request.
+    private func startSessionsQuietly() {
         if modelStarted {
             model.coordinator?.startSessions()
         } else {
             modelStarted = true
             model.start()
         }
+    }
+
+    /// Runs `body` with the host sessions held open (a `SessionLease`): the first holder starts them, waits until
+    /// every host read is live with a complete snapshot or the budget is spent, and the last holder stops them
+    /// again while the app is in the background. It never asks for Face ID.
+    func withHosts<T: Sendable>(
+        budget: TimeInterval, _ body: @Sendable (VoiceRead) async throws -> T
+    ) async throws -> T {
+        try await lease.hold(
+            isBackground: { self.isBackground },
+            start: { await MainActor.run { self.startSessionsQuietly() } },
+            stop: { await MainActor.run { self.model.coordinator?.stopSessionsThenSuspend() } },
+            body: {
+                let read = await self.readHosts(budget: budget)
+                return try await body(read)
+            })
+    }
+
+    private func readHosts(budget: TimeInterval) async -> VoiceRead {
         let started = Date()
+        // A foreground app keeps its sessions, so what is live already counts; after a start, only a new connection.
+        let fresh = isBackground
         while true {
-            let ids = RefreshPlanner.hosts(model.hosts, blocked: Set(model.problems.keys))
-            let complete = !ids.isEmpty && ids.allSatisfy { id in
-                guard case .live(let since, _)? = model.connection[id], since >= started else { return false }
-                return RefreshPlanner.isComplete(model.hostModels[id])
-            }
-            if RefreshPlanner.shouldStop(started: started, now: Date(), complete: complete) { break }
-            try? await Task.sleep(for: .seconds(1))
+            if hostsComplete(since: fresh ? started : nil) || Date().timeIntervalSince(started) >= budget { break }
+            try? await Task.sleep(for: .milliseconds(250))
         }
-        // Let the last model reach the main actor, then publish what was read.
-        try? await Task.sleep(for: .milliseconds(500))
+        // Let the last model reach the main actor.
+        try? await Task.sleep(for: .milliseconds(250))
+        let ids = RefreshPlanner.hosts(model.hosts, blocked: Set(model.problems.keys))
+        var models: [VoiceHostModel] = []
+        var down: [VoiceHostRef] = []
+        for config in model.hosts where ids.contains(config.id) {
+            if let hostModel = model.hostModels[config.id], RefreshPlanner.isComplete(hostModel),
+                isLive(config.id, since: fresh ? started : nil)
+            {
+                models.append(VoiceHostModel(id: config.id, name: config.displayName, model: hostModel))
+            } else {
+                down.append(VoiceHostRef(id: config.id, name: config.displayName))
+            }
+        }
+        return VoiceRead(models: models, unreachable: down, now: Date())
+    }
+
+    private func isLive(_ id: UUID, since: Date?) -> Bool {
+        guard case .live(let at, _)? = model.connection[id] else { return false }
+        return since.map { at >= $0 } ?? true
+    }
+
+    private func hostsComplete(since: Date?) -> Bool {
+        let ids = RefreshPlanner.hosts(model.hosts, blocked: Set(model.problems.keys))
+        return !ids.isEmpty && ids.allSatisfy { isLive($0, since: since) && RefreshPlanner.isComplete(model.hostModels[$0]) }
+    }
+
+    /// A background refresh (plan 7.4): read every host within the old budget, publish the glance (badge, Live
+    /// Activity, notifications), and schedule the next run. It never asks for Face ID and never decides anything.
+    func backgroundRefresh() async {
+        _ = try? await withHosts(budget: RefreshPlanner.budgetSeconds) { _ in }
         model.publishGlance()
         BackgroundRefresh.schedule()
-        if UIApplication.shared.applicationState == .background {
-            model.coordinator?.stopSessionsThenSuspend()
-        }
     }
 
     private static func supportDirectory() -> URL {
@@ -112,6 +167,7 @@ final class AppShell {
     }
 
     func phaseChanged(_ phase: ScenePhase) {
+        backgroundFlag.withLock { $0 = phase == .background }
         let mapped: PhonePhase
         switch phase {
         case .active: mapped = .active

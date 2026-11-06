@@ -150,11 +150,48 @@ run_checks() {
     fi
   fi
 
+  # (12) voice: no full-auto word in either Voice folder; no host verb in the app's voice code (the verbs are built in
+  # CapstanPhoneCore); every App Intent file is closed-app and always allowed; only AppModel+Voice.swift sends; and
+  # the design's own check (strings, and the phrases in Shortcuts.swift)
+  local vapp=$ios/CapstanPhone/Voice vcore=$ios/CapstanPhoneCore/Sources/CapstanPhoneCore/Voice vmodel=$ios/CapstanPhone/App/AppModel+Voice.swift
+  local vfiles=() vf
+  for vf in "$vapp" "$vcore"; do [ -d "$vf" ] && vfiles+=("$vf"); done
+  if [ ${#vfiles[@]} -gt 0 ]; then
+    out=$(grep -rnE --include='*.swift' '[Ff]ull[ _-]?[Aa]uto|autoAll|approveAll' "${vfiles[@]}")
+    report "voice-full-auto" <<< "$out"
+  fi
+  local vapps=()
+  [ -d "$vapp" ] && vapps+=("$vapp")
+  [ -f "$vmodel" ] && vapps+=("$vmodel")
+  if [ ${#vapps[@]} -gt 0 ]; then
+    out=$(grep -rnE --include='*.swift' 'opApproveAs|opApprove\b|opDeny' "${vapps[@]}")
+    report "voice-verb" <<< "$out"
+  fi
+  if [ -d "$vapp" ]; then
+    local intent
+    while IFS= read -r intent; do
+      [ -n "$intent" ] || continue
+      if ! grep -qE 'openAppWhenRun[^=]*=[[:space:]]*false' "$intent" \
+        || ! grep -qE 'authenticationPolicy[^=]*=[[:space:]]*\.alwaysAllowed' "$intent"; then
+        echo "${intent#"$root"/}:1: [voice-intent] an App Intent file needs openAppWhenRun = false and authenticationPolicy = .alwaysAllowed"
+        found=1
+      fi
+    done < <(grep -rlE --include='*.swift' ':[[:space:]]*AppIntent\b' "$vapp")
+    out=$(grep -rniE --include='*.swift' 'decider|voiceSend\(' "$vapp")
+    report "voice-send" <<< "$out"
+  fi
+  local vcheck=$root/docs/design/plan-156-design-voice/check.py
+  if [ -f "$vcheck" ]; then
+    if ! out=$(python3 -I "$vcheck" 2>&1); then
+      echo "docs/design/plan-156-design-voice/check.py:1: [voice-design] $(echo "$out" | grep FAIL | head -n 1)"; found=1
+    fi
+  fi
+
   return $found
 }
 
 self_test() {
-  local here root tmp rc=0 name pattern content
+  local here root tmp rc=0 name pattern content expect
   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   root=$(cd "$here/../../.." && pwd)
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/check-static.XXXXXX") || return 1
@@ -164,6 +201,10 @@ self_test() {
     rm -rf "$tmp/repo"; mkdir -p "$tmp/repo/apps"
     cp -R "$root/apps/ios" "$tmp/repo/apps/ios"
     cp -R "$root/apps/macos" "$tmp/repo/apps/macos"
+    mkdir -p "$tmp/repo/docs/design"
+    [ -d "$root/docs/design/plan-156-design-voice" ] \
+      && cp -R "$root/docs/design/plan-156-design-voice" "$tmp/repo/docs/design/plan-156-design-voice" \
+      && cp "$root/docs/design/plan-156-design-voice.md" "$tmp/repo/docs/design/"
     find "$tmp/repo/apps" -name .build -type d -prune -exec rm -rf {} +
   }
 
@@ -197,6 +238,16 @@ self_test() {
     "push-title|CapstanPhone/Planted.swift|let a = Toggle(\"Push after merge\", isOn: \$b)"
     "surface-widget|CapstanWidgets/Planted.swift|import WidgetKit~let s: UntrustedText? = nil"
     "ambiguous-type|CapstanPhone/Planted.swift|import CapstanAppCore~import CapstanKit~let a: PlanItem? = nil"
+    "voice-fullauto|CapstanPhone/Voice/Planted.swift|let a = \"fullAuto\""
+    "voice-autoall|CapstanPhoneCore/Sources/CapstanPhoneCore/Voice/Planted.swift|let a = 1 // autoAll"
+    "voice-approveall|CapstanPhone/Voice/Planted.swift|let a = approveAll"
+    "voice-verb|CapstanPhone/Voice/Planted.swift|let v = DecideVerb.opApproveAs(.once)"
+    "voice-verb-deny|CapstanPhone/Voice/Planted.swift|let v = DecideVerb.opDeny(note: nil)"
+    "voice-intent-missing|CapstanPhone/Voice/Planted.swift|struct X: AppIntent {}"
+    "voice-intent-open|CapstanPhone/Voice/Planted.swift|struct X: AppIntent {~static let openAppWhenRun = true~static let authenticationPolicy: P = .alwaysAllowed~}"
+    "voice-intent-auth|CapstanPhone/Voice/Planted.swift|struct X: AppIntent {~static let openAppWhenRun = false~static let authenticationPolicy: P = .requiresAuthentication~}"
+    "voice-decider|CapstanPhone/Voice/Planted.swift|let d = model.decider"
+    "voice-send|CapstanPhone/Voice/Planted.swift|await model.voiceSend(r)"
     "surface-notification|CapstanPhone/Planted.swift|import UserNotifications~let w: WaitingItem? = nil"
   )
   local c file
@@ -211,6 +262,32 @@ self_test() {
       echo "self-test: '$name' failed without a file:line finding" >&2; cat "$tmp/case.out" >&2; rc=1
     fi
   done
+
+  # Findings that name another file than the planted one: name | file under apps/ios | content | file in the finding
+  local named=(
+    "model-verb|CapstanPhone/App/AppModel+Voice.swift|let v = DecideVerb.opApprove|apps/ios/CapstanPhone/App/AppModel+Voice.swift:1:"
+    "phrase-drift|CapstanPhone/Voice/Shortcuts.swift|let p = \"Nothing like the phrase\"|docs/design/plan-156-design-voice/check.py:1:"
+  )
+  local n
+  for n in "${named[@]}"; do
+    IFS='|' read -r name file content expect <<< "$n"
+    fresh
+    mkdir -p "$(dirname "$tmp/repo/apps/ios/$file")"
+    printf '%s\n' "${content//\~/$'\n'}" > "$tmp/repo/apps/ios/$file"
+    if run_checks "$tmp/repo" >"$tmp/named.out" 2>&1; then
+      echo "self-test: '$name' was not caught" >&2; rc=1
+    elif ! grep -qF "$expect" "$tmp/named.out"; then
+      echo "self-test: '$name' failed without the finding $expect" >&2; cat "$tmp/named.out" >&2; rc=1
+    fi
+  done
+
+  # A closed-app, always-allowed intent that only runs the flow is clean.
+  fresh
+  printf 'struct X: AppIntent {\n    static let openAppWhenRun = false\n    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed\n}\n' \
+    > "$tmp/repo/apps/ios/CapstanPhone/Voice/Planted.swift"
+  if ! run_checks "$tmp/repo" >"$tmp/intent.out" 2>&1; then
+    echo "self-test: a compliant intent was flagged" >&2; cat "$tmp/intent.out" >&2; rc=1
+  fi
 
   # Each wiring of the PM card is checked: removing it from its file is a finding.
   local wiring=(

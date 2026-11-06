@@ -61,6 +61,19 @@ struct SettingsScreen: View {
                 Text("Capstan has no server, so alerts come only while the app follows your hosts. Light and dark follow the system.")
             }
             Section {
+                Toggle(isOn: binding(\.voiceDecisions)) { Text(verbatim: VoiceTexts.text("settings.voice.toggle")) }
+                Toggle(isOn: binding(\.voiceGrants)) { Text(verbatim: VoiceTexts.text("settings.grants.toggle")) }
+                    .disabled(!model.settings.voiceDecisions)
+            } header: {
+                Text(verbatim: VoiceTexts.text("settings.voice.header"))
+            } footer: {
+                VStack(alignment: .leading, spacing: Tokens.space[2]) {
+                    Text(verbatim: VoiceTexts.text("settings.voice.footer"))
+                    Text(verbatim: VoiceTexts.text("settings.grants.footer"))
+                    Text(verbatim: VoiceTexts.text("settings.voice.phrases"))
+                }
+            }
+            Section {
                 LabeledContent {
                     Text(verbatim: version)
                 } label: {
