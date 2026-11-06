@@ -4,7 +4,9 @@
 mod common;
 
 use capstan_daemon::deps::{DaemonOptions, Deps, KernelHandle, LogEntry, Logger};
-use capstan_daemon::loops::retention::{run_pass, start, BATCH_ROWS};
+use capstan_daemon::loops::retention::{
+    run_pass, start, start_maintenance, MaintenanceTiming, BATCH_ROWS,
+};
 use capstan_daemon::loops::StopFlag;
 use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::{Core, Env, SeededEnv};
@@ -14,6 +16,7 @@ use serde_json::json;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 const DAY_MS: i64 = 86_400_000;
 const T0: i64 = 1_800_000_000_000;
@@ -220,4 +223,55 @@ fn a_failed_batch_ends_the_pass_with_its_error_and_deletes_nothing() {
     assert_eq!(pass.deleted, 0);
     assert!(pass.error.is_some(), "{pass:?}");
     assert_eq!(w.count("mutation_requests"), requests);
+}
+
+/// Runs both loops for a second with a 5 ms first delay and a 10 s interval, then stops and joins them.
+fn run_both(w: &World) {
+    let stop = StopFlag::new();
+    let timing = MaintenanceTiming {
+        first_delay: Duration::from_millis(5),
+        interval: Duration::from_secs(10),
+    };
+    let handles: Vec<_> = [
+        start(&w.deps, &stop),
+        start_maintenance(&w.deps, &stop, timing),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    std::thread::sleep(Duration::from_secs(1));
+    stop.stop();
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+
+#[test]
+fn maintenance_runs_once_with_retention_off() {
+    let w = World::new(Some("[ledger]\nretention_days = 0\n"));
+    run_both(&w);
+    assert_eq!(w.logged("daemon:ledger_maintenance"), 1);
+    assert_eq!(w.logged("daemon:ledger_retention_start"), 0);
+    assert_eq!(w.logged("daemon:ledger_maintenance_failed"), 0);
+}
+
+#[test]
+fn maintenance_and_retention_run_side_by_side() {
+    let w = World::new(Some("[ledger]\nretention_days = 1\n"));
+    run_both(&w);
+    assert_eq!(w.logged("daemon:ledger_retention_start"), 1);
+    assert_eq!(w.logged("daemon:ledger_maintenance"), 1);
+}
+
+#[test]
+fn maintenance_needs_a_configuration() {
+    let w = World::new(None);
+    assert!(start_maintenance(&w.deps, &StopFlag::new(), MaintenanceTiming::default()).is_none());
+    assert_eq!(
+        MaintenanceTiming::default(),
+        MaintenanceTiming {
+            first_delay: Duration::from_secs(600),
+            interval: Duration::from_secs(86_400)
+        }
+    );
 }

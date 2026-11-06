@@ -235,9 +235,28 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
     )
     .unwrap();
     let check = w.op(&["config", "check"]).ok();
-    assert!(check.json().get("daemon").is_none());
+    let daemon = check
+        .json()
+        .get("daemon")
+        .cloned()
+        .expect("a daemon member");
+    assert_eq!(
+        daemon.get("statusCacheMs").and_then(|v| v.as_i64()),
+        Some(2000)
+    );
+    assert_eq!(
+        daemon.get("driverReadFirst").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        daemon
+            .get("snapshotReadsPerMinute")
+            .and_then(|v| v.as_i64()),
+        Some(0)
+    );
+    assert!(daemon.get("implementation").is_none());
     assert!(
-        check.has("[daemon] implementation = \"rust\" is ignored: Rust is the only daemon; delete the [daemon] table from capstan.toml"),
+        check.has("[daemon] implementation = \"rust\" is ignored: Rust is the only daemon; remove implementation from the [daemon] table"),
         "{}",
         check.text()
     );
@@ -259,7 +278,8 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
     let node = w.op(&["config", "check"]);
     assert_eq!(node.code, 3, "{}", node.text());
     assert!(
-        node.has("the Node daemon was removed") && node.has("delete the [daemon] table"),
+        node.has("the Node daemon was removed")
+            && node.has("remove implementation from the [daemon] table"),
         "{}",
         node.text()
     );
@@ -274,7 +294,7 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
     .unwrap();
     let unknown = w.op(&["config", "check"]);
     assert_eq!(unknown.code, 3, "{}", unknown.text());
-    assert!(unknown.has("daemon has 1 unknown key(s); allowed: implementation"));
+    assert!(unknown.has("daemon has 1 unknown key(s); allowed: implementation, status_cache_ms, driver_read_first, snapshot_reads_per_minute"));
 }
 
 #[test]

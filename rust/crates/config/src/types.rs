@@ -108,6 +108,16 @@ pub const DEFAULT_KEEP_MIGRATION_BACKUPS: i64 = 3;
 pub const MAX_KEEP_MIGRATION_BACKUPS: i64 = 50;
 pub const DEFAULT_LEDGER_RETENTION_DAYS: i64 = 30;
 pub const MAX_LEDGER_RETENTION_DAYS: i64 = 3650;
+pub const DEFAULT_LEDGER_CACHE_MB: i64 = 64;
+pub const MAX_LEDGER_CACHE_MB: i64 = 1024;
+pub const DEFAULT_LEDGER_MMAP_MB: i64 = 256;
+pub const MAX_LEDGER_MMAP_MB: i64 = 4096;
+pub const DEFAULT_BACKUP_MAX_AGE_DAYS: i64 = 14;
+pub const MAX_BACKUP_MAX_AGE_DAYS: i64 = 3650;
+pub const DEFAULT_STATUS_CACHE_MS: i64 = 2000;
+pub const MAX_STATUS_CACHE_MS: i64 = 60_000;
+pub const DEFAULT_SNAPSHOT_READS_PER_MINUTE: i64 = 0;
+pub const MAX_SNAPSHOT_READS_PER_MINUTE: i64 = 600;
 pub const DEFAULT_MAX_WORKERS: i64 = 3;
 pub const MAX_MAX_WORKERS: i64 = 16;
 
@@ -443,6 +453,23 @@ pub struct Limits {
 pub struct Ledger {
     pub keep_migration_backups: i64,
     pub retention_days: i64,
+    /// Page cache of the ledger connection in MiB; 0 = SQLite's own default.
+    pub cache_mb: i64,
+    /// Memory-mapped reads of the ledger in MiB; 0 = off.
+    pub mmap_mb: i64,
+    /// Days a pre-migration backup is kept; 0 = count only.
+    pub backup_max_age_days: i64,
+}
+
+/// The `[daemon]` performance keys (`implementation` selects nothing and is not kept).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DaemonTuning {
+    /// How long the status and feed caches serve a reading, in ms; 0 turns them off.
+    pub status_cache_ms: i64,
+    /// False keeps the mutate-every-tick driver path.
+    pub driver_read_first: bool,
+    /// The most feed snapshot reads per minute; 0 = no limit.
+    pub snapshot_reads_per_minute: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -534,6 +561,7 @@ pub struct RoleConfig {
     pub nexora: Nexora,
     pub limits: Limits,
     pub ledger: Ledger,
+    pub daemon: DaemonTuning,
     pub layout: Layout,
     pub worktree: Option<Worktree>,
     pub cleanup: Cleanup,

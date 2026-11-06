@@ -53,7 +53,13 @@ pub const MESSAGES_KEYS: &[&str] = &[
     "notice_class",
 ];
 pub const LIMITS_KEYS: &[&str] = &["max_workers"];
-pub const LEDGER_KEYS: &[&str] = &["keep_migration_backups", "retention_days"];
+pub const LEDGER_KEYS: &[&str] = &[
+    "keep_migration_backups",
+    "retention_days",
+    "cache_mb",
+    "mmap_mb",
+    "backup_max_age_days",
+];
 pub const LAYOUT_KEYS: &[&str] = &[
     "spawn",
     "split",
@@ -67,7 +73,12 @@ pub const WORKTREE_KEYS: &[&str] = &[
     "teardown",
     "teardown_timeout_seconds",
 ];
-pub const DAEMON_KEYS: &[&str] = &["implementation"];
+pub const DAEMON_KEYS: &[&str] = &[
+    "implementation",
+    "status_cache_ms",
+    "driver_read_first",
+    "snapshot_reads_per_minute",
+];
 pub const CLEANUP_KEYS: &[&str] = &["branches", "worktrees", "include_unlanded"];
 pub const REMOTE_KEYS: &[&str] = &[
     "merge",

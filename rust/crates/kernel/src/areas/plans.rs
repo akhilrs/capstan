@@ -455,13 +455,31 @@ pub(crate) fn settle_plan_approval(
     Ok(())
 }
 
+/// The review rounds of a plan (index: the one behind `UNIQUE (project_id, subject_plan_id, round)` of 0023, the fifth
+/// automatic index of the table; the plan test checks the name).
+pub const PLAN_ROUNDS_SQL: &str = "SELECT COALESCE(SUM(state IN ('passed', 'findings')), 0),
+                COALESCE(SUM(state = 'findings' AND COALESCE(findings_class, 'design') = 'design'), 0)
+         FROM reviews INDEXED BY sqlite_autoindex_reviews_5 WHERE project_id = ? AND subject_plan_id = ?";
+
+/// A message that starts with the text (index: `messages_by_body_head`, which needs the migration that adds it). `:head`
+/// is the first 120 characters of the text; the range on the head lets the index serve the prefix comparison.
+pub const NOTICE_SENT_SQL: &str = "SELECT 1 AS present FROM messages WHERE project_id = :project
+           AND substr(body, 1, 120) >= :head AND substr(body, 1, 120) < :head || char(1114111)
+           AND substr(body, 1, :length) = :text";
+
 /// A notice counts as sent when a controller message with its leading text exists.
 fn notice_sent(kernel: &Kernel, plan_id: &str, lead: &str) -> KernelResult<bool> {
     let text = format!("Plan {plan_id} {lead}");
+    let head: String = text.chars().take(120).collect();
     Ok(query_opt(
         &kernel.database,
-        "SELECT 1 AS present FROM messages WHERE project_id = ? AND substr(body, 1, ?) = ?",
-        rusqlite::params![kernel.project_id, text.encode_utf16().count() as i64, text],
+        NOTICE_SENT_SQL,
+        rusqlite::named_params! {
+            ":project": kernel.project_id,
+            ":head": head,
+            ":length": text.encode_utf16().count() as i64,
+            ":text": text,
+        },
         |_| Ok(()),
     )?
     .is_some())
@@ -619,9 +637,7 @@ impl PlanRounds {
 pub(crate) fn plan_rounds(kernel: &Kernel, plan: &PlanRow) -> KernelResult<PlanRounds> {
     let (total, design) = query_opt(
         &kernel.database,
-        "SELECT COALESCE(SUM(state IN ('passed', 'findings')), 0),
-                COALESCE(SUM(state = 'findings' AND COALESCE(findings_class, 'design') = 'design'), 0)
-         FROM reviews WHERE project_id = ? AND subject_plan_id = ?",
+        PLAN_ROUNDS_SQL,
         [&kernel.project_id, &plan.plan_id],
         |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
     )?

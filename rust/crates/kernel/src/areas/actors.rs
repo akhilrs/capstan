@@ -382,6 +382,21 @@ fn role_difference(
     })
 }
 
+/// Whether a lost event of this generation of the agent is recorded (index: `controller_events_by_entity`).
+pub const LOST_RECORDED_SQL: &str = "SELECT 1 AS present FROM controller_events INDEXED BY controller_events_by_entity WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ?
+           AND to_state = 'lost' AND json_extract(payload_json, '$.details.generation') = ?";
+
+/// The successor of the latest `replaced` event of an agent (index: `controller_events_by_entity`).
+pub const RECORDED_SUCCESSOR_SQL: &str = "SELECT json_extract(payload_json, '$.details.successorId') FROM controller_events
+         WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced' ORDER BY sequence DESC LIMIT 1";
+
+/// Whether the ledger holds a `replaced` event of the agent (index: `controller_events_by_entity`).
+pub const IS_AGENT_REPLACED_SQL: &str = "SELECT 1 AS present FROM controller_events WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced'";
+
+/// The branch of the latest `ended` event of an agent (index: `controller_events_by_entity`).
+pub const BRANCH_AT_END_SQL: &str = "SELECT json_extract(payload_json, '$.details.branch') AS branch FROM controller_events INDEXED BY controller_events_by_entity
+         WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'ended' ORDER BY sequence DESC LIMIT 1";
+
 pub(crate) fn lost_recorded(
     kernel: &Kernel,
     agent_id: &str,
@@ -389,8 +404,7 @@ pub(crate) fn lost_recorded(
 ) -> KernelResult<bool> {
     exists(
         &kernel.database,
-        "SELECT 1 AS present FROM controller_events WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ?
-           AND to_state = 'lost' AND json_extract(payload_json, '$.details.generation') = ?",
+        LOST_RECORDED_SQL,
         rusqlite::params![kernel.project_id, agent_id, generation],
     )
 }
@@ -526,8 +540,7 @@ pub fn record_agent_lost(
 fn recorded_successor(kernel: &Kernel, agent_id: &str) -> KernelResult<Option<String>> {
     Ok(query_opt(
         &kernel.database,
-        "SELECT json_extract(payload_json, '$.details.successorId') FROM controller_events
-         WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced' ORDER BY sequence DESC LIMIT 1",
+        RECORDED_SUCCESSOR_SQL,
         [&kernel.project_id, agent_id],
         |row| row.get::<_, Option<String>>(0),
     )?
@@ -619,7 +632,7 @@ pub fn is_agent_replaced(kernel: &Kernel, agent_id: &str) -> KernelResult<Value>
     safe_id_str(agent_id, "agent id")?;
     Ok(Value::Bool(exists(
         &kernel.database,
-        "SELECT 1 AS present FROM controller_events WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'replaced'",
+        IS_AGENT_REPLACED_SQL,
         [&kernel.project_id, agent_id],
     )?))
 }
@@ -703,8 +716,7 @@ pub fn record_agent_replaced(
 fn branch_at_end(kernel: &Kernel, agent_id: &str) -> KernelResult<Option<String>> {
     Ok(query_opt(
         &kernel.database,
-        "SELECT json_extract(payload_json, '$.details.branch') AS branch FROM controller_events
-         WHERE project_id = ? AND entity_type = 'agent' AND entity_id = ? AND to_state = 'ended' ORDER BY sequence DESC LIMIT 1",
+        BRANCH_AT_END_SQL,
         [&kernel.project_id, agent_id],
         |row| row.get::<_, Option<String>>(0),
     )?

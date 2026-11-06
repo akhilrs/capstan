@@ -185,6 +185,7 @@ pub struct RustLoops {
     now: Clock,
     running: Mutex<Running>,
     ntfy_transport: NtfyTransportSlot,
+    maintenance: Mutex<retention::MaintenanceTiming>,
 }
 
 impl RustLoops {
@@ -204,6 +205,7 @@ impl RustLoops {
             now,
             running: Mutex::new(Running::default()),
             ntfy_transport: Mutex::new(None),
+            maintenance: Mutex::new(retention::MaintenanceTiming::default()),
         })
     }
 
@@ -213,6 +215,11 @@ impl RustLoops {
             .ntfy_transport
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = Some(transport);
+    }
+
+    /// Sets when the ledger-maintenance loop runs (a test seam; call it before `start_ticks`).
+    pub fn set_maintenance_timing(&self, timing: retention::MaintenanceTiming) {
+        *self.maintenance.lock().unwrap_or_else(|p| p.into_inner()) = timing;
     }
 
     /// What `status` reads of the driver.
@@ -258,6 +265,8 @@ impl Loops for RustLoops {
         let credential = deps.credential().to_string();
         handles.extend(cache::start(deps, &stop, &log));
         handles.extend(retention::start(deps, &stop));
+        let timing = *self.maintenance.lock().unwrap_or_else(|p| p.into_inner());
+        handles.extend(retention::start_maintenance(deps, &stop, timing));
         if let Some(config) = deps.options.capstan.clone() {
             let transport = self
                 .ntfy_transport

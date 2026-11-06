@@ -4,7 +4,7 @@
   "reason": "a codex role that writes no permission_mode now resolves to auto; Node refused it",
   "expected": {
     "kind": "ok",
-    "sha256": "2e7d8dc6bec6119c8e269b3b11401a54313abe75dd40574ef764efc2ed28836d",
-    "bytes": 4500
+    "sha256": "bb52fa44a7af5a085bea8aef707dfec05f159d24a0f88caf16556efec15a227b",
+    "bytes": 4673
   }
 }

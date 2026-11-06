@@ -55,6 +55,12 @@ fn report_by_id(kernel: &Kernel, report_id: &str) -> KernelResult<Option<AgentRe
     )
 }
 
+/// The accepted report of an agent generation for a commit (index: `agent_reports_by_agent`).
+pub const ACCEPTED_REPORT_FOR_SQL: &str = "SELECT * FROM agent_reports INDEXED BY agent_reports_by_agent WHERE project_id = ? AND agent_id = ? AND generation = ? AND commit_sha = ? AND state = 'accepted'";
+
+/// The rejected reports of an agent generation (index: `agent_reports_by_agent`).
+pub const RECORD_AGENT_REPORT_SQL: &str = "SELECT COUNT(*) AS n FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND state = 'rejected'";
+
 /// `recordAgentReport`.
 pub fn record_agent_report(
     kernel: &Kernel,
@@ -122,7 +128,7 @@ pub fn record_agent_report(
             };
             let existing = query_opt(
                 &kernel.database,
-                "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND commit_sha = ? AND state = 'accepted'",
+                ACCEPTED_REPORT_FOR_SQL,
                 rusqlite::params![kernel.project_id, agent.agent_id, agent.generation, commit_sha],
                 AgentReportRow::from_row,
             )?;
@@ -178,7 +184,7 @@ pub fn record_agent_report(
             if reason.is_some() {
                 let rejected = query_opt(
                     &kernel.database,
-                    "SELECT COUNT(*) AS n FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND state = 'rejected'",
+                    RECORD_AGENT_REPORT_SQL,
                     rusqlite::params![kernel.project_id, agent.agent_id, agent.generation],
                     |row| row.get::<_, i64>(0),
                 )?
@@ -356,7 +362,7 @@ pub fn accepted_report_for(
     kernel.assert_open()?;
     let row = query_opt(
         &kernel.database,
-        "SELECT * FROM agent_reports WHERE project_id = ? AND agent_id = ? AND generation = ? AND commit_sha = ? AND state = 'accepted'",
+        ACCEPTED_REPORT_FOR_SQL,
         rusqlite::params![kernel.project_id, agent_id, generation, commit_sha],
         AgentReportRow::from_row,
     )?;

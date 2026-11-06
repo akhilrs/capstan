@@ -404,13 +404,13 @@ Capstan 0.4 is Rust only: `cstan` is one static binary that is also the controll
 2. Remove a leftover global npm install, if any: check with `npm ls -g capstan-controller` and `npm unlink -g capstan-controller` (or `npm uninstall -g`). The installer warns when an earlier `cstan` on your `PATH` shadows the new one.
 3. Run the one-liner installer from [Quick start](#quick-start). It replaces the old `current` (Node standalone binary, `cstan-node` or the npm prefix layout) in place. For a fresh start, run it with `--uninstall` first, then install.
 4. Check `cstan --version` and `cstan dash`.
-5. Delete the `[daemon]` table from `capstan.toml` (and unset `CSTAN_DAEMON`), then run `cstan start` in each project. The ledger migrates on start; a project's `.capstan/` is never touched.
+5. Remove `implementation` from the `[daemon]` table in `capstan.toml` (and unset `CSTAN_DAEMON`), then run `cstan start` in each project. The ledger migrates on start; a project's `.capstan/` is never touched.
 
 Details are in the [Install reference](docs/reference/install.md#upgrading-from-03). What changes when you upgrade:
 
 - Install with `install.sh`; Node.js and npm are no longer needed. The installer replaces an earlier install and warns about a leftover `npm link` that shadows `cstan` (see the [Install reference](docs/reference/install.md)).
 - Stop the controller of each project with the old `cstan stop` before upgrading, then run `cstan start` with the new one. The ledger is the same and migrates in place.
-- Delete the `[daemon]` table from `capstan.toml` and unset `CSTAN_DAEMON`. `implementation = "rust"` still loads, with a warning; `implementation = "node"` and `CSTAN_DAEMON=node` are errors. See [docs/daemon.md](docs/daemon.md).
+- Remove `implementation` from the `[daemon]` table in `capstan.toml` and unset `CSTAN_DAEMON`. `implementation = "rust"` still loads, with a warning; `implementation = "node"` and `CSTAN_DAEMON=node` are errors. See [docs/daemon.md](docs/daemon.md).
 - `CSTAN_DAEMON_BIN`, `CSTAN_NODE_CLI` and `CSTAN_NODE` are no longer read. `CSTAN_DASH=node` is gone: there is no Node dashboard.
 - A `[worktree] setup` that ran `npm ci` is yours to keep; Capstan itself no longer needs npm.
 - The old TypeScript sources and their tests are deleted from the repository; a source checkout is built and checked with cargo as described above.

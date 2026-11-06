@@ -20,9 +20,9 @@ use crate::value::{Item, Table};
 
 /// `MAX_ROLE_NAME_CHARS` of `src/herdr/naming.ts`: 32 less the project slug, two dashes and four digits.
 /// `[daemon] implementation = "node"` and `CSTAN_DAEMON=node`: the Node daemon is gone.
-pub const DAEMON_NODE_REMOVED: &str = "daemon.implementation = \"node\" is no longer available: the Node daemon was removed and Rust is the only daemon; delete the [daemon] table from capstan.toml";
+pub const DAEMON_NODE_REMOVED: &str = "daemon.implementation = \"node\" is no longer available: the Node daemon was removed and Rust is the only daemon; remove implementation from the [daemon] table";
 /// `[daemon] implementation = "rust"`: accepted, selects nothing.
-pub const DAEMON_RUST_WARNING: &str = "[daemon] implementation = \"rust\" is ignored: Rust is the only daemon; delete the [daemon] table from capstan.toml";
+pub const DAEMON_RUST_WARNING: &str = "[daemon] implementation = \"rust\" is ignored: Rust is the only daemon; remove implementation from the [daemon] table";
 
 /// `CSTAN_DAEMON=node`.
 pub const DAEMON_NODE_REMOVED_ENV: &str = "CSTAN_DAEMON=node is no longer available: the Node daemon was removed and Rust is the only daemon; unset CSTAN_DAEMON";
@@ -431,6 +431,27 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
             MAX_LEDGER_RETENTION_DAYS,
             DEFAULT_LEDGER_RETENTION_DAYS,
         )?,
+        cache_mb: optional_integer(
+            ledger_table.get("cache_mb"),
+            "ledger.cache_mb",
+            0,
+            MAX_LEDGER_CACHE_MB,
+            DEFAULT_LEDGER_CACHE_MB,
+        )?,
+        mmap_mb: optional_integer(
+            ledger_table.get("mmap_mb"),
+            "ledger.mmap_mb",
+            0,
+            MAX_LEDGER_MMAP_MB,
+            DEFAULT_LEDGER_MMAP_MB,
+        )?,
+        backup_max_age_days: optional_integer(
+            ledger_table.get("backup_max_age_days"),
+            "ledger.backup_max_age_days",
+            0,
+            MAX_BACKUP_MAX_AGE_DAYS,
+            DEFAULT_BACKUP_MAX_AGE_DAYS,
+        )?,
     };
 
     let layout_table = optional_table(root.get("layout"), "layout")?;
@@ -488,6 +509,28 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
             Err(_) => {}
         }
     }
+
+    let daemon = DaemonTuning {
+        status_cache_ms: optional_integer(
+            daemon_table.get("status_cache_ms"),
+            "daemon.status_cache_ms",
+            0,
+            MAX_STATUS_CACHE_MS,
+            DEFAULT_STATUS_CACHE_MS,
+        )?,
+        driver_read_first: optional_boolean(
+            daemon_table.get("driver_read_first"),
+            "daemon.driver_read_first",
+            true,
+        )?,
+        snapshot_reads_per_minute: optional_integer(
+            daemon_table.get("snapshot_reads_per_minute"),
+            "daemon.snapshot_reads_per_minute",
+            0,
+            MAX_SNAPSHOT_READS_PER_MINUTE,
+            DEFAULT_SNAPSHOT_READS_PER_MINUTE,
+        )?,
+    };
 
     let cleanup = resolve_cleanup(optional_table(root.get("cleanup"), "cleanup")?)?;
     let remote = crate::remote::resolve_remote(optional_table(root.get("remote"), "remote")?)?;
@@ -584,6 +627,7 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
         nexora,
         limits,
         ledger,
+        daemon,
         layout,
         worktree,
         cleanup,

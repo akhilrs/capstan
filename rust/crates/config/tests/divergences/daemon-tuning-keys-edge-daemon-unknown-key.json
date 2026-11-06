@@ -1,0 +1,9 @@
+{
+  "fixture": "config-edge-cases.json",
+  "case": "edge-daemon-unknown-key",
+  "reason": "[daemon] status_cache_ms, driver_read_first and snapshot_reads_per_minute are Rust-only keys: the list of allowed [daemon] keys in the error names them",
+  "expected": {
+    "kind": "error",
+    "message": "daemon has 1 unknown key(s); allowed: implementation, status_cache_ms, driver_read_first, snapshot_reads_per_minute"
+  }
+}

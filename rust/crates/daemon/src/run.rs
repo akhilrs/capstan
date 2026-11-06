@@ -566,7 +566,19 @@ fn run_with(
             .capstan
             .as_ref()
             .and_then(|config| usize::try_from(config.ledger.keep_migration_backups).ok()),
-        ..Default::default()
+        ledger_cache_mb: options
+            .capstan
+            .as_ref()
+            .and_then(|config| u64::try_from(config.ledger.cache_mb).ok()),
+        ledger_mmap_mb: options
+            .capstan
+            .as_ref()
+            .and_then(|config| u64::try_from(config.ledger.mmap_mb).ok()),
+        backup_max_age_days: options
+            .capstan
+            .as_ref()
+            .and_then(|config| u64::try_from(config.ledger.backup_max_age_days).ok()),
+        ledger_maintenance: true,
     };
     let kernel = {
         let (state, project) = (options.state_directory.clone(), options.project.clone());

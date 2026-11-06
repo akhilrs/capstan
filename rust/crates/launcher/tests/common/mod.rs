@@ -428,6 +428,14 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         ledger: Ledger {
             keep_migration_backups: 3,
             retention_days: 30,
+            cache_mb: 64,
+            mmap_mb: 256,
+            backup_max_age_days: 14,
+        },
+        daemon: capstan_config::DaemonTuning {
+            status_cache_ms: 2000,
+            driver_read_first: true,
+            snapshot_reads_per_minute: 0,
         },
         layout: Layout {
             spawn: if text(layout, "spawn").as_deref() == Some("pane") {

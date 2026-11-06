@@ -27,6 +27,59 @@ pub struct Pass {
     pub error: Option<String>,
 }
 
+/// When the ledger-maintenance loop runs: the first pass after `first_delay`, then one every `interval`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaintenanceTiming {
+    pub first_delay: Duration,
+    pub interval: Duration,
+}
+
+impl Default for MaintenanceTiming {
+    fn default() -> Self {
+        MaintenanceTiming {
+            first_delay: Duration::from_secs(10 * 60),
+            interval: Duration::from_secs(24 * 60 * 60),
+        }
+    }
+}
+
+/// Starts the ledger-maintenance loop whenever a configuration is present (`retention_days = 0` included); `None`
+/// without one. Each pass runs `Kernel::ledger_maintenance` on the kernel thread (planner statistics, `optimize`, the
+/// aged pre-migration backups) and logs `daemon:ledger_maintenance` with what it did. It is a thread of its own, so it
+/// never waits for the retention loop and the retention loop never waits for it.
+pub fn start_maintenance(
+    deps: &Deps,
+    stop: &StopFlag,
+    timing: MaintenanceTiming,
+) -> Option<JoinHandle<()>> {
+    deps.options.capstan.as_ref()?;
+    let (deps, stop) = (deps.clone(), stop.clone());
+    spawn("ledger-maintenance", move || {
+        let log = detail_log(&deps);
+        if stop.sleep(timing.first_delay) {
+            return;
+        }
+        loop {
+            guarded(&log, "ledger_maintenance_failed", || {
+                let credential = deps.credential().to_string();
+                match deps
+                    .kernel
+                    .run(move |core| core.kernel().ledger_maintenance(&credential))
+                {
+                    Ok(report) => deps.detail_log("ledger_maintenance", report),
+                    Err(error) => deps.detail_log(
+                        "ledger_maintenance_failed",
+                        json!({"error": error.to_string()}),
+                    ),
+                }
+            });
+            if stop.sleep(timing.interval) {
+                return;
+            }
+        }
+    })
+}
+
 /// Starts the loop; `None` (and nothing logged) without a configuration or with `retention_days = 0`.
 pub fn start(deps: &Deps, stop: &StopFlag) -> Option<JoinHandle<()>> {
     let days = deps.options.capstan.as_ref()?.ledger.retention_days;

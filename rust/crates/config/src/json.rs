@@ -10,6 +10,10 @@ pub(crate) fn text(value: &str) -> Value {
     Value::String(JsStr::from(value))
 }
 
+pub(crate) fn boolean(value: bool) -> Value {
+    Value::Bool(value)
+}
+
 pub(crate) fn number(value: i64) -> Value {
     Value::Number(value as f64)
 }
@@ -361,6 +365,20 @@ impl RoleConfig {
                         number(self.ledger.keep_migration_backups),
                     ),
                     ("retentionDays", number(self.ledger.retention_days)),
+                    ("cacheMb", number(self.ledger.cache_mb)),
+                    ("mmapMb", number(self.ledger.mmap_mb)),
+                    ("backupMaxAgeDays", number(self.ledger.backup_max_age_days)),
+                ]),
+            ),
+            (
+                "daemon",
+                object(vec![
+                    ("statusCacheMs", number(self.daemon.status_cache_ms)),
+                    ("driverReadFirst", boolean(self.daemon.driver_read_first)),
+                    (
+                        "snapshotReadsPerMinute",
+                        number(self.daemon.snapshot_reads_per_minute),
+                    ),
                 ]),
             ),
             (

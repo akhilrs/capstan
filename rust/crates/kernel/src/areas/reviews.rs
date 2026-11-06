@@ -582,6 +582,16 @@ fn warm_history(
 }
 
 /// `completeReview`.
+/// The started review of a reviewer (index: `reviews_by_reviewer`).
+pub const COMPLETE_REVIEW_SQL: &str =
+    "SELECT * FROM reviews INDEXED BY reviews_by_reviewer WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started'";
+
+/// Whether the body of a notice was already sent (index: `messages_by_body_head`, which needs the migration that adds
+/// it). The two bounds on the first 120 characters (an equality, written as a range because the planner takes an
+/// equality on that expression for no better than the primary key without statistics) let the index serve the equality
+/// on the whole body.
+pub const NOTICE_PACKAGE_REVIEWED_SQL: &str = "SELECT 1 AS present FROM messages WHERE project_id = ?1 AND substr(body, 1, 120) >= substr(?2, 1, 120) AND substr(body, 1, 120) <= substr(?2, 1, 120) AND body = ?2";
+
 pub fn complete_review(
     kernel: &Kernel,
     context: &MutationContext,
@@ -620,7 +630,7 @@ pub fn complete_review(
             let row = match caller {
                 Some(caller) => query_opt(
                     &kernel.database,
-                    "SELECT * FROM reviews WHERE project_id = ? AND reviewer_agent_id = ? AND state = 'started'",
+                    COMPLETE_REVIEW_SQL,
                     [&kernel.project_id, &caller.agent_id],
                     ReviewRow::from_row,
                 )?,
@@ -751,7 +761,7 @@ fn notice_package_reviewed(kernel: &Kernel, row: &ReviewRow, now: &str) -> Kerne
     );
     let sent = query_opt(
         &kernel.database,
-        "SELECT 1 AS present FROM messages WHERE project_id = ? AND body = ?",
+        NOTICE_PACKAGE_REVIEWED_SQL,
         [&kernel.project_id, &body],
         |_| Ok(()),
     )?;

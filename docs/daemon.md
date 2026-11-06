@@ -25,16 +25,16 @@ The exact texts:
 
 - warning, printed by `cstan config check` (it is one of the `warnings` of the resolved configuration) and logged by the daemon
   as a `daemon:config_warning` line:
-  `[daemon] implementation = "rust" is ignored: Rust is the only daemon; delete the [daemon] table from capstan.toml`
+  `[daemon] implementation = "rust" is ignored: Rust is the only daemon; remove implementation from the [daemon] table`
 - error:
-  `daemon.implementation = "node" is no longer available: the Node daemon was removed and Rust is the only daemon; delete the [daemon] table from capstan.toml`
+  `daemon.implementation = "node" is no longer available: the Node daemon was removed and Rust is the only daemon; remove implementation from the [daemon] table`
 - `CSTAN_DAEMON=node`:
   `CSTAN_DAEMON=node is no longer available: the Node daemon was removed and Rust is the only daemon; unset CSTAN_DAEMON`
 - `CSTAN_DAEMON=rust`:
   `cstan: CSTAN_DAEMON=rust is ignored: Rust is the only daemon; unset CSTAN_DAEMON`
 
-The resolved configuration (`cstan config check`) no longer has a `daemon` member. The variable is read by `cstan start` and by
-the commands that start or need a daemon. To migrate, delete the `[daemon]` table and unset `CSTAN_DAEMON`.
+The resolved configuration (`cstan config check`) has a `daemon` member with only the tuning keys; `implementation` is not kept. The variable is read by `cstan start` and by
+the commands that start or need a daemon. To migrate, remove `implementation` from the `[daemon]` table and unset `CSTAN_DAEMON`.
 
 ### The binary
 
@@ -132,6 +132,12 @@ depend on old rows.
 `controller_events` are immutable and are never pruned. There is no migration, so retention needs no free space for a backup.
 Freed pages are reused, but the file does not shrink; a manual `VACUUM` is the operator's choice. The size of the WAL is held
 only by SQLite's automatic checkpoints, which are best effort and not a size guarantee.
+
+## Ledger maintenance and the first start after an upgrade
+
+The daemon opens the ledger with maintenance on and then repeats it: the first pass 10 minutes after the start and one every 24 hours it refreshes the planner statistics, runs `PRAGMA optimize` and removes pre-migration backups older than `[ledger] backup_max_age_days`. Each pass is logged as `daemon:ledger_maintenance` with what it removed. The loop runs whenever a configuration is present, `retention_days = 0` included. `[ledger] cache_mb` and `mmap_mb` size the connection's page cache and memory map.
+
+Rollout note: the first start after upgrade runs migration 0059 (planner statistics and two indexes) for up to 30 s after a backup that needs free disk of one ledger size. Set readiness timeouts to at least 60 s.
 
 ## Known limits
 

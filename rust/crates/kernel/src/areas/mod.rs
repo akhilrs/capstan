@@ -37,3 +37,14 @@ pub mod user_messages;
 pub mod verify_runs;
 pub mod warm_reviewers;
 pub mod write_once;
+
+// The hot statements, held as constants so the query plan test reads the same text the code runs.
+pub use actors::{
+    BRANCH_AT_END_SQL, IS_AGENT_REPLACED_SQL, LOST_RECORDED_SQL, RECORDED_SUCCESSOR_SQL,
+};
+pub use plans::{NOTICE_SENT_SQL, PLAN_ROUNDS_SQL};
+pub use reports::{ACCEPTED_REPORT_FOR_SQL, RECORD_AGENT_REPORT_SQL};
+pub use reviews::{COMPLETE_REVIEW_SQL, NOTICE_PACKAGE_REVIEWED_SQL};
+pub use warm_reviewers::{
+    LAST_VERDICT_AT_SQL, REPLACEMENT_FAMILY_ENTITY_SQL, REPLACEMENT_FAMILY_SUCCESSOR_SQL,
+};

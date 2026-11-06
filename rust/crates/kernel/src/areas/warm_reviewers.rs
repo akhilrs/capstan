@@ -114,21 +114,47 @@ pub fn review_plan_of(kernel: &Kernel, subject_id: &str) -> KernelResult<Value> 
     })
 }
 
+/// The replacement events whose predecessor is the agent (index: `controller_events_by_entity`).
+pub const REPLACEMENT_FAMILY_ENTITY_SQL: &str = "SELECT sequence, entity_id, json_extract(payload_json, '$.details.successorId') FROM controller_events
+             WHERE project_id = ?1 AND entity_type = 'agent' AND to_state = 'replaced' AND entity_id = ?2 ORDER BY sequence";
+
+/// The replacement events whose recorded successor is the agent (index: `controller_events_by_successor`).
+pub const REPLACEMENT_FAMILY_SUCCESSOR_SQL: &str = "SELECT sequence, entity_id, json_extract(payload_json, '$.details.successorId') FROM controller_events
+             WHERE project_id = ?1 AND entity_type = 'agent' AND to_state = 'replaced' AND json_extract(payload_json, '$.details.successorId') = ?2 ORDER BY sequence";
+
+/// When the reviewer last gave a verdict (index: `reviews_by_reviewer`).
+pub const LAST_VERDICT_AT_SQL: &str =
+    "SELECT MAX(completed_at) AS at FROM reviews INDEXED BY reviews_by_reviewer
+         WHERE project_id = ? AND reviewer_agent_id = ? AND state IN ('passed', 'findings')";
+
 /// Every agent joined to `start` by a recorded replacement, in either direction.
 fn replacement_family(kernel: &Kernel, start: &str) -> KernelResult<BTreeSet<String>> {
     let mut family: BTreeSet<String> = BTreeSet::from([start.to_string()]);
     let mut frontier = vec![start.to_string()];
     for _ in 0..MAX_CHAIN {
         let Some(agent) = frontier.pop() else { break };
-        let pairs = query_all(
-            &kernel.database,
-            "SELECT entity_id, json_extract(payload_json, '$.details.successorId') FROM controller_events
-             WHERE project_id = ?1 AND entity_type = 'agent' AND to_state = 'replaced'
-               AND (entity_id = ?2 OR json_extract(payload_json, '$.details.successorId') = ?2)",
-            [&kernel.project_id, &agent],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        )?;
-        for (predecessor, successor) in pairs {
+        // Two index lookups instead of one OR; an event that matches both sides is kept once, in ledger order.
+        let mut events = Vec::new();
+        for sql in [
+            REPLACEMENT_FAMILY_ENTITY_SQL,
+            REPLACEMENT_FAMILY_SUCCESSOR_SQL,
+        ] {
+            events.extend(query_all(
+                &kernel.database,
+                sql,
+                [&kernel.project_id, &agent],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )?);
+        }
+        events.sort_by_key(|(sequence, _, _)| *sequence);
+        events.dedup_by_key(|(sequence, _, _)| *sequence);
+        for (_, predecessor, successor) in events {
             for id in std::iter::once(predecessor).chain(successor) {
                 if family.insert(id.clone()) {
                     frontier.push(id);
@@ -202,8 +228,7 @@ fn has_started_review(kernel: &Kernel, agent_id: &str) -> KernelResult<bool> {
 fn last_verdict_at(kernel: &Kernel, agent_id: &str) -> KernelResult<Option<String>> {
     Ok(query_opt(
         &kernel.database,
-        "SELECT MAX(completed_at) AS at FROM reviews
-         WHERE project_id = ? AND reviewer_agent_id = ? AND state IN ('passed', 'findings')",
+        LAST_VERDICT_AT_SQL,
         [&kernel.project_id, agent_id],
         |row| row.get::<_, Option<String>>("at"),
     )?
