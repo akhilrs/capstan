@@ -4,6 +4,7 @@ use rusqlite::types::Value;
 use rusqlite::{CachedStatement, Connection, OpenFlags};
 use std::cell::Cell;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 const STATEMENT_CACHE_SIZE: usize = 256;
@@ -27,6 +28,7 @@ pub fn safe_integer(n: i64) -> Result<i64, LedgerError> {
 pub struct Database {
     conn: Connection,
     savepoints: Cell<u32>,
+    statements: AtomicU64,
 }
 
 impl Database {
@@ -36,6 +38,7 @@ impl Database {
         Self {
             conn,
             savepoints: Cell::new(0),
+            statements: AtomicU64::new(0),
         }
     }
 
@@ -51,18 +54,32 @@ impl Database {
         &self.conn
     }
 
+    /// How many statements this connection has been asked to run: one per `prepare` (a cached statement included),
+    /// `exec` and `pragma`. It counts calls, not rows stepped. Not counted: the BEGIN / COMMIT / ROLLBACK / SAVEPOINT
+    /// that `transaction` runs through `execute_batch`, and anything run on the raw `connection()`.
+    pub fn statements_run(&self) -> u64 {
+        self.statements.load(Ordering::Relaxed)
+    }
+
+    fn count_statement(&self) {
+        self.statements.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// The statement for `sql`, reused from an LRU cache of 256 texts.
     pub fn prepare(&self, sql: &str) -> Result<CachedStatement<'_>, LedgerError> {
+        self.count_statement();
         Ok(self.conn.prepare_cached(sql)?)
     }
 
     pub fn exec(&self, sql: &str) -> Result<(), LedgerError> {
+        self.count_statement();
         Ok(self.conn.execute_batch(sql)?)
     }
 
     /// `PRAGMA <statement>`; the result rows (empty when it returns none).
     pub fn pragma(&self, statement: &str) -> Result<Vec<Vec<Value>>, LedgerError> {
-        let mut stmt = self.prepare(&format!("PRAGMA {statement}"))?;
+        self.count_statement();
+        let mut stmt = self.conn.prepare_cached(&format!("PRAGMA {statement}"))?;
         let columns = stmt.column_count();
         let mut rows = stmt.query([])?;
         let mut out = Vec::new();

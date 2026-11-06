@@ -1127,6 +1127,7 @@ fn a_client_closed_after_phase_a_leaves_no_commit_and_no_row() {
         &project,
         DecideMergeSeams {
             after_a: Some(after_a),
+            wait_for_close: true,
             ..DecideMergeSeams::default()
         },
     );
@@ -1138,7 +1139,7 @@ fn a_client_closed_after_phase_a_leaves_no_commit_and_no_row() {
         .unwrap();
     gate_reached(&gate, "the call to pass phase A", SERIAL_DEADLINE);
     drop(stream);
-    // A round trip on a new connection: the server has seen the closed one by the time it answers.
+    // A round trip on a new connection; the call itself waits (`wait_for_close`) until the server has seen the close.
     let ping = project.socket_call("operator", "ping", &[]);
     assert_eq!(ping["ok"], true, "{ping}");
     gate.release.send(()).unwrap();

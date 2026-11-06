@@ -21,6 +21,10 @@ pub struct DecideMergeSeams {
     pub merge_seams: Option<MergeSeams>,
     /// Runs after phase A, before the merge lock is taken.
     pub after_a: Option<Box<dyn Fn() + Send + Sync>>,
+    /// After `after_a`, waits (at most 30 s) until the server has seen the client's connection close. The server
+    /// notices a close on a watcher thread, so a client that has just closed may not be seen yet when the call
+    /// checks its abort signal.
+    pub wait_for_close: bool,
     /// Phase B waits here after its re-check, before it writes the marker.
     pub hold_b: Option<Hold>,
     /// Phase B waits here after the marker is written.

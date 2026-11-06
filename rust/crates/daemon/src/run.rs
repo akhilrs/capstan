@@ -566,6 +566,7 @@ fn run_with(
             .capstan
             .as_ref()
             .and_then(|config| usize::try_from(config.ledger.keep_migration_backups).ok()),
+        ..Default::default()
     };
     let kernel = {
         let (state, project) = (options.state_directory.clone(), options.project.clone());

@@ -419,6 +419,10 @@ impl Driver {
         self.skipped_agents = HashSet::new();
         self.seen = HashSet::new();
         self.working_now = HashSet::new();
+        // Before any early return: the probe's process table of the last tick must not outlive it.
+        if let Some(probe) = &self.process_probe {
+            probe.begin_tick();
+        }
         let agents = match self.read("activeAgents", |core| core.active_agents()) {
             Ok(Value::Array(agents)) => agents,
             Ok(_) => Vec::new(),
@@ -428,8 +432,22 @@ impl Driver {
             }
         };
         let mut outcomes: Vec<(String, Outcome)> = Vec::new();
+        // One listing for the whole tick, only from an adapter that has a cheaper way than one call per agent.
+        let mut observations = HashMap::new();
+        if self.adapter.batches_observations() {
+            let with_pane: Vec<String> = agents
+                .iter()
+                .map(|agent| str_of(agent, "agentId").to_string())
+                .filter(|id| self.adapter.pane_for_agent(id).is_some())
+                .collect();
+            if !with_pane.is_empty() {
+                observations = self.adapter.agent_observations(&with_pane);
+            }
+        }
         for agent in &agents {
-            self.observe(agent, &mut outcomes);
+            let id = str_of(agent, "agentId");
+            let observed = observations.remove(id);
+            self.observe(agent, observed, &mut outcomes);
         }
         self.judge_loss(&agents, &outcomes);
         self.judge_process_exit(&agents, &outcomes);
@@ -458,14 +476,20 @@ impl Driver {
         self.publish();
     }
 
-    fn observe(&mut self, agent: &Value, outcomes: &mut Vec<(String, Outcome)>) {
+    fn observe(
+        &mut self,
+        agent: &Value,
+        observed: Option<capstan_herdr::api::AdapterResult<HerdrState>>,
+        outcomes: &mut Vec<(String, Outcome)>,
+    ) {
         let agent_id = str_of(agent, "agentId").to_string();
         if self.adapter.pane_for_agent(&agent_id).is_none() {
             // No pane to look at: a count left from before does not carry over to a pane that comes back.
             self.missing.remove(&agent_id);
             return;
         }
-        match self.adapter.agent_observation(&agent_id) {
+        let observed = observed.unwrap_or_else(|| self.adapter.agent_observation(&agent_id));
+        match observed {
             Ok(state) => {
                 let (id, value) = (agent_id.clone(), json!(state.as_str()));
                 match self.mutate("recordAgentObservation", move |core, context| {

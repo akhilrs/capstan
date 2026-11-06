@@ -92,6 +92,15 @@ impl PaneRegistry for DriverPart {
     fn agent_observation(&self, agent_id: &str) -> AdapterResult<HerdrState> {
         self.0.agent_observation(agent_id)
     }
+    fn batches_observations(&self) -> bool {
+        self.0.batches_observations()
+    }
+    fn agent_observations(
+        &self,
+        agent_ids: &[String],
+    ) -> std::collections::HashMap<String, AdapterResult<HerdrState>> {
+        self.0.agent_observations(agent_ids)
+    }
 }
 
 impl DriverAdapter for DriverPart {
@@ -436,6 +445,76 @@ impl Loops for RustLoops {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A runner that answers `pane get`, `agent get` and `agent list` for nine agents and counts the last two.
+    struct CountingRunner {
+        lists: std::sync::atomic::AtomicUsize,
+        gets: std::sync::atomic::AtomicUsize,
+    }
+
+    impl capstan_herdr::api::HerdrRunner for CountingRunner {
+        fn run(
+            &self,
+            args: &[String],
+            _options: &capstan_herdr::api::RunOptions,
+        ) -> Result<capstan_herdr::api::HerdrOutput, capstan_herdr::api::HerdrError> {
+            use std::sync::atomic::Ordering;
+            let word = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
+            let entry = |name: &str| {
+                let n = name.trim_start_matches('a');
+                json!({"name": name, "pane_id": format!("w1:p{n}"), "agent_status": "working", "agent": "claude"})
+            };
+            let body = match (word(0), word(1)) {
+                ("agent", "list") => {
+                    self.lists.fetch_add(1, Ordering::SeqCst);
+                    let all: Vec<Value> = (1..=9).map(|i| entry(&format!("a{i}"))).collect();
+                    json!({"result": {"agents": all}})
+                }
+                ("agent", "get") => {
+                    self.gets.fetch_add(1, Ordering::SeqCst);
+                    json!({"result": {"agent": entry(word(2))}})
+                }
+                _ => json!({"result": {"pane": {"pane_id": word(2)}}}),
+            };
+            Ok(capstan_herdr::api::HerdrOutput {
+                code: 0,
+                stdout: body.to_string(),
+                stderr: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn the_driver_part_forwards_the_batch_so_nine_agents_cost_one_list_and_no_get() {
+        use capstan_herdr::adapter::{Adapter, AdapterOptions};
+        use capstan_herdr::api::{AdoptPaneInput, PaneRole};
+        use std::sync::atomic::Ordering;
+        let runner = Arc::new(CountingRunner {
+            lists: Default::default(),
+            gets: Default::default(),
+        });
+        let adapter = Arc::new(Adapter::new(AdapterOptions::new(runner.clone())));
+        let ids: Vec<String> = (1..=9).map(|i| format!("a{i}")).collect();
+        for (i, id) in ids.iter().enumerate() {
+            adapter
+                .adopt_pane_of(&AdoptPaneInput {
+                    pane_id: &format!("w1:p{}", i + 1),
+                    role: PaneRole::Worker,
+                    agent: id,
+                    workspace_id: None,
+                    worktree_path: None,
+                })
+                .unwrap();
+        }
+        runner.lists.store(0, Ordering::SeqCst);
+        runner.gets.store(0, Ordering::SeqCst);
+        let part = DriverPart(adapter as Arc<dyn HerdrAdapter>);
+        let out = part.agent_observations(&ids);
+        assert_eq!(out.len(), 9);
+        assert!(out.values().all(|v| v.is_ok()));
+        assert_eq!(runner.lists.load(Ordering::SeqCst), 1);
+        assert_eq!(runner.gets.load(Ordering::SeqCst), 0);
+    }
 
     #[test]
     fn a_panic_in_a_step_is_logged_and_the_loop_goes_on() {

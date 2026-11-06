@@ -262,7 +262,9 @@ fn a_ledger_with_proposals_migrates_and_reads_not_checked() {
         db.execute_batch(
             "ALTER TABLE operator_proposals DROP COLUMN floor_entry;
              ALTER TABLE operator_proposals DROP COLUMN floor_check;
-             DELETE FROM schema_migrations WHERE name LIKE '%operator_proposal_floor_check%';",
+             DROP INDEX mutation_requests_by_created;
+             DROP INDEX messages_by_body_head;
+             DELETE FROM schema_migrations WHERE name LIKE '%ledger_planner_stats%' OR name LIKE '%operator_proposal_floor_check%';",
         )
         .unwrap();
     }

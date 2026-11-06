@@ -653,6 +653,21 @@ pub trait PaneRegistry: Send + Sync {
     fn pane_entry(&self, pane_id: &str) -> Option<PaneEntry>;
     /// The mapped Herdr state of an agent on its registered pane; fails when Herdr shows it elsewhere.
     fn agent_observation(&self, agent_id: &str) -> AdapterResult<HerdrState>;
+    /// Whether `agent_observations` is cheaper than asking one by one. The driver batches only then, so an adapter that
+    /// keeps the per-agent default also keeps the per-agent order of its calls.
+    fn batches_observations(&self) -> bool {
+        false
+    }
+    /// `agent_observation` for several agents; the default asks one by one, an adapter that can does it with one call.
+    fn agent_observations(
+        &self,
+        agent_ids: &[String],
+    ) -> std::collections::HashMap<String, AdapterResult<HerdrState>> {
+        agent_ids
+            .iter()
+            .map(|id| (id.clone(), self.agent_observation(id)))
+            .collect()
+    }
 }
 
 /// `DriverAdapter` of src/driver.ts: the part of the Herdr adapter the delivery driver uses.
@@ -763,6 +778,9 @@ pub trait ProcessActivityProbe: Send + Sync {
     fn host_alive(&self, _pane_id: &str) -> Result<Option<bool>, HerdrError> {
         Ok(None)
     }
+
+    /// Called by the driver at the start of every tick: a probe that caches the process table drops it here.
+    fn begin_tick(&self) {}
 }
 
 // ------------------------------------------------------------------------------------------------ stubs

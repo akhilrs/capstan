@@ -158,6 +158,23 @@ impl World {
 }
 
 #[test]
+fn mutate_calls_counts_a_mutation_that_writes_nothing() {
+    let w = World::new();
+    let ctx = context(&w.core, OWNER);
+    let body = json!({"recipientAgentId": "pm-1", "body": "once"});
+    let before = w.core.mutate_calls();
+    let statements = w.core.statements_run();
+    w.core.enqueue_message(&ctx, &body).unwrap();
+    assert_eq!(w.core.mutate_calls(), before + 1);
+    let rows = w.count("mutation_requests");
+    // The same request again is a replay: no new row, but still a call.
+    w.core.enqueue_message(&ctx, &body).unwrap();
+    assert_eq!(w.count("mutation_requests"), rows);
+    assert_eq!(w.core.mutate_calls(), before + 2);
+    assert!(w.core.statements_run() > statements);
+}
+
+#[test]
 fn prune_deletes_exactly_the_rows_before_the_cutoff_in_batches() {
     let w = World::new();
     for n in 0..5 {
@@ -480,4 +497,58 @@ fn cost_of_a_prune_on_150k_rows() {
         );
         assert!(Path::new(".").exists());
     }
+}
+
+#[test]
+fn the_retention_select_uses_the_created_at_index() {
+    let w = World::new();
+    w.send("one");
+    let plan: Vec<String> = w
+        .sql()
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT idempotency_key FROM mutation_requests WHERE project_id = ?1 AND created_at < ?2 LIMIT ?3",
+        )
+        .unwrap()
+        .query_map(rusqlite::params!["prustonly", "2000-01-01T00:00:00.000Z", 100], |r| {
+            r.get::<_, String>(3)
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert!(
+        plan.iter()
+            .any(|d| d.contains("mutation_requests_by_created")),
+        "{plan:?}"
+    );
+}
+
+#[test]
+fn ledger_maintenance_needs_the_capability_and_does_not_reanalyze_a_migrated_ledger() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let state = dir.path().join("state");
+    std::fs::create_dir(&state).unwrap();
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let options = KernelOptions {
+        ledger_maintenance: true,
+        ..KernelOptions::default()
+    };
+    let core = Core::open(
+        &state,
+        &initial(),
+        &options,
+        Box::new(SeededEnv::new("maint")),
+    )
+    .expect("the ledger opens");
+    let before = core.statements_run();
+    let result = core.kernel().ledger_maintenance(OWNER).unwrap();
+    assert_eq!(result["analyzed"], json!(false), "{result}");
+    assert_eq!(result["removedBackups"], json!([]));
+    assert!(result["elapsedMs"].is_u64());
+    assert!(core.statements_run() >= before);
+    assert!(core
+        .kernel()
+        .ledger_maintenance("not-a-credential")
+        .is_err());
 }
