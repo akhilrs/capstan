@@ -143,6 +143,13 @@ run_checks() {
     fi
   done
 
+  # (11) a file that imports both CapstanAppCore and CapstanKit never uses unqualified a type name both define
+  if [ -f "$ios/scripts/check-ambiguous-types.py" ]; then
+    if ! out=$(python3 -I "$ios/scripts/check-ambiguous-types.py" "$root" 2>&1); then
+      echo "$out" | head -n 20; found=1
+    fi
+  fi
+
   return $found
 }
 
@@ -189,6 +196,7 @@ self_test() {
     "push-register|CapstanPhone/Planted.swift|UIApplication.shared.registerForRemoteNotifications()"
     "push-title|CapstanPhone/Planted.swift|let a = Toggle(\"Push after merge\", isOn: \$b)"
     "surface-widget|CapstanWidgets/Planted.swift|import WidgetKit~let s: UntrustedText? = nil"
+    "ambiguous-type|CapstanPhone/Planted.swift|import CapstanAppCore~import CapstanKit~let a: PlanItem? = nil"
     "surface-notification|CapstanPhone/Planted.swift|import UserNotifications~let w: WaitingItem? = nil"
   )
   local c file
@@ -199,7 +207,7 @@ self_test() {
     printf '%s\n' "${content//\~/$'\n'}" > "$tmp/repo/apps/ios/$file"
     if run_checks "$tmp/repo" >"$tmp/case.out" 2>&1; then
       echo "self-test: '$name' was not caught" >&2; rc=1
-    elif ! grep -q 'Planted.swift:[12]:' "$tmp/case.out"; then
+    elif ! grep -q 'Planted.swift:[123]:' "$tmp/case.out"; then
       echo "self-test: '$name' failed without a file:line finding" >&2; cat "$tmp/case.out" >&2; rc=1
     fi
   done
@@ -246,6 +254,14 @@ let g = Text(name) // static-text
 SWIFT
   if ! run_checks "$tmp/repo" >"$tmp/ok6.out" 2>&1; then
     echo "self-test: a rule 6 non-finding was flagged" >&2; cat "$tmp/ok6.out" >&2; rc=1
+  fi
+
+  # A qualified use, a one-module import and a comment are not findings of rule 11.
+  fresh
+  printf 'import CapstanAppCore\nimport CapstanKit\nlet a: CapstanAppCore.PlanItem? = nil // PlanItem\n' > "$tmp/repo/apps/ios/CapstanPhone/Planted.swift"
+  printf 'import CapstanKit\nlet a: PlanItem? = nil\n' > "$tmp/repo/apps/ios/CapstanPhone/Planted2.swift"
+  if ! run_checks "$tmp/repo" >"$tmp/amb.out" 2>&1; then
+    echo "self-test: an unambiguous use was flagged" >&2; cat "$tmp/amb.out" >&2; rc=1
   fi
 
   # A failing check-xcodeproj.py or check-shared-platform.py fails the script.

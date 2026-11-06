@@ -130,6 +130,13 @@ run_checks() {
     fi
   fi
 
+  # (11) no unqualified use of a type name that CapstanAppCore and CapstanKit both define (the check lives in apps/ios)
+  if [ -f "$root/apps/ios/scripts/check-ambiguous-types.py" ]; then
+    if ! out=$(python3 -I "$root/apps/ios/scripts/check-ambiguous-types.py" "$root" 2>&1); then
+      echo "$out" | head -n 20; found=1
+    fi
+  fi
+
   # (10) the PM fields the readers decode are documented and covered by the kernel fixtures; the overview shows the card
   if [ -f "$macos/scripts/check-pm-fields.py" ]; then
     if ! out=$(python3 -I "$macos/scripts/check-pm-fields.py" "$root" 2>&1); then
@@ -167,6 +174,7 @@ self_test() {
   fresh() {
     rm -rf "$tmp/repo"; mkdir -p "$tmp/repo/apps" "$tmp/repo/docs" "$tmp/repo/rust/crates/kernel/tests/rust_only/fixtures"
     cp -R "$root/apps/macos" "$tmp/repo/apps/macos"
+    mkdir -p "$tmp/repo/apps/ios/scripts"; cp "$root/apps/ios/scripts/check-ambiguous-types.py" "$tmp/repo/apps/ios/scripts/"
     cp "$root/docs/remote-protocol.md" "$tmp/repo/docs/"
     cp -R "$root/rust/crates/kernel/tests/rust_only/fixtures/event_feed" \
       "$tmp/repo/rust/crates/kernel/tests/rust_only/fixtures/"
@@ -226,6 +234,19 @@ self_test() {
       echo "self-test: '$name' failed without a file:line finding" >&2; cat "$tmp/case.out" >&2; rc=1
     fi
   done
+
+  # A file importing both modules may not use PlanItem unqualified; a qualified use is fine.
+  fresh
+  printf 'import CapstanAppCore\nimport CapstanKit\nlet a: PlanItem? = nil\n' > "$tmp/repo/apps/macos/Capstan/Planted.swift"
+  if run_checks "$tmp/repo" >"$tmp/amb.out" 2>&1; then
+    echo "self-test: an ambiguous type name was not caught" >&2; rc=1
+  elif ! grep -q 'Planted.swift:3: \[ambiguous\]' "$tmp/amb.out"; then
+    echo "self-test: the ambiguous type name failed without a file:line finding" >&2; cat "$tmp/amb.out" >&2; rc=1
+  fi
+  printf 'import CapstanAppCore\nimport CapstanKit\nlet a: CapstanAppCore.PlanItem? = nil\n' > "$tmp/repo/apps/macos/Capstan/Planted.swift"
+  if ! run_checks "$tmp/repo" >"$tmp/amb.out" 2>&1; then
+    echo "self-test: a qualified type name was flagged" >&2; cat "$tmp/amb.out" >&2; rc=1
+  fi
 
   # An allowed file may open links; a test file may hold a path.
   fresh

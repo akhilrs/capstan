@@ -30,7 +30,7 @@ struct PlansScreen: View {
         let ordered = PlanShow.ordered(groups, pinned: pinned)
         let scoped = ordered.filter { scope == nil || $0.id == scope }
         let items = scoped.flatMap { group in
-            group.rows.reversed().map { PlanItem(group: group, row: $0, waiting: group.waiting($0)) }
+            group.rows.reversed().map { CapstanAppCore.PlanItem(group: group, row: $0, waiting: group.waiting($0)) }
         }
         let needle = query.trimmingCharacters(in: .whitespaces)
         let searched = needle.isEmpty ? items : items.filter {
@@ -225,7 +225,7 @@ struct PlansScreen: View {
     }
 }
 
-extension PlanItem {
+extension CapstanAppCore.PlanItem {
     var route: PhoneRoute {
         PhoneRoute.plan(PlanRef(hostId: group.hostId, projectId: group.projectId, planId: row.planId))
     }
@@ -281,7 +281,7 @@ struct PlanGroupRow: View {
 
 /// A plan in a group: its id and title with a pill when it means something, the bar, then the meta line.
 struct PlanCompactRow: View {
-    let item: PlanItem
+    let item: CapstanAppCore.PlanItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.space[1]) {
@@ -313,7 +313,7 @@ struct PlanCompactRow: View {
 
 /// A plan in the "Needs you" card: its title, id and project, and how many items wait.
 struct NeedsYouPlanRow: View {
-    let item: PlanItem
+    let item: CapstanAppCore.PlanItem
     let showProject: Bool
 
     var body: some View {
