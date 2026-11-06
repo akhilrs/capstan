@@ -31,10 +31,16 @@ checked cache.setup_reuse.paths
 checked cleanup.branches
 checked cleanup.include_unlanded
 checked cleanup.worktrees
+checked daemon.busy_retry_ms
+checked daemon.caller_connections
 checked daemon.driver_read_first
 checked daemon.implementation
+checked daemon.max_connections
+checked daemon.repeat_window_seconds
 checked daemon.snapshot_reads_per_minute
 checked daemon.status_cache_ms
+checked daemon.wait_connections
+checked daemon.wait_per_caller
 checked defaults.Developer.model
 checked defaults.Developer.permission_mode
 checked defaults.PM.model

@@ -118,6 +118,12 @@ pub const DEFAULT_STATUS_CACHE_MS: i64 = 2000;
 pub const MAX_STATUS_CACHE_MS: i64 = 60_000;
 pub const DEFAULT_SNAPSHOT_READS_PER_MINUTE: i64 = 0;
 pub const MAX_SNAPSHOT_READS_PER_MINUTE: i64 = 600;
+pub const DEFAULT_MAX_CONNECTIONS: i64 = 64;
+pub const DEFAULT_CALLER_CONNECTIONS: i64 = 32;
+pub const DEFAULT_WAIT_CONNECTIONS: i64 = 32;
+pub const DEFAULT_WAIT_PER_CALLER: i64 = 4;
+pub const DEFAULT_REPEAT_WINDOW_SECONDS: i64 = 60;
+pub const DEFAULT_BUSY_RETRY_MS: i64 = 500;
 pub const DEFAULT_MAX_WORKERS: i64 = 3;
 pub const MAX_MAX_WORKERS: i64 = 16;
 
@@ -470,6 +476,53 @@ pub struct DaemonTuning {
     pub driver_read_first: bool,
     /// The most feed snapshot reads per minute; 0 = no limit.
     pub snapshot_reads_per_minute: i64,
+    /// The most connections the daemon holds open at once.
+    pub max_connections: i64,
+    /// The most open non-wait connections one caller may hold.
+    pub caller_connections: i64,
+    /// The most open wait-class connections in all.
+    pub wait_connections: i64,
+    /// The most open wait-class connections one caller may hold.
+    pub wait_per_caller: i64,
+    /// Seconds in which a repeated send is folded into the first; 0 = off.
+    pub repeat_window_seconds: i64,
+    /// The retry hint, in ms, in a busy answer.
+    pub busy_retry_ms: i64,
+}
+
+impl Default for DaemonTuning {
+    fn default() -> Self {
+        DaemonTuning {
+            status_cache_ms: DEFAULT_STATUS_CACHE_MS,
+            driver_read_first: true,
+            snapshot_reads_per_minute: DEFAULT_SNAPSHOT_READS_PER_MINUTE,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            caller_connections: DEFAULT_CALLER_CONNECTIONS,
+            wait_connections: DEFAULT_WAIT_CONNECTIONS,
+            wait_per_caller: DEFAULT_WAIT_PER_CALLER,
+            repeat_window_seconds: DEFAULT_REPEAT_WINDOW_SECONDS,
+            busy_retry_ms: DEFAULT_BUSY_RETRY_MS,
+        }
+    }
+}
+
+impl DaemonTuning {
+    /// The defaults for a run without a loaded config (tests, transcript replay): the same, but a send is never
+    /// folded, so a replay stays exact.
+    pub fn without_config() -> Self {
+        DaemonTuning {
+            repeat_window_seconds: 0,
+            ..DaemonTuning::default()
+        }
+    }
+}
+
+/// The `[daemon]` limits of a loaded config, or the no-config defaults. Consumers call this and keep no literal.
+pub fn daemon_limits(capstan: Option<&RoleConfig>) -> DaemonTuning {
+    match capstan {
+        Some(config) => config.daemon.clone(),
+        None => DaemonTuning::without_config(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

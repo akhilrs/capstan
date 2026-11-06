@@ -4,7 +4,7 @@
   "reason": "[daemon] selects nothing now: an empty table loads and the RoleConfig JSON has a daemon member that carries the tuning defaults",
   "expected": {
     "kind": "ok",
-    "sha256": "0faac0ca3b6debd1c57a838d7c53e474e3d1703bc71c0ac12954e79cfc3fa947",
-    "bytes": 3961
+    "sha256": "54addf1353981aa54788b8ae49327499a04e29f2d74ee3b7fe19c855b181d8ba",
+    "bytes": 4122
   }
 }

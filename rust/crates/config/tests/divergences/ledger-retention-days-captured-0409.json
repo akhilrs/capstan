@@ -4,7 +4,7 @@
   "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
   "expected": {
     "kind": "ok",
-    "sha256": "cfbd131285928a86b47be515b4b4084e907a5c273f13342e793923ec7b54e5d9",
-    "bytes": 5146
+    "sha256": "69383d09c912058d34aabae067ce15ac872e999a88bf5046f4c9b0443dcdbc03",
+    "bytes": 5307
   }
 }

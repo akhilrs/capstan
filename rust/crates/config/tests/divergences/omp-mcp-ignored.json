@@ -4,7 +4,7 @@
   "reason": "an omp role with mcp now loads: mcp is ignored with a warning and resolves to []",
   "expected": {
     "kind": "ok",
-    "sha256": "8a7ebd0119a0ad5423790a1c22b5784f00cce5f78ac086d43219e58af43ff603",
-    "bytes": 4809
+    "sha256": "e87e280a41c26f631a23cbbfd795322e27bb8b88e7eb4f47dde535854065b211",
+    "bytes": 4970
   }
 }

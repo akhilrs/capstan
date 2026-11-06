@@ -436,6 +436,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             status_cache_ms: 2000,
             driver_read_first: true,
             snapshot_reads_per_minute: 0,
+            ..Default::default()
         },
         layout: Layout {
             spawn: if text(layout, "spawn").as_deref() == Some("pane") {

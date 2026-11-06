@@ -301,7 +301,7 @@ fn the_daemon_table_is_a_no_op_with_a_warning_for_rust_and_an_error_for_node() {
     trust_project(&w.project);
     let unknown = w.op(&["config", "check"]);
     assert_eq!(unknown.code, 3, "{}", unknown.text());
-    assert!(unknown.has("daemon has 1 unknown key(s); allowed: implementation, status_cache_ms, driver_read_first, snapshot_reads_per_minute"));
+    assert!(unknown.has("daemon has 1 unknown key(s); allowed: implementation, status_cache_ms, driver_read_first, snapshot_reads_per_minute, max_connections, caller_connections, wait_connections, wait_per_caller, repeat_window_seconds, busy_retry_ms"));
 }
 
 #[test]

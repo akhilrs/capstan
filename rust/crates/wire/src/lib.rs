@@ -19,5 +19,30 @@ pub use transport::{
 pub const MAX_FRAME_BYTES: usize = 65_536;
 /// The longest response line, without its newline.
 pub const MAX_RESPONSE_BYTES: usize = 1_048_576;
+/// The error code of a connection the daemon refused for being over a limit; the client retries on it.
+pub const CONTROLLER_BUSY: &str = "controller_busy";
+/// Commands whose answer may carry a credential or a nonce: the reply cache keeps them as `Kept`, never as text.
+pub const KEPT_COMMANDS: [&str; 7] = [
+    "spawn",
+    "launch",
+    "replace",
+    "pm-restart",
+    "op",
+    "decide",
+    "decide-merge",
+];
+/// Commands whose lost reply the client never retries: [`KEPT_COMMANDS`] (no replayable answer) plus `wait` and
+/// `notify` (a long wait). Built from [`KEPT_COMMANDS`], so a command added there is never retried either.
+pub const NO_LOST_REPLY_RETRY: [&str; 9] = {
+    let mut all = [""; 9];
+    let mut i = 0;
+    while i < KEPT_COMMANDS.len() {
+        all[i] = KEPT_COMMANDS[i];
+        i += 1;
+    }
+    all[7] = "wait";
+    all[8] = "notify";
+    all
+};
 /// The default per-call timeout.
 pub const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);

@@ -548,7 +548,75 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
             MAX_SNAPSHOT_READS_PER_MINUTE,
             DEFAULT_SNAPSHOT_READS_PER_MINUTE,
         )?,
+        max_connections: optional_integer(
+            daemon_table.get("max_connections"),
+            "daemon.max_connections",
+            8,
+            1024,
+            DEFAULT_MAX_CONNECTIONS,
+        )?,
+        caller_connections: optional_integer(
+            daemon_table.get("caller_connections"),
+            "daemon.caller_connections",
+            1,
+            1024,
+            DEFAULT_CALLER_CONNECTIONS,
+        )?,
+        wait_connections: optional_integer(
+            daemon_table.get("wait_connections"),
+            "daemon.wait_connections",
+            1,
+            1024,
+            DEFAULT_WAIT_CONNECTIONS,
+        )?,
+        wait_per_caller: optional_integer(
+            daemon_table.get("wait_per_caller"),
+            "daemon.wait_per_caller",
+            1,
+            1024,
+            DEFAULT_WAIT_PER_CALLER,
+        )?,
+        repeat_window_seconds: optional_integer(
+            daemon_table.get("repeat_window_seconds"),
+            "daemon.repeat_window_seconds",
+            0,
+            600,
+            DEFAULT_REPEAT_WINDOW_SECONDS,
+        )?,
+        busy_retry_ms: optional_integer(
+            daemon_table.get("busy_retry_ms"),
+            "daemon.busy_retry_ms",
+            50,
+            10_000,
+            DEFAULT_BUSY_RETRY_MS,
+        )?,
     };
+    for (key, value, limit_key, limit) in [
+        (
+            "caller_connections",
+            daemon.caller_connections,
+            "max_connections",
+            daemon.max_connections,
+        ),
+        (
+            "wait_connections",
+            daemon.wait_connections,
+            "max_connections",
+            daemon.max_connections,
+        ),
+        (
+            "wait_per_caller",
+            daemon.wait_per_caller,
+            "wait_connections",
+            daemon.wait_connections,
+        ),
+    ] {
+        if value > limit {
+            return invalid(format!(
+                "daemon.{key} must not be above daemon.{limit_key} ({limit})"
+            ));
+        }
+    }
 
     let cleanup = resolve_cleanup(optional_table(root.get("cleanup"), "cleanup")?)?;
     let remote = crate::remote::resolve_remote(optional_table(root.get("remote"), "remote")?)?;

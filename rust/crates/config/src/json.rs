@@ -379,6 +379,15 @@ impl RoleConfig {
                         "snapshotReadsPerMinute",
                         number(self.daemon.snapshot_reads_per_minute),
                     ),
+                    ("maxConnections", number(self.daemon.max_connections)),
+                    ("callerConnections", number(self.daemon.caller_connections)),
+                    ("waitConnections", number(self.daemon.wait_connections)),
+                    ("waitPerCaller", number(self.daemon.wait_per_caller)),
+                    (
+                        "repeatWindowSeconds",
+                        number(self.daemon.repeat_window_seconds),
+                    ),
+                    ("busyRetryMs", number(self.daemon.busy_retry_ms)),
                 ]),
             ),
             (

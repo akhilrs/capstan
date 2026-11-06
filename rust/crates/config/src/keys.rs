@@ -78,6 +78,12 @@ pub const DAEMON_KEYS: &[&str] = &[
     "status_cache_ms",
     "driver_read_first",
     "snapshot_reads_per_minute",
+    "max_connections",
+    "caller_connections",
+    "wait_connections",
+    "wait_per_caller",
+    "repeat_window_seconds",
+    "busy_retry_ms",
 ];
 pub const CLEANUP_KEYS: &[&str] = &["branches", "worktrees", "include_unlanded"];
 pub const REMOTE_KEYS: &[&str] = &[
