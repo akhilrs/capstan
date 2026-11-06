@@ -26,4 +26,6 @@ brag-output*/
 .capstan/
 capstan.toml
 capstan.toml~
+capstan.local.toml
+capstan.local.toml~
 # <<< capstan

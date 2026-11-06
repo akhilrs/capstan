@@ -235,7 +235,7 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(output.status.success(), "git {args:?}: {output:?}");
 }
 
-/// A scratch project; `extra` is appended to its capstan.toml.
+/// A scratch project; `extra` is its untracked capstan.local.toml.
 fn project(label: &str, extra: &str) -> Project {
     let base = capstan_testkit::short_temp_root()
         .join(format!("capstan-notify-{label}-{}", std::process::id()));
@@ -265,12 +265,14 @@ fn project(label: &str, extra: &str) -> Project {
         std::fs::write(capstan.join(name), text).unwrap();
         private(&capstan.join(name), 0o600);
     }
-    let toml = format!(
+    let toml =
         "schema_version = 1\n[nexora]\ntrack = \"never\"\n[hosts.claude]\nkind = \"claude\"\n\
-         [architect]\nenabled = true\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n{extra}\n"
-    );
+         [architect]\nenabled = true\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n";
     std::fs::write(root.join("capstan.toml"), toml).unwrap();
     private(&root.join("capstan.toml"), 0o600);
+    // `[ntfy]` connection keys are honoured only from the untracked local file.
+    std::fs::write(root.join("capstan.local.toml"), format!("{extra}\n")).unwrap();
+    private(&root.join("capstan.local.toml"), 0o600);
     Project { base, root }
 }
 
@@ -424,11 +426,10 @@ fn notify_test_publishes_with_the_token_of_the_file() {
     std::fs::write(&token_file, "tok-0123456789\n").unwrap();
     private(&token_file, 0o600);
     // The section is written before the controller starts.
-    let toml = std::fs::read_to_string(p.root.join("capstan.toml")).unwrap();
     std::fs::write(
-        p.root.join("capstan.toml"),
+        p.root.join("capstan.local.toml"),
         format!(
-            "{toml}[ntfy]\nenabled = true\nserver = \"http://127.0.0.1:{port}\"\ntopic = \"proj\"\ntoken_file = \"{}\"\n",
+            "[ntfy]\nenabled = true\nserver = \"http://127.0.0.1:{port}\"\ntopic = \"proj\"\ntoken_file = \"{}\"\n",
             token_file.display()
         ),
     )

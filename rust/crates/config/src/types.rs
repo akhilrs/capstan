@@ -1,6 +1,8 @@
 //! The shapes, names and constants of a resolved capstan.toml (`src/config/types.ts`).
 
 pub const CONFIG_FILE_NAME: &str = "capstan.toml";
+/// The optional, untracked file laid over `capstan.toml`: machine and personal settings.
+pub const LOCAL_CONFIG_FILE_NAME: &str = "capstan.local.toml";
 pub const DEFAULT_WAIT_TIMEOUT_SECONDS: i64 = 90;
 pub const MAX_WAIT_TIMEOUT_SECONDS: i64 = 3600;
 pub const DEFAULT_HERDR_SESSION: &str = "default";

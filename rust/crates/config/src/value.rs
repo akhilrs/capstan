@@ -61,6 +61,24 @@ impl Table {
         self.0.is_empty()
     }
 
+    /// This table with `over` laid on top: tables merge key by key, recursively; any other value in `over` (a scalar or an
+    /// array) replaces the one here, and a key only one side has is kept.
+    pub fn merged_with(&self, over: &Table) -> Table {
+        let mut members: Vec<(String, Item)> = self.0.clone();
+        for (key, item) in over.entries() {
+            match members.iter_mut().find(|(k, _)| k == key) {
+                Some((_, slot)) => {
+                    *slot = match (&*slot, item) {
+                        (Item::Table(base), Item::Table(top)) => Item::Table(base.merged_with(top)),
+                        _ => item.clone(),
+                    };
+                }
+                None => members.push((key.to_string(), item.clone())),
+            }
+        }
+        Table::from_members(members)
+    }
+
     pub fn from_members(mut members: Vec<(String, Item)>) -> Table {
         // A stable sort keeps the written order within the non-index keys.
         members.sort_by_key(|(k, _)| array_index(k).map_or((1u8, 0u32), |i| (0, i)));

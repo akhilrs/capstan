@@ -306,6 +306,7 @@ pub struct Builder {
     label: String,
     agents: Vec<AgentSpec>,
     config: Option<String>,
+    local_config: Option<String>,
     env: Vec<(String, String)>,
     git: bool,
     start: bool,
@@ -331,6 +332,11 @@ impl Builder {
     /// A `capstan.toml` for the project (mode 0600).
     pub fn config(mut self, toml: &str) -> Self {
         self.config = Some(toml.to_string());
+        self
+    }
+    /// A `capstan.local.toml` for the project (mode 0600): the untracked layer laid over `capstan.toml`.
+    pub fn local_config(mut self, toml: &str) -> Self {
+        self.local_config = Some(toml.to_string());
         self
     }
     /// An environment variable the daemon and every client get.
@@ -398,6 +404,7 @@ impl World {
             label: label.into(),
             agents: Vec::new(),
             config: None,
+            local_config: None,
             env: Vec::new(),
             git: true,
             start: true,
@@ -498,6 +505,11 @@ impl World {
         }
         if let Some(toml) = &builder.config {
             let file = project.join("capstan.toml");
+            std::fs::write(&file, toml).unwrap();
+            mode(&file, 0o600);
+        }
+        if let Some(toml) = &builder.local_config {
+            let file = project.join("capstan.local.toml");
             std::fs::write(&file, toml).unwrap();
             mode(&file, 0o600);
         }
@@ -794,7 +806,11 @@ impl World {
 
     fn git_init(&self) {
         self.git(&["init", "--quiet", "--initial-branch=main"]);
-        std::fs::write(self.project.join(".git/info/exclude"), ".capstan/\n").unwrap();
+        std::fs::write(
+            self.project.join(".git/info/exclude"),
+            ".capstan/\ncapstan.local.toml\n",
+        )
+        .unwrap();
         std::fs::write(self.project.join("a.txt"), "a\n").unwrap();
         self.git(&["add", "--all"]);
         self.git(&["commit", "--quiet", "-m", "chore: initial commit"]);

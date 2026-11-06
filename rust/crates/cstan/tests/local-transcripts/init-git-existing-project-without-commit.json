@@ -61,7 +61,7 @@
       "path": "proj/.gitignore",
       "kind": "file",
       "mode": "0644",
-      "text": "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\n# <<< capstan\n"
+      "text": "# >>> capstan (managed by cstan init)\n.capstan/\ncapstan.toml\ncapstan.toml~\ncapstan.local.toml\ncapstan.local.toml~\n# <<< capstan\n"
     }
   ],
   "commits": {

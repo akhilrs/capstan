@@ -8,13 +8,15 @@ use std::os::unix::fs::PermissionsExt;
 
 const MARKER: &str = "capstan-remote-merge";
 
-fn config(merge: bool) -> String {
-    format!("{TEAM_CONFIG}\n[remote]\nmerge = {merge}\n")
+/// `[remote]` is a machine setting: the tracked `capstan.toml` may not turn merging on, `capstan.local.toml` holds it.
+fn local_config(merge: bool) -> String {
+    format!("[remote]\nmerge = {merge}\n")
 }
 
 fn world(label: &str, identity: bool) -> (World, String, String) {
     let mut w = World::builder(label)
-        .config(&config(true))
+        .config(TEAM_CONFIG)
+        .local_config(&local_config(true))
         .agents(&[
             agent("pm-1", "pm", "PM"),
             agent("dev-1", "developer", "Developer"),
@@ -37,8 +39,8 @@ fn world(label: &str, identity: bool) -> (World, String, String) {
 }
 
 fn set_merge(w: &World, merge: bool) {
-    let file = w.project.join("capstan.toml");
-    std::fs::write(&file, config(merge)).unwrap();
+    let file = w.project.join("capstan.local.toml");
+    std::fs::write(&file, local_config(merge)).unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
 }
 

@@ -45,25 +45,225 @@ pub fn parse_config_with_home(
     project_root: &Path,
     home: Option<&str>,
 ) -> Result<RoleConfig> {
+    let root = decode_document(bytes, CONFIG_FILE_NAME)?;
+    resolve_document(&root, project_root, home)
+}
+
+/// One TOML file as a table; every refusal names `name`, the file it came from.
+fn decode_document(bytes: &[u8], name: &str) -> Result<Table> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
-        return invalid(format!("{CONFIG_FILE_NAME} exceeds {MAX_FILE_BYTES} bytes"));
+        return invalid(format!("{name} exceeds {MAX_FILE_BYTES} bytes"));
     }
     let Ok(decoded) = std::str::from_utf8(bytes) else {
-        return invalid(format!("{CONFIG_FILE_NAME} is not valid UTF-8"));
+        return invalid(format!("{name} is not valid UTF-8"));
     };
     let source = decoded.strip_prefix('\u{feff}').unwrap_or(decoded);
     let source = source.replace("\r\n", "\n");
     // The document is what `smol-toml` makes of the text, or the place it refuses it.
-    let root = match crate::smol::parse(&source) {
-        Ok(root) => root,
-        Err(position) => {
-            return invalid(format!(
-                "{CONFIG_FILE_NAME} is not valid TOML at line {}, column {}",
-                position.line, position.column
-            ))
+    match crate::smol::parse(&source) {
+        Ok(root) => Ok(root),
+        Err(position) => invalid(format!(
+            "{name} is not valid TOML at line {}, column {}",
+            position.line, position.column
+        )),
+    }
+}
+
+/// The configuration of `capstan.toml` with the optional `capstan.local.toml` laid over it (tables merge key by key,
+/// arrays and scalars of the local file replace). With no local file this is `parse_config_with_home` plus the `[remote]` rule below. `[remote] merge`
+/// and `push` are honoured only from the local file: `true` in the tracked one is refused. A refusal of the merged result
+/// names the file the offending key came from.
+pub fn parse_layered_config(
+    tracked: &[u8],
+    local: Option<&[u8]>,
+    project_root: &Path,
+    home: Option<&str>,
+) -> Result<RoleConfig> {
+    parse_layered_config_with(tracked, local, project_root, home, true)
+}
+
+/// `parse_layered_config` for a caller that could not confirm that git leaves `capstan.local.toml` untracked
+/// (`local_confirmed_untracked = false`, git missing or failing): the local file's `[remote]` `merge`, `push`, `push_url`
+/// and `merge_branch` are then refused, so the host fails closed for everything that reaches a remote. Other keys of the
+/// local file stay honoured.
+pub fn parse_layered_config_with(
+    tracked: &[u8],
+    local: Option<&[u8]>,
+    project_root: &Path,
+    home: Option<&str>,
+    local_confirmed_untracked: bool,
+) -> Result<RoleConfig> {
+    let base = decode_document(tracked, CONFIG_FILE_NAME)?;
+    let over = match local {
+        Some(local) => decode_document(local, LOCAL_CONFIG_FILE_NAME)?,
+        None => Table::empty(),
+    };
+    if let Some(Item::Table(remote)) = base.get("remote") {
+        for key in ["merge", "push"] {
+            if remote.get(key) == Some(&Item::Bool(true)) {
+                return invalid(tracked_remote_refusal(key));
+            }
+        }
+        for key in LOCAL_ONLY_REMOTE_VALUES {
+            if remote.get(key).is_some() {
+                return invalid(tracked_remote_refusal(key));
+            }
+        }
+    }
+    if let Some(Item::Table(ntfy)) = base.get("ntfy") {
+        if ntfy.get("enabled") == Some(&Item::Bool(true)) {
+            return invalid(tracked_local_only_refusal("ntfy.enabled = true"));
+        }
+        for key in LOCAL_ONLY_NTFY_VALUES {
+            if ntfy.get(key).is_some() {
+                return invalid(tracked_local_only_refusal(&format!("ntfy.{key}")));
+            }
+        }
+    }
+    if let Some(Item::Table(env)) = base.get("env") {
+        if env.get("pass").is_some() {
+            return invalid(tracked_local_only_refusal("env.pass"));
+        }
+    }
+    if !local_confirmed_untracked {
+        if let Some(Item::Table(ntfy)) = over.get("ntfy") {
+            let enabled = ntfy.get("enabled") == Some(&Item::Bool(true));
+            let key = if enabled {
+                Some("enabled")
+            } else {
+                LOCAL_ONLY_NTFY_VALUES
+                    .into_iter()
+                    .find(|key| ntfy.get(key).is_some())
+            };
+            if let Some(key) = key {
+                return invalid(format!(
+                    "ntfy.{key} is not honoured from {LOCAL_CONFIG_FILE_NAME}: git could not confirm that the file is untracked (is git installed and the project folder readable?)"
+                ));
+            }
+        }
+        if let Some(Item::Table(env)) = over.get("env") {
+            if env.get("pass").is_some() {
+                return invalid(format!(
+                    "env.pass is not honoured from {LOCAL_CONFIG_FILE_NAME}: git could not confirm that the file is untracked (is git installed and the project folder readable?)"
+                ));
+            }
+        }
+        if let Some(Item::Table(remote)) = over.get("remote") {
+            for key in ["merge", "push", "push_url", "merge_branch"] {
+                let set = match remote.get(key) {
+                    Some(Item::Bool(false)) | None => false,
+                    Some(_) => true,
+                };
+                if set {
+                    return invalid(format!(
+                        "remote.{key} is not honoured from {LOCAL_CONFIG_FILE_NAME}: git could not confirm that the file is untracked (is git installed and the project folder readable?)"
+                    ));
+                }
+            }
+        }
+    }
+    let merged = base.merged_with(&over);
+    resolve_document(&merged, project_root, home).map_err(|error| match local {
+        // Without a local file every key is from `capstan.toml`: the refusal stays as it always was.
+        Some(_) => name_source(error, &base, &over),
+        None => error,
+    })
+}
+
+/// The `[remote]` keys that carry a destination and are honoured only from the local file in any form.
+const LOCAL_ONLY_REMOTE_VALUES: [&str; 2] = ["push_url", "merge_branch"];
+
+/// The `[ntfy]` keys that pick the server, the topic or a credential, honoured only from the local file in any form.
+/// `enabled = true` is local-only as well. Display keys (`events`, `title_prefix`, `timeout_seconds`, `retries`, `event`)
+/// stay shared: they choose which events notify and how they look, and send nothing anywhere while no server is set.
+const LOCAL_ONLY_NTFY_VALUES: [&str; 8] = [
+    "server",
+    "topic",
+    "user",
+    "token_env",
+    "token_file",
+    "password_env",
+    "password_file",
+    "ca_file",
+];
+
+/// The refusal of a key that sends data off the host or passes host secrets to agents, set in the tracked file.
+pub fn tracked_local_only_refusal(key: &str) -> String {
+    format!(
+        "{key} is not honoured in {CONFIG_FILE_NAME}, which is tracked in git; set it in {LOCAL_CONFIG_FILE_NAME} (untracked), so a pulled commit cannot send host secrets or notifications elsewhere"
+    )
+}
+
+/// The refusal of `[remote] merge = true`, `push = true`, `push_url` or `merge_branch` in the tracked file.
+pub fn tracked_remote_refusal(key: &str) -> String {
+    if LOCAL_ONLY_REMOTE_VALUES.contains(&key) {
+        return format!(
+            "remote.{key} is not honoured in {CONFIG_FILE_NAME}, which is tracked in git; set it in {LOCAL_CONFIG_FILE_NAME} (untracked), so a pulled commit cannot send an approved merge or push elsewhere"
+        );
+    }
+    format!(
+        "remote.{key} = true is not honoured in {CONFIG_FILE_NAME}, which is tracked in git; set it in {LOCAL_CONFIG_FILE_NAME} (untracked), so a clone never arrives with it on"
+    )
+}
+
+/// Appends the file a refusal's key came from. The refusal text starts with the dotted path of the key (or table) it is
+/// about; the file is the local one when it holds that key, else the tracked one. A text that names no path found in
+/// either file is left as it is. No refusal text carries a value, so naming a file repeats no secret.
+fn name_source(error: ConfigError, base: &Table, over: &Table) -> ConfigError {
+    let ConfigError::Invalid(text) = error else {
+        return error;
+    };
+    let path: &str = text.split([' ', ':']).next().unwrap_or("");
+    let valid_path = !path.is_empty()
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '[' | ']'));
+    if !valid_path {
+        return ConfigError::Invalid(text);
+    }
+    let segments: Vec<String> = path
+        .split('.')
+        .flat_map(|part| {
+            let mut pieces = part.split('[');
+            let head = pieces.next().unwrap_or("").to_string();
+            let mut out = vec![head];
+            out.extend(pieces.map(|p| p.trim_end_matches(']').to_string()));
+            out
+        })
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let allowed: Option<Vec<&str>> = text
+        .split_once("unknown key(s); allowed: ")
+        .map(|(_, list)| list.split(", ").collect());
+    let holds = |table: &Table| -> bool {
+        let mut item = Item::Table(table.clone());
+        for segment in &segments {
+            let next = match &item {
+                Item::Table(t) => t.get(segment).cloned(),
+                Item::Array(a) => segment
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|i| a.get(i).cloned()),
+                _ => None,
+            };
+            match next {
+                Some(found) => item = found,
+                None => return false,
+            }
+        }
+        match (&allowed, &item) {
+            (Some(allowed), Item::Table(t)) => t.keys().any(|k| !allowed.contains(&k)),
+            _ => true,
         }
     };
-    resolve_document(&root, project_root, home)
+    let file = if holds(over) {
+        LOCAL_CONFIG_FILE_NAME
+    } else if holds(base) {
+        CONFIG_FILE_NAME
+    } else {
+        return ConfigError::Invalid(text);
+    };
+    ConfigError::Invalid(format!("{text} (from {file})"))
 }
 
 fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Result<RoleConfig> {

@@ -1,6 +1,6 @@
 //! `cstan init`: the project directory, the operator key, the project record, the starter `capstan.toml` and the managed
 //! `.gitignore` block, with `--git` to set up the repository and its first commit, `--gitignore` to only update the block
-//! and `--track-config` to leave `capstan.toml` out of it.
+//! and `--track-config` to opt in to tracking `capstan.toml` (leaves it out of the block).
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -193,9 +193,9 @@ impl Cli<'_> {
         };
         let block_line = outcome_line(block_outcome);
         let protect = if track_config {
-            ".capstan/ is ignored through the capstan block in .gitignore."
+            ".capstan/ and capstan.local.toml are ignored through the capstan block in .gitignore."
         } else {
-            ".capstan/ and capstan.toml are ignored through the capstan block in .gitignore."
+            ".capstan/, capstan.toml and capstan.local.toml are ignored through the capstan block in .gitignore."
         };
         let exclude = if credential_ignored {
             "\nThe repository-local Git exclude protects .capstan from ordinary staging."

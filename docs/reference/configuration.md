@@ -57,6 +57,55 @@ There is no `[daemon]` table any more: Rust is the only daemon. An old `implemen
 
 The starter file defines these roles, in this order: `pm` (PM), `supervisor` (Supervisor), `architect`, `developer`, `designer`, `operator` and `researcher` (Developer), and `reviewer` and `tester` (Verifier), all on a `claude` host. The reviewer takes `claude-opus-5-5`; the tester takes the `[defaults.Verifier]` model. The starter enables `[architect]`, `[operator]`, `[researcher]` and `[prompt_relay]`. Developer roles deny `git push`; the reviewer and supervisor also deny file-writing tools. Each agent's system prompt is a built-in command reference for its kind (`rust/crates/config/src/prompts.rs`) followed by the role's own prompt: the `prompt` text, or the contents of its `prompt_file`. The `designer` role has a built-in prompt when it sets none; see [The designer role](#the-designer-role).
 
+### Machine and personal settings: `capstan.local.toml`
+
+Tracking `capstan.toml` (committing it so a team shares it) is opt-in for now. By default `cstan init` puts `capstan.toml`, `capstan.local.toml` and their `~` backups in the managed `.gitignore` block, and `cstan config check` warns when `capstan.toml` is neither ignored nor tracked. `cstan init --track-config` (or `cstan init --gitignore --track-config`) leaves `capstan.toml` out of the block so you can commit it; that choice is yours, and the warning does not appear once the file is tracked. Why it is not the default: until a trust check exists, a merged branch can change the command and permission keys of a tracked `capstan.toml` (`[verify]`, `[worktree]`, `[hosts]`, `[mcp_servers]`, `[roles]`, `[operator]`; see the table below), and those run on every machine that reads the file. Treat a tracked `capstan.toml` as code that needs the same review as code. A tracked file must not hold machine paths (an absolute `scratch_dir`, `ca_file`, `token_file`, a home directory): they break on other machines and leak your layout.
+
+Settings that belong to one machine or one person go in an optional `capstan.local.toml` in the same folder. `cstan init` always puts `capstan.local.toml` (and `capstan.local.toml~`) in the managed block, and `cstan config check` warns when it exists but git would not ignore it.
+
+When the file exists it is laid over `capstan.toml` before anything is checked:
+
+- Tables merge key by key, recursively: a key only one file has is kept, and a key both have takes the local value (a table in both merges again).
+- Arrays and scalars in the local file replace the tracked value whole. An array is never appended to.
+- The local file is a fragment: it needs no `schema_version`, and the merged result must be a complete configuration.
+- The local file is read under the same checks as `capstan.toml` (a regular file, owned by you, not writable by group or others, at most 64 KB).
+
+The controller at start-up, `cstan config check`, `cstan config sync`, `cstan status`, the verify and review readers and the daemon's re-read of `[remote]` at every merge call all see the same merged result. `cstan config check` checks the merged result; a refusal ends with `(from capstan.toml)` or `(from capstan.local.toml)` for the file that holds the key, and a TOML syntax error names its own file. A refusal never repeats a value.
+
+`[remote]` `merge = true`, `push = true`, `push_url` and `merge_branch` are honoured only from `capstan.local.toml`. In `capstan.toml` they are refused (any value of `push_url` or `merge_branch`), so a clone or a pulled commit can neither turn phone merge or push on nor change where an approved push goes.
+
+`[ntfy]` `enabled = true`, `server`, `topic`, `user`, `token_env`, `token_file`, `password_env`, `password_file` and `ca_file`, and `[env] pass`, are honoured only from `capstan.local.toml` as well. In `capstan.toml` they are refused (any value), so a pulled commit cannot point notifications at another server, name a host file or environment variable as an auth secret to send there, or pass host environment values into agent panes. The display keys `events`, `title_prefix`, `timeout_seconds`, `retries` and `[ntfy.event.<name>]` stay shared: they choose which events notify and how they look, and with no local server they send nothing. `topic` is local-only because on a shared public server a topic name decides who can read the messages.
+
+A `capstan.local.toml` that git tracks is refused as a whole, by every reader: the error names the file and says to untrack it (`git rm --cached capstan.local.toml`), and `cstan config check` reports it as an error (exit 3). Nothing from it is honoured, so a repository that force-adds the file cannot ship its own settings. The check runs `git ls-files --error-unmatch` in the project folder (no shell, cleared environment). Outside a git work tree the file is honoured. When git is missing or fails for another reason, the host fails closed: `[remote]` `merge = true`, `push = true`, `push_url` and `merge_branch` in the local file are refused until git works, and so are the local file's `[ntfy]` `enabled = true` and connection keys and `[env] pass`; its other keys stay honoured. `[ntfy]` secrets stay as `token_file`/`token_env` (or `password_file`/`password_env`); a secret value is never written in either file.
+
+### Shared vs local keys
+
+Keys that run commands on the host, send data off the host or widen what an agent may do, and whether a tracked `capstan.toml` (shared by a clone, once you opt in) may hold them today. "Local only" means the tracked file is refused and `capstan.local.toml` is honoured (and refused when git cannot confirm it is untracked).
+
+| Key | Effect | In tracked `capstan.toml` |
+| --- | --- | --- |
+| `[remote]` `merge = true`, `push = true`, `push_url`, `merge_branch` | merges into the main branch, pushes to a remote | Local only |
+| `[ntfy]` `enabled = true`, `server`, `topic`, `user`, `token_env`, `token_file`, `password_env`, `password_file`, `ca_file` | sends notifications and an auth secret to a server | Local only |
+| `[env]` `pass` | host environment values reach agent panes, `setup`, `teardown` | Local only |
+| `[ntfy]` `events`, `title_prefix`, `timeout_seconds`, `retries`, `event` | which events notify and how | Allowed (sends nothing without a local server) |
+| `[verify]` commands | shell commands run on the host in scratch worktrees | Allowed |
+| `[worktree]` `setup`, `teardown` | shell commands run in each worktree | Allowed |
+| `[cache]` dirs and presets | host directories shared into worktrees and the build environment | Allowed |
+| `[hosts.<name>]` `command`, `kind`, `model`, `permission_mode` | the program started for an agent and its default permission mode | Allowed |
+| `[mcp_servers.<name>]` `command`, `args` | programs started for roles that list them in `mcp` | Allowed |
+| `[roles.<name>]` `allow`, `deny`, `permission_mode`, `host`, `model`, `hooks`, `mcp`, `prompt`, `prompt_file` | an agent's tool permissions, host, hooks and instructions | Allowed |
+| `[defaults]`, `[defaults.<Kind>]` `model`, `permission_mode` | the same, as defaults | Allowed |
+| `[operator]` `auto_approve`, `auto_approve_prefix` | approvals given without asking | Allowed |
+| `[researcher]` `output_dir`, `user_agent`; `[review]`, `[design]` commands | where research is written, web access identity, review and design commands | Allowed |
+
+Everything marked Allowed is trusted project config: anyone who can land a commit on `capstan.toml` can run commands on the machines that read it.
+
+#### Opting in to a tracked `capstan.toml`
+
+1. Create `capstan.local.toml` and move into it the `[remote]` table (at least `merge`, `push`, `push_url`, `merge_branch`; the tracked file now refuses them), the `[ntfy]` table (its display keys may stay shared), `[env] pass` and any key that holds an absolute path of your machine (`scratch_dir`, `ca_file`, `token_file`, ...). Delete them from `capstan.toml`.
+2. Run `cstan init --gitignore --track-config`: it rewrites the managed block to ignore `capstan.local.toml` and drops the `capstan.toml` lines. A `capstan.toml` line you added yourself outside the block is yours to remove.
+3. Make sure git does not track `capstan.local.toml` (`git rm --cached capstan.local.toml` if it does). Run `cstan config check`, then commit `capstan.toml`.
+
 ### The starter file
 
 `cstan init` writes the sections in this order, with only a few comments:
@@ -346,7 +395,7 @@ messages_per_hour = 30
 - `push_url` (string, default unset, at most 1024 bytes): where a push goes. It is checked whenever it is set. Accepted: `ssh://`, `https://` or `file://` URLs (the scheme in any case; only `file://` may have an empty host; `ssh://` may carry a port from 1 to 65535 or a bracketed IPv6 host), and the scp-like form `[user@]host:path`. Refused: `http://`, `git://` and any other scheme, a remote helper such as `ext::x`, a password in a URL (`ssh://user:pw@host/r`), a value that starts with `-` or whose host does, whitespace, control characters, `?`, `#` and `%`.
 - `messages_per_hour` (1 to 600, default 30): a hard cap on messages per project and per direction over the trailing 60 minutes.
 
-capstan.toml (read from the project root, and re-read at every merge call) is often committed, so a cloned repository can arrive with `[remote]` merge or push enabled and its own `push_url`. Review `[remote]` before running `cstan` in a repository you did not write.
+`merge = true`, `push = true`, `push_url` and `merge_branch` are honoured only from an untracked `capstan.local.toml` ([Machine and personal settings](#machine-and-personal-settings-capstanlocaltoml)); in the tracked `capstan.toml` they are refused, and a `capstan.local.toml` that git tracks is refused whole. `capstan.toml` is often committed, so a cloned repository can arrive with its own `[remote]` table. Review `[remote]` before running `cstan` in a repository you did not write.
 
 Limits: percent-encoded file paths are not supported. A 2-letter scp host such as `cd:path` is taken as a host, never as a Windows drive; `c:path` is refused as a local path. A bracketed IPv6 host works only in `ssh://` form, not scp-like.
 

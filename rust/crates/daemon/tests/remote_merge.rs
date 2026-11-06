@@ -261,6 +261,28 @@ fn an_agent_may_not_merge() {
 }
 
 #[test]
+fn merge_is_read_from_the_local_file_and_never_from_the_tracked_one() {
+    // The project is set up with `[remote] merge = true` in capstan.local.toml only: a merge call re-reads it and applies.
+    let project = new_project();
+    let tracked = project.dir.path().join("capstan.toml");
+    assert!(!std::fs::read_to_string(&tracked)
+        .unwrap()
+        .contains("[remote]"));
+    assert!(
+        std::fs::read_to_string(project.dir.path().join("capstan.local.toml"))
+            .unwrap()
+            .contains("merge = true")
+    );
+
+    // The same switch in the tracked file is refused as a whole configuration, so the call sees the defaults: no merge.
+    let mut text = std::fs::read_to_string(&tracked).unwrap();
+    text.push_str("\n[remote]\nmerge = true\n");
+    std::fs::write(&tracked, text).unwrap();
+    std::fs::remove_file(project.dir.path().join("capstan.local.toml")).unwrap();
+    refuses(&project, "nonce-tracked", "merge_disabled");
+}
+
+#[test]
 fn each_gate_of_phase_a_refuses_without_a_trace() {
     // merge is off
     let mut project = new_project();
@@ -855,7 +877,7 @@ fn a_verify_pass_at_an_older_head_is_not_verified() {
 #[test]
 fn a_merge_applies_when_messages_per_hour_is_used_up() {
     let project = new_project();
-    let file = project.dir.path().join("capstan.toml");
+    let file = project.dir.path().join("capstan.local.toml");
     let text = std::fs::read_to_string(&file).unwrap();
     std::fs::write(
         &file,

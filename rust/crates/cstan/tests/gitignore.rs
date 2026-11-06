@@ -4,7 +4,14 @@ use std::process::{Command, Stdio};
 
 use cstan_front::gitignore::{self, upsert, Outcome, BLOCK_BEGIN, BLOCK_END};
 
-const ALL: &[&str] = &[".capstan/", "capstan.toml", "capstan.toml~"];
+const ALL: &[&str] = &[
+    ".capstan/",
+    "capstan.toml",
+    "capstan.toml~",
+    "capstan.local.toml",
+    "capstan.local.toml~",
+];
+const TRACKED: &[&str] = &[".capstan/", "capstan.local.toml", "capstan.local.toml~"];
 const TOML: &str = "schema_version = 1\n[nexora]\ntrack = \"never\"\n[hosts.claude]\nkind = \"claude\"\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n";
 
 fn block(entries: &[&str]) -> String {
@@ -43,13 +50,13 @@ fn second_run_changes_nothing() {
 }
 
 #[test]
-fn track_config_lists_only_the_state_directory() {
-    assert_eq!(gitignore::entries(true), vec![".capstan/"]);
+fn default_block_ignores_both_files_and_track_config_leaves_capstan_toml_out() {
     assert_eq!(gitignore::entries(false), ALL.to_vec());
+    assert_eq!(gitignore::entries(true), TRACKED.to_vec());
     let old = upsert("", ALL).unwrap();
     assert_eq!(
         upsert(&old, &gitignore::entries(true)).unwrap(),
-        block(&[".capstan/"])
+        block(TRACKED)
     );
 }
 
@@ -59,7 +66,7 @@ fn crlf_block_keeps_its_line_endings() {
     let new = upsert(&old, ALL).unwrap();
     assert_eq!(
         new,
-        format!("a\r\n{BLOCK_BEGIN}\r\n.capstan/\r\ncapstan.toml\r\ncapstan.toml~\r\n{BLOCK_END}\r\nb\r\n")
+        format!("a\r\n{BLOCK_BEGIN}\r\n.capstan/\r\ncapstan.toml\r\ncapstan.toml~\r\ncapstan.local.toml\r\ncapstan.local.toml~\r\n{BLOCK_END}\r\nb\r\n")
     );
 }
 
@@ -148,11 +155,21 @@ fn config_check_warns_until_the_block_is_written() {
         "{before}"
     );
 
+    // A local file that git would not ignore is warned about.
+    let local = dir.join("capstan.local.toml");
+    std::fs::write(&local, "").unwrap();
+    std::fs::set_permissions(&local, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    let unignored = warnings(&dir);
+    assert!(
+        unignored.contains("warning: capstan.local.toml is not ignored by git"),
+        "{unignored}"
+    );
+
     gitignore::write(&dir, false).unwrap();
     let after = warnings(&dir);
     assert!(!after.contains("not ignored by git"), "{after}");
 
-    // Committed capstan.toml with a track_config block: tracked by choice.
+    // Committed capstan.toml with a track_config block: tracked by choice, no warning.
     gitignore::write(&dir, true).unwrap();
     git(&dir, &["add", "capstan.toml", ".gitignore"]);
     git(&dir, &["commit", "-q", "-m", "chore: add config"]);
@@ -161,7 +178,7 @@ fn config_check_warns_until_the_block_is_written() {
         !tracked.contains("capstan.toml is not ignored"),
         "{tracked}"
     );
-    assert!(!tracked.contains(".capstan/ is not ignored"), "{tracked}");
+    assert!(!tracked.contains("not ignored by git"), "{tracked}");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -170,5 +187,47 @@ fn config_check_is_silent_outside_a_git_repository() {
     let dir = scratch("nogit");
     std::fs::write(dir.join("capstan.toml"), TOML).unwrap();
     assert!(!warnings(&dir).contains("not ignored by git"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn check_output(dir: &Path) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_cstan"))
+        .args(["config", "check"])
+        .current_dir(dir)
+        .env_clear()
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CEILING_DIRECTORIES", dir.parent().unwrap())
+        .stdin(Stdio::null())
+        .output()
+        .expect("cstan runs");
+    let text = String::from_utf8_lossy(&output.stderr).into_owned();
+    if text.contains("is tracked in git") {
+        assert_eq!(output.status.code(), Some(3), "{text}");
+    } else {
+        assert_eq!(output.status.code(), Some(0), "{text}");
+    }
+    text
+}
+
+#[test]
+fn config_check_refuses_a_tracked_local_file() {
+    let dir = scratch("tracked-local");
+    git(&dir, &["init", "-q"]);
+    std::fs::write(dir.join("capstan.toml"), TOML).unwrap();
+    let local = dir.join("capstan.local.toml");
+    std::fs::write(&local, "[remote]\nmerge = true\n").unwrap();
+    std::fs::set_permissions(&local, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    git(&dir, &["add", "-f", "capstan.local.toml"]);
+    let text = check_output(&dir);
+    assert!(
+        text.contains("capstan.local.toml is tracked in git"),
+        "{text}"
+    );
+    assert!(text.contains("git rm --cached"), "{text}");
+    git(&dir, &["rm", "--cached", "-q", "capstan.local.toml"]);
+    let text = check_output(&dir);
+    assert!(!text.contains("is tracked in git"), "{text}");
     std::fs::remove_dir_all(&dir).ok();
 }
