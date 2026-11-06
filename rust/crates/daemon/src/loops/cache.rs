@@ -96,6 +96,7 @@ pub fn cycle(runtime: &Runtime, log: &DriverLog) -> Result<(), CacheFailure> {
             "idle": idle,
             "cleared": report.cleared,
             "wouldClear": report.would_clear,
+            "skipped": crate::handlers::cache::skipped_json(&report.skipped),
             "totalBefore": report.total_before,
             "totalAfter": report.total_after,
             "failedCommands": failed,

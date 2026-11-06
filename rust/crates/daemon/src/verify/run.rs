@@ -1,12 +1,13 @@
 //! One verify run, from the claim to the finish.
 use super::log::CappedLog;
 use super::scratch;
-use super::VerifyService;
+use super::{LeaseFault, StepRequest, VerifyService};
+use capstan_cache::{GateLeases, GateScope, LeaseError};
 use capstan_herdr::claude_args::build_agent_environment;
 use capstan_launcher::cache_env::cache_extras;
 use capstan_operator::service::{process_start_time, run_command, RunOptions, RunStatus};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,6 +109,23 @@ pub(crate) struct Job<'a> {
     pub log: &'a CappedLog,
     pub abort: &'a Arc<AtomicBool>,
     pub started: Instant,
+    pub slot: usize,
+    pub scope: GateScope,
+}
+
+/// What a slot directory looked like before a step: its inode and the names of its top-level subdirectories.
+struct SlotSnapshot {
+    path: PathBuf,
+    inode: u64,
+    subdirs: BTreeSet<String>,
+}
+
+/// How a run's lease attempt went, decided before the worktree exists.
+pub(crate) enum LeaseOutcome {
+    /// Leased, or nothing to lease.
+    Ready,
+    /// The run ends before any step: `None` is an abort, `Some` an error outcome.
+    Failed(Option<Outcome>),
 }
 
 /// What a run leaves that cleanup has to remove.
@@ -128,15 +146,16 @@ pub(crate) struct Left {
 impl VerifyService {
     /// The environment of the gate commands: a scrubbed base, `[env] pass`, the `[cache]` variables, `[verify].env`, and
     /// the marker of this run.
-    fn command_environment(
+    pub(crate) fn command_environment(
         &self,
         run_id: &str,
         commit: &str,
+        scope: GateScope,
     ) -> Result<Vec<(String, String)>, String> {
         let base: HashMap<String, String> = std::env::vars().collect();
         let mut extras: Vec<(String, String)> = Vec::new();
         if let Some(runtime) = &self.cache {
-            match cache_extras(runtime) {
+            match cache_extras(runtime, scope) {
                 Ok(cache) => extras.extend(cache),
                 Err(message) => {
                     self.detail_log("verify_cache_unavailable", json!({"message": message}))
@@ -162,15 +181,60 @@ impl VerifyService {
         log: &CappedLog,
         spawned: Box<dyn Fn(u32) + Send + Sync>,
     ) -> capstan_operator::service::RunResult {
-        run_command(RunOptions {
+        let runner = self
+            .step_runner
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        runner(StepRequest {
             command: command.to_string(),
             cwd: cwd.to_path_buf(),
             timeout_ms,
             environment: environment.to_vec(),
-            output_tail_bytes: self.verify.output_tail_bytes.max(0) as usize,
-            on_spawn: Some(spawned),
-            abort: Some(abort.clone()),
-            log_sink: Some(Box::new(log.clone())),
+            abort: abort.clone(),
+            log: log.clone(),
+            on_spawn: spawned,
+        })
+    }
+
+    /// The directories of this run's slot, as they are now.
+    fn snapshot_slot(&self, slot: usize) -> Vec<SlotSnapshot> {
+        use std::os::unix::fs::MetadataExt;
+        let Some(runtime) = &self.cache else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (_, n, dirs) in runtime.gate_slots() {
+            if n != slot {
+                continue;
+            }
+            for path in dirs {
+                let Ok(meta) = std::fs::metadata(&path) else {
+                    continue;
+                };
+                let subdirs = std::fs::read_dir(&path)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect();
+                out.push(SlotSnapshot {
+                    path,
+                    inode: meta.ino(),
+                    subdirs,
+                });
+            }
+        }
+        out
+    }
+
+    /// True when a slot directory is gone, replaced, or lost a top-level subdirectory it had.
+    fn slot_damaged(snapshot: &[SlotSnapshot]) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        snapshot.iter().any(|s| match std::fs::metadata(&s.path) {
+            Err(_) => true,
+            Ok(meta) => meta.ino() != s.inode || s.subdirs.iter().any(|n| !s.path.join(n).is_dir()),
         })
     }
 
@@ -215,7 +279,12 @@ impl VerifyService {
     }
 
     /// Everything between the claim and the cleanup. `None` means the run was aborted (cancelled, or the daemon stops).
-    fn steps(&self, job: &Job<'_>, left: &mut Left) -> Option<Outcome> {
+    fn steps(
+        &self,
+        job: &Job<'_>,
+        left: &mut Left,
+        leases: &mut Option<GateLeases>,
+    ) -> Option<Outcome> {
         let Job {
             run_id,
             commit,
@@ -224,6 +293,8 @@ impl VerifyService {
             log,
             abort,
             started,
+            slot,
+            scope,
         } = *job;
         let deadline = started + Duration::from_secs(self.verify.timeout_seconds.max(1) as u64);
         let remaining = |now: Instant| deadline.saturating_duration_since(now).as_millis() as u64;
@@ -237,7 +308,7 @@ impl VerifyService {
         if abort.load(Ordering::SeqCst) {
             return None;
         }
-        let environment = match self.command_environment(run_id, commit) {
+        let environment = match self.command_environment(run_id, commit, scope) {
             Ok(environment) => environment,
             Err(message) => return Some(Outcome::error(message)),
         };
@@ -291,7 +362,17 @@ impl VerifyService {
             &self.verify.path_filters,
             changed.as_deref(),
         );
-        for (index, command) in commands.iter().enumerate() {
+        let lease_wait = *self.lease_wait.lock().unwrap_or_else(|p| p.into_inner());
+        let mut snapshot = if leases.as_ref().is_some_and(|l| !l.is_empty()) {
+            self.snapshot_slot(slot)
+        } else {
+            Vec::new()
+        };
+        let mut rerun = false;
+        let mut first_tail = String::new();
+        let mut index = 0;
+        while index < commands.len() {
+            let command = &commands[index];
             if abort.load(Ordering::SeqCst) {
                 return None;
             }
@@ -305,6 +386,7 @@ impl VerifyService {
                     )
                     .as_bytes(),
                 );
+                index += 1;
                 continue;
             }
             let left_ms = remaining(Instant::now());
@@ -338,15 +420,60 @@ impl VerifyService {
                 return None;
             }
             match result.status {
-                RunStatus::Ok => last = Some(result),
+                RunStatus::Ok => {
+                    last = Some(result);
+                    index += 1;
+                }
+                RunStatus::Failed | RunStatus::Error
+                    if !snapshot.is_empty() && Self::slot_damaged(&snapshot) =>
+                {
+                    if rerun {
+                        return Some(Outcome {
+                            state: "error",
+                            exit_code: None,
+                            failed_step: Some(step),
+                            tail: format!(
+                                "infrastructure: the gate build directory was removed during the run\n{first_tail}"
+                            ),
+                            truncated: result.truncated,
+                        });
+                    }
+                    rerun = true;
+                    first_tail = result.output_tail;
+                    let Some(held) = leases.as_mut() else {
+                        return Some(Outcome::error("infrastructure: no lease to renew"));
+                    };
+                    match held.reacquire(lease_wait, abort) {
+                        Ok(()) => {}
+                        Err(LeaseError::Aborted) => return None,
+                        Err(error) => return Some(Outcome::error(lease_message(slot, &error))),
+                    }
+                    snapshot = self.snapshot_slot(slot);
+                    log.append(
+                        b"infrastructure: the gate build directory was removed; rerunning from step 1\n",
+                    );
+                    self.detail_log(
+                        "verify_infrastructure_rerun",
+                        json!({"runId": run_id, "slot": slot, "step": step}),
+                    );
+                    index = 0;
+                }
                 RunStatus::Failed => {
+                    let tail = if rerun {
+                        format!(
+                            "after an infrastructure rerun from step 1: {}",
+                            result.output_tail
+                        )
+                    } else {
+                        result.output_tail
+                    };
                     return Some(Outcome {
                         state: "failed",
                         exit_code: result.exit_code.map(i64::from),
                         failed_step: Some(step),
-                        tail: result.output_tail,
+                        tail,
                         truncated: result.truncated,
-                    })
+                    });
                 }
                 RunStatus::Timeout => {
                     return Some(Outcome {
@@ -388,6 +515,7 @@ impl VerifyService {
         scratch: &Path,
         left: &Left,
         environment: Option<&[(String, String)]>,
+        scope: GateScope,
     ) {
         for pgid in left.groups.lock().unwrap_or_else(|p| p.into_inner()).iter() {
             scratch::kill_group(*pgid);
@@ -397,7 +525,7 @@ impl VerifyService {
             scratch::reap_marked(&scratch::marker(run_id), min_start);
         }
         if left.worktree_added {
-            self.teardown(run_id, commit, scratch, environment);
+            self.teardown(run_id, commit, scratch, environment, scope);
             if self.verify.reap {
                 scratch::reap_marked(&scratch::marker(run_id), min_start);
             }
@@ -412,6 +540,7 @@ impl VerifyService {
         commit: &str,
         scratch: &Path,
         environment: Option<&[(String, String)]>,
+        scope: GateScope,
     ) {
         if !self.verify.use_worktree_hooks {
             return;
@@ -424,7 +553,7 @@ impl VerifyService {
         };
         let mut env: Vec<(String, String)> = match environment {
             Some(env) => env.to_vec(),
-            None => match self.command_environment(run_id, commit) {
+            None => match self.command_environment(run_id, commit, scope) {
                 Ok(env) => env,
                 Err(_) => return,
             },
@@ -494,14 +623,66 @@ impl VerifyService {
         ))
     }
 
+    /// Leases the run's slot and works out the scope its commands run in.
+    fn lease_run(
+        &self,
+        slot: usize,
+        abort: &Arc<AtomicBool>,
+    ) -> (GateScope, Option<GateLeases>, LeaseOutcome) {
+        let Some(runtime) = &self.cache else {
+            return (GateScope::Bare, None, LeaseOutcome::Ready);
+        };
+        if self.leases_unreliable.load(Ordering::SeqCst) {
+            return (GateScope::Shared, None, LeaseOutcome::Ready);
+        }
+        let wait = *self.lease_wait.lock().unwrap_or_else(|p| p.into_inner());
+        let fault = *self.lease_fault.lock().unwrap_or_else(|p| p.into_inner());
+        let leased = if fault == LeaseFault::LeaseIo {
+            Err(LeaseError::Io("injected lease failure".into()))
+        } else {
+            runtime.lease_gate(slot, wait, abort)
+        };
+        match leased {
+            Ok(leases) if leases.is_empty() => {
+                (GateScope::Gate { slot }, None, LeaseOutcome::Ready)
+            }
+            Ok(leases) => (GateScope::Gate { slot }, Some(leases), LeaseOutcome::Ready),
+            Err(LeaseError::Aborted) => (GateScope::Shared, None, LeaseOutcome::Failed(None)),
+            Err(LeaseError::Busy) => (
+                GateScope::Shared,
+                None,
+                LeaseOutcome::Failed(Some(Outcome::error(lease_message(slot, &LeaseError::Busy)))),
+            ),
+            Err(LeaseError::Io(message)) => {
+                self.detail_log(
+                    "verify_lease_unavailable",
+                    json!({"slot": slot, "message": message}),
+                );
+                (GateScope::Shared, None, LeaseOutcome::Ready)
+            }
+        }
+    }
+
     /// Runs a claimed run to its end; a panic in the run ends it as an error (with its slot released) instead of leaving
     /// it recorded as running.
-    pub(crate) fn execute_guarded(&self, run: &Value, abort: Arc<AtomicBool>) {
+    pub(crate) fn execute_guarded(&self, run: &Value, abort: Arc<AtomicBool>, slot: usize) {
         let started = Instant::now();
         // Owned here so what the run started is still known when it panics.
         let mut left = Left::default();
+        // The slot lease is held here, outside the unwind guard: it outlives the cleanup on every path and is
+        // dropped last, so the teardown hook never runs unleased.
+        let (scope, mut leases, lease_outcome) = self.lease_run(slot, &abort);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.execute(run, abort, &mut left)
+            self.execute(
+                run,
+                abort,
+                &mut left,
+                &mut leases,
+                started,
+                slot,
+                scope,
+                lease_outcome,
+            )
         }));
         let Err(payload) = result else { return };
         let message = payload
@@ -519,7 +700,7 @@ impl VerifyService {
         left.worktree_added |= scratch.exists();
         // The cleanup of the run may itself be what panicked; the finish is recorded either way.
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.clean_up(&run_id, &commit, &scratch, &left, None);
+            self.clean_up(&run_id, &commit, &scratch, &left, None, scope);
             // Whatever `reap` says: the worker is gone and nothing is waiting on this run's processes, as after a crash.
             let min_start = *left.first_start.lock().unwrap_or_else(|p| p.into_inner());
             scratch::reap_marked(&scratch::marker(&run_id), min_start);
@@ -555,7 +736,18 @@ impl VerifyService {
     }
 
     /// Runs a claimed run to its end.
-    pub(crate) fn execute(&self, run: &Value, abort: Arc<AtomicBool>, left: &mut Left) {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn execute(
+        &self,
+        run: &Value,
+        abort: Arc<AtomicBool>,
+        left: &mut Left,
+        leases: &mut Option<GateLeases>,
+        started: Instant,
+        slot: usize,
+        scope: GateScope,
+        lease_outcome: LeaseOutcome,
+    ) {
         let run_id = run["runId"].as_str().unwrap_or("").to_string();
         let commit = run["commitSha"].as_str().unwrap_or("").to_string();
         let commands: Vec<String> = run["commands"]
@@ -567,9 +759,12 @@ impl VerifyService {
         if self.panic_next_run.swap(false, Ordering::SeqCst) {
             panic!("verify worker test panic");
         }
-        let started = Instant::now();
         let scratch = self.scratch_root.join(&run_id);
         let outcome = match self.open_log(&run_id) {
+            _ if matches!(lease_outcome, LeaseOutcome::Failed(_)) => match lease_outcome {
+                LeaseOutcome::Failed(outcome) => outcome,
+                LeaseOutcome::Ready => None,
+            },
             Err(message) => Some(Outcome::error(message)),
             Ok(log) => {
                 let job = Job {
@@ -580,8 +775,10 @@ impl VerifyService {
                     log: &log,
                     abort: &abort,
                     started,
+                    slot,
+                    scope,
                 };
-                let outcome = self.steps(&job, left);
+                let outcome = self.steps(&job, left, leases);
                 log.finish();
                 outcome
             }
@@ -589,7 +786,7 @@ impl VerifyService {
         if self.panic_after_steps.swap(false, Ordering::SeqCst) {
             panic!("verify worker test panic after the steps");
         }
-        self.clean_up(&run_id, &commit, &scratch, left, None);
+        self.clean_up(&run_id, &commit, &scratch, left, None, scope);
         self.trim_logs();
         let cancelled = self.unregister(&run_id);
         let delay = self.finish_delay_ms.load(Ordering::SeqCst);
@@ -620,6 +817,15 @@ impl VerifyService {
             "skippedSteps": left.skipped.iter().map(Skipped::to_json).collect::<Vec<_>>(),
         });
         self.finish_once(&run_id, input);
+    }
+}
+
+fn lease_message(slot: usize, error: &LeaseError) -> String {
+    match error {
+        LeaseError::Busy => {
+            format!("infrastructure: verify slot {slot} is held by another process")
+        }
+        other => format!("infrastructure: verify slot {slot} lease failed: {other}"),
     }
 }
 

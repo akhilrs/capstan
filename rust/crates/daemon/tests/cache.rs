@@ -51,8 +51,18 @@ struct World {
 }
 
 fn cache_section(root: &Path, extra: &str) -> String {
+    // "@rust" adds the rust preset, whose cargo target has gate slots.
+    let presets = if extra.contains("@rust") {
+        "[\"python\", \"rust\"]"
+    } else {
+        "[\"python\"]"
+    };
+    let extra = extra.replace(
+        "@rust",
+        "[cache.rust]\nmode = \"shared-build-dir\"\ntarget_dir = true\n",
+    );
     format!(
-        "[cache]\nroot = \"{}\"\npresets = [\"python\"]\nmax_size_gb = 0.1\nmax_age_days = 30\n{extra}\n\
+        "[cache]\nroot = \"{}\"\npresets = {presets}\nmax_size_gb = 0.1\nmax_age_days = 30\n{extra}\n\
          [cache.entries.bundler]\ndirs = {{ BUNDLE_PATH = \"bundle\" }}\n\
          [cache.entries.ghost]\ndirs = {{ GHOST_HOME = \"g\" }}\nrequires = \"ghost-tool-that-is-not-installed\"\n",
         root.display()
@@ -294,6 +304,52 @@ fn clear_removes_only_the_named_entry_and_the_manifest_is_measured_again() {
     let manifest = read_manifest(&world.root()).unwrap().unwrap();
     assert_eq!(manifest.entries.len(), 1);
     assert_eq!(manifest.entries[0].name, "bundler");
+}
+
+#[test]
+fn prune_and_clear_list_a_leased_slot_as_in_use_and_keep_it() {
+    let world = World::new(true, "@rust");
+    let runtime = world.runtime();
+    let abort = std::sync::atomic::AtomicBool::new(false);
+    let leases = runtime
+        .lease_gate(0, Duration::from_secs(5), &abort)
+        .expect("a gate lease on the rust entry");
+    let slot = world.root().join("rust/gate-target");
+    let blob = std::fs::read_dir(&slot)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("slot-0/blob");
+    assert!(!leases.is_empty());
+    File::create(&blob).unwrap().set_len(120 * MB).unwrap();
+    let in_use = |result: &Value| {
+        result["skipped"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["reason"] == "in use")
+            .map(|s| s["label"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    let result = world.ok("pm-1", &["prune"]);
+    let labels = in_use(&result);
+    assert_eq!(labels.len(), 1, "{result}");
+    assert!(labels[0].starts_with("rust/") && labels[0].ends_with("/slot-0"));
+    assert_eq!(result["cleared"], json!([]), "{result}");
+    assert!(blob.exists());
+    assert!(result["totalAfter"].as_u64().unwrap() > 100 * MB);
+
+    let cleared = world.ok("pm-1", &["clear", "--all", "--force"]);
+    assert_eq!(in_use(&cleared), labels, "{cleared}");
+    assert!(blob.exists(), "clear keeps a leased slot");
+
+    drop(leases);
+    let result = world.ok("pm-1", &["prune"]);
+    assert_eq!(result["cleared"], json!(labels), "{result}");
+    assert!(!blob.exists());
 }
 
 #[test]

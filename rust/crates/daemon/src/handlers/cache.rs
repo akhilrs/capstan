@@ -261,6 +261,7 @@ pub fn run_prune(
         "wouldRun": would_run,
         "cleared": report.cleared,
         "wouldClear": report.would_clear,
+        "skipped": skipped_json(&report.skipped),
         "totalBefore": report.total_before,
         "totalAfter": if dry_run { report.total_before } else { total_after },
         "partial": report.partial,
@@ -287,12 +288,21 @@ pub fn run_clear(
     let manifest = refresh_manifest(runtime, before)?;
     Ok(json!({
         "cleared": report.cleared,
+        "skipped": skipped_json(&report.skipped),
         "stopCommands": report.stop_commands.iter().map(|c| json!({
             "entry": c.entry, "command": c.command, "ok": c.ok, "message": c.message,
         })).collect::<Vec<_>>(),
         "errors": report.errors,
         "totalBytes": manifest.entries.iter().map(|e| e.bytes).sum::<u64>(),
     }))
+}
+
+/// What prune or clear left alone: `[{"label": "...", "reason": "in use"}]`.
+pub(crate) fn skipped_json(skipped: &[capstan_cache::Skipped]) -> Vec<Value> {
+    skipped
+        .iter()
+        .map(|s| json!({"label": s.label, "reason": s.reason}))
+        .collect()
 }
 
 fn iso(ms: u64) -> Value {

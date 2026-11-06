@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use capstan_config::{
     CacheConfig, CacheEntry, CacheOrigin, CacheScope, SetupReuse, DETECT_MARKERS, DETECT_MAX_DEPTH,
@@ -9,8 +11,9 @@ use capstan_config::{
 };
 
 use crate::error::{CacheError, Result};
-use crate::fsutil::{mkdir_private, touch};
-use crate::root::resolve_root;
+use crate::fsutil::{mkdir_private, remove_tree, touch};
+use crate::lease::{self, EntryGuard, GateLease, GateLeases, LeaseError, Target};
+use crate::root::{resolve_root, segment};
 use crate::BASE_ENV_ALLOWLIST;
 
 /// The entry that holds setup-reuse snapshots.
@@ -40,6 +43,19 @@ impl Origin {
     }
 }
 
+/// Which environment `ensure_scoped` builds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GateScope {
+    /// What an agent gets: the shared directories (today's `ensure`).
+    Agent,
+    /// A verify gate: `gate_dirs` override the shared directories with this project's slot.
+    Gate { slot: usize },
+    /// The shared directories minus every variable some `gate_dirs` names, so the tool builds in its own default.
+    Shared,
+    /// Nothing: no variables, nothing created.
+    Bare,
+}
+
 #[derive(Clone, Debug)]
 pub struct ResolvedEntry {
     pub name: String,
@@ -51,6 +67,8 @@ pub struct ResolvedEntry {
     pub env: Vec<(String, String)>,
     /// The directories behind the `env` pairs that name one.
     pub dirs: Vec<PathBuf>,
+    /// `(variable, subdirectory)` a verify gate uses instead of the same variable in `env`; never enables an entry.
+    pub gate_dirs: Vec<(String, String)>,
     pub prune: Vec<String>,
     pub stop: Vec<String>,
     pub max_bytes: Option<u64>,
@@ -219,6 +237,7 @@ impl Runtime {
                 reason: None,
                 env: Vec::new(),
                 dirs: Vec::new(),
+                gate_dirs: Vec::new(),
                 prune: Vec::new(),
                 stop: Vec::new(),
                 max_bytes: None,
@@ -247,16 +266,52 @@ impl Runtime {
 
     /// Creates every enabled entry's directories and marks each used. Idempotent and safe to call concurrently.
     pub fn ensure(&self) -> Result<Vec<(String, String)>> {
+        self.ensure_scoped(GateScope::Agent)
+    }
+
+    /// The entries that have gate directories, in name order.
+    fn gate_entries(&self) -> Vec<&ResolvedEntry> {
+        let mut list: Vec<&ResolvedEntry> = self
+            .entries
+            .iter()
+            .filter(|e| e.enabled && !e.gate_dirs.is_empty())
+            .collect();
+        list.sort_by(|a, b| a.name.cmp(&b.name));
+        list
+    }
+
+    fn project_segment(&self) -> String {
+        segment(&self.project_id)
+    }
+
+    /// The environment for `scope`, with the directories it names created and every used entry marked used.
+    pub fn ensure_scoped(&self, scope: GateScope) -> Result<Vec<(String, String)>> {
+        if scope == GateScope::Bare {
+            return Ok(Vec::new());
+        }
         mkdir_private(&self.root)?;
+        let project = self.project_segment();
         let mut env = Vec::new();
         for entry in self.entries.iter().filter(|e| e.enabled) {
             let dir = self.entry_dir(&entry.name);
+            let named = |name: &str| entry.gate_dirs.iter().any(|(g, _)| g == name);
             // A concurrent clear may rename the entry away between the two steps; try again.
             let mut attempt = 0;
             loop {
                 mkdir_private(&dir)?;
-                for extra in &entry.dirs {
-                    mkdir_private(extra)?;
+                for (index, extra) in entry.dirs.iter().enumerate() {
+                    // The variables a gate or the shared scope replaces keep their directory untouched.
+                    let overridden = entry.env.get(index).is_some_and(|(name, _)| named(name));
+                    if !(overridden && scope != GateScope::Agent) {
+                        mkdir_private(extra)?;
+                    }
+                }
+                if let GateScope::Gate { slot } = scope {
+                    let subdirs: Vec<String> =
+                        entry.gate_dirs.iter().map(|(_, s)| s.clone()).collect();
+                    for slot_dir in lease::slot_dirs(&dir, &subdirs, &project, slot) {
+                        mkdir_private(&slot_dir)?;
+                    }
                 }
                 match touch(&dir.join(".last-used")) {
                     Ok(()) => break,
@@ -266,9 +321,137 @@ impl Runtime {
                     Err(e) => return Err(CacheError::io(format!("touch {}", dir.display()), e)),
                 }
             }
-            env.extend(entry.env.iter().cloned());
+            match scope {
+                GateScope::Agent => env.extend(entry.env.iter().cloned()),
+                GateScope::Shared => {
+                    env.extend(entry.env.iter().filter(|(n, _)| !named(n)).cloned())
+                }
+                GateScope::Gate { slot } => {
+                    let mut seen = Vec::new();
+                    for (name, value) in &entry.env {
+                        match entry.gate_dirs.iter().find(|(g, _)| g == name) {
+                            Some((_, subdir)) => {
+                                seen.push(name.as_str());
+                                env.push((name.clone(), slot_path(&dir, subdir, &project, slot)));
+                            }
+                            None => env.push((name.clone(), value.clone())),
+                        }
+                    }
+                    for (name, subdir) in &entry.gate_dirs {
+                        if !seen.contains(&name.as_str()) {
+                            env.push((name.clone(), slot_path(&dir, subdir, &project, slot)));
+                        }
+                    }
+                }
+                GateScope::Bare => {}
+            }
         }
         Ok(env)
+    }
+
+    /// Leases this project's slot of every entry that has gate directories, in entry-name order, creating the slot
+    /// directories. All or nothing: on an error the leases already taken are released. With no such entry the set
+    /// is empty and nothing is created.
+    pub fn lease_gate(
+        &self,
+        slot: usize,
+        wait: Duration,
+        abort: &AtomicBool,
+    ) -> std::result::Result<GateLeases, LeaseError> {
+        GateLeases::acquire(self.gate_targets(), slot, wait, abort)
+    }
+
+    fn gate_targets(&self) -> Vec<Target> {
+        let project = self.project_segment();
+        self.gate_entries()
+            .into_iter()
+            .map(|entry| Target {
+                entry_dir: self.entry_dir(&entry.name),
+                project: project.clone(),
+                subdirs: entry.gate_dirs.iter().map(|(_, s)| s.clone()).collect(),
+            })
+            .collect()
+    }
+
+    /// This project's slots: `(entry, slot, existing slot directories)`, from the lease files and the slot
+    /// directories alike. Other projects' slots are never listed.
+    pub fn gate_slots(&self) -> Vec<(String, usize, Vec<PathBuf>)> {
+        let project = self.project_segment();
+        let mut out = Vec::new();
+        for entry in self.gate_entries() {
+            let dir = self.entry_dir(&entry.name);
+            let subdirs: Vec<String> = entry.gate_dirs.iter().map(|(_, s)| s.clone()).collect();
+            let mut slots: BTreeSet<usize> = lease::slot_leases(&dir)
+                .into_iter()
+                .filter(|(p, _, _)| *p == project)
+                .map(|(_, n, _)| n)
+                .collect();
+            for subdir in &subdirs {
+                let Ok(read) = fs::read_dir(dir.join(subdir).join(&project)) else {
+                    continue;
+                };
+                for child in read.filter_map(|e| e.ok()) {
+                    let name = child.file_name().to_string_lossy().into_owned();
+                    if let Some(n) = name
+                        .strip_prefix("slot-")
+                        .and_then(|n| n.parse::<usize>().ok())
+                    {
+                        slots.insert(n);
+                    }
+                }
+            }
+            for n in slots {
+                let dirs = lease::slot_dirs(&dir, &subdirs, &project, n)
+                    .into_iter()
+                    .filter(|d| d.exists())
+                    .collect();
+                out.push((entry.name.clone(), n, dirs));
+            }
+        }
+        out
+    }
+
+    /// Removes this project's slot of `entry`: its directories and its lease file, only while holding the lease.
+    /// `false` when the slot is busy (leased, or a prune holds the guard) or does not exist.
+    pub fn remove_slot(&self, entry: &str, slot: usize) -> Result<bool> {
+        let Some(resolved) = self.gate_entries().into_iter().find(|e| e.name == entry) else {
+            return Ok(false);
+        };
+        let dir = self.entry_dir(&resolved.name);
+        let project = self.project_segment();
+        let subdirs: Vec<String> = resolved.gate_dirs.iter().map(|(_, s)| s.clone()).collect();
+        let dirs = lease::slot_dirs(&dir, &subdirs, &project, slot);
+        let lease_file = lease::lease_path(&dir, &project, slot);
+        if !dirs.iter().any(|d| d.exists()) && !lease_file.exists() {
+            return Ok(false);
+        }
+        let guard = match EntryGuard::try_shared(&dir) {
+            Ok(guard) => guard,
+            Err(LeaseError::Busy) => return Ok(false),
+            Err(e) => return Err(CacheError::Io(e.to_string())),
+        };
+        // Creating arbitrates with a gate leasing the same slot under the same shared guard.
+        let held = match GateLease::acquire(&dir, &project, slot) {
+            Ok(lease) => lease,
+            Err(LeaseError::Busy) => return Ok(false),
+            Err(e) => return Err(CacheError::Io(e.to_string())),
+        };
+        for d in &dirs {
+            remove_tree(d).map_err(|e| CacheError::io(format!("remove {}", d.display()), e))?;
+        }
+        match fs::remove_file(&lease_file) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(CacheError::io(
+                    format!("remove {}", lease_file.display()),
+                    e,
+                ))
+            }
+        }
+        drop(held);
+        drop(guard);
+        Ok(true)
     }
 
     /// The environment prune and stop commands run with: the base allowlist plus the entry's variables.
@@ -284,6 +467,15 @@ impl Runtime {
         map.extend(entry.env.iter().cloned());
         map
     }
+}
+
+fn slot_path(entry_dir: &Path, subdir: &str, project: &str, slot: usize) -> String {
+    entry_dir
+        .join(subdir)
+        .join(project)
+        .join(format!("slot-{slot}"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn resolve_entry(
@@ -307,6 +499,7 @@ fn resolve_entry(
         reason: None,
         env: Vec::new(),
         dirs: Vec::new(),
+        gate_dirs: entry.gate_dirs.clone(),
         prune: entry.prune.clone(),
         stop: entry.stop.clone(),
         max_bytes: entry.max_size_bytes,
@@ -319,6 +512,7 @@ fn resolve_entry(
         });
         resolved.prune.clear();
         resolved.stop.clear();
+        resolved.gate_dirs.clear();
         return resolved;
     }
     if let Some(tool) = entry.requires.as_deref().filter(|t| !on_path(t, path_env)) {
@@ -344,6 +538,7 @@ fn resolve_entry(
         resolved.reason = Some(reason);
         resolved.prune.clear();
         resolved.stop.clear();
+        resolved.gate_dirs.clear();
         return resolved;
     }
     for (name, subdir) in &entry.dirs {

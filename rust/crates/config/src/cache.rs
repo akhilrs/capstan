@@ -95,6 +95,9 @@ pub struct CacheEntry {
     pub origin: CacheOrigin,
     /// `(env name, subdirectory of the entry's cache directory)`.
     pub dirs: Vec<(String, String)>,
+    /// `(env name, subdirectory)` that override a `dirs` variable of this entry for a verify gate: the gate gets its
+    /// own slot directory per project instead of the shared one. Never enables an entry by itself.
+    pub gate_dirs: Vec<(String, String)>,
     /// `(env name, fixed value)`.
     pub set: Vec<(String, String)>,
     /// A tool that must be on the agent's PATH for the entry to apply.
@@ -170,6 +173,7 @@ fn entry_value(entry: &CacheEntry) -> Value {
         ("name", text(&entry.name)),
         ("origin", text(entry.origin.as_str())),
         ("dirs", pairs_value(&entry.dirs, "subdir")),
+        ("gateDirs", pairs_value(&entry.gate_dirs, "subdir")),
         ("set", pairs_value(&entry.set, "value")),
         ("requires", optional(&entry.requires)),
         ("prune", strings(&entry.prune)),
@@ -206,6 +210,7 @@ fn preset_entry(
         name: name.to_string(),
         origin: CacheOrigin::Preset,
         dirs: Vec::new(),
+        gate_dirs: Vec::new(),
         set: Vec::new(),
         requires: None,
         prune: Vec::new(),
@@ -241,6 +246,15 @@ fn preset_entry(
             // other instead of corrupting it.
             if target_dir && mode != "off" {
                 entry.dirs.push(pair("CARGO_TARGET_DIR", "cargo-target"));
+                // A verify gate builds in its own per-project slot instead, so it never shares the agents' target.
+                entry
+                    .gate_dirs
+                    .push(pair("CARGO_TARGET_DIR", "gate-target"));
+                if mode == "shared-build-dir" {
+                    entry
+                        .gate_dirs
+                        .push(pair("CARGO_BUILD_BUILD_DIR", "gate-build"));
+                }
                 entry.requires.get_or_insert_with(|| "cargo".into());
             }
         }
@@ -582,6 +596,7 @@ pub fn resolve_cache(
             name: name.to_string(),
             origin: CacheOrigin::Custom,
             dirs,
+            gate_dirs: Vec::new(),
             set,
             requires,
             prune: commands(fields.get("prune"), &format!("{at}.prune"))?,

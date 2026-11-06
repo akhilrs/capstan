@@ -89,6 +89,7 @@ impl Manifest {
                     files: e.get("files")?.as_u64()?,
                     last_used_ms: e.get("lastUsedMs")?.as_u64()?,
                     partial: e.get("partial")?.as_bool()?,
+                    slots: Vec::new(),
                 })
             })
             .collect::<Option<Vec<_>>>()?;
