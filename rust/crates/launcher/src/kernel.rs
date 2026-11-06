@@ -1008,7 +1008,7 @@ impl LauncherKernel {
             extras.push(("CAPSTAN_SOCKET".into(), self.socket_path.clone()));
         }
         if let Some(runtime) = &self.cache {
-            match crate::cache_env::cache_extras(runtime) {
+            match crate::cache_env::cache_extras(runtime, capstan_cache::GateScope::Agent) {
                 Ok(cache) => extras.extend(cache),
                 Err(message) => {
                     if !self.cache_unavailable_logged.swap(true, Ordering::SeqCst) {

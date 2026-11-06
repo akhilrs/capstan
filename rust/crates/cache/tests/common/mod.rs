@@ -27,6 +27,7 @@ pub fn custom(name: &str, dir_env: &str, subdir: &str) -> CacheEntry {
         name: name.into(),
         origin: CacheOrigin::Custom,
         dirs: vec![(dir_env.into(), subdir.into())],
+        gate_dirs: Vec::new(),
         set: Vec::new(),
         requires: None,
         prune: Vec::new(),

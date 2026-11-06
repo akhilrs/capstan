@@ -10,7 +10,7 @@ fn home_of(env: &BTreeMap<String, String>) -> Option<PathBuf> {
 }
 
 /// A project id as one safe path segment.
-fn segment(project_id: &str) -> String {
+pub(crate) fn segment(project_id: &str) -> String {
     let cleaned: String = project_id
         .chars()
         .map(|c| {

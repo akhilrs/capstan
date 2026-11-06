@@ -3,6 +3,7 @@
 mod error;
 mod fsutil;
 mod idle;
+pub mod lease;
 mod manifest;
 mod measure;
 mod prune;
@@ -12,14 +13,16 @@ mod setup;
 
 pub use error::{CacheError, Result};
 pub use idle::is_idle;
+pub use lease::{GateLease, GateLeases, LeaseError};
 pub use manifest::{read_manifest, write_manifest, write_manifest_hooked, Manifest, StoreLock};
-pub use measure::{measure, setup_keys, EntrySize, SetupKey};
+pub use measure::{measure, setup_keys, EntrySize, SetupKey, SlotSize};
 pub use prune::{
-    clear, clear_hooked, prune, recover, ClearReport, CommandOutcome, CommandRun, Policy,
-    PruneReport, Runner,
+    clear, clear_hooked, clear_with_hooks, prune, prune_with_hooks, recover, ClearReport,
+    CommandOutcome, CommandRun, Policy, PruneHooks, PruneReport, Runner, Skipped,
+    GUARD_BUSY_REASON,
 };
 pub use root::resolve_root;
-pub use runtime::{Origin, ResolvedEntry, Runtime, SETUP_ENTRY};
+pub use runtime::{GateScope, Origin, ResolvedEntry, Runtime, SETUP_ENTRY};
 pub use setup::setup_key;
 
 /// The variable names copied from the base environment into every prune and stop command.

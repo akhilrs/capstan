@@ -380,3 +380,58 @@ fn rust_target_dir_adds_a_cargo_target_dir_except_in_mode_off() {
         .iter()
         .any(|(e, _)| e == "CARGO_TARGET_DIR"));
 }
+
+#[test]
+fn gate_dirs_follow_target_dir_and_print_in_the_entry_json() {
+    let sccache = cache("[cache]\npresets = [\"rust\"]\n[cache.rust]\ntarget_dir = true\n");
+    assert_eq!(
+        sccache.entries[0].gate_dirs,
+        [("CARGO_TARGET_DIR".into(), "gate-target".into())]
+    );
+    let shared = cache(
+        "[cache]\npresets = [\"rust\"]\n[cache.rust]\nmode = \"shared-build-dir\"\ntarget_dir = true\n",
+    );
+    assert_eq!(
+        shared.entries[0].gate_dirs,
+        [
+            ("CARGO_TARGET_DIR".into(), "gate-target".into()),
+            ("CARGO_BUILD_BUILD_DIR".into(), "gate-build".into())
+        ]
+    );
+    for toml in [
+        "[cache]\npresets = [\"rust\"]\n",
+        "[cache]\npresets = [\"rust\"]\n[cache.rust]\nmode = \"shared-build-dir\"\n",
+        "[cache]\npresets = [\"rust\"]\n[cache.rust]\nmode = \"off\"\ntarget_dir = true\n",
+        "[cache]\npresets = [\"python\", \"node\", \"go\"]\n",
+    ] {
+        assert!(cache(toml).entries.iter().all(|e| e.gate_dirs.is_empty()));
+    }
+    let json = load("[cache]\npresets = [\"rust\"]\n[cache.rust]\ntarget_dir = true\n")
+        .unwrap()
+        .to_json();
+    let squeezed: String = json.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        squeezed
+            .contains("\"gateDirs\":[{\"env\":\"CARGO_TARGET_DIR\",\"subdir\":\"gate-target\"}]"),
+        "{json}"
+    );
+}
+
+#[test]
+fn a_gate_dirs_variable_repeats_only_its_own_entrys_dirs_variable() {
+    let c = cache(
+        "[cache]\npresets = [\"rust\"]\n[cache.rust]\nmode = \"shared-build-dir\"\ntarget_dir = true\n",
+    );
+    let entry = &c.entries[0];
+    for (name, _) in &entry.gate_dirs {
+        assert!(entry.dirs.iter().any(|(d, _)| d == name), "{name}");
+    }
+    // Another entry still cannot set the variable the rust entry owns.
+    let message = refusal(
+        "[cache]\npresets = [\"rust\"]\n[cache.rust]\ntarget_dir = true\n[cache.entries.mine]\ndirs = { CARGO_TARGET_DIR = \"t\" }\n",
+    );
+    assert!(
+        message.contains("also set by cache entry rust"),
+        "{message}"
+    );
+}

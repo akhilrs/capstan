@@ -1,7 +1,7 @@
 //! The `[cache]` environment of the launcher: the runtime is resolved once when the kernel is built, and every agent
 //! and worktree hook gets the same variables from it.
 
-use capstan_cache::Runtime;
+use capstan_cache::{GateScope, Runtime};
 use capstan_config::RoleConfig;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -29,13 +29,15 @@ pub fn build_runtime(
     Some(runtime)
 }
 
-/// The variables of the enabled entries plus `CAPSTAN_CACHE_DIR`, after creating the directories. An error is the
-/// message of the failure; the caller spawns without cache variables.
-pub fn cache_extras(runtime: &Runtime) -> Result<Vec<(String, String)>, String> {
-    let mut extras = runtime.ensure().map_err(|e| e.to_string())?;
-    extras.push((
-        "CAPSTAN_CACHE_DIR".to_string(),
-        runtime.root.to_string_lossy().into_owned(),
-    ));
+/// The variables of the enabled entries for `scope` plus `CAPSTAN_CACHE_DIR`, after creating the directories. An
+/// error is the message of the failure; the caller spawns without cache variables. `Bare` gives no variables at all.
+pub fn cache_extras(runtime: &Runtime, scope: GateScope) -> Result<Vec<(String, String)>, String> {
+    let mut extras = runtime.ensure_scoped(scope).map_err(|e| e.to_string())?;
+    if scope != GateScope::Bare {
+        extras.push((
+            "CAPSTAN_CACHE_DIR".to_string(),
+            runtime.root.to_string_lossy().into_owned(),
+        ));
+    }
     Ok(extras)
 }

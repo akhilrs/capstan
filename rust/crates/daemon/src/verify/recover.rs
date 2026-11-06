@@ -57,7 +57,13 @@ impl VerifyService {
         if let Some(path) = &path {
             // The setup may have run in it: the teardown hook is due as for any removed worktree.
             if path.exists() {
-                self.teardown(&run_id, &commit, path, None);
+                self.teardown(
+                    &run_id,
+                    &commit,
+                    path,
+                    None,
+                    capstan_cache::GateScope::Shared,
+                );
             }
             scratch::remove_worktree(&self.project_root, path);
         }
