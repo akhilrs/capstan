@@ -119,12 +119,16 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
     public var integrationDetails: IntegrationDetails?
     /// The link the host took from the designer's report, for kind design; saved files from before decode it as nil.
     public var designLink: UntrustedText?
+    /// What `op approve-as` may offer; saved files from before it decode it as nil.
+    public var approveChoices: ApproveChoices?
 
     public init(
         key: String, requestId: String, kind: WaitingKind, since: String, summary: UntrustedText,
         contentHash: String, needsTerminal: Bool, integrationState: String? = nil, branch: UntrustedText? = nil,
-        headSha: String? = nil, integrationDetails: IntegrationDetails? = nil, designLink: UntrustedText? = nil
+        headSha: String? = nil, integrationDetails: IntegrationDetails? = nil, designLink: UntrustedText? = nil,
+        approveChoices: ApproveChoices? = nil
     ) {
+        self.approveChoices = approveChoices
         self.designLink = designLink
         self.integrationDetails = integrationDetails
         self.integrationState = integrationState
@@ -144,7 +148,7 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
             key: item.key, requestId: item.requestId, kind: item.kind, since: item.since, summary: item.summary,
             contentHash: item.contentHash, needsTerminal: item.needsTerminal, integrationState: item.integrationState,
             branch: item.branch, headSha: item.headSha, integrationDetails: item.integrationDetails,
-            designLink: item.designLink)
+            designLink: item.designLink, approveChoices: item.approveChoices)
     }
 
     var json: JSONValue {
@@ -158,6 +162,7 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
         if let headSha { members["headSha"] = .string(headSha) }
         if let integrationDetails { members["integrationDetails"] = integrationDetails.json }
         if let designLink { members["designLink"] = .string(designLink.raw) }
+        if let approveChoices { members["approveChoices"] = approveChoices.json }
         return .object(members)
     }
 }

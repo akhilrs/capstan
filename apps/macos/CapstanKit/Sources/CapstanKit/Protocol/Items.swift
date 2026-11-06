@@ -44,6 +44,9 @@ public struct WaitingItem: WireItem {
     /// The link of a design item, taken by the host from the designer's report; nil for another kind, when the report
     /// names none and from a host that does not send it. Untrusted text: shown as text, opened only when http or https.
     public let designLink: UntrustedText?
+    /// What a client may offer for `op approve-as`. nil for another kind and from a host older than `approve-as`
+    /// (absent or null), which is how a client knows to offer only `op approve`.
+    public let approveChoices: ApproveChoices?
 
     public init(json: JSONValue) throws {
         _ = try json.members("waiting item")
@@ -59,11 +62,138 @@ public struct WaitingItem: WireItem {
         headSha = try json.optionalString("headSha").flatMap(WaitingItem.validSha)
         integrationDetails = json.optional("integrationDetails").flatMap { IntegrationDetails(wire: $0) }
         designLink = try json.optionalString("designLink").flatMap { $0.isEmpty ? nil : itemText($0) }
+        approveChoices = try json.optional("approveChoices").map(ApproveChoices.init(json:))
     }
 
     static func validSha(_ text: String) -> String? {
         let hex = text.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }
         return hex && (7...64).contains(text.utf8.count) ? text : nil
+    }
+}
+
+// MARK: Approve choices (document section 5, `approveChoices`)
+
+/// What a client may offer for `op approve-as` on one Operator proposal.
+public struct ApproveChoices: Codable, Sendable, Equatable {
+    public enum AutoKind: Codable, Sendable, Equatable {
+        case hour, session
+        case other(String)
+
+        public init(wire: String) {
+            switch wire {
+            case "hour": self = .hour
+            case "session": self = .session
+            default: self = .other(wire)
+            }
+        }
+
+        public var wireName: String {
+            switch self {
+            case .hour: return "hour"
+            case .session: return "session"
+            case .other(let name): return name
+            }
+        }
+
+        public init(from decoder: Decoder) throws {
+            self.init(wire: try decoder.singleValueContainer().decode(String.self))
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(wireName)
+        }
+    }
+
+    /// Why only `once` is offered (or, for `textMismatch`, nothing but a deny).
+    public enum Limit: Codable, Sendable, Equatable {
+        case floor, restart, truncated, notChecked, textMismatch
+        case other(String)
+
+        public init(wire: String) {
+            switch wire {
+            case "floor": self = .floor
+            case "restart": self = .restart
+            case "truncated": self = .truncated
+            case "not_checked": self = .notChecked
+            case "text_mismatch": self = .textMismatch
+            default: self = .other(wire)
+            }
+        }
+
+        public var wireName: String {
+            switch self {
+            case .floor: return "floor"
+            case .restart: return "restart"
+            case .truncated: return "truncated"
+            case .notChecked: return "not_checked"
+            case .textMismatch: return "text_mismatch"
+            case .other(let name): return name
+            }
+        }
+
+        public init(from decoder: Decoder) throws {
+            self.init(wire: try decoder.singleValueContainer().decode(String.self))
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(wireName)
+        }
+    }
+
+    public let once: Bool
+    public let exact: Bool
+    /// The offered prefixes, shortest first. The received string is kept: the call sends it byte for byte.
+    public let prefixes: [UntrustedText]
+    public let auto: [AutoKind]
+    public let limit: Limit?
+    /// The floor entry that holds the proposal back (`limit` floor); host text.
+    public let floorEntry: String?
+
+    public init(
+        once: Bool, exact: Bool, prefixes: [UntrustedText] = [], auto: [AutoKind] = [], limit: Limit? = nil,
+        floorEntry: String? = nil
+    ) {
+        self.once = once
+        self.exact = exact
+        self.prefixes = prefixes
+        self.auto = auto
+        self.limit = limit
+        self.floorEntry = floorEntry
+    }
+
+    public init(json: JSONValue) throws {
+        _ = try json.members("approve choices")
+        once = try json.bool("once")
+        exact = try json.bool("exact")
+        guard case .array(let list) = try json.required("prefixes") else {
+            throw LineDecodeError.malformed("prefixes is not an array")
+        }
+        prefixes = try list.map { value in
+            guard case .string(let text) = value else { throw LineDecodeError.malformed("prefix is not a string") }
+            return itemText(text)
+        }
+        guard case .array(let kinds) = try json.required("auto") else {
+            throw LineDecodeError.malformed("auto is not an array")
+        }
+        auto = try kinds.map { value in
+            guard case .string(let name) = value else { throw LineDecodeError.malformed("auto is not a string") }
+            return AutoKind(wire: name)
+        }
+        limit = try json.optionalString("limit").map(Limit.init(wire:))
+        floorEntry = try json.optionalString("floorEntry")
+    }
+
+    /// The wire form, so a stored item read back through `WaitingItem(json:)` keeps its choices.
+    var json: JSONValue {
+        var members: [String: JSONValue] = [
+            "once": .bool(once), "exact": .bool(exact), "prefixes": .array(prefixes.map { JSONValue.string($0.raw) }),
+            "auto": .array(auto.map { JSONValue.string($0.wireName) }),
+        ]
+        if let limit { members["limit"] = .string(limit.wireName) }
+        if let floorEntry { members["floorEntry"] = .string(floorEntry) }
+        return .object(members)
     }
 }
 

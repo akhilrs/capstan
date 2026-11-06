@@ -1,9 +1,33 @@
 import Foundation
 
 /// What the person decided. Free text is checked and cleaned when the arguments are built.
+/// How a person approves an Operator proposal with `op approve-as`.
+public enum ApproveChoice: Sendable, Equatable, Codable {
+    case once
+    case exact
+    /// Every command that begins with these words: one of the offered prefixes, byte for byte.
+    case prefix(raw: String)
+    case autoHour
+    case autoSession
+
+    /// The choice word of the command line.
+    var word: String {
+        switch self {
+        case .once: return "once"
+        case .exact: return "exact"
+        case .prefix: return "prefix"
+        case .autoHour: return "auto-hour"
+        case .autoSession: return "auto-session"
+        }
+    }
+}
+
 public enum DecideVerb: Sendable, Equatable, Codable {
     case opDeny(note: String?)
+    /// Sends the approval to the PM (`op approve`); only for a host that does not send `approveChoices`.
     case opApprove
+    /// Approves the proposal as the Operator with the chosen grant or window (`op approve-as`).
+    case opApproveAs(ApproveChoice)
     case promptOption(Int)
     case promptEsc
     case designApprove(link: String, askedUser: String)
@@ -46,6 +70,7 @@ public enum DecideVerb: Sendable, Equatable, Codable {
         switch self {
         case .opDeny: return DecideVerbRow(kind: "op", verb: "deny", outcome: "applied")
         case .opApprove: return DecideVerbRow(kind: "op", verb: "approve", outcome: "forwarded")
+        case .opApproveAs: return DecideVerbRow(kind: "op", verb: "approve-as", outcome: "applied")
         case .promptOption: return DecideVerbRow(kind: "prompt", verb: "option", outcome: "forwarded")
         case .promptEsc: return DecideVerbRow(kind: "prompt", verb: "esc", outcome: "forwarded")
         case .designApprove: return DecideVerbRow(kind: "design", verb: "approve", outcome: "applied")
@@ -166,6 +191,12 @@ public struct DecideRequest: Sendable, Equatable, Codable {
             return ["deny"] + (try DecideRequest.optionalText(note, "note"))
         case .opApprove:
             return ["approve"]
+        case .opApproveAs(let choice):
+            // The prefix is sent as received: cleaning would change it, and the host compares byte for byte.
+            guard case .prefix(let raw) = choice else { return ["approve-as", choice.word] }
+            guard !raw.isEmpty else { throw DecideRequestError.text("prefix") }
+            guard !raw.hasPrefix("-") else { throw DecideRequestError.textDash("prefix") }
+            return ["approve-as", choice.word, "--prefix", raw]
         case .promptOption(let number):
             guard number >= 1 else { throw DecideRequestError.optionNumber }
             return ["option", String(number)]

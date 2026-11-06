@@ -64,13 +64,16 @@ public struct DecideResult: Sendable, Equatable {
     public let replaces: String?
     /// What a merge made (`integration merge` only).
     public let merge: MergeResult?
+    /// What `op approve-as` made; nil for every other verb.
+    public let approval: ApprovalResult?
 
     public init(
         decisionId: String, requestId: String, nonce: String, outcome: DecideKind, isRepeat: Bool, kind: String,
         verb: String, contentHash: String, eventSeq: Int64? = nil, messageId: String? = nil, replaces: String? = nil,
-        merge: MergeResult? = nil
+        merge: MergeResult? = nil, approval: ApprovalResult? = nil
     ) {
         self.merge = merge
+        self.approval = approval
         self.decisionId = decisionId
         self.requestId = requestId
         self.nonce = nonce
@@ -103,6 +106,30 @@ public struct DecideResult: Sendable, Equatable {
         messageId = try json.optionalString("messageId")
         replaces = try json.optionalString("replaces")
         merge = try json.optional("merge").map(MergeResult.init(json:))
+        approval = try json.optional("approval").map(ApprovalResult.init(json:))
+    }
+}
+
+/// What `op approve-as` made: the choice and the grant or window it created (`nil` for what it did not make).
+public struct ApprovalResult: Sendable, Equatable {
+    public let choice: String
+    public let grantId: String?
+    public let windowId: String?
+    public let expiresAt: String?
+
+    public init(choice: String, grantId: String? = nil, windowId: String? = nil, expiresAt: String? = nil) {
+        self.choice = choice
+        self.grantId = grantId
+        self.windowId = windowId
+        self.expiresAt = expiresAt
+    }
+
+    public init(json: JSONValue) throws {
+        _ = try json.members("approval")
+        choice = try json.string("choice")
+        grantId = try json.optionalString("grantId")
+        windowId = try json.optionalString("windowId")
+        expiresAt = try json.optionalString("expiresAt")
     }
 }
 
@@ -213,6 +240,7 @@ public struct DecideVerbRow: Sendable, Equatable {
     public static let documented: [DecideVerbRow] = [
         DecideVerbRow(kind: "op", verb: "deny", outcome: "applied"),
         DecideVerbRow(kind: "op", verb: "approve", outcome: "forwarded"),
+        DecideVerbRow(kind: "op", verb: "approve-as", outcome: "applied"),
         DecideVerbRow(kind: "prompt", verb: "option", outcome: "forwarded"),
         DecideVerbRow(kind: "prompt", verb: "esc", outcome: "forwarded"),
         DecideVerbRow(kind: "design", verb: "approve", outcome: "applied"),
