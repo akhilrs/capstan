@@ -209,12 +209,11 @@ fn frames_are_limited_to_64_kib_a_newline_ends_one_and_bad_input_is_answered() {
         code(&w.raw(format!("{empty}\n").as_bytes(), 10).unwrap()),
         "invalid_request"
     );
-    // 65537 bytes without a newline drop the connection without an answer.
+    // 65537 bytes without a newline are answered as too large, then the connection closes.
     let long = vec![b'a'; 65537];
-    assert!(
-        w.raw(&long, 10).is_none(),
-        "an oversized frame gets no answer"
-    );
+    let answer = w.raw(&long, 10).expect("an oversized frame is answered");
+    assert_eq!(code(&answer), "invalid_request");
+    assert_eq!(answer["message"], "request too large");
     // The daemon is fine afterwards.
     assert_eq!(w.wire_op("ping", &[])["ok"], true);
 }

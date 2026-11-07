@@ -94,6 +94,9 @@ pub enum ErrorCode {
     GitTooOld,
     MergeFailed,
     GitUnavailable,
+    AttemptRunning,
+    AttemptFailed,
+    AnswerNotKept,
 }
 
 impl ErrorCode {
@@ -139,6 +142,9 @@ impl ErrorCode {
             Self::GitTooOld => "git_too_old",
             Self::MergeFailed => "merge_failed",
             Self::GitUnavailable => "git_unavailable",
+            Self::AttemptRunning => "attempt_running",
+            Self::AttemptFailed => "attempt_failed",
+            Self::AnswerNotKept => "answer_not_kept",
             Self::Error => "error",
         }
     }
@@ -187,6 +193,9 @@ impl ErrorCode {
             Self::GitTooOld,
             Self::MergeFailed,
             Self::GitUnavailable,
+            Self::AttemptRunning,
+            Self::AttemptFailed,
+            Self::AnswerNotKept,
         ]
         .into_iter()
         .find(|code| code.as_str() == name)
@@ -494,6 +503,8 @@ pub struct CommandState {
     pub merge_seams: Mutex<Option<Arc<super::decide_merge_seams::DecideMergeSeams>>>,
     /// The cached answers of `status` (see `status::StatusKey`); built on first use with `[daemon] status_cache_ms`.
     pub status_cache: Mutex<Option<TtlLru<super::status::StatusKey, Value>>>,
+    /// The answers of retried request ids and the folded repeated sends (see `replay`).
+    pub replies: super::replay::ReplyCache,
 }
 
 /// A small cache: at most `capacity` entries, each good for `ttl_ms` milliseconds after it was stored, the least recently
@@ -570,6 +581,13 @@ pub const OBSERVE_RATE_LIMIT: usize = 30;
 /// The most `feed recent` reads a minute for one project.
 pub const RECENT_RATE_LIMIT: usize = 30;
 
+impl CommandState {
+    /// The state of a new daemon, with the default limits of the reply cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl Default for CommandState {
     fn default() -> Self {
         Self {
@@ -581,6 +599,7 @@ impl Default for CommandState {
             remote_merge: Mutex::new(()),
             merge_seams: Mutex::new(None),
             status_cache: Mutex::new(None),
+            replies: super::replay::ReplyCache::new(),
         }
     }
 }

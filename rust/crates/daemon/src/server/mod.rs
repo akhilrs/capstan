@@ -1,8 +1,9 @@
 //! The control socket server (src/daemon.ts `startDaemonServer`): listener, connections, frame limits, timeouts, half-close
 //! and drain. `handlers::handle_frame_with` is what a connection runs per frame (its hook arms a limited command's timer).
 //!
-//! One thread accepts, one thread serves each connection (at most 64 at a time; the 65th is closed at once, as Node's
-//! `maxConnections` does), and one thread enforces the connection deadlines. A connection thread blocks in its handler;
+//! One thread accepts, one thread serves each connection (at most `[daemon] max_connections` at a time, 64 by default),
+//! and one thread enforces the connection deadlines and drains the lingering refusals. A connection over a limit gets
+//! one `controller_busy` line, never a silent close. A connection thread blocks in its handler;
 //! the handlers take the kernel one ledger step at a time, so a slow launcher call or a long poll never holds anything
 //! another connection needs.
 //!
@@ -23,9 +24,10 @@ use socket::{is_ours, is_runtime_socket, touch_runtime_socket};
 use crate::deps::{Deps, LogEntry};
 use crate::handlers::shared::{fail, AbortSignal, ErrorCode};
 use crate::handlers::{
-    handle_frame_with, DRAIN_FLUSH_MS, MAX_CONNECTIONS, MAX_FRAME_BYTES, MAX_RESPONSE_BYTES,
+    handle_frame_with, replay, FrameOutcome, DRAIN_FLUSH_MS, MAX_FRAME_BYTES, MAX_RESPONSE_BYTES,
     REQUEST_TIMEOUT_MS,
 };
+use capstan_wire::js;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
@@ -40,12 +42,52 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// How many refused connections wait for their client to read the busy line (before the fd clamp).
+pub const LINGER_MAX: usize = 1024;
+/// How long a refused connection waits for its client's end.
+pub const LINGER_MS: u64 = 1000;
+/// How long a connection refused over a share waits for its client's end.
+const BUSY_CLOSE_MS: u64 = 1000;
+/// The server_busy log line is written at most this often.
+const BUSY_LOG_MS: u64 = 10_000;
+/// Descriptors kept for the rest of the daemon.
+const FD_HEADROOM: usize = 256;
+
+/// The type a frame handler has: the arguments of `handle_frame_with`.
+type FrameFn = dyn Fn(&Deps, &[u8], &AbortSignal, usize, &mut dyn FnMut(u64, bool)) -> FrameOutcome
+    + Send
+    + Sync;
+
+/// A replacement for `handle_frame_with` (a test seam): it runs after admission, with the same arguments.
+#[derive(Clone)]
+pub struct FrameHandler(Arc<FrameFn>);
+
+impl FrameHandler {
+    pub fn new(
+        handler: impl Fn(&Deps, &[u8], &AbortSignal, usize, &mut dyn FnMut(u64, bool)) -> FrameOutcome
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        FrameHandler(Arc::new(handler))
+    }
+}
+
+impl std::fmt::Debug for FrameHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FrameHandler(..)")
+    }
+}
+
 /// What the server is started with.
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
     pub socket_path: PathBuf,
     /// The largest response line; `MAX_RESPONSE_BYTES` by default.
     pub max_response_bytes: usize,
+    /// Runs instead of `handle_frame_with` once a request is admitted. Tests only.
+    #[doc(hidden)]
+    pub handler: Option<FrameHandler>,
 }
 
 impl ServerOptions {
@@ -53,6 +95,7 @@ impl ServerOptions {
         Self {
             socket_path,
             max_response_bytes: MAX_RESPONSE_BYTES,
+            handler: None,
         }
     }
 }
@@ -81,6 +124,21 @@ impl Conn {
         lock(&self.state).deadline = Some(Instant::now() + after);
     }
 
+    /// Drain's answer to a connection whose request has not been dispatched: the line goes out exactly once (the state
+    /// lock is held across the check and the write), and the serving thread never dispatches the request afterwards.
+    fn answer_shutting_down(&self) {
+        let mut state = lock(&self.state);
+        if state.destroyed || state.answered || state.dispatched {
+            return;
+        }
+        state.answered = true;
+        let mut line = fail(ErrorCode::ShuttingDown, "the daemon is shutting down").to_text();
+        line.push('\n');
+        let mut writer = &self.killer;
+        let _ = writer.write_all(line.as_bytes());
+        let _ = self.killer.shutdown(std::net::Shutdown::Write);
+    }
+
     /// `socket.destroy()`: ends both directions, which wakes a read in progress, and aborts the handler with `closed`.
     fn destroy(&self) {
         {
@@ -95,8 +153,54 @@ impl Conn {
     }
 }
 
+/// The connection limits of a running server.
+struct Limits {
+    max: usize,
+    caller: usize,
+    wait: usize,
+    wait_per_caller: usize,
+    retry_ms: u64,
+    linger_max: usize,
+}
+
+/// A refused connection kept open until its client has read the busy line.
+struct Lingering {
+    stream: UnixStream,
+    since: Instant,
+}
+
+#[derive(Default)]
+struct Bucket {
+    other: usize,
+    waits: usize,
+}
+
+#[derive(Default)]
+struct Admission {
+    buckets: HashMap<[u8; 32], Bucket>,
+    waits: usize,
+}
+
+const REASONS: [&str; 5] = ["slots", "caller", "unverified", "waits", "linger_full"];
+const SLOTS: usize = 0;
+const CALLER: usize = 1;
+const UNVERIFIED: usize = 2;
+const WAITS: usize = 3;
+const LINGER_FULL: usize = 4;
+
+#[derive(Default)]
+struct BusyLog {
+    counts: [u64; 5],
+    last: Option<Instant>,
+}
+
 struct Shared {
     deps: Deps,
+    limits: Limits,
+    handler: Option<FrameHandler>,
+    linger: Mutex<Vec<Lingering>>,
+    admission: Mutex<Admission>,
+    busy_log: Mutex<BusyLog>,
     response_limit: usize,
     draining: AtomicBool,
     next_id: AtomicU64,
@@ -106,6 +210,8 @@ struct Shared {
     running: Mutex<usize>,
     running_changed: Condvar,
     reaper_stop: AtomicBool,
+    /// Connections drain destroyed without giving them a line.
+    drain_lineless: std::sync::atomic::AtomicUsize,
     /// The identity of the socket file this server created; the accept loop updates it when it rebinds.
     identity: Mutex<SocketIdentity>,
 }
@@ -114,6 +220,198 @@ impl Shared {
     fn log(&self, entry: LogEntry) {
         (self.deps.log)(&entry);
     }
+
+    /// The busy line, with its newline.
+    fn busy_line(&self, reason: usize) -> String {
+        let text = match reason {
+            SLOTS => "all connection slots are in use",
+            CALLER => "too many open connections for this caller",
+            WAITS => "too many waits are open",
+            _ => "the controller is busy",
+        };
+        let mut line = serde_json::json!({
+            "ok": false,
+            "code": capstan_wire::CONTROLLER_BUSY,
+            "message": format!("controller busy: {text}"),
+            "retryAfterMs": self.limits.retry_ms,
+        })
+        .to_string();
+        line.push('\n');
+        line
+    }
+
+    /// Counts a refusal; the server_busy line is written at most once per `BUSY_LOG_MS`.
+    fn note_busy(&self, reason: usize) {
+        lock(&self.busy_log).counts[reason] += 1;
+        self.flush_busy();
+    }
+
+    fn flush_busy(&self) {
+        let counts = {
+            let mut log = lock(&self.busy_log);
+            let due = log
+                .last
+                .is_none_or(|at| at.elapsed() >= Duration::from_millis(BUSY_LOG_MS));
+            if !due || log.counts.iter().all(|&n| n == 0) {
+                return;
+            }
+            log.last = Some(Instant::now());
+            std::mem::take(&mut log.counts)
+        };
+        let mut detail = serde_json::Map::new();
+        for (name, count) in REASONS.iter().zip(counts) {
+            detail.insert((*name).to_string(), count.into());
+        }
+        let mut entry = LogEntry::new("server", "server_busy");
+        entry.detail = Some(serde_json::Value::Object(detail));
+        self.log(entry);
+    }
+
+    /// Takes a place in the caller's share, or says which limit is reached.
+    fn acquire(self: &Arc<Self>, key: [u8; 32], wait: bool) -> Result<Share, usize> {
+        let mut admission = lock(&self.admission);
+        let (waits_open, bucket_waits, bucket_other) = (
+            admission.waits,
+            admission.buckets.get(&key).map_or(0, |b| b.waits),
+            admission.buckets.get(&key).map_or(0, |b| b.other),
+        );
+        if wait {
+            if waits_open >= self.limits.wait {
+                return Err(WAITS);
+            }
+            if bucket_waits >= self.limits.wait_per_caller {
+                return Err(CALLER);
+            }
+            admission.waits += 1;
+            admission.buckets.entry(key).or_default().waits += 1;
+        } else {
+            if bucket_other >= self.limits.caller {
+                return Err(CALLER);
+            }
+            admission.buckets.entry(key).or_default().other += 1;
+        }
+        Ok(Share {
+            shared: Arc::clone(self),
+            key,
+            wait,
+        })
+    }
+}
+
+/// One place in a caller's share; the bucket is removed when it is empty.
+struct Share {
+    shared: Arc<Shared>,
+    key: [u8; 32],
+    wait: bool,
+}
+
+impl Drop for Share {
+    fn drop(&mut self) {
+        let mut admission = lock(&self.shared.admission);
+        if self.wait {
+            admission.waits = admission.waits.saturating_sub(1);
+        }
+        if let Some(bucket) = admission.buckets.get_mut(&self.key) {
+            if self.wait {
+                bucket.waits = bucket.waits.saturating_sub(1);
+            } else {
+                bucket.other = bucket.other.saturating_sub(1);
+            }
+            if bucket.waits == 0 && bucket.other == 0 {
+                admission.buckets.remove(&self.key);
+            }
+        }
+    }
+}
+
+/// The caller key and wait class of a frame, from the frame alone. None for what is not counted: a frame that is not
+/// an object, has no string credential, or is a legacy `action` request.
+fn classify(frame: &[u8]) -> Option<([u8; 32], bool)> {
+    let value = js::parse(std::str::from_utf8(frame).ok()?).ok()?;
+    if !matches!(value, js::Value::Object(_)) {
+        return None;
+    }
+    let credential = match value.get("credential") {
+        Some(js::Value::String(text)) => text.to_utf8_lossy(),
+        _ => return None,
+    };
+    if value.get("action").is_some() && value.get("command").is_none() {
+        return None;
+    }
+    let wait = matches!(value.get("command"), Some(js::Value::String(text)) if text.to_utf8_lossy() == "wait");
+    Some((replay::caller_of(&credential), wait))
+}
+
+/// The linger count that fits the descriptor limit, and whether the limit is low.
+fn fd_plan(limit: u64, max_connections: usize, linger_max: usize) -> (usize, bool) {
+    // A connection holds three descriptors: its stream, the killer clone and the reader clone.
+    let need = (3 * max_connections + linger_max + FD_HEADROOM) as u64;
+    if limit >= need {
+        (linger_max, false)
+    } else {
+        let room = limit.saturating_sub((3 * max_connections + FD_HEADROOM) as u64);
+        (
+            usize::try_from(room).unwrap_or(linger_max).min(linger_max),
+            true,
+        )
+    }
+}
+
+fn soft_fd_limit() -> Option<u64> {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `limit` is a valid rlimit struct the call fills.
+    let rc = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
+    #[allow(clippy::unnecessary_cast)] // rlim_t is not u64 on every platform
+    (rc == 0).then_some(limit.rlim_cur as u64)
+}
+
+fn fd_limit_entry(limit: u64, max_connections: usize, linger_max: usize) -> LogEntry {
+    let mut entry = LogEntry::new("server", "fd_limit_low");
+    entry.detail = Some(serde_json::json!({
+        "limit": limit,
+        "maxConnections": max_connections,
+        "lingerMax": linger_max,
+    }));
+    entry
+}
+
+/// A new random 128-bit id as hex.
+fn new_boot_id() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).ok()?;
+    Some(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn boot_path(socket: &std::path::Path) -> PathBuf {
+    let mut name = socket.as_os_str().to_os_string();
+    name.push(".boot");
+    PathBuf::from(name)
+}
+
+/// Writes the boot id atomically with mode 0600, replacing what a crashed daemon left.
+fn write_boot_id(path: &std::path::Path, id: &str) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut temp = path.as_os_str().to_os_string();
+    temp.push(format!(".{}.tmp", std::process::id()));
+    let temp = PathBuf::from(temp);
+    let _ = std::fs::remove_file(&temp);
+    let written = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)?;
+        file.write_all(id.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&temp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written
 }
 
 /// The running server. `stop_accepting`, `drain` and `cleanup` are the ordered stop of `runDaemon`'s `finally`; `close` does
@@ -125,6 +423,8 @@ pub struct DaemonServer {
     reaper: Mutex<Option<JoinHandle<()>>>,
     /// Writing a byte here wakes the accept thread.
     wake: Mutex<Option<std::os::fd::OwnedFd>>,
+    /// The boot file and the id this server wrote to it.
+    boot: Option<(PathBuf, String)>,
 }
 
 impl DaemonServer {
@@ -133,8 +433,49 @@ impl DaemonServer {
         let (listener, identity) = rebind(&options.socket_path)?;
         listener.set_nonblocking(true)?;
         let (wake_read, wake_write) = make_pipe()?;
+        let tuning = capstan_config::daemon_limits(deps.options.capstan.as_deref());
+        let to_usize = |n: i64| usize::try_from(n).unwrap_or(0).max(1);
+        let max = to_usize(tuning.max_connections);
+        let mut linger_max = LINGER_MAX;
+        let mut fd_entry = None;
+        if let Some(limit) = soft_fd_limit() {
+            let (clamped, low) = fd_plan(limit, max, LINGER_MAX);
+            if low {
+                linger_max = clamped;
+                fd_entry = Some(fd_limit_entry(limit, max, clamped));
+            }
+        }
+        let limits = Limits {
+            max,
+            caller: to_usize(tuning.caller_connections),
+            wait: to_usize(tuning.wait_connections),
+            wait_per_caller: to_usize(tuning.wait_per_caller),
+            retry_ms: u64::try_from(tuning.busy_retry_ms).unwrap_or(500),
+            linger_max,
+        };
+        if let Some(entry) = fd_entry {
+            (deps.log)(&entry);
+        }
+        // The id is written only after the bind, so a second daemon that fails to bind leaves the running one's file.
+        let boot = new_boot_id().and_then(|id| {
+            let path = boot_path(&options.socket_path);
+            match write_boot_id(&path, &id) {
+                Ok(()) => Some((path, id)),
+                Err(error) => {
+                    let mut entry = LogEntry::new("server", "boot_id_unwritten");
+                    entry.detail = Some(serde_json::json!({ "error": error.to_string() }));
+                    (deps.log)(&entry);
+                    None
+                }
+            }
+        });
         let shared = Arc::new(Shared {
             deps,
+            limits,
+            handler: options.handler.clone(),
+            linger: Mutex::new(Vec::new()),
+            admission: Mutex::new(Admission::default()),
+            busy_log: Mutex::new(BusyLog::default()),
             response_limit: options.max_response_bytes,
             draining: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
@@ -143,6 +484,7 @@ impl DaemonServer {
             running: Mutex::new(0),
             running_changed: Condvar::new(),
             reaper_stop: AtomicBool::new(false),
+            drain_lineless: std::sync::atomic::AtomicUsize::new(0),
             identity: Mutex::new(identity),
         });
         let accept = {
@@ -164,6 +506,7 @@ impl DaemonServer {
             accept: Mutex::new(Some(accept)),
             reaper: Mutex::new(Some(reaper)),
             wake: Mutex::new(Some(wake_write)),
+            boot,
         })
     }
 
@@ -181,9 +524,15 @@ impl DaemonServer {
     /// Step 3 of an ordered stop: abort handlers, await them, destroy what is left.
     pub fn drain(&self) {
         let shared = &self.shared;
+        lock(&shared.linger).clear();
         let connections: Vec<Arc<Conn>> = lock(&shared.conns).values().cloned().collect();
         for conn in &connections {
             conn.signal.abort("shutdown");
+        }
+        // A connection that was accepted but not dispatched gets the shutting_down line (unstored, so safe to retry),
+        // and can no longer be dispatched: dispatch and this check take the same state lock.
+        for conn in &connections {
+            conn.answer_shutting_down();
         }
         {
             let mut running = lock(&shared.running);
@@ -197,7 +546,10 @@ impl DaemonServer {
         // A socket that was already answered is ended and must flush its reply (a shutting_down or superseded code)
         // before it closes; only a socket that never got a request is destroyed at once.
         for conn in lock(&shared.conns).values() {
-            if !lock(&conn.state).answered {
+            let state = lock(&conn.state);
+            if !state.answered && !state.destroyed {
+                drop(state);
+                shared.drain_lineless.fetch_add(1, Ordering::SeqCst);
                 conn.destroy();
             }
         }
@@ -235,10 +587,16 @@ impl DaemonServer {
         if let Some(reaper) = lock(&self.reaper).take() {
             let _ = reaper.join();
         }
+        lock(&shared.linger).clear();
     }
 
     /// Removes the socket file if it is still ours.
     pub fn cleanup(&self) -> io::Result<()> {
+        if let Some((path, id)) = &self.boot {
+            if std::fs::read_to_string(path).is_ok_and(|text| text == *id) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
         remove_if_ours(&self.socket_path, *lock(&self.shared.identity))
     }
 
@@ -251,6 +609,29 @@ impl DaemonServer {
     /// How many connections are open now.
     pub fn open_connections(&self) -> usize {
         lock(&self.shared.conns).len()
+    }
+
+    /// Connections drain destroyed without a line (the architecture wants 0).
+    #[doc(hidden)]
+    pub fn drain_lineless(&self) -> usize {
+        self.shared.drain_lineless.load(Ordering::SeqCst)
+    }
+
+    /// Refused connections still waiting for their client to read the busy line.
+    #[doc(hidden)]
+    pub fn lingering_connections(&self) -> usize {
+        lock(&self.shared.linger).len()
+    }
+
+    /// Caller buckets held now (never more than the open connections).
+    #[doc(hidden)]
+    pub fn admission_buckets(&self) -> usize {
+        lock(&self.shared.admission).buckets.len()
+    }
+
+    /// The boot file of this server and its id, when it could be written.
+    pub fn boot_file(&self) -> Option<(&std::path::Path, &str)> {
+        self.boot.as_ref().map(|(p, id)| (p.as_path(), id.as_str()))
     }
 
     pub fn socket_path(&self) -> &std::path::Path {
@@ -397,6 +778,7 @@ fn accept_loop(
     socket_path: PathBuf,
 ) {
     let mut upkeep = Upkeep::new(socket_path);
+    let mut scratch = vec![0u8; MAX_FRAME_BYTES];
     loop {
         let mut fds = [
             libc::pollfd {
@@ -428,7 +810,7 @@ fn accept_loop(
         }
         loop {
             match listener.accept() {
-                Ok((stream, _)) => admit(&shared, stream),
+                Ok((stream, _)) => admit(&shared, stream, &mut scratch),
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(_) => {
@@ -443,8 +825,12 @@ fn accept_loop(
     }
 }
 
-/// Registers a new connection and starts its thread; the 65th open connection is closed at once.
-fn admit(shared: &Arc<Shared>, stream: UnixStream) {
+/// Registers a new connection and starts its thread; one over `max_connections` gets the busy line.
+fn admit(shared: &Arc<Shared>, stream: UnixStream, scratch: &mut [u8]) {
+    if lock(&shared.conns).len() >= shared.limits.max {
+        refuse_at_cap(shared, stream, scratch);
+        return;
+    }
     let _ = stream.set_nonblocking(false);
     let Ok(killer) = stream.try_clone() else {
         return;
@@ -457,9 +843,9 @@ fn admit(shared: &Arc<Shared>, stream: UnixStream) {
     });
     {
         let mut conns = lock(&shared.conns);
-        if conns.len() >= MAX_CONNECTIONS {
+        if conns.len() >= shared.limits.max {
             drop(conns);
-            drop(stream);
+            refuse_at_cap(shared, stream, scratch);
             return;
         }
         conns.insert(conn.id, Arc::clone(&conn));
@@ -481,10 +867,57 @@ fn admit(shared: &Arc<Shared>, stream: UnixStream) {
     }
 }
 
+/// The accept thread's refusal: one non-blocking read to discard what the client sent, the busy line, the end of the
+/// write side, and the stream goes to the lingering list. Nothing here can block, and no thread is started.
+fn refuse_at_cap(shared: &Shared, stream: UnixStream, scratch: &mut [u8]) {
+    shared.note_busy(SLOTS);
+    if lock(&shared.linger).len() >= shared.limits.linger_max {
+        shared.note_busy(LINGER_FULL);
+        return;
+    }
+    if stream.set_nonblocking(true).is_err() {
+        return;
+    }
+    let _ = (&stream).read(scratch);
+    let _ = (&stream).write(shared.busy_line(SLOTS).as_bytes());
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    lock(&shared.linger).push(Lingering {
+        stream,
+        since: Instant::now(),
+    });
+}
+
+/// Reads and discards what lingering clients still send; closes a stream on its client's end or after `LINGER_MS`.
+fn drain_lingering(shared: &Shared) {
+    let mut list = lock(&shared.linger);
+    if list.is_empty() {
+        return;
+    }
+    let limit = Duration::from_millis(LINGER_MS);
+    let mut sink = [0u8; 4096];
+    list.retain_mut(|item| {
+        if item.since.elapsed() >= limit {
+            return false;
+        }
+        for _ in 0..16 {
+            match item.stream.read(&mut sink) {
+                Ok(0) => return false,
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return true,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => return false,
+            }
+        }
+        true
+    });
+}
+
 /// Enforces the deadlines (`arm`): a connection still open when its time is up is destroyed.
 fn reaper_loop(shared: Arc<Shared>) {
     while !shared.reaper_stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(20));
+        drain_lingering(&shared);
+        shared.flush_busy();
         let now = Instant::now();
         let due: Vec<Arc<Conn>> = lock(&shared.conns)
             .values()
@@ -503,7 +936,7 @@ fn reaper_loop(shared: Arc<Shared>) {
 fn respond(conn: &Conn, stream: &mut UnixStream, text: &str) {
     {
         let mut state = lock(&conn.state);
-        if state.destroyed {
+        if state.destroyed || state.answered {
             return;
         }
         state.answered = true;
@@ -518,19 +951,51 @@ fn respond(conn: &Conn, stream: &mut UnixStream, text: &str) {
 
 fn serve_connection(shared: &Arc<Shared>, conn: &Arc<Conn>, mut stream: UnixStream) {
     if shared.draining.load(Ordering::SeqCst) {
-        let text = fail(ErrorCode::ShuttingDown, "the daemon is shutting down").to_text();
-        respond(conn, &mut stream, &text);
+        // The same once-only path drain uses, so the line is written exactly once whichever side gets there first.
+        conn.answer_shutting_down();
         wait_for_close(&mut stream);
         return;
     }
     conn.arm(Duration::from_millis(REQUEST_TIMEOUT_MS));
-    let Some(frame) = read_frame(&mut stream) else {
-        // Closed before a frame, or a frame beyond the limit: dropped without an answer.
-        conn.destroy();
-        return;
+    let frame = match read_frame(&mut stream) {
+        FrameRead::Frame(frame) => frame,
+        FrameRead::Closed => {
+            // Closed before a frame: nothing to answer.
+            conn.destroy();
+            return;
+        }
+        FrameRead::TooLarge => {
+            let text = fail(ErrorCode::InvalidRequest, "request too large").to_text();
+            respond(conn, &mut stream, &text);
+            wait_for_close(&mut stream);
+            return;
+        }
     };
-    lock(&conn.state).dispatched = true;
-    *lock(&shared.running) += 1;
+    let share = match classify(&frame) {
+        Some((key, wait)) => match shared.acquire(key, wait) {
+            Ok(share) => Some(share),
+            Err(reason) => {
+                shared.note_busy(reason);
+                let line = shared.busy_line(reason);
+                respond(conn, &mut stream, line.trim_end());
+                conn.arm(Duration::from_millis(BUSY_CLOSE_MS));
+                wait_for_close(&mut stream);
+                return;
+            }
+        },
+        None => None,
+    };
+    {
+        // Drain takes this lock to answer connections that are not dispatched; a handler never starts after it.
+        let mut state = lock(&conn.state);
+        if state.answered || state.destroyed {
+            drop(state);
+            wait_for_close(&mut stream);
+            return;
+        }
+        state.dispatched = true;
+        *lock(&shared.running) += 1;
+    }
     let reader = std::cell::RefCell::new(None::<JoinHandle<()>>);
     let outcome = {
         let mut on_limit = |limit_ms: u64, _is_wait: bool| {
@@ -551,17 +1016,30 @@ fn serve_connection(shared: &Arc<Shared>, conn: &Arc<Conn>, mut stream: UnixStre
                 *reader.borrow_mut() = spawned.ok();
             }
         };
-        handle_frame_with(
-            &shared.deps,
-            &frame,
-            &conn.signal,
-            shared.response_limit,
-            &mut on_limit,
-        )
+        match &shared.handler {
+            Some(handler) => (handler.0)(
+                &shared.deps,
+                &frame,
+                &conn.signal,
+                shared.response_limit,
+                &mut on_limit,
+            ),
+            None => handle_frame_with(
+                &shared.deps,
+                &frame,
+                &conn.signal,
+                shared.response_limit,
+                &mut on_limit,
+            ),
+        }
     };
+    if share.is_some() && !outcome.identified {
+        shared.note_busy(UNVERIFIED);
+    }
     if let Some(text) = &outcome.response {
         respond(conn, &mut stream, text);
     }
+    drop(share);
     shared.log(outcome.log);
     {
         let mut running = lock(&shared.running);
@@ -590,31 +1068,38 @@ fn wait_for_close(stream: &mut UnixStream) {
     }
 }
 
-/// Reads the request frame: the bytes up to the first newline, at most `MAX_FRAME_BYTES`. None when the client closed
-/// first or the frame is too long. Bytes after the newline are discarded.
-fn read_frame(stream: &mut UnixStream) -> Option<Vec<u8>> {
+enum FrameRead {
+    Frame(Vec<u8>),
+    /// The client closed (or the read failed) before a whole frame.
+    Closed,
+    TooLarge,
+}
+
+/// Reads the request frame: the bytes up to the first newline, at most `MAX_FRAME_BYTES`. Bytes after the newline are
+/// discarded.
+fn read_frame(stream: &mut UnixStream) -> FrameRead {
     let mut frame: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 16 * 1024];
     loop {
         let n = match stream.read(&mut chunk) {
-            Ok(0) => return None,
+            Ok(0) => return FrameRead::Closed,
             Ok(n) => n,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => return None,
+            Err(_) => return FrameRead::Closed,
         };
         match chunk[..n].iter().position(|&b| b == b'\n') {
             None => {
                 frame.extend_from_slice(&chunk[..n]);
                 if frame.len() > MAX_FRAME_BYTES {
-                    return None;
+                    return FrameRead::TooLarge;
                 }
             }
             Some(newline) => {
                 if frame.len() + newline > MAX_FRAME_BYTES {
-                    return None;
+                    return FrameRead::TooLarge;
                 }
                 frame.extend_from_slice(&chunk[..newline]);
-                return Some(frame);
+                return FrameRead::Frame(frame);
             }
         }
     }
@@ -652,6 +1137,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         dir
+    }
+
+    #[test]
+    fn the_linger_count_is_clamped_to_the_descriptor_limit() {
+        assert_eq!(fd_plan(1024, 64, LINGER_MAX), (576, true));
+        assert_eq!(fd_plan(65_536, 64, LINGER_MAX), (LINGER_MAX, false));
+        assert_eq!(fd_plan(100, 64, LINGER_MAX), (0, true));
+        let entry = fd_limit_entry(1024, 64, 576);
+        assert_eq!(entry.code, "fd_limit_low");
+        assert_eq!(entry.detail.unwrap()["lingerMax"], 576);
     }
 
     #[test]
