@@ -47,6 +47,7 @@ impl Drop for Project {
             .current_dir(&self.root)
             .env_clear()
             .env("PATH", HOST_PATH)
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&self.root))
             .env("HOME", "/nonexistent")
             .stdin(Stdio::null())
             .output();
@@ -245,6 +246,7 @@ impl Project {
             .current_dir(&self.root)
             .env_clear()
             .env("PATH", HOST_PATH)
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&self.root))
             .env("HOME", "/nonexistent")
             .stdin(Stdio::null())
             .output()
@@ -340,6 +342,7 @@ impl Stream {
             .current_dir(cwd)
             .env_clear()
             .env("PATH", HOST_PATH)
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(root))
             .env("HOME", "/nonexistent")
             .env("CSTAN_EVENTS_NO_PROCESS_SCAN", "1")
             .stdin(Stdio::null())

@@ -1,6 +1,5 @@
 //! The trust store a run uses, as a seam: a test names its own store; a run without one uses the current user's.
 use std::ffi::OsString;
-use std::path::PathBuf;
 
 use capstan_config::TrustStore;
 
@@ -11,23 +10,14 @@ pub struct TrustSeam {
 }
 
 impl TrustSeam {
-    /// The store to use: the one set, else the current user's (`TrustStore::for_user`).
-    pub fn store(&self) -> TrustStore {
+    /// The store to use: the one set, else the current user's store, with `CAPSTAN_TRUST_DIR` read from `env` (the
+    /// environment of the run, never the process's own).
+    pub fn store(&self, env: &[(OsString, OsString)]) -> TrustStore {
         match &self.store {
             Some(store) => store.clone(),
-            None => TrustStore::for_user(),
-        }
-    }
-
-    /// `store` with the passwd lookup and the `CAPSTAN_TRUST_DIR` value given (tests).
-    pub fn store_with(
-        &self,
-        lookup: impl Fn(libc::uid_t) -> Option<PathBuf>,
-        trust_dir: Option<OsString>,
-    ) -> TrustStore {
-        match &self.store {
-            Some(store) => store.clone(),
-            None => TrustStore::for_user_with(lookup, trust_dir),
+            None => TrustStore::for_user_dir(
+                crate::agent::var(env, "CAPSTAN_TRUST_DIR").map(OsString::from),
+            ),
         }
     }
 }
@@ -36,32 +26,35 @@ impl TrustSeam {
 mod tests {
     use super::*;
 
+    fn env(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        pairs
+            .iter()
+            .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+            .collect()
+    }
+
     #[test]
     fn a_set_store_is_returned_as_set() {
         let seam = TrustSeam {
             store: Some(TrustStore::at("/some/store")),
         };
-        assert_eq!(seam.store(), TrustStore::at("/some/store"));
-        assert_eq!(
-            seam.store_with(|_| None, Some(OsString::from("/other"))),
-            TrustStore::at("/some/store")
-        );
+        let with_dir = env(&[("CAPSTAN_TRUST_DIR", "/other")]);
+        assert_eq!(seam.store(&with_dir), TrustStore::at("/some/store"));
+        assert_eq!(seam.store(&[]), TrustStore::at("/some/store"));
     }
 
     #[test]
-    fn no_store_gives_the_for_user_store() {
+    fn no_store_reads_the_trust_dir_of_the_given_env() {
         let seam = TrustSeam::default();
-        let lookup = |_: libc::uid_t| Some(PathBuf::from("/home/x"));
+        let with_dir = env(&[("CAPSTAN_TRUST_DIR", "/trust")]);
         assert_eq!(
-            seam.store_with(lookup, None),
-            TrustStore::for_user_with(lookup, None)
+            seam.store(&with_dir),
+            TrustStore::for_user_with(|_| None, Some(OsString::from("/trust")))
         );
-        let dir = Some(OsString::from("/trust"));
+        let relative = env(&[("CAPSTAN_TRUST_DIR", "rel")]);
         assert_eq!(
-            seam.store_with(lookup, dir.clone()),
-            TrustStore::for_user_with(lookup, dir)
+            seam.store(&relative),
+            TrustStore::for_user_with(|_| None, Some(OsString::from("rel")))
         );
-        // `store` is `for_user` when nothing is set.
-        assert_eq!(seam.store(), TrustStore::for_user());
     }
 }

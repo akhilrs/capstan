@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use capstan_cache::Runtime;
-use capstan_config::{load_role_config, ConfigError, CONFIG_FILE_NAME};
+use capstan_config::{load_role_config_with, ConfigError, CONFIG_FILE_NAME};
 use capstan_daemon::handlers::cache::{
     live_status, parse_request, run_clear, run_prune, runtime_of, status_member, CacheFailure,
     CacheRequest,
@@ -53,7 +53,8 @@ impl Cli<'_> {
     /// The runtime of the project's `[cache]` section; `Ok(None)` when it has none.
     fn cache_runtime(&self) -> Result<Option<Runtime>, Fail> {
         let root = self.cache_project_root();
-        let config = load_role_config(&root).map_err(config_fail)?;
+        let config = load_role_config_with(&root, &self.ctx.trust.store(&self.ctx.env))
+            .map_err(config_fail)?;
         if config.cache.is_none() {
             return Ok(None);
         }

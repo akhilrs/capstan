@@ -983,3 +983,7 @@ project whose slug is longer than 200 characters therefore gets no memory allowa
 **Hooks.** With `hooks` unset or `"inherit"` the guard is installed and `disableAllHooks` is `false`, so hooks from your own
 Claude Code user, project or plugin settings run for the PM as well; with `hooks` unset only the guard is added (no inbox
 hook).
+
+## Trust
+
+A pulled `capstan.toml` can change what runs on your machine, so a controller loads it only when its checked keys are trusted on this machine. Every key is checked except `schema_version` and the keys only `capstan.local.toml` may set. Run `cstan trust` to read the changes and accept them; `cstan trust --check` fails when there are any. Records live per user in `~/.local/state/capstan/trust`, or in the absolute directory named by `CAPSTAN_TRUST_DIR` (CI and containers without a home). See [Trust check](trust.md) for the details and the upgrade path.

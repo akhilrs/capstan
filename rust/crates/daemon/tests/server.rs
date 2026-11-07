@@ -166,7 +166,9 @@ impl Fixture {
             dir.path().to_path_buf(),
         );
         if let Some(seconds) = setup.wait_seconds {
-            options.capstan = Some(Arc::new(role_config(dir.path(), seconds)));
+            let (config, trust) = role_config(dir.path(), seconds);
+            options.capstan = Some(Arc::new(config));
+            options.trust_store = trust;
         }
         let mut deps = Deps::new(kernel, options, sink);
         deps.launcher = setup.launcher;
@@ -254,7 +256,10 @@ impl Drop for Fixture {
 }
 
 /// A role configuration whose only host waits `seconds` seconds (read from a `capstan.toml` like the daemon's).
-fn role_config(dir: &Path, seconds: i64) -> capstan_config::RoleConfig {
+fn role_config(
+    dir: &Path,
+    seconds: i64,
+) -> (capstan_config::RoleConfig, capstan_config::TrustStore) {
     let file = dir.join("capstan.toml");
     std::fs::write(
         &file,
@@ -264,8 +269,11 @@ fn role_config(dir: &Path, seconds: i64) -> capstan_config::RoleConfig {
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    common::trusted_project(dir, &capstan_config::fixture_store(dir));
-    capstan_config::load_role_config(dir).expect("the configuration loads")
+    let trust = common::kept_trust_store();
+    common::trusted_project(dir, &trust);
+    let config =
+        capstan_config::load_role_config_with(dir, &trust).expect("the configuration loads");
+    (config, trust)
 }
 
 fn frame(credential: &str, command: &str, args: &[&str]) -> Vec<u8> {
@@ -988,7 +996,9 @@ fn a_daemon_with_a_configuration_syncs_its_roles_before_the_server_starts() {
         identity.initial_project(),
         dir.path().to_path_buf(),
     );
-    options.capstan = Some(Arc::new(role_config(dir.path(), 5)));
+    let (config, trust) = role_config(dir.path(), 5);
+    options.capstan = Some(Arc::new(config));
+    options.trust_store = trust;
     let ready: Arc<Mutex<bool>> = Arc::default();
     {
         let ready = Arc::clone(&ready);

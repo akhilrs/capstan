@@ -2,6 +2,12 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## Unreleased
+
+### Upgrade note
+
+`capstan.toml` is now checked before a controller loads it. The first `cstan start` after the upgrade refuses a `capstan.toml` that has checked keys (exit 3, text naming `cstan trust`) and starts nothing: run `cstan trust`, read the list and start again. A running controller keeps the configuration it loaded; `cstan status` shows `trust: needed (<n> keys) - run cstan trust`, and `cstan restart` and the Operator restart refuse (`untrusted_config`) until then. CI and containers without a home directory: set `CAPSTAN_TRUST_DIR` to an absolute directory, then run `cstan trust` (or `cstan trust --check` to fail a job). See `docs/reference/trust.md`.
+
 ## 0.21.0 (2026-11-06)
 
 ### Upgrade note

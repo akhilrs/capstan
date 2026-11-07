@@ -74,7 +74,7 @@ fn each_helper_changes_only_its_own_fact() {
     );
     assert_eq!(project.latest_review()["state"], "passed");
     assert_eq!(project.integration(), before);
-    let config = capstan_config::load_role_config(project.dir.path()).unwrap();
+    let config = capstan_config::load_role_config_with(project.dir.path(), &project.trust).unwrap();
     assert!(config.remote.merge);
 
     project.set_review_findings();
@@ -93,18 +93,18 @@ fn each_helper_changes_only_its_own_fact() {
 fn set_remote_merge_false_is_read_by_the_start_up_loader() {
     let mut project = MergeProject::new();
     assert!(
-        capstan_config::load_role_config(project.dir.path())
+        capstan_config::load_role_config_with(project.dir.path(), &project.trust)
             .unwrap()
             .remote
             .merge
     );
     project.set_remote_merge(false);
-    let config = capstan_config::load_role_config(project.dir.path()).unwrap();
+    let config = capstan_config::load_role_config_with(project.dir.path(), &project.trust).unwrap();
     assert!(!config.remote.merge);
     assert!(config.verify.is_some());
     project.set_remote_merge(true);
     assert!(
-        capstan_config::load_role_config(project.dir.path())
+        capstan_config::load_role_config_with(project.dir.path(), &project.trust)
             .unwrap()
             .remote
             .merge

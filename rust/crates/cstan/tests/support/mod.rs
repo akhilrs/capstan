@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use capstan_config::{fixture_store, record_current, TrustStore};
+use capstan_config::{record_current, TrustStore};
 use cstan_front::watch::watch_status;
 use cstan_front::{run, Context, Outcome, VERSION};
 use regex::Regex;
@@ -359,7 +359,7 @@ pub fn trusted_project(root: &Path, store: &TrustStore) {
 
 /// `trust_current` against a store beside `root` (see `trust_dir_of`).
 pub fn trust_beside(root: &Path) {
-    trust_current(root, &fixture_store(&trust_dir_of(root)));
+    trust_current(root, &TrustStore::at(trust_dir_of(root)));
 }
 
 /// Removes the store `trust_beside` made.
@@ -375,15 +375,32 @@ pub fn trust_current(root: &Path, store: &TrustStore) {
     }
 }
 
+/// `env` with `CAPSTAN_TRUST_DIR` set to the private trust directory of the run (outside the project), unless the
+/// environment names one already: every in-process load and a daemon spawned with this environment read the same store.
+pub fn with_trust_dir(
+    env: &[(OsString, OsString)],
+    settings: &Settings,
+) -> Vec<(OsString, OsString)> {
+    let mut env = env.to_vec();
+    if !env.iter().any(|(name, _)| name == "CAPSTAN_TRUST_DIR") {
+        let dir = match &settings.trust {
+            Some((_, temp)) => temp.clone(),
+            None => trust_dir_of(&settings.cwd),
+        };
+        env.push((OsString::from("CAPSTAN_TRUST_DIR"), dir.into_os_string()));
+    }
+    env
+}
+
 /// One command, in this process: what `main` would do, except that a watch stops after its first frame and `cstan-dash`
 /// is not started (the program and arguments it would get are the output).
 pub fn run_once(argv: &[String], settings: &Settings) -> Observed {
     if let (Some((root, temp)), false) = (&settings.trust, settings.no_trust) {
-        trust_current(root, &fixture_store(temp));
+        trust_current(root, &TrustStore::at(temp));
     }
     let outcome = run(&Context {
         args: argv.iter().map(OsString::from).collect(),
-        env: settings.env.clone(),
+        env: with_trust_dir(&settings.env, settings),
         cwd: settings.cwd.clone(),
         now_ms: settings.now_ms,
         cli_path: PathBuf::from(FRONT),
@@ -767,6 +784,8 @@ impl RealDaemon {
              [architect]\nenabled = true\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[roles.architect]\nkind = \"Developer\"\nhost = \"claude\"\n[roles.developer]\nkind = \"Developer\"\nhost = \"claude\"\n";
         std::fs::write(daemon.root.join("capstan.toml"), toml).unwrap();
         private_mode(&daemon.root.join("capstan.toml"), 0o600);
+        record_current(&daemon.root, &TrustStore::at(daemon.trust_dir()))
+            .expect("record the daemon fixture as trusted");
         let initial = capstan_kernel::types::InitialProject {
             project_id: project_id.into(),
             name: "Recent".into(),
@@ -818,6 +837,11 @@ impl RealDaemon {
         panic!("the ledger head does not settle");
     }
 
+    /// The private trust store of this daemon, outside the project.
+    pub fn trust_dir(&self) -> PathBuf {
+        self.base.join("trust")
+    }
+
     pub fn socket(&self) -> PathBuf {
         self.root
             .join(".capstan/state")
@@ -832,6 +856,7 @@ impl RealDaemon {
             .env_clear()
             .env("PATH", HOST_PATH)
             .env("HOME", "/nonexistent")
+            .env("CAPSTAN_TRUST_DIR", self.trust_dir())
             .stdin(std::process::Stdio::null())
             .output()
             .expect("cstan runs")
@@ -865,5 +890,82 @@ impl Drop for RealDaemon {
     fn drop(&mut self) {
         self.cstan(&["stop"]);
         let _ = std::fs::remove_dir_all(&self.base);
+    }
+}
+
+// ------------------------------------------------------------------------------------------------ trust beds
+
+/// A project folder and a private trust store beside it, for the trust command tests; removed when dropped.
+pub struct TrustBed {
+    pub temp: PathBuf,
+    pub project: PathBuf,
+    pub store_dir: PathBuf,
+}
+
+impl TrustBed {
+    pub fn new(label: &str) -> TrustBed {
+        let temp = std::fs::canonicalize({
+            let path = capstan_testkit::short_temp_root()
+                .join(format!("capstan-trustbed-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            path
+        })
+        .unwrap();
+        let project = temp.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        TrustBed {
+            store_dir: temp.join("store"),
+            project,
+            temp,
+        }
+    }
+
+    pub fn store(&self) -> TrustStore {
+        TrustStore::at(&self.store_dir)
+    }
+
+    /// The environment of a run: the store directory and nothing else.
+    pub fn env(&self) -> Vec<(OsString, OsString)> {
+        vec![(
+            OsString::from("CAPSTAN_TRUST_DIR"),
+            self.store_dir.clone().into_os_string(),
+        )]
+    }
+
+    pub fn write(&self, toml: &str) {
+        write_config_untrusted(&self.project, toml);
+    }
+
+    /// One in-process `cstan` run in the project; the exit code, standard output and standard error.
+    pub fn run(&self, args: &[&str], env: Vec<(OsString, OsString)>) -> (i32, String, String) {
+        let outcome = run(&Context {
+            args: args.iter().map(OsString::from).collect(),
+            env,
+            cwd: self.project.clone(),
+            now_ms: 0.0,
+            cli_path: PathBuf::from(FRONT),
+            terminal: Some(false),
+            trust: Default::default(),
+        });
+        match outcome {
+            Outcome::Done {
+                stdout,
+                stderr,
+                exit,
+            } => (
+                exit,
+                String::from_utf8_lossy(&stdout).into_owned(),
+                String::from_utf8_lossy(&stderr).into_owned(),
+            ),
+            other => panic!("not a finished run: {other:?}"),
+        }
+    }
+}
+
+impl Drop for TrustBed {
+    fn drop(&mut self) {
+        capstan_testkit::kill_processes_in(&self.temp);
+        let _ = std::fs::remove_dir_all(&self.temp);
     }
 }

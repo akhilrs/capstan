@@ -341,7 +341,8 @@ impl World {
         let file = dir.path().join("capstan.toml");
         std::fs::write(&file, config).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        common::trusted_project(dir.path(), &capstan_config::fixture_store(dir.path()));
+        let trust = common::kept_trust_store();
+        common::trusted_project(dir.path(), &trust);
         let database = capstan_ledger::resolve_database_path(&state).unwrap();
         capstan_ledger::open_database(&database, &capstan_ledger::OpenOptions::default()).unwrap();
         let project = identity.initial_project();
@@ -377,8 +378,9 @@ impl World {
             })
         };
         let mut options = DaemonOptions::new(state, project, dir.path().to_path_buf());
+        options.trust_store = trust.clone();
         options.capstan = Some(Arc::new(
-            capstan_config::load_role_config(dir.path()).unwrap(),
+            capstan_config::load_role_config_with(dir.path(), &trust).unwrap(),
         ));
         let panes = Panes::new();
         let mut deps = Deps::new(kernel, options, sink);

@@ -91,7 +91,8 @@ impl World {
         let file = dir.path().join("capstan.toml");
         std::fs::write(&file, config).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        common::trusted_project(dir.path(), &capstan_config::fixture_store(dir.path()));
+        let trust = common::kept_trust_store();
+        common::trusted_project(dir.path(), &trust);
         build_repo(
             dir.path(),
             &json!({"files": {"a.txt": "a\n"}, "branches": {}}),
@@ -120,8 +121,9 @@ impl World {
             Arc::new(move |entry: &LogEntry| logs.lock().unwrap().push(entry.clone()))
         };
         let mut options = DaemonOptions::new(state, project, dir.path().to_path_buf());
+        options.trust_store = trust.clone();
         options.capstan = Some(Arc::new(
-            capstan_config::load_role_config(dir.path()).unwrap(),
+            capstan_config::load_role_config_with(dir.path(), &trust).unwrap(),
         ));
         let deps = Deps::new(kernel, options, sink);
         capstan_daemon::deps::startup_sequence(&deps);

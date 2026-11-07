@@ -31,6 +31,7 @@ impl Drop for Project {
             .current_dir(&self.root)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&self.root))
             .env("HOME", "/nonexistent")
             .stdin(Stdio::null())
             .output();
@@ -210,6 +211,7 @@ impl Project {
             .current_dir(&self.root)
             .env_clear()
             .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&self.root))
             .env("HOME", "/nonexistent")
             .stdin(Stdio::null())
             .output()

@@ -215,6 +215,38 @@ pub fn output_within(command: &mut Command, seconds: u64) -> Output {
     }
 }
 
+/// The trust store of a scratch root: `<root>/trust`, outside the repository.
+pub fn trust_dir_of(root: &Path) -> PathBuf {
+    root.join("trust")
+}
+
+/// Writes `capstan.toml` (mode 0600) in `repo` and records its checked values as trusted in the store at `trust_dir`, so
+/// the always-on gate lets the `cstan` of the suite (which has `CAPSTAN_TRUST_DIR=<trust_dir>`) run the project. A rewrite
+/// of the file needs a new call.
+pub fn write_config_trusted(repo: &Path, text: &str, trust_dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let file = repo.join("capstan.toml");
+    std::fs::write(&file, text).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::create_dir_all(trust_dir).unwrap();
+    std::fs::set_permissions(trust_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let store = capstan_config::TrustStore::at(trust_dir);
+    capstan_config::record_current(repo, &store)
+        .unwrap_or_else(|e| panic!("trusting {}: {e}", repo.display()));
+}
+
+/// Gives `environment` the private trust store of `root` (created, mode 0700) and returns its path.
+pub fn with_trust_dir(environment: &mut HashMap<String, String>, root: &Path) -> PathBuf {
+    let dir = trust_dir_of(root);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    environment.insert(
+        "CAPSTAN_TRUST_DIR".into(),
+        dir.to_string_lossy().into_owned(),
+    );
+    dir
+}
+
 pub fn process_alive(pid: u32) -> bool {
     capstan_testkit::is_running(pid as i32)
 }
@@ -413,6 +445,8 @@ impl Live {
             "FAKE_CLAUDE_LOG".into(),
             root.join("messages.log").to_string_lossy().into_owned(),
         );
+        // The trust store of the scratch project, outside the repository; every `cstan` started here reads it.
+        with_trust_dir(&mut environment, &root);
         // Herdr's own server runs on the scratch home, and so does the daemon: it finds the session where the server made it.
         let server_environment = environment.clone();
         if options.linked_login {
@@ -548,7 +582,7 @@ impl Live {
                 );
                 text.push_str(&env_block);
             }
-            std::fs::write(self.repo.join("capstan.toml"), text).unwrap();
+            write_config_trusted(&self.repo, &text, &trust_dir_of(&self.root));
             return;
         }
         let mut config = format!(
@@ -606,7 +640,7 @@ deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Read", "Glob", "Grep"
             config.push_str("\n[prompt_relay]\nenabled = true\n");
         }
         config.push_str(&env_block);
-        std::fs::write(self.repo.join("capstan.toml"), config).unwrap();
+        write_config_trusted(&self.repo, &config, &trust_dir_of(&self.root));
     }
 
     /// The name Herdr knows an agent by: the project's slug (its directory name) and the agent id.

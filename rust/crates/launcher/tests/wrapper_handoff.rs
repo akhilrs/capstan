@@ -54,6 +54,16 @@ fn an_agent_shell_runs_config_check_through_the_wrapper() {
         std::fs::write(&path, text.as_str().unwrap()).unwrap();
     }
 
+    // The always-on gate: the project's configuration is trusted in a private store outside it.
+    let trust_dir = root.join("trust");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir(&trust_dir).unwrap();
+        std::fs::set_permissions(&trust_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let proj = root.join(transcript["cwd"].as_str().unwrap());
+        capstan_config::record_current(&proj, &capstan_config::TrustStore::at(&trust_dir)).unwrap();
+    }
+
     // The wrapper exactly as the daemon's launcher writes it,
     let site = FrontEndSite {
         env: HashMap::new(),
@@ -76,6 +86,7 @@ fn an_agent_shell_runs_config_check_through_the_wrapper() {
         .env_clear()
         .env("PATH", path)
         .env("TZ", "UTC")
+        .env("CAPSTAN_TRUST_DIR", &trust_dir)
         .output()
         .unwrap();
 

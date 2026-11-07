@@ -53,6 +53,8 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(60);
 
 pub struct MergeProject {
     pub dir: PrivateDir,
+    /// Where the project is trusted; every load of its configuration and its `DaemonOptions` use it.
+    pub trust: capstan_config::TrustStore,
     pub deps: Deps,
     pub launcher: Arc<StubLauncher>,
     pub socket: PathBuf,
@@ -115,7 +117,14 @@ impl MergeProject {
         git(dir.path(), &["config", "user.name", "Merge Project"]);
         git(dir.path(), &["config", "user.email", "merge@example.com"]);
         let (remote_merge, verify_commands) = (true, vec!["true".to_string()]);
-        write_config(dir.path(), scratch.path(), remote_merge, &verify_commands);
+        let trust = super::kept_trust_store();
+        write_config(
+            dir.path(),
+            scratch.path(),
+            remote_merge,
+            &verify_commands,
+            &trust,
+        );
         let database = capstan_ledger::resolve_database_path(&state).unwrap();
         capstan_ledger::open_database(&database, &capstan_ledger::OpenOptions::default()).unwrap();
         let project = identity.initial_project();
@@ -136,8 +145,9 @@ impl MergeProject {
         };
         let sink: Logger = Arc::new(|_: &LogEntry| {});
         let mut options = DaemonOptions::new(state.clone(), project, dir.path().to_path_buf());
+        options.trust_store = trust.clone();
         options.capstan = Some(Arc::new(
-            capstan_config::load_role_config(dir.path()).unwrap(),
+            capstan_config::load_role_config_with(dir.path(), &trust).unwrap(),
         ));
         let launcher = Arc::new(StubLauncher::new());
         let mut deps = Deps::new(kernel, options, sink);
@@ -148,6 +158,7 @@ impl MergeProject {
             .expect("the server starts");
         let mut project = MergeProject {
             dir,
+            trust,
             deps,
             launcher,
             socket,
@@ -273,7 +284,7 @@ impl MergeProject {
     fn verify_passed(&self, subject: &str) {
         let owner = self.credentials["operator"].clone();
         let internal = self.deps.credential().to_string();
-        let config = capstan_config::load_role_config(self.dir.path()).unwrap();
+        let config = capstan_config::load_role_config_with(self.dir.path(), &self.trust).unwrap();
         let verify = config.verify.expect("the project has a [verify] section");
         let queued = self.ledger(
             &owner,
@@ -314,6 +325,7 @@ impl MergeProject {
             self.scratch.path(),
             self.remote_merge,
             &self.verify_commands,
+            &self.trust,
         );
     }
 
@@ -330,6 +342,7 @@ impl MergeProject {
             self.scratch.path(),
             self.remote_merge,
             &self.verify_commands,
+            &self.trust,
         );
     }
 
@@ -520,7 +533,7 @@ impl MergeProject {
 
     /// The commands sha `capstan.toml` has now.
     pub fn current_commands_sha(&self) -> String {
-        capstan_config::load_role_config(self.dir.path())
+        capstan_config::load_role_config_with(self.dir.path(), &self.trust)
             .unwrap()
             .verify
             .expect("a [verify] section")
@@ -530,7 +543,13 @@ impl MergeProject {
 
 /// `capstan.toml` with a `[verify]` section of `commands`, and `capstan.local.toml` with `[remote]`: the tracked file may
 /// not turn merging on, so the merge switch lives in the local one, as it does in a real project.
-fn write_config(dir: &Path, scratch: &Path, merge: bool, commands: &[String]) {
+fn write_config(
+    dir: &Path,
+    scratch: &Path,
+    merge: bool,
+    commands: &[String],
+    trust: &capstan_config::TrustStore,
+) {
     let commands: Vec<String> = commands
         .iter()
         .map(|c| serde_json::to_string(c).unwrap())
@@ -548,5 +567,5 @@ fn write_config(dir: &Path, scratch: &Path, merge: bool, commands: &[String]) {
         std::fs::write(&file, body).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
-    super::trusted_project_outside(dir);
+    super::trusted_project(dir, trust);
 }

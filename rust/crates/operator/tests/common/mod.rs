@@ -220,7 +220,7 @@ pub fn path_str(path: &Path) -> String {
 }
 
 /// Records the checked keys of the `capstan.toml` in `root` as trusted in `store`, so a gated load of it succeeds. Use
-/// `capstan_config::fixture_store(temp)` for the store.
+/// `capstan_config::TrustStore::at(temp)` for the store.
 pub fn trusted_project(root: &Path, store: &capstan_config::TrustStore) {
     capstan_config::record_current(root, store).unwrap_or_else(|e| {
         panic!("trusting the project {}: {e:?}", root.display());

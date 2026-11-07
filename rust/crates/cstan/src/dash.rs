@@ -166,9 +166,12 @@ impl Cli<'_> {
             ));
         }
         let operator = self.ensure_running()?;
-        let worker_limit = capstan_config::load_role_config(&self.ctx.cwd)
-            .ok()
-            .map(|config| config.limits.max_workers);
+        let worker_limit = capstan_config::load_role_config_with(
+            &self.ctx.cwd,
+            &self.ctx.trust.store(&self.ctx.env),
+        )
+        .ok()
+        .map(|config| config.limits.max_workers);
         let Some(bin) = resolve_dash(&self.ctx.env, &self.ctx.cli_path)? else {
             return Err(missing());
         };

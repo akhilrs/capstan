@@ -154,6 +154,7 @@ name = "capstan-herdr"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "capstan-config",
  "capstan-process",
  "capstan-testkit",
  "getrandom 0.4.3",

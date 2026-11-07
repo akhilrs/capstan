@@ -403,7 +403,7 @@ fn second_report(project: &MergeProject) -> (String, String) {
 fn verify_passed(project: &MergeProject, subject: &str) {
     let owner = project.credentials["operator"].clone();
     let internal = project.deps.credential().to_string();
-    let config = capstan_config::load_role_config(project.dir.path()).unwrap();
+    let config = capstan_config::load_role_config_with(project.dir.path(), &project.trust).unwrap();
     let verify = config.verify.expect("the project has a [verify] section");
     let queued = project.ledger(
         &owner,

@@ -36,10 +36,7 @@ pub use serde_json;
 /// The `cstan` under test.
 pub fn cstan_binary() -> PathBuf {
     static BUILD: Once = Once::new();
-    let named = binary_choice(
-        std::env::var_os("CAPSTAN_TRUST_ENFORCE").as_deref(),
-        std::env::var_os("CSTAN_BIN"),
-    );
+    let named = binary_choice(std::env::var_os("CSTAN_BIN"));
     if let Some(named) = named {
         assert!(
             named.is_file(),
@@ -79,19 +76,9 @@ pub fn cstan_binary() -> PathBuf {
     own
 }
 
-/// The binary named by the environment: `CSTAN_BIN` when set. With `CAPSTAN_TRUST_ENFORCE=1` and no `CSTAN_BIN` the
-/// gate would test a stale or unbuilt binary, so it panics: the dry run goes through `scripts/trust-dry-run.sh`.
-pub fn binary_choice(
-    enforce: Option<&std::ffi::OsStr>,
-    named: Option<std::ffi::OsString>,
-) -> Option<PathBuf> {
-    match named {
-        Some(named) => Some(PathBuf::from(named)),
-        None if enforce == Some(std::ffi::OsStr::new("1")) => panic!(
-            "CAPSTAN_TRUST_ENFORCE is set: run through scripts/trust-dry-run.sh, which sets CSTAN_BIN"
-        ),
-        None => None,
-    }
+/// The binary named by the environment: `CSTAN_BIN` when set.
+pub fn binary_choice(named: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    named.map(PathBuf::from)
 }
 
 /// The trust store of a scratch root: `<root>/trust`.

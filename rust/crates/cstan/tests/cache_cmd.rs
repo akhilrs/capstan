@@ -121,6 +121,7 @@ impl Project {
             .current_dir(&self.root)
             .env_clear()
             .env("PATH", path)
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&self.root))
             .env("HOME", "/nonexistent")
             .envs(env.iter().copied())
             .stdin(Stdio::null())

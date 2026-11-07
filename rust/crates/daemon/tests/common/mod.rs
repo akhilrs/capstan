@@ -65,24 +65,47 @@ impl PrivateDir {
     }
 }
 
+/// A trust store in its own private folder, with the folder: the folder must outlive every use of the store.
+pub fn test_trust_store() -> (PrivateDir, capstan_config::TrustStore) {
+    let holder = private_tempdir();
+    let store = capstan_config::TrustStore::at(holder.path());
+    (holder, store)
+}
+
+/// `test_trust_store` with its folder kept until the test process ends, for a fixture that has no place to hold it.
+pub fn kept_trust_store() -> capstan_config::TrustStore {
+    kept_trust_store_at().1
+}
+
+/// `kept_trust_store` with the folder of the store, for a daemon process that gets it as `CAPSTAN_TRUST_DIR`.
+pub fn kept_trust_store_at() -> (PathBuf, capstan_config::TrustStore) {
+    static STORES: std::sync::Mutex<Vec<PrivateDir>> = std::sync::Mutex::new(Vec::new());
+    let (holder, store) = test_trust_store();
+    let path = holder.path().to_path_buf();
+    STORES.lock().unwrap().push(holder);
+    (path, store)
+}
+
 /// Records the checked keys of the `capstan.toml` in `root` as trusted in `store`, so a gated load of it succeeds. Call it
-/// after the last write of the configuration; a rewrite needs a new call. Use `capstan_config::fixture_store(temp)` for
-/// the store, which is the current user's store inside the trust dry run.
+/// after the last write of the configuration; a rewrite needs a new call.
 pub fn trusted_project(root: &Path, store: &capstan_config::TrustStore) {
     capstan_config::record_current(root, store).unwrap_or_else(|e| {
         panic!("trusting the project {}: {e:?}", root.display());
     });
 }
 
-/// `trusted_project` with the store in its own temporary folder, kept until the test process ends, so no trust record
-/// lands in `root`: use it where `root` is committed to git afterwards and the commit ids must not change. In the trust
-/// dry run the store is the current user's, as for `capstan_config::fixture_store`.
-pub fn trusted_project_outside(root: &Path) {
-    static STORES: std::sync::Mutex<Vec<PrivateDir>> = std::sync::Mutex::new(Vec::new());
-    let holder = private_tempdir();
-    let store = capstan_config::fixture_store(holder.path());
-    STORES.lock().unwrap().push(holder);
+/// `trusted_project` with a store in its own temporary folder, kept until the test process ends, so no trust record
+/// lands in `root`: use it where `root` is committed to git afterwards and the commit ids must not change. Returns the
+/// store, which the loads and the `DaemonOptions` of the test must use.
+pub fn trusted_project_outside(root: &Path) -> capstan_config::TrustStore {
+    trusted_project_in_kept_store(root).1
+}
+
+/// `trusted_project_outside` that also returns the folder of the store.
+pub fn trusted_project_in_kept_store(root: &Path) -> (PathBuf, capstan_config::TrustStore) {
+    let (path, store) = kept_trust_store_at();
     trusted_project(root, &store);
+    (path, store)
 }
 
 /// Writes `text` as the `capstan.toml` in `root` (mode 0600) and records nothing, so the project reads as not trusted

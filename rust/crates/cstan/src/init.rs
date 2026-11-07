@@ -212,6 +212,12 @@ impl Cli<'_> {
             key_path.display()
         );
         self.io.out.extend_from_slice(text.as_bytes());
+        let trust_line = if starter_written {
+            self.trust_new_starter(&cwd)
+        } else {
+            "capstan.toml exists: review it with cstan trust.".to_string()
+        };
+        self.io.out_line(&trust_line);
         if with_git {
             self.setup_git(git_created)?;
         } else if let Check::Problem { message, .. } =
@@ -220,6 +226,25 @@ impl Cli<'_> {
             self.io.err_line(&format!("warning: {message}"));
         }
         Ok(Flow::Code(0))
+    }
+
+    /// Records the starter `capstan.toml` this run just wrote as trusted on this machine, and says so. A store that is
+    /// not available does not fail the init.
+    fn trust_new_starter(&self, cwd: &Path) -> String {
+        use capstan_config::{record_trust, trust_status_with, TrustStatus};
+        let store = self.ctx.trust.store(&self.ctx.env);
+        let trusted = "Trusted capstan.toml on this machine; later changes need cstan trust.";
+        let failed = |reason: String| {
+            format!("Wrote capstan.toml but did not trust it: {reason}. Set CAPSTAN_TRUST_DIR to an absolute directory, then run cstan trust.")
+        };
+        match trust_status_with(cwd, &store) {
+            TrustStatus::Trusted | TrustStatus::NotNeeded => trusted.to_string(),
+            TrustStatus::Needed { digest, .. } => match record_trust(cwd, &digest, &store) {
+                Ok(_) => trusted.to_string(),
+                Err(error) => failed(error.to_string()),
+            },
+            TrustStatus::Unavailable { reason, .. } => failed(reason),
+        }
     }
 
     /// `setupGit`: lists the files it will commit, then creates the initial commit when HEAD is unborn.

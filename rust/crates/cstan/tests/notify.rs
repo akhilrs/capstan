@@ -46,6 +46,7 @@ fn run(args: &[&str], cwd: &Path) -> Output {
         .current_dir(cwd)
         .env_clear()
         .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(cwd))
         .env("HOME", "/nonexistent")
         .stdin(Stdio::null())
         .output()

@@ -27,7 +27,11 @@ pub fn register(map: &mut HandlerMap) {
 /// The configuration as `capstan.toml` has it now, read with the loader of the daemon's start-up; `Err` is the text of
 /// the failure.
 pub(super) fn fresh_config(env: &CommandEnv<'_>) -> Result<RoleConfig, String> {
-    capstan_config::load_role_config(&env.deps.options.workspace_root).map_err(|e| e.to_string())
+    capstan_config::load_role_config_with(
+        &env.deps.options.workspace_root,
+        &env.deps.options.trust_store,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// The options of a decision by `[remote]`: without a section (or without a readable file) the defaults.

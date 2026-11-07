@@ -23,6 +23,7 @@ pub mod recent;
 pub mod render;
 pub mod routed;
 pub mod status;
+pub mod trust_cmd;
 pub mod trust_seam;
 pub mod usage;
 pub mod watch;
@@ -50,7 +51,7 @@ pub struct Context {
     pub cli_path: PathBuf,
     /// Whether standard input and output are a terminal; `None` asks the process. A test sets it.
     pub terminal: Option<bool>,
-    /// The trust store; unread until the readers take it from here.
+    /// The trust store; unset, a reader uses the store of `CAPSTAN_TRUST_DIR` in `env`, else the user's own.
     pub trust: trust_seam::TrustSeam,
 }
 
@@ -365,6 +366,7 @@ impl Cli<'_> {
             "__restart-helper" => return self.restart_helper(&rest),
             "init" => return self.init(&rest),
             "config" => return self.config(&rest),
+            "trust" => return self.trust(&rest),
             "cache" => return self.cache(&rest),
             "guard-write" => {
                 // A hook: exit 2 refuses the tool call, so every failure, a bad argument included, is 2.

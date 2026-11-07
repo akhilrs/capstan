@@ -35,7 +35,7 @@
   "stopAfter": null,
   "request": null,
   "node": {
-    "stdout": "Wrote starter capstan.toml\nCreated .gitignore with the capstan block\nInitialized Capstan project <ID#1>\nOperator credential: <ROOT>/proj/.capstan/operator.key (0600)\n.capstan/, capstan.toml and capstan.local.toml are ignored through the capstan block in .gitignore.\nThe repository-local Git exclude protects .capstan from ordinary staging.\nRan git init\nCommitting 1 file as \"chore: initial commit\":\n  .gitignore\nCreated the initial commit\n",
+    "stdout": "Wrote starter capstan.toml\nCreated .gitignore with the capstan block\nInitialized Capstan project <ID#1>\nOperator credential: <ROOT>/proj/.capstan/operator.key (0600)\n.capstan/, capstan.toml and capstan.local.toml are ignored through the capstan block in .gitignore.\nThe repository-local Git exclude protects .capstan from ordinary staging.\nTrusted capstan.toml on this machine; later changes need cstan trust.\nRan git init\nCommitting 1 file as \"chore: initial commit\":\n  .gitignore\nCreated the initial commit\n",
     "stderr": "",
     "exit": 0,
     "signal": null

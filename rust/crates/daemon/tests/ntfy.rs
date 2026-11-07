@@ -1514,7 +1514,8 @@ impl World {
         let local = dir.path().join("capstan.local.toml");
         std::fs::write(&local, ntfy_toml).unwrap();
         std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o600)).unwrap();
-        common::trusted_project(dir.path(), &capstan_config::fixture_store(dir.path()));
+        let trust = common::kept_trust_store();
+        common::trusted_project(dir.path(), &trust);
         let kernel = {
             let (state, project, root) = (
                 state.clone(),
@@ -1544,8 +1545,9 @@ impl World {
             identity.initial_project(),
             dir.path().to_path_buf(),
         );
+        options.trust_store = trust.clone();
         options.capstan = Some(Arc::new(
-            capstan_config::load_role_config(dir.path()).unwrap(),
+            capstan_config::load_role_config_with(dir.path(), &trust).unwrap(),
         ));
         let deps = Deps::new(kernel, options, sink);
         let loops = RustLoops::new();

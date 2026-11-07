@@ -422,7 +422,12 @@ fn passwd_home(uid: libc::uid_t) -> Option<PathBuf> {
 impl TrustStore {
     /// The store of the current user: `CAPSTAN_TRUST_DIR` when set, else the passwd home's `.local/state/capstan/trust`.
     pub fn for_user() -> TrustStore {
-        TrustStore::for_user_with(passwd_home, std::env::var_os("CAPSTAN_TRUST_DIR"))
+        TrustStore::for_user_dir(std::env::var_os("CAPSTAN_TRUST_DIR"))
+    }
+
+    /// `for_user` with the `CAPSTAN_TRUST_DIR` value given and the real passwd lookup.
+    pub fn for_user_dir(trust_dir: Option<OsString>) -> TrustStore {
+        TrustStore::for_user_with(passwd_home, trust_dir)
     }
 
     /// `for_user` with the passwd lookup and the `CAPSTAN_TRUST_DIR` value given. `HOME` and `XDG_*` are never read.
@@ -980,6 +985,20 @@ pub fn record_current(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn for_user_dir_takes_an_absolute_dir_and_refuses_a_relative_one() {
+        assert_eq!(
+            TrustStore::for_user_dir(Some(OsString::from("/abs/trust"))),
+            TrustStore::at("/abs/trust")
+        );
+        assert!(matches!(
+            TrustStore::for_user_dir(Some(OsString::from("rel/trust"))).0,
+            StoreKind::Unavailable { .. }
+        ));
+        let none = TrustStore::for_user_with(|_| Some(PathBuf::from("/home/x")), None);
+        assert_eq!(none, TrustStore::at("/home/x/.local/state/capstan/trust"));
+    }
 
     #[test]
     fn non_utf8_checkout_paths_get_different_records() {

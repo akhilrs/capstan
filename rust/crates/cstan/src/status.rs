@@ -132,8 +132,11 @@ impl Cli<'_> {
         let result = match ask {
             Ask::Status => core.status_snapshot().and_then(|mut snapshot| {
                 // A project with a `[verify]` section shows its runs, as the daemon's own status does.
-                let gated = capstan_config::load_role_config(&self.ctx.cwd)
-                    .is_ok_and(|config| config.verify.is_some());
+                let gated = capstan_config::load_role_config_with(
+                    &self.ctx.cwd,
+                    &self.ctx.trust.store(&self.ctx.env),
+                )
+                .is_ok_and(|config| config.verify.is_some());
                 if let (true, Some(members)) = (gated, snapshot.as_object_mut()) {
                     members.insert("verify".into(), core.verify_status()?);
                 }
@@ -149,7 +152,11 @@ impl Cli<'_> {
     /// the process that wrote it is still the one with that pid (the start time guards against a reused pid). Any load
     /// or read problem gives `None`: it never fails `cstan status`.
     fn ntfy_status_member(&self, config: &ProjectConfig) -> Option<Json> {
-        let role = capstan_config::load_role_config(&self.ctx.cwd).ok()?;
+        let role = capstan_config::load_role_config_with(
+            &self.ctx.cwd,
+            &self.ctx.trust.store(&self.ctx.env),
+        )
+        .ok()?;
         if !role.ntfy.enabled {
             return None;
         }
@@ -258,6 +265,10 @@ impl Cli<'_> {
                 status.insert("ntfy".into(), ntfy);
             }
         }
+        let trust = self.trust_status();
+        if let Some((state, keys, _)) = trust_summary(&trust) {
+            status.insert("trust".into(), json!({"state": state, "keys": keys}));
+        }
         let status = to_js(&Json::Object(status));
         if !json {
             let mut lines = render::controller_lines(Some(&status));
@@ -286,6 +297,9 @@ impl Cli<'_> {
         } else {
             let compact = crate::compact::status(&render::without_ntfy(&status), self.status_all);
             output(&mut self.io.out, Some(&compact), false);
+            if let Some((_, _, line)) = trust_summary(&trust) {
+                self.io.out_line(&line);
+            }
         }
         Ok(Flow::Code(0))
     }
@@ -328,4 +342,21 @@ impl Cli<'_> {
 
 fn contract_failure() -> Fail {
     runtime("Controller returned an inspect record outside the cstan inspect JSON contract")
+}
+
+/// The state, the number of keys and the status line of a configuration that is not trusted; `None` when it is.
+fn trust_summary(status: &capstan_config::TrustStatus) -> Option<(&'static str, usize, String)> {
+    use capstan_config::TrustStatus;
+    let state = crate::trust_cmd::state_name(status);
+    match status {
+        TrustStatus::Needed { changes, .. } => Some((
+            state,
+            changes.len(),
+            format!("trust: needed ({} keys) - run cstan trust", changes.len()),
+        )),
+        TrustStatus::Unavailable { reason, .. } => {
+            Some((state, 0, format!("trust: unavailable - {reason}")))
+        }
+        TrustStatus::Trusted | TrustStatus::NotNeeded => None,
+    }
 }

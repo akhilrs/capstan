@@ -19,6 +19,7 @@ fn check(label: &str, cache: &str) -> std::process::Output {
         .current_dir(&dir)
         .env_clear()
         .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&dir))
         .stdin(Stdio::null())
         .output()
         .expect("cstan runs");

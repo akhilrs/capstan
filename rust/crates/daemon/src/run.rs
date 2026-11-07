@@ -347,6 +347,15 @@ pub fn initial_project(config: &ProjectConfig, credential: &str) -> InitialProje
 /// The options of the daemon of the project in `cwd`: its config, operator key and, when `capstan.toml` exists, the
 /// role configuration (a refusal of it is exit code 3). Warnings of the configuration are returned for the caller to log.
 pub fn daemon_options(cwd: &Path) -> Result<(DaemonOptions, Vec<String>), RunError> {
+    daemon_options_with(cwd, capstan_config::TrustStore::for_user())
+}
+
+/// `daemon_options` against the given trust store: the configuration is loaded through the trust gate with it, and the
+/// options carry it. An untrusted project is a refusal (exit code 3) with the gate's text.
+pub fn daemon_options_with(
+    cwd: &Path,
+    store: capstan_config::TrustStore,
+) -> Result<(DaemonOptions, Vec<String>), RunError> {
     let (config, credential) = load_project(cwd)?;
     let mut options = DaemonOptions::new(
         config.state_directory.clone(),
@@ -355,13 +364,13 @@ pub fn daemon_options(cwd: &Path) -> Result<(DaemonOptions, Vec<String>), RunErr
     );
     let mut warnings = Vec::new();
     if cwd.join(CONFIG_FILE_NAME).exists() {
-        let capstan: RoleConfig =
-            capstan_config::load_role_config(cwd).map_err(|e| invalid(e.to_string()))?;
+        let capstan: RoleConfig = capstan_config::load_role_config_with(cwd, &store)
+            .map_err(|e| invalid(e.to_string()))?;
         warnings = capstan.warnings.clone();
         options.capstan = Some(Arc::new(capstan));
     }
     options.cli_path = std::env::current_exe().ok();
-    options.trust_store = capstan_config::TrustStore::for_user();
+    options.trust_store = store;
     Ok((options, warnings))
 }
 
@@ -824,13 +833,13 @@ mod tests {
     }
 
     #[test]
-    fn daemon_options_carry_the_users_trust_store() {
+    fn daemon_options_carry_the_given_trust_store() {
         let dir = project_dir("", "");
         std::fs::write(dir.path().join(CONFIG_NAME), config_for(dir.path())).unwrap();
         std::fs::write(dir.path().join(KEY_NAME), format!("{}\n", "k".repeat(40))).unwrap();
-        let (options, _) = daemon_options(dir.path()).unwrap();
-        assert_eq!(options.trust_store, capstan_config::TrustStore::for_user());
-        assert_ne!(options.trust_store, capstan_config::TrustStore::unset());
+        let store = capstan_config::TrustStore::at(dir.path().join("trust"));
+        let (options, _) = daemon_options_with(dir.path(), store.clone()).unwrap();
+        assert_eq!(options.trust_store, store);
     }
 
     #[test]

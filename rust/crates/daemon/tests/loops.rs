@@ -1062,7 +1062,7 @@ fn every_loops_sequence_replays() {
 
 // ------------------------------------------------------------------------------------------------ shutdown
 
-fn role_config(dir: &Path) -> capstan_config::RoleConfig {
+fn role_config(dir: &Path) -> (capstan_config::RoleConfig, capstan_config::TrustStore) {
     use std::os::unix::fs::PermissionsExt;
     let file = dir.join("capstan.toml");
     std::fs::write(
@@ -1071,8 +1071,11 @@ fn role_config(dir: &Path) -> capstan_config::RoleConfig {
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    common::trusted_project(dir, &capstan_config::fixture_store(dir));
-    capstan_config::load_role_config(dir).expect("the configuration loads")
+    let trust = common::kept_trust_store();
+    common::trusted_project(dir, &trust);
+    let config =
+        capstan_config::load_role_config_with(dir, &trust).expect("the configuration loads");
+    (config, trust)
 }
 
 fn deps_with_loops(dir: &Path, kernel: KernelHandle) -> (Deps, Arc<Mutex<Vec<LogEntry>>>) {
@@ -1082,7 +1085,9 @@ fn deps_with_loops(dir: &Path, kernel: KernelHandle) -> (Deps, Arc<Mutex<Vec<Log
         Arc::new(move |entry: &LogEntry| lock(&entries).push(entry.clone()))
     };
     let mut options = DaemonOptions::new(dir.to_path_buf(), project(), dir.to_path_buf());
-    options.capstan = Some(Arc::new(role_config(dir)));
+    let (config, trust) = role_config(dir);
+    options.capstan = Some(Arc::new(config));
+    options.trust_store = trust;
     options.tick_ms = Some(500);
     options.supervision_tick_ms = Some(50);
     let mut deps = Deps::new(kernel, options, sink);

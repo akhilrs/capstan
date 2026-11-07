@@ -23,11 +23,21 @@ pub fn binary() -> &'static str {
 impl Daemon {
     /// Starts `cstan-daemon` with `directory` as its working directory (and no launcher: `CAPSTAN_LAUNCH=off`).
     pub fn start(directory: &Path) -> Daemon {
-        let mut child = Command::new(binary())
+        Daemon::start_with_trust(directory, None)
+    }
+
+    /// `start` with the trust store of the daemon at `trust_dir` (its `CAPSTAN_TRUST_DIR`), for a project it must trust.
+    pub fn start_with_trust(directory: &Path, trust_dir: Option<&Path>) -> Daemon {
+        let mut command = Command::new(binary());
+        command
             .current_dir(directory)
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .env("CAPSTAN_LAUNCH", "off")
+            .env("CAPSTAN_LAUNCH", "off");
+        if let Some(trust_dir) = trust_dir {
+            command.env("CAPSTAN_TRUST_DIR", trust_dir);
+        }
+        let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

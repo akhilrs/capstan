@@ -733,18 +733,20 @@ fn restart_without_a_daemon_only_starts_one() {
 }
 
 #[test]
-fn restart_reports_a_daemon_that_does_not_start_again() {
+fn restart_refuses_an_invalid_config_before_it_stops_the_daemon() {
     let w = World::builder("restart-fails").bare().build();
     w.op(&["init"]).ok();
     trust_project(&w.project);
     w.op(&["start"]).ok();
     std::fs::write(w.project.join("capstan.toml"), "this is [not toml\n").unwrap();
     let failed = w.op(&["restart"]);
-    assert_eq!(failed.code, 5, "{}", failed.text());
+    assert_eq!(failed.code, 3, "{}", failed.text());
     assert!(
-        failed.has("the daemon was stopped but did not start again"),
+        failed.has("capstan.toml is not valid TOML at line 1, column 1"),
         "{}",
         failed.text()
     );
-    assert!(!w.socket().exists(), "no daemon is left behind");
+    assert!(w.socket().exists(), "the daemon was not stopped");
+    w.op(&["ping"]).ok();
+    w.op(&["stop"]).ok();
 }

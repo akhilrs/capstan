@@ -130,10 +130,28 @@ impl Cli<'_> {
         }
     }
 
+    /// Refuses, before anything is stopped or spawned, when the configuration the controller would load is not trusted
+    /// on this machine (the gate's own text, exit 3).
+    fn trust_preflight(&self) -> Result<(), Fail> {
+        match self.trust_refusal() {
+            Some(refusal) => Err(refusal),
+            None => Ok(()),
+        }
+    }
+
     /// `ensureRunning`: the operator, with the daemon answering.
     pub fn ensure_running(&mut self) -> Result<Operator, Fail> {
         self.check_daemon_variable()?;
         let operator = self.load_operator()?;
+        // A controller that answers keeps serving, whatever the trust of the file now; only a start needs the check.
+        let answering = matches!(
+            capstan_client::ping_daemon(&operator.socket_path, &operator.credential, 2000),
+            capstan_client::PingOutcome::Running { .. }
+                | capstan_client::PingOutcome::Refused { .. }
+        );
+        if !answering {
+            self.trust_preflight()?;
+        }
         capstan_client::ensure_daemon(&self.ensure_options(&operator))
             .map_err(controller_unavailable)?;
         Ok(operator)
@@ -148,6 +166,7 @@ impl Cli<'_> {
         self.check_daemon_variable()?;
         let operator = self.load_operator()?;
         self.require_git()?;
+        self.trust_preflight()?;
         let started = capstan_client::ensure_daemon(&self.ensure_options(&operator))
             .map_err(controller_unavailable)?;
         let mut launch: Option<Value> = None;
@@ -241,6 +260,7 @@ impl Cli<'_> {
         }
         self.check_daemon_variable()?;
         let operator = self.load_operator()?;
+        self.trust_preflight()?;
         let before = daemon_identity(&operator);
         let stopped =
             capstan_client::stop_daemon(&operator.socket_path, &operator.credential, None)

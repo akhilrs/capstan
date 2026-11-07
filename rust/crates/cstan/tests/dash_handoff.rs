@@ -100,6 +100,12 @@ fn base_env(project: &Project) -> Vec<(&'static str, String)> {
         ("PATH", project.path("empty").to_string_lossy().into_owned()),
         ("HOME", project.path("home").to_string_lossy().into_owned()),
         ("CAPSTAN_LAUNCH", "off".to_string()),
+        (
+            "CAPSTAN_TRUST_DIR",
+            support::trust_dir_of(&project.path("proj"))
+                .to_string_lossy()
+                .into_owned(),
+        ),
     ]
 }
 

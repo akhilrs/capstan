@@ -126,7 +126,8 @@ impl World {
         let file = dir.path().join("capstan.toml");
         std::fs::write(&file, config).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        common::trusted_project(dir.path(), &capstan_config::fixture_store(dir.path()));
+        let trust = common::kept_trust_store();
+        common::trusted_project(dir.path(), &trust);
         let heads = build_repo(
             dir.path(),
             &json!({
@@ -158,8 +159,9 @@ impl World {
         };
         let sink: Logger = Arc::new(|_: &LogEntry| {});
         let mut options = DaemonOptions::new(state, project, dir.path().to_path_buf());
+        options.trust_store = trust.clone();
         options.capstan = Some(Arc::new(
-            capstan_config::load_role_config(dir.path()).unwrap(),
+            capstan_config::load_role_config_with(dir.path(), &trust).unwrap(),
         ));
         let mut deps = Deps::new(kernel, options, sink);
         deps.git = Arc::new(ReplayGit::new(dir.path()));

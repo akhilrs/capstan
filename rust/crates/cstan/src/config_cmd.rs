@@ -1,5 +1,5 @@
 //! `cstan config check` and `cstan config sync`.
-use capstan_config::{load_role_config, ConfigError, RoleConfig, CONFIG_FILE_NAME};
+use capstan_config::{load_role_config_with, ConfigError, RoleConfig, CONFIG_FILE_NAME};
 use capstan_kernel::kernel::KernelOptions;
 use capstan_kernel::types::{InitialProject, MutationContext};
 use capstan_kernel::{Core, KernelError, SystemEnv};
@@ -13,8 +13,9 @@ use crate::{blocked, invalid, output, runtime, to_js, Cli, Fail, Flow};
 impl Cli<'_> {
     /// `loadRoleConfig`: a refusal of the configuration is invalid input (exit 3); a file that cannot be read is the
     /// operating system's error (exit 5).
-    pub fn load_role_config(&self) -> Result<RoleConfig, Fail> {
-        load_role_config(&self.ctx.cwd).map_err(config_fail)
+    pub fn role_config(&self) -> Result<RoleConfig, Fail> {
+        load_role_config_with(&self.ctx.cwd, &self.ctx.trust.store(&self.ctx.env))
+            .map_err(config_fail)
     }
 
     pub fn config(&mut self, rest: &[String]) -> Result<Flow, Fail> {
@@ -25,7 +26,7 @@ impl Cli<'_> {
         if (subcommand != "check" && subcommand != "sync") || !extra.is_empty() {
             return Err(Fail::Usage);
         }
-        let role_config = self.load_role_config()?;
+        let role_config = self.role_config()?;
         if subcommand == "check" {
             self.io.out_line(&role_config.to_json());
             for warning in &role_config.warnings {
@@ -168,7 +169,7 @@ fn sync_configured_roles(
 
 /// How a refused configuration ends a command: the text's own refusal and a distrusted configuration are invalid input
 /// (exit 3); a file that cannot be read is the operating system's error (exit 5).
-fn config_fail(error: ConfigError) -> Fail {
+pub(crate) fn config_fail(error: ConfigError) -> Fail {
     match error {
         ConfigError::Invalid(message) | ConfigError::Untrusted(message) => invalid(message),
         ConfigError::Parse(parse) => invalid(format!(

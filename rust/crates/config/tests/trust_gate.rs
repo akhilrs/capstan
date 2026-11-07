@@ -1,12 +1,11 @@
-//! The opt-in trust gate. No test reads the process environment, so the cases hold inside the trust dry run.
-use std::ffi::OsStr;
+//! The trust gate of `load_role_config_with`. No test reads the process environment.
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use capstan_config::{
-    enforce_from, load_role_config_gated, load_role_config_inner, read_config_pair, record_current,
-    trust_status_of_bytes, ConfigError, TrustStatus, TrustStore,
+    load_role_config_with, read_config_pair, record_current, trust_status_of_bytes, ConfigError,
+    TrustStatus, TrustStore,
 };
 use tempfile::TempDir;
 
@@ -43,24 +42,18 @@ fn write(dir: &Path, name: &str, text: &str) {
 }
 
 #[test]
-fn a_refused_text_is_returned_unchanged() {
+fn a_refused_text_comes_back_as_the_parse_error() {
     let bad_toml = fixture("this is = = not toml\n");
-    let local_only = fixture(&with("[ntfy]\nenabled = true\n"));
-    for f in [&bad_toml, &local_only] {
-        let plain = load_role_config_inner(&f.project, &f.store, false).unwrap_err();
-        let gated = load_role_config_gated(&f.project, &f.store).unwrap_err();
-        assert!(matches!(
-            plain,
-            ConfigError::Invalid(_) | ConfigError::Parse(_)
-        ));
-        assert_eq!(plain, gated);
+    match load_role_config_with(&bad_toml.project, &bad_toml.store).unwrap_err() {
+        ConfigError::Invalid(_) | ConfigError::Parse(_) => {}
+        other => panic!("unexpected {other:?}"),
     }
 }
 
 #[test]
 fn the_gate_refuses_needed_and_unavailable_and_loads_trusted() {
     let f = fixture(&with(CHECKED));
-    match load_role_config_gated(&f.project, &f.store).unwrap_err() {
+    match load_role_config_with(&f.project, &f.store).unwrap_err() {
         ConfigError::Untrusted(text) => {
             assert!(
                 text.starts_with(
@@ -72,7 +65,7 @@ fn the_gate_refuses_needed_and_unavailable_and_loads_trusted() {
         }
         other => panic!("unexpected {other:?}"),
     }
-    match load_role_config_gated(&f.project, &TrustStore::unset()).unwrap_err() {
+    match load_role_config_with(&f.project, &TrustStore::unset()).unwrap_err() {
         ConfigError::Untrusted(text) => assert!(
             text.contains("(no trust store: no trust store set)"),
             "{text}"
@@ -80,7 +73,7 @@ fn the_gate_refuses_needed_and_unavailable_and_loads_trusted() {
         other => panic!("unexpected {other:?}"),
     }
     record_current(&f.project, &f.store).unwrap();
-    load_role_config_gated(&f.project, &f.store).unwrap();
+    load_role_config_with(&f.project, &f.store).unwrap();
 }
 
 #[test]
@@ -98,26 +91,7 @@ fn a_rewrite_after_the_read_does_not_change_what_was_judged() {
         TrustStatus::Trusted
     );
     assert!(matches!(
-        load_role_config_gated(&f.project, &f.store),
+        load_role_config_with(&f.project, &f.store),
         Err(ConfigError::Untrusted(_))
     ));
-}
-
-#[test]
-fn the_inner_load_gates_only_when_asked() {
-    let f = fixture(&with(CHECKED));
-    let loaded = load_role_config_inner(&f.project, &f.store, false).unwrap();
-    assert!(loaded.cache.is_some());
-    assert!(matches!(
-        load_role_config_inner(&f.project, &f.store, true),
-        Err(ConfigError::Untrusted(_))
-    ));
-}
-
-#[test]
-fn enforce_is_on_for_exactly_one() {
-    assert!(enforce_from(Some(OsStr::new("1"))));
-    for off in [None, Some(""), Some("0"), Some("true"), Some(" 1")] {
-        assert!(!enforce_from(off.map(OsStr::new)), "{off:?}");
-    }
 }

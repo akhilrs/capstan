@@ -3,7 +3,7 @@
 
 use capstan_blackbox::*;
 use capstan_config::{trust_status_with, TrustStatus, TrustStore};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 
 const CONFIG: &str = "schema_version = 1\n[hosts.claude]\nkind = \"claude\"\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\nlaunch_command = \"claude\"\n";
 
@@ -59,28 +59,10 @@ fn every_process_the_harness_starts_gets_the_trust_dir_in_the_scratch_root() {
 }
 
 #[test]
-fn the_binary_choice_needs_cstan_bin_when_the_gate_is_enforced() {
-    let one = Some(OsStr::new("1"));
+fn the_binary_choice_is_cstan_bin_when_set() {
     assert_eq!(
-        binary_choice(None, Some(OsString::from("/x/cstan"))),
+        binary_choice(Some(OsString::from("/x/cstan"))),
         Some("/x/cstan".into())
     );
-    assert_eq!(
-        binary_choice(one, Some(OsString::from("/x/cstan"))),
-        Some("/x/cstan".into())
-    );
-    assert_eq!(binary_choice(None, None), None);
-    assert_eq!(binary_choice(Some(OsStr::new("0")), None), None);
-    let panic = std::panic::catch_unwind(|| binary_choice(one, None)).unwrap_err();
-    let text = panic
-        .downcast_ref::<String>()
-        .cloned()
-        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
-        .unwrap();
-    assert!(
-        text.contains(
-            "CAPSTAN_TRUST_ENFORCE is set: run through scripts/trust-dry-run.sh, which sets CSTAN_BIN"
-        ),
-        "{text}"
-    );
+    assert_eq!(binary_choice(None), None);
 }

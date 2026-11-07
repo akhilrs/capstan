@@ -280,6 +280,10 @@ fn apply_setup(
 
 struct Scratch {
     dir: super::PrivateDir,
+    /// Where the scenario's project is trusted; its load and its `DaemonOptions` use it.
+    pub trust: capstan_config::TrustStore,
+    /// The folder of `trust`, which a daemon process gets as `CAPSTAN_TRUST_DIR`.
+    trust_dir: Option<PathBuf>,
     state: PathBuf,
     identity: Identity,
 }
@@ -288,13 +292,17 @@ fn prepare(scenario: &Value) -> Result<Scratch, String> {
     let dir = private_tempdir();
     let identity = Identity::of(&scenario["project"]);
     let state = write_project(dir.path(), &identity);
+    let mut trust = capstan_config::TrustStore::unset();
+    let mut trust_dir = None;
     if let Some(config) = scenario["config"].as_str() {
         use std::os::unix::fs::PermissionsExt;
         let file = dir.path().join("capstan.toml");
         std::fs::write(&file, config).map_err(|e| format!("capstan.toml: {e}"))?;
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("capstan.toml: {e}"))?;
-        super::trusted_project_outside(dir.path());
+        let (path, store) = super::trusted_project_in_kept_store(dir.path());
+        trust_dir = Some(path);
+        trust = store;
     }
     if scenario.get("repo").is_some() {
         let heads = build_repo(dir.path(), &scenario["repo"]);
@@ -328,6 +336,8 @@ fn prepare(scenario: &Value) -> Result<Scratch, String> {
     }
     Ok(Scratch {
         dir,
+        trust,
+        trust_dir,
         state,
         identity,
     })
@@ -703,9 +713,10 @@ fn handler_mode(report: &mut Report, baseline: &Value, scenario: &Value, scratch
         scratch.identity.initial_project(),
         scratch.dir.path().to_path_buf(),
     );
+    options.trust_store = scratch.trust.clone();
     // The configuration of the scenario, loaded as `run::daemon_options` loads it.
     if scenario["config"].is_string() {
-        match capstan_config::load_role_config(scratch.dir.path()) {
+        match capstan_config::load_role_config_with(scratch.dir.path(), &scratch.trust) {
             Ok(config) => options.capstan = Some(Arc::new(config)),
             Err(error) => {
                 report.status = Status::Failed(format!("capstan.toml does not load: {error}"));
@@ -938,7 +949,7 @@ fn over_socket(report: &mut Report, scenario: &Value, indices: &[usize], whole: 
             return;
         }
     };
-    let mut daemon = Daemon::start(scratch.dir.path());
+    let mut daemon = Daemon::start_with_trust(scratch.dir.path(), scratch.trust_dir.as_deref());
     let started = daemon.wait_for_line(Duration::from_secs(20), |line| {
         line.contains(SERVE_STUB_EVENT) || line.contains("\"event\":\"ready\"")
     });

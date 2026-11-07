@@ -139,6 +139,43 @@ fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
 }
 
 #[test]
+fn an_untrusted_project_configuration_refuses_the_restart_and_stops_nothing() {
+    let project = Project::new();
+    let binary = project.script("cstan", "exit 0");
+    let good = project.script("known-good-source", "exit 0");
+    KnownGoodBuild::new(&project.state)
+        .snapshot(&good, 7)
+        .unwrap();
+    // The coordinator's store is the project folder, which a store requires to be private.
+    std::fs::set_permissions(&project.root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let file = project.root.join("capstan.toml");
+    std::fs::write(
+        &file,
+        "schema_version = 1\n\n[verify]\ncommands = [\"echo ok\"]\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let c = coordinator(&project, &binary, vec![]);
+    let proposal = json!({"proposalId": "p-3", "forceRestart": false});
+
+    let refused = c.coordinator.run(&proposal).unwrap_err();
+    assert_eq!(refused.code, "untrusted_config");
+    assert!(
+        c.notices.lock().unwrap()[0].starts_with("Operator restart refused (untrusted_config): ")
+    );
+    assert_eq!(c.stops.load(Ordering::SeqCst), 0);
+    assert!(!restart_directory(&project.state, "p-3").exists());
+
+    // Trusted in the store the coordinator was given: the preflight passes.
+    capstan_config::record_current(
+        &project.root,
+        &capstan_config::TrustStore::at(project.root.clone()),
+    )
+    .unwrap();
+    assert_eq!(c.coordinator.preflight().unwrap().warning, None);
+}
+
+#[test]
 fn the_coordinator_writes_the_plan_with_the_exact_daemon_argv_and_starts_the_known_good_helper() {
     let project = Project::new();
     let binary = project.script("cstan", "exit 0");

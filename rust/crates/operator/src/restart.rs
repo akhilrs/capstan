@@ -250,7 +250,7 @@ pub struct RestartCoordinatorOptions {
     pub credential_file: PathBuf,
     pub health_timeout_seconds: u64,
     pub idle_wait_seconds: u64,
-    /// Where trust records live. Nothing reads it yet.
+    /// Where trust records live: the restart preflight refuses a project whose checked keys are not trusted there.
     pub trust_store: capstan_config::TrustStore,
     pub busy: Box<dyn Fn() -> Vec<String> + Send + Sync>,
     pub notify_pm: PmNotifier,
@@ -345,6 +345,22 @@ impl RestartCoordinator for ProcessRestartCoordinator {
     fn preflight(&self) -> RestartOutcomeResult<RestartPreflight> {
         if !self.known.exists() {
             return Err(no_known_good());
+        }
+        let options = &self.options;
+        if matches!(
+            capstan_config::trust_status_with(&options.project_root, &options.trust_store),
+            capstan_config::TrustStatus::Needed { .. }
+                | capstan_config::TrustStatus::Unavailable { .. }
+        ) {
+            // The loader judges the same bytes and words the refusal.
+            let text = match capstan_config::load_role_config_with(
+                &options.project_root,
+                &options.trust_store,
+            ) {
+                Err(error) => error.to_string(),
+                Ok(_) => "the project configuration is not trusted".to_string(),
+            };
+            return Err(OperatorError::new("untrusted_config", text));
         }
         Ok(RestartPreflight {
             warning: if self.known.changed_dependencies().is_empty() {
