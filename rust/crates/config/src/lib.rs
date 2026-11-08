@@ -15,6 +15,7 @@ mod git_track;
 pub mod impact;
 mod json;
 pub mod keys;
+pub mod model_fit;
 pub mod ntfy;
 mod operator_policy;
 pub mod operator_texts;
@@ -47,6 +48,9 @@ pub use git_track::Tracking as LocalTracking;
 pub use impact::{ImpactConfig, NextStep};
 pub use json::{digest_json, sha256};
 pub use keys::{accepted_keys, KeyPath};
+pub use model_fit::{
+    check_model_value, fit_for_role, model_fits_host, MODEL_FAMILIES, MULTI_PROVIDER_HOSTS,
+};
 pub use ntfy::{
     check_secret_file, effective_prefix, read_secret, Ntfy, NtfyAuth, NtfyEvent, NtfyEventStyle,
     Secret, SecretError, NTFY_EVENTS,

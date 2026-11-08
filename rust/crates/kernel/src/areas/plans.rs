@@ -80,12 +80,23 @@ pub fn open_plan(kernel: &Kernel, context: &MutationContext, input: &Value) -> K
             }
         },
     };
+    let overrides = super::model_overrides::parse_plan_overrides(input)?;
+    let mut payload = json!({"tier": tier, "title": title, "supersedesPlanId": supersedes});
+    if !overrides.is_empty() {
+        payload["modelOverrides"] = overrides
+            .iter()
+            .map(|(kind, model)| json!({"roleKind": if kind.is_empty() { Value::Null } else { json!(kind) }, "model": model}))
+            .collect();
+    }
     kernel.mutate(
         context,
         "plan.open",
         "plan:write",
-        &json!({"tier": tier, "title": title, "supersedesPlanId": supersedes}),
+        &payload,
         |actor| {
+            if !overrides.is_empty() {
+                super::model_overrides::require_setter(&actor.role)?;
+            }
             if actor.role != "PM" && actor.role != "operator" {
                 return Err(KernelError::controller(
                     "only the PM or the operator opens a plan",
@@ -134,6 +145,13 @@ pub fn open_plan(kernel: &Kernel, context: &MutationContext, input: &Value) -> K
                     now,
                     now
                 ],
+            )?;
+            super::model_overrides::write_plan_overrides(
+                kernel,
+                &plan_id,
+                &overrides,
+                &actor.actor_id,
+                &now,
             )?;
             let mut event = MutationEvent::new("plan", &plan_id, 0)
                 .with_details(json!({"tier": tier, "supersedesPlanId": supersedes}));

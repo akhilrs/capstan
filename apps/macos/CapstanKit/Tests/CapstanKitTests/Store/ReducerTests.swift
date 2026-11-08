@@ -86,6 +86,27 @@ final class ReducerTests: XCTestCase {
         XCTAssertEqual(harness.alpha?.agents["dev-1"]?.branch?.raw, "feat/x")
     }
 
+    func testAgentModelIsKeptWhenAnUpsertOmitsItAndReplacedWhenItStatesOne() throws {
+        var harness = ReducerHarness()
+        harness.apply(
+            try StoreWire.hello(), try StoreWire.project("proj-a"),
+            try StoreWire.snapshot(
+                "proj-a", "agents", key: "dev-1",
+                item: StoreWire.agentItem("dev-1").replacingOccurrences(
+                    of: "\"requestId\"", with: "\"model\":\"claude-opus-5-5\",\"modelSource\":\"plan\",\"requestId\"")),
+            try StoreWire.end("proj-a"))
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.model?.raw, "claude-opus-5-5")
+        harness.apply(.event(projectId: "proj-a", try StoreWire.event(
+            "agent.changed", seq: 41, effects: [("agents", "upsert", "dev-1", "{\"state\":\"active\"}")])))
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.model?.raw, "claude-opus-5-5")
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.modelSource, "plan")
+        harness.apply(.event(projectId: "proj-a", try StoreWire.event(
+            "agent.registered", seq: 42,
+            effects: [("agents", "upsert", "dev-1", "{\"model\":\"gpt-5.1-codex\",\"modelSource\":\"task\"}")])))
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.model?.raw, "gpt-5.1-codex")
+        XCTAssertEqual(harness.alpha?.agents["dev-1"]?.modelSource, "task")
+    }
+
     private func seededWithRun() throws -> ReducerHarness {
         var harness = ReducerHarness()
         harness.apply(

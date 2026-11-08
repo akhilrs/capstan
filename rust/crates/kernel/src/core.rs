@@ -7,9 +7,9 @@
 
 use crate::areas::{
     actors, agents, approval_windows, design_approvals, findings, integrations, links,
-    message_notices, messages, operator_grants, operator_proposals, operator_runs, panes, pauses,
-    plan_packages, plans, pm_stuck, prompt_relay, remote_decisions, reports, reviews, status,
-    user_messages, verify_runs, warm_reviewers,
+    message_notices, messages, model_overrides, operator_grants, operator_proposals, operator_runs,
+    panes, pauses, plan_packages, plans, pm_stuck, prompt_relay, remote_decisions, reports,
+    reviews, status, user_messages, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -616,6 +616,51 @@ impl Core {
         input: &Value,
     ) -> KernelResult<Value> {
         links::bind_requirement(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.setModelOverride`.
+    pub fn set_model_override(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        model_overrides::set_model_override(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.clearModelOverride`.
+    pub fn clear_model_override(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        model_overrides::clear_model_override(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.modelOverrides`.
+    pub fn model_overrides(&self, scope_type: &str, scope_id: &str) -> KernelResult<Value> {
+        model_overrides::model_overrides(&self.kernel, scope_type, scope_id)
+    }
+
+    /// `ControllerCore.modelOverrideFor`.
+    pub fn model_override_for(
+        &self,
+        scopes: &[(&str, &str)],
+        kind: &str,
+    ) -> KernelResult<Option<Value>> {
+        model_overrides::model_override_for(&self.kernel, scopes, kind)
+    }
+
+    /// `ControllerCore.modelScopeOfSubject`.
+    pub fn model_scope_of_subject(
+        &self,
+        subject_id: &str,
+    ) -> KernelResult<Option<(String, String)>> {
+        model_overrides::model_scope_of_subject(&self.kernel, subject_id)
+    }
+
+    /// `ControllerCore.agentModel`.
+    pub fn agent_model(&self, agent_id: &str) -> KernelResult<Option<Value>> {
+        model_overrides::agent_model(&self.kernel, agent_id)
     }
 
     /// `ControllerCore.taskNaming`.

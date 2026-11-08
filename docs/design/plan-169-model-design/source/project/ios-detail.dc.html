@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent detail model cases — iPhone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ios.css">
+<link rel="stylesheet" href="model.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board ios" style="width:1860px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">34 Agent detail · Model is the first fact: the whole id in mono, wrapped at any character, then the long source label; no row when there is no model — {{a.label}}</p>
+<div class="row4 {{a.cls}}">
+<sc-for list="{{cases}}" as="c" hint-placeholder-count="4">
+<figure class="fig"><figcaption>{{c.cap}}</figcaption>
+<div class="phone"><div class="island" aria-hidden="true"></div>
+<div class="navb"><button class="gbtn glass" type="button"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg>Agents</button></div>
+<div class="scr"><div class="body">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="eyebrow">Agent · {{c.project}}</div>
+<h1 class="h2">{{c.title}}</h1>
+<div><span class="pill {{c.pill}}">{{c.health}}</span></div>
+</div>
+<p style="margin:0;font-size:15px;line-height:1.4">{{c.explain}}</p>
+<sc-if value="{{c.hasModel}}" hint-placeholder-val="{{true}}">
+<dl class="meta"><dt>Model</dt><dd class="dmodel"><span class="mono-id">{{c.model}}</span> <span class="src">· {{c.source}}</span></dd><dt>Branch</dt><dd>{{c.branch}}</dd><dt>State</dt><dd>{{c.state}}</dd><dt>Generation</dt><dd>{{c.gen}}</dd><dt>Kind</dt><dd>{{c.kind}}</dd></dl>
+</sc-if>
+<sc-if value="{{c.noModel}}" hint-placeholder-val="{{false}}">
+<dl class="meta"><dt>Branch</dt><dd>{{c.branch}}</dd><dt>State</dt><dd>{{c.state}}</dd><dt>Generation</dt><dd>{{c.gen}}</dd><dt>Kind</dt><dd>{{c.kind}}</dd></dl>
+</sc-if>
+<div class="ut"><div class="ut-h">Task · untrusted text</div><pre class="ut-b">{{c.task}}</pre></div>
+</div></div>
+<div class="abar"><button class="btn des" type="button" style="flex:1">Pause…</button></div>
+</div>
+</figure>
+</sc-for>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1860,"height":2020}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cases = [
+      { cap: '1 Plan override', project: 'payments-api', title: 'dev-14 · Developer', pill: 'p-green', health: 'Working 1 h', explain: 'It has made progress in the last few minutes.', hasModel: true, noModel: false, model: 'claude-opus-5-5', source: 'Plan override', branch: 'feat/PM-412-refund-ledger', state: 'working', gen: '2', kind: 'Developer', task: 'PM-412: record each refund in the ledger with the original charge id.' },
+      { cap: '2 Long id (100 bytes), chosen at spawn', project: 'docs-site', title: 'dev-3 · Developer', pill: 'p-green', health: 'Working 12 min', explain: 'It has made progress in the last few minutes.', hasModel: true, noModel: false, model: 'claude-sonnet-5-5-20261015-long-context-preview-eu-west-batch-build-7f3a9c2e1b4d-0a1b2c39c2e1b4d[1m]', source: 'Chosen at spawn', branch: 'docs/PM-436-search', state: 'working', gen: '1', kind: 'Developer', task: 'PM-436: add search over the API pages.' },
+      { cap: '3 A source this app does not know', project: 'docs-site', title: 'verifier-1 · Verifier', pill: 'p-grey', health: 'Idle', explain: 'It waits for work.', hasModel: true, noModel: false, model: 'local/qwen3-coder-32b', source: 'Other source', branch: '–', state: 'idle', gen: '3', kind: 'Verifier', task: 'No task.' },
+      { cap: '4 No model: no Model row', project: 'payments-api', title: 'dev-16 · Developer', pill: 'p-grey', health: 'Idle', explain: 'It waits for work.', hasModel: false, noModel: true, model: '', source: '', branch: 'chore/dev-16-lint', state: 'idle', gen: '1', kind: 'Developer', task: 'Run the linter on the refund module.' }
+    ];
+    return { cases, apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

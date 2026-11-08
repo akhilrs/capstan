@@ -43,7 +43,7 @@ fn ledger_before(file: &Path) {
 /// Name and SQL of every schema object except the new index (and what later migrations add), and every `controller_events` row.
 fn snapshot(conn: &Connection) -> (BTreeSet<(String, String)>, Vec<String>) {
     let mut schema = conn
-        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name <> 'controller_events_by_successor' AND name NOT LIKE '%integration_details%' AND name NOT LIKE '%user_messages%' AND name NOT LIKE 'pm_stuck_episodes%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration', 'verify_runs', 'operator_proposals', 'operator_proposals_approval_needs_a_pm', 'sqlite_stat1', 'sqlite_stat4', 'mutation_requests_by_created', 'messages_by_body_head')")
+        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name <> 'controller_events_by_successor' AND name NOT LIKE '%integration_details%' AND name NOT LIKE '%user_messages%' AND name NOT LIKE 'pm_stuck_episodes%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration', 'verify_runs', 'operator_proposals', 'operator_proposals_approval_needs_a_pm', 'sqlite_stat1', 'sqlite_stat4', 'mutation_requests_by_created', 'messages_by_body_head', 'model_overrides', 'agent_models')")
         .unwrap();
     let schema = schema
         .query_map([INDEX], |r| Ok((r.get(0)?, r.get(1)?)))

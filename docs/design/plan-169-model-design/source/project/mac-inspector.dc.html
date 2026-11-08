@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent inspector model cases — Mac</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="model.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board mac" style="width:1360px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">32 Inspector · one Model row after Role, the same in All Agents and in one project’s table; the id is whole and wraps — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="prow">
+<div>
+<p class="plabel2">Long id, chosen at spawn</p>
+<aside class="ipanel" aria-label="Inspector, dev-3">
+<div style="display:flex;gap:8px;align-items:center"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span><span class="note">docs-site</span></div>
+<h2 class="h2">dev-3 is working</h2>
+<dl class="meta"><dt>Role</dt><dd>Developer · generation 1</dd><dt>Model</dt><dd><span class="mono-id">claude-sonnet-5-5-20261015-long-context-preview-eu-west-batch-build-7f3a9c2e1b4d-0a1b2c39c2e1b4d[1m]</span> <span class="src">· Chosen at spawn</span></dd><dt>Branch</dt><dd>docs/PM-436-search</dd><dt>State</dt><dd>working, not paused</dd><dt>Request</dt><dd><span class="mono">ag:91d0c3a7b2e4</span></dd></dl>
+<p style="margin:0;font-size:13px">It has made progress in the last few minutes.</p>
+</aside>
+</div>
+<div>
+<p class="plabel2">A source this app does not know</p>
+<aside class="ipanel" aria-label="Inspector, verifier-1">
+<div style="display:flex;gap:8px;align-items:center"><span class="pill p-grey"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="3.5"/></svg>Idle</span><span class="note">docs-site</span></div>
+<h2 class="h2">verifier-1 is idle</h2>
+<dl class="meta"><dt>Role</dt><dd>Verifier · generation 3</dd><dt>Model</dt><dd><span class="mono-id">local/qwen3-coder-32b</span> <span class="src">· Other source</span></dd><dt>Branch</dt><dd>–</dd><dt>State</dt><dd>idle, not paused</dd><dt>Request</dt><dd><span class="mono">ag:2b7e90f1c4d8</span></dd></dl>
+<p style="margin:0;font-size:13px">It waits for work.</p>
+</aside>
+</div>
+<div>
+<p class="plabel2">No model: no Model row</p>
+<aside class="ipanel" aria-label="Inspector, dev-16">
+<div style="display:flex;gap:8px;align-items:center"><span class="pill p-grey"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="3.5"/></svg>Idle</span><span class="note">payments-api</span></div>
+<h2 class="h2">dev-16 is idle</h2>
+<dl class="meta"><dt>Role</dt><dd>Developer · generation 1</dd><dt>Branch</dt><dd>chore/dev-16-lint</dd><dt>State</dt><dd>idle, not paused</dd><dt>Request</dt><dd><span class="mono">ag:7c3a51e0d9f2</span></dd></dl>
+<p style="margin:0;font-size:13px">It waits for work.</p>
+</aside>
+</div>
+</div>
+<p class="plabel2" style="margin-top:24px">A list narrower than 720 pt: the Model column is left out (the inspector still shows it)</p>
+<div class="ipanel" style="width:600px;gap:0;padding:8px 12px">
+<div class="arow" style="grid-template-columns:132px 112px 1fr 96px"><span class="aid">dev-14</span><span class="role">Developer</span><span class="br">feat/PM-412-refund-ledger</span><span class="hs"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span></span></div>
+<div class="arow" style="grid-template-columns:132px 112px 1fr 96px"><span class="aid">dev-15</span><span class="role">Developer</span><span class="br">fix/PM-418-webhook-retry</span><span class="hs"><span class="pill p-accent"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="4.5"/><path d="M6 3.5v3M6 8.2v.3"/></svg>Needs you</span></span></div>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1360,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

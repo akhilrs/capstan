@@ -130,7 +130,7 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
             "only the PM or the operator may spawn workers",
         ));
     };
-    let usage = "spawn needs a role name and takes --task <plan-id>/<package-id> or <requirement-ref-id>, --type <type> and --title <text>";
+    let usage = "spawn needs a role name and takes --task <plan-id>/<package-id> or <requirement-ref-id>, --type <type>, --title <text>, --model <id> and --plan <plan-id>";
     let Some((role_name, flags)) = call.args.split_first() else {
         return Some(fail(ErrorCode::InvalidRequest, usage));
     };
@@ -148,6 +148,8 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
             "--task" => "task",
             "--type" => "type",
             "--title" => "title",
+            "--model" => "model",
+            "--plan" => "plan",
             _ => return Some(fail(ErrorCode::InvalidRequest, usage)),
         };
         let Some(value) = flags.get(index + 1) else {
@@ -187,6 +189,53 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
             Err(why) => return Some(fail(ErrorCode::InvalidRequest, format!("--title {why}"))),
         }
     }
+    if get(&named, "task").is_some() && get(&named, "plan").is_some() {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            "use --task or --plan, not both",
+        ));
+    }
+    if let Some(model) = get(&named, "model") {
+        if let Err(why) = capstan_config::check_model_value(&model) {
+            return Some(fail(ErrorCode::InvalidRequest, format!("--model {why}")));
+        }
+        if let Some(config) = env.config() {
+            if config.roles.iter().any(|role| role.name == *role_name) {
+                if let Err(why) = capstan_config::fit_for_role(config, role_name, &model) {
+                    return Some(fail(ErrorCode::InvalidRequest, why));
+                }
+            }
+        }
+    }
+    if let Some(plan_id) = get(&named, "plan") {
+        if !super::shared::is_safe_agent_id(&plan_id) {
+            return Some(fail(ErrorCode::InvalidRequest, "--plan is not a plan id"));
+        }
+        let credential = call.credential.to_string();
+        let id = plan_id.clone();
+        match env
+            .deps
+            .kernel
+            .run(move |core| core.plan_record(&credential, &id))
+        {
+            Ok(detail) if detail.is_null() => {
+                return Some(fail(
+                    ErrorCode::InvalidRequest,
+                    format!("--plan: no plan {plan_id}"),
+                ))
+            }
+            Ok(detail) => {
+                let plan = &detail["plan"];
+                if !plan["cancelledAt"].is_null() || plan["state"] == "superseded" {
+                    return Some(fail(
+                        ErrorCode::InvalidRequest,
+                        format!("--plan: plan {plan_id} is not open"),
+                    ));
+                }
+            }
+            Err(error) => return Some(map_kernel_error(&error)),
+        }
+    }
     if let Err(refusal) = assert_not_paused(env, "spawn") {
         return Some(refusal);
     }
@@ -207,6 +256,8 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
         task: get(&named, "task"),
         type_: get(&named, "type"),
         title: get(&named, "title"),
+        model: get(&named, "model"),
+        plan: get(&named, "plan"),
         ..SpawnOptions::default()
     };
     Some(

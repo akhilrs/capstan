@@ -62,7 +62,17 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let rest: &[String] = call.args.get(1..).unwrap_or(&[]);
     if !matches!(
         sub,
-        Some("open" | "submit" | "amend" | "show" | "assign" | "reassign" | "signoff" | "cancel")
+        Some(
+            "open"
+                | "submit"
+                | "amend"
+                | "show"
+                | "model"
+                | "assign"
+                | "reassign"
+                | "signoff"
+                | "cancel"
+        )
     ) {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -78,6 +88,7 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let outcome = match sub {
         Some("open") => open(env, call, rest),
         Some("cancel") => cancel(env, call, rest),
+        Some("model") => plan_model(env, call, rest),
         Some("assign") => assign(env, call, rest),
         Some("reassign") => reassign(env, call, rest, &config.architect.role),
         Some("signoff") => signoff(env, call, rest, &config.architect.role),
@@ -95,6 +106,11 @@ fn open(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             "only the PM or the operator may open a plan",
         ));
     };
+    let (rest, model_flags) = match take_model_flags(rest) {
+        Ok(taken) => taken,
+        Err(refusal) => return Ok(refusal),
+    };
+    let rest = rest.as_slice();
     let (tier, title, supersedes) = (rest.first(), rest.get(1), rest.get(2));
     let (Some(tier), Some(title)) = (tier, title) else {
         return Ok(open_usage());
@@ -108,11 +124,19 @@ fn open(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             "the superseded plan id is not valid",
         ));
     }
+    // Every value is checked before anything is written; the plan and its rows are one mutation.
+    let (overrides, warnings) = match checked_overrides(env, &model_flags) {
+        Ok(checked) => checked,
+        Err(refusal) => return Ok(refusal),
+    };
     env.log(
         "plan_open_requested",
         json!({"requestedBy": requested_by, "tier": tier}),
     );
     let mut input = Map::new();
+    if !overrides.is_empty() {
+        input.insert("modelOverrides".into(), Value::Array(overrides.clone()));
+    }
     input.insert(
         "tier".into(),
         json!(if tier == "normal" {
@@ -136,11 +160,17 @@ fn open(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
         let context = new_context(core, &credential)?;
         core.open_plan(&context, &Value::Object(input))
     })?;
-    Ok(ok(json!({
-        "planId": field(&plan, "planId"),
-        "tier": field(&plan, "tier"),
-        "state": field(&plan, "state"),
-    })))
+    let mut result = Map::new();
+    result.insert("planId".into(), field(&plan, "planId"));
+    result.insert("tier".into(), field(&plan, "tier"));
+    result.insert("state".into(), field(&plan, "state"));
+    if !overrides.is_empty() {
+        result.insert("modelOverrides".into(), Value::Array(overrides));
+    }
+    if !warnings.is_empty() {
+        result.insert("warnings".into(), json!(warnings));
+    }
+    Ok(ok(Value::Object(result)))
 }
 
 fn open_usage() -> CommandResponse {
@@ -1060,6 +1090,18 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
         })
         .collect();
     result.insert("packages".into(), Value::Array(packages));
+    let (overrides, agent_models) = {
+        let (id, shown) = (plan_id.clone(), detail.clone());
+        env.deps
+            .kernel
+            .run(move |core| model_members(core, &id, &shown))?
+    };
+    if !overrides.is_empty() {
+        result.insert("modelOverrides".into(), Value::Array(overrides));
+    }
+    if !agent_models.is_empty() {
+        result.insert("agentModels".into(), Value::Array(agent_models));
+    }
     let mut signoffs = field(&detail, "signoffs");
     if let Some(gates) = &gates {
         for signoff in signoffs.as_array_mut().into_iter().flatten() {
@@ -1077,4 +1119,338 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
     }
     result.insert("signoffs".into(), signoffs);
     Ok(ok(Value::Object(result)))
+}
+
+// ------------------------------------------------------------------------------------------------ model overrides
+
+/// The role kinds an override may name (a PM is launched, never spawned).
+pub(super) const KINDS: [&str; 3] = ["Developer", "Verifier", "Supervisor"];
+/// What a caller that may not set an override is told.
+pub(super) const MODEL_REFUSED: &str =
+    "only the user, the PM or the operator may set a model override";
+
+/// `--model <id>` and `--model <Kind>=<id>` flags out of `rest`: the other arguments, then the flag values in order.
+fn take_model_flags(rest: &[String]) -> Result<(Vec<String>, Vec<String>), CommandResponse> {
+    let (mut others, mut flags) = (Vec::new(), Vec::new());
+    let mut index = 0;
+    while index < rest.len() {
+        if rest[index] == "--model" {
+            let Some(value) = rest.get(index + 1) else {
+                return Err(fail(ErrorCode::InvalidRequest, "--model needs a model id"));
+            };
+            flags.push(value.clone());
+            index += 2;
+        } else {
+            others.push(rest[index].clone());
+            index += 1;
+        }
+    }
+    Ok((others, flags))
+}
+
+/// The `modelOverrides` of an `openPlan` input from the flag values, and the fit warnings. Nothing is written here.
+fn checked_overrides(
+    env: &CommandEnv<'_>,
+    flags: &[String],
+) -> Result<(Vec<Value>, Vec<String>), CommandResponse> {
+    let mut seen: Vec<Option<&str>> = Vec::new();
+    let mut rows = Vec::new();
+    let mut warnings = Vec::new();
+    for flag in flags {
+        let (kind, model) = match flag.split_once('=') {
+            Some((kind, model)) => match KINDS.iter().find(|known| **known == kind) {
+                Some(known) => (Some(*known), model),
+                None => {
+                    return Err(fail(
+                        ErrorCode::InvalidRequest,
+                        format!(
+                        "--model {kind}=... must name Developer, Verifier or Supervisor exactly"
+                    ),
+                    ))
+                }
+            },
+            None => (None, flag.as_str()),
+        };
+        if seen.contains(&kind) {
+            return Err(fail(
+                ErrorCode::InvalidRequest,
+                match kind {
+                    Some(kind) => format!("--model names {kind} twice"),
+                    None => "--model without a kind is given twice".to_string(),
+                },
+            ));
+        }
+        seen.push(kind);
+        warnings.extend(check_fit(env, kind, model)?);
+        rows.push(json!({"roleKind": kind, "model": model}));
+    }
+    Ok((rows, warnings))
+}
+
+/// The refusal of a model value that no role of the kind (all non-PM roles without one) can run, else one warning for each
+/// configured role that cannot. Spawn checks again with the configuration of that moment and is the authority.
+pub(super) fn check_fit(
+    env: &CommandEnv<'_>,
+    kind: Option<&str>,
+    model: &str,
+) -> Result<Vec<String>, CommandResponse> {
+    if let Err(why) = capstan_config::check_model_value(model) {
+        return Err(fail(ErrorCode::InvalidRequest, why));
+    }
+    let Some(config) = env.config() else {
+        return Ok(Vec::new());
+    };
+    let (mut fitting, mut first_refusal, mut warnings) = (0, None, Vec::new());
+    for role in config
+        .roles
+        .iter()
+        .filter(|role| role.kind != "PM" && kind.is_none_or(|kind| role.kind == kind))
+    {
+        match capstan_config::fit_for_role(config, &role.name, model) {
+            Ok(()) => fitting += 1,
+            Err(why) => {
+                let host_kind = config
+                    .hosts
+                    .iter()
+                    .find(|host| host.name == role.host)
+                    .map_or("unknown", |host| host.kind.as_str());
+                warnings.push(format!(
+                    "{} on {} ({}) will refuse to spawn with this model",
+                    role.name, role.host, host_kind
+                ));
+                first_refusal.get_or_insert(why);
+            }
+        }
+    }
+    match (fitting, first_refusal) {
+        (0, Some(why)) => Err(fail(
+            ErrorCode::Rejected,
+            format!("model_host_mismatch: {why}"),
+        )),
+        _ => Ok(warnings),
+    }
+}
+
+/// The active agents an override of this scope does not reach (they keep the model they started with).
+fn running_agents(
+    core: &capstan_kernel::Core,
+    credential: &str,
+    scope_type: &str,
+    scope_id: &str,
+    kind: Option<&str>,
+) -> Result<Vec<Value>, KernelError> {
+    let mut candidates: Vec<String> = Vec::new();
+    if scope_type == "plan" {
+        let detail = core.plan_record(credential, scope_id)?;
+        candidates.extend(
+            detail["plan"]["architectAgentId"]
+                .as_str()
+                .map(String::from),
+        );
+        for package in detail["packages"].as_array().into_iter().flatten() {
+            candidates.extend(package["assigneeAgentId"].as_str().map(String::from));
+        }
+    } else {
+        for link in core
+            .external_links(credential)?
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if link["refKind"] == "requirement" && link["refId"] == scope_id {
+                candidates.extend(link["boundAgentId"].as_str().map(String::from));
+            }
+        }
+    }
+    let agents = core.list_agents()?;
+    let mut running = Vec::new();
+    for agent in agents.as_array().into_iter().flatten() {
+        let id = agent["agentId"].as_str().unwrap_or("");
+        let kind_ok = kind.is_none_or(|kind| agent["kind"] == kind);
+        if agent["state"] == "active"
+            && agent["kind"] != "PM"
+            && kind_ok
+            && candidates.iter().any(|candidate| candidate == id)
+            && !running.iter().any(|row: &Value| row["agentId"] == id)
+        {
+            running.push(
+                json!({"agentId": id, "model": agent.get("model").cloned().unwrap_or(Value::Null)}),
+            );
+        }
+    }
+    Ok(running)
+}
+
+/// `modelOverrides` and `agentModels` of `plan show`, each empty when there is nothing to show.
+fn model_members(
+    core: &capstan_kernel::Core,
+    plan_id: &str,
+    detail: &Value,
+) -> Result<(Vec<Value>, Vec<Value>), KernelError> {
+    let overrides = core
+        .model_overrides("plan", plan_id)?
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let mut ids: Vec<String> = Vec::new();
+    ids.extend(
+        detail["plan"]["architectAgentId"]
+            .as_str()
+            .map(String::from),
+    );
+    for package in detail["packages"].as_array().into_iter().flatten().take(9) {
+        if let Some(id) = package["assigneeAgentId"].as_str() {
+            if !ids.iter().any(|known| known == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    let agents = core.list_agents()?;
+    let mut models = Vec::new();
+    for id in ids.iter().take(9) {
+        let Some(found) = core.agent_model(id)? else {
+            continue;
+        };
+        let role = agents
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|agent| agent["agentId"] == id.as_str())
+            .map_or(Value::Null, |agent| agent["roleName"].clone());
+        models.push(json!({
+            "agentId": id,
+            "role": role,
+            "model": found["model"],
+            "modelSource": found["source"],
+        }));
+    }
+    Ok((overrides, models))
+}
+
+/// `plan model <plan-id> [<Kind>] [<id> | --clear]` and `link model <requirement-ref-id> ...`: show, set or clear.
+pub(super) fn model_command(
+    env: &CommandEnv<'_>,
+    call: &CommandCall<'_>,
+    scope_type: &'static str,
+    scope_id: &str,
+    tail: &[String],
+) -> Result<CommandResponse, KernelError> {
+    let scope_key = if scope_type == "plan" {
+        "planId"
+    } else {
+        "refId"
+    };
+    if tail.is_empty() {
+        let id = scope_id.to_string();
+        let rows = env
+            .deps
+            .kernel
+            .run(move |core| core.model_overrides(scope_type, &id))?;
+        return Ok(ok(json!({scope_key: scope_id, "modelOverrides": rows})));
+    }
+    if env.worker_manager(call.identity).is_none() {
+        return Ok(fail(ErrorCode::Forbidden, MODEL_REFUSED));
+    }
+    let named = || {
+        fail(
+            ErrorCode::InvalidRequest,
+            "name the kind before the model: Developer, Verifier or Supervisor",
+        )
+    };
+    let is_value = |value: &str| value != "--clear" && !value.starts_with("--");
+    let (kind, value): (Option<&str>, &str) = match tail {
+        [only] => {
+            if KINDS.contains(&only.as_str()) || (only != "--clear" && only.starts_with("--")) {
+                return Ok(named());
+            }
+            (None, only.as_str())
+        }
+        [kind, value] => {
+            if !KINDS.contains(&kind.as_str()) {
+                return Ok(named());
+            }
+            if value != "--clear" && value.starts_with("--") {
+                return Ok(named());
+            }
+            (Some(kind.as_str()), value.as_str())
+        }
+        _ => {
+            return Ok(fail(
+                ErrorCode::InvalidRequest,
+                "model takes an optional kind and a model id or --clear",
+            ))
+        }
+    };
+    let clearing = !is_value(value);
+    let warnings = if clearing {
+        Vec::new()
+    } else {
+        match check_fit(env, kind, value) {
+            Ok(warnings) => warnings,
+            Err(refusal) => return Ok(refusal),
+        }
+    };
+    env.log(
+        "model_override_requested",
+        json!({"scopeType": scope_type, "scopeId": scope_id, "roleKind": kind, "clear": clearing}),
+    );
+    let mut input = Map::new();
+    input.insert("scopeType".into(), json!(scope_type));
+    input.insert("scopeId".into(), json!(scope_id));
+    input.insert("roleKind".into(), json!(kind));
+    if !clearing {
+        input.insert("model".into(), json!(value));
+    }
+    let credential = call.credential.to_string();
+    let id = scope_id.to_string();
+    let kind_owned = kind.map(String::from);
+    let answer = env.deps.kernel.run(move |core| {
+        let context = new_context(core, &credential)?;
+        let input = Value::Object(input);
+        let done = if input.get("model").is_some() {
+            core.set_model_override(&context, &input)?
+        } else {
+            core.clear_model_override(&context, &input)?
+        };
+        let running = running_agents(core, &credential, scope_type, &id, kind_owned.as_deref())?;
+        Ok((done, running))
+    })?;
+    let (done, running) = answer;
+    let mut result = Map::new();
+    result.insert(scope_key.into(), json!(scope_id));
+    result.insert("roleKind".into(), json!(kind));
+    if clearing {
+        result.insert("cleared".into(), done["cleared"].clone());
+    } else {
+        result.insert("model".into(), json!(value));
+    }
+    result.insert("previous".into(), done["previous"].clone());
+    if !warnings.is_empty() {
+        result.insert("warnings".into(), json!(warnings));
+    }
+    result.insert("running".into(), Value::Array(running));
+    Ok(ok(Value::Object(result)))
+}
+
+fn plan_model(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
+    let Some(plan_id) = rest.first().filter(|id| is_safe_agent_id(id)) else {
+        return Ok(fail(
+            ErrorCode::InvalidRequest,
+            "plan model needs a plan id, then optionally a kind and a model id or --clear",
+        ));
+    };
+    if rest.len() == 1 {
+        let (credential, id) = (call.credential.to_string(), plan_id.clone());
+        let known = env
+            .deps
+            .kernel
+            .run(move |core| core.plan_record(&credential, &id))?;
+        if known.is_null() {
+            return Ok(fail(
+                ErrorCode::Rejected,
+                format!("unknown_plan: no plan {plan_id}"),
+            ));
+        }
+    }
+    Ok(model_command(env, call, "plan", plan_id, &rest[1..])?)
 }

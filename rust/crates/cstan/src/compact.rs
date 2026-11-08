@@ -27,14 +27,25 @@ fn line(text: String) -> Value {
 
 /// One line per agent: `developer-201 Developer active gen 1 last 2026-10-12T10:00:00Z`.
 fn agent_line(agent: &Value) -> Value {
-    line(format!(
+    let mut shown = format!(
         "{} {} {} gen {} last {}",
         text(agent.get("agentId")),
         text(agent.get("kind")),
         text(agent.get("state")),
         text(agent.get("generation")),
         text(agent.get("lastActivityAt")),
-    ))
+    );
+    // The model an agent was started with, only when the daemon knows it.
+    if let (Some(model @ Value::String(_)), Some(source @ Value::String(_))) =
+        (agent.get("model"), agent.get("modelSource"))
+    {
+        shown.push_str(&format!(
+            " model {} ({})",
+            text(Some(model)),
+            text(Some(source))
+        ));
+    }
+    line(shown)
 }
 
 /// Whether the default text lists an agent: any state but ended or released, or still holding a pane, or lost or stalled.
@@ -197,4 +208,53 @@ pub fn plan_brief(result: &Value) -> Option<Vec<String>> {
         ));
     }
     Some(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn string(text: &str) -> Value {
+        Value::String(JsStr::from(text))
+    }
+
+    fn agent(extra: Vec<(&str, Value)>) -> Value {
+        let mut members = vec![
+            (JsStr::from("agentId"), string("developer-1")),
+            (JsStr::from("kind"), string("Developer")),
+            (JsStr::from("state"), string("active")),
+            (JsStr::from("generation"), Value::Number(1.0)),
+            (
+                JsStr::from("lastActivityAt"),
+                string("2026-10-12T10:00:00Z"),
+            ),
+        ];
+        members.extend(extra.into_iter().map(|(k, v)| (JsStr::from(k), v)));
+        Value::Object(members)
+    }
+
+    fn rendered(value: &Value) -> String {
+        text(Some(value))
+    }
+
+    #[test]
+    fn an_agent_with_a_model_and_source_gets_the_suffix() {
+        let line = agent_line(&agent(vec![
+            ("model", string("claude-opus-4-8")),
+            ("modelSource", string("plan")),
+        ]));
+        assert_eq!(
+            rendered(&line),
+            "developer-1 Developer active gen 1 last 2026-10-12T10:00:00Z model claude-opus-4-8 (plan)"
+        );
+    }
+
+    #[test]
+    fn an_agent_without_a_model_keeps_the_line_it_had() {
+        let line = agent_line(&agent(vec![]));
+        assert_eq!(
+            rendered(&line),
+            "developer-1 Developer active gen 1 last 2026-10-12T10:00:00Z"
+        );
+    }
 }

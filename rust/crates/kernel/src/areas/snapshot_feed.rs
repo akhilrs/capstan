@@ -11,7 +11,7 @@
 //! | type | fields |
 //! |---|---|
 //! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`, `approveChoices` |
-//! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash` |
+//! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash`; `model`, `modelSource` only when known |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
 //! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash`, `pm` |
 //! | `Page<T>` | `head`, `items`, `next` |
@@ -152,6 +152,11 @@ pub struct AgentItem {
     pub activity: Option<String>,
     pub activity_since: Option<String>,
     pub activity_seq: Option<i64>,
+    /// The model the agent was started with (untrusted text, shown); absent when not known. Not part of the hash.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_source: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -543,8 +548,10 @@ fn agent_query(
                           AND COALESCE(agent_id, '') = a.agent_id AND resumed_at IS NULL),
                        (SELECT h.herdr_state FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1),
                        (SELECT h.observed_at FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1),
-                       (SELECT h.sequence FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1)
+                       (SELECT h.sequence FROM agent_state_history h WHERE h.project_id = a.project_id AND h.agent_id = a.agent_id ORDER BY h.sequence DESC LIMIT 1),
+                       am.model, am.source
                   FROM agents a
+                  LEFT JOIN agent_models am ON am.project_id = a.project_id AND am.agent_id = a.agent_id
                   LEFT JOIN agent_panes pn ON pn.project_id = a.project_id AND pn.agent_id = a.agent_id
                  WHERE a.project_id = ? AND a.state = 'active'";
     let (sql, params) = match sel {
@@ -591,6 +598,8 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
             "activity",
             "activitySince",
             "activitySeq",
+            "model",
+            "modelSource",
         ],
     )?;
     Ok(found
@@ -621,6 +630,11 @@ fn agent_rows(core: &Core, sel: AgentSel<'_>, limit: usize) -> KernelResult<Vec<
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 activity_seq: row.get("activitySeq").and_then(Value::as_i64),
+                model: row.get("model").and_then(Value::as_str).map(shown),
+                model_source: row
+                    .get("modelSource")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 agent_id,
                 generation,
                 state,

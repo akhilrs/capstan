@@ -134,6 +134,10 @@ fn spawn_options(options: &Value) -> SpawnOptions {
         branch: opt(options, "branch"),
         record_task_ref: opt(options, "recordTaskRef"),
         record_task_title: opt(options, "recordTaskTitle"),
+        model: opt(options, "model"),
+        model_source: opt(options, "modelSource"),
+        model_scope: opt(options, "modelScope"),
+        plan: opt(options, "plan"),
     }
 }
 

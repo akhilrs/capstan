@@ -102,4 +102,34 @@ final class FixtureTests: XCTestCase {
         XCTAssertEqual(StoredAgent(with).branch?.raw, "feat/x")
         XCTAssertNil(StoredAgent(without).branch)
     }
+
+    func testAnAgentItemDecodesWithAndWithoutAModel() throws {
+        let plain = StoreWire.agentItem("dev-1")
+        let without = try AgentItem(json: try decodeJSON(Data(plain.utf8)))
+        XCTAssertNil(without.model)
+        XCTAssertNil(without.modelSource)
+        let tail = "\"contentHash\":\"agent-hash\"}"
+        let nulls = plain.replacingOccurrences(of: tail, with: "\"contentHash\":\"agent-hash\",\"model\":null,\"modelSource\":null}")
+        let null = try AgentItem(json: try decodeJSON(Data(nulls.utf8)))
+        XCTAssertNil(null.model)
+        XCTAssertNil(null.modelSource)
+        let full = plain.replacingOccurrences(of: tail, with: "\"contentHash\":\"agent-hash\",\"model\":\"claude-opus-5-5\",\"modelSource\":\"plan\"}")
+        let with = try AgentItem(json: try decodeJSON(Data(full.utf8)))
+        XCTAssertEqual(with.model?.raw, "claude-opus-5-5")
+        XCTAssertEqual(with.modelSource, "plan")
+        XCTAssertEqual(StoredAgent(with).model?.raw, "claude-opus-5-5")
+        XCTAssertEqual(StoredAgent(with).modelSource, "plan")
+        XCTAssertNil(StoredAgent(without).model)
+    }
+
+    func testAStoredAgentFromOldDataDecodesWithoutModel() throws {
+        let item = try AgentItem(json: try decodeJSON(Data(StoreWire.agentItem("dev-1").utf8)))
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(StoredAgent(item))) as? [String: Any] ?? [:]
+        object["model"] = nil
+        object["modelSource"] = nil
+        let old = try JSONSerialization.data(withJSONObject: object)
+        let stored = try JSONDecoder().decode(StoredAgent.self, from: old)
+        XCTAssertNil(stored.model)
+        XCTAssertNil(stored.modelSource)
+    }
 }

@@ -630,6 +630,8 @@ pub const SKIPPED_ACTIONS: &[&str] = &[
     "fallback_pane.record",
     "link.bind",
     "link.external",
+    "model.override.clear",
+    "model.override.set",
     "operator.full_auto_refuse",
     "operator.grant_expire",
     "operator.grant_restart",
@@ -1765,18 +1767,26 @@ fn build_inner(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built
                 body.insert("blocker".into(), row.details["blocker"].clone());
             }
             effects = if draft.ty == "agent.registered" {
+                let mut fields = json!({
+                    "agentId": agent_id,
+                    "kind": agent["kind"],
+                    "role": agent["role"],
+                    "state": state,
+                    "paused": false,
+                    "generation": generation,
+                });
+                if let Some(model) = text_of(&row.input, "model") {
+                    let source = text_of(&row.input, "modelSource").unwrap_or("");
+                    text.put(&mut body, "model", model, REASON_CAP);
+                    body.insert("modelSource".into(), json!(source));
+                    fields["model"] = body["model"].clone();
+                    fields["modelSource"] = json!(source);
+                }
                 vec![effect(
                     "agents",
                     "upsert",
                     item_key("agents", "agent", &agent_id),
-                    json!({
-                        "agentId": agent_id,
-                        "kind": agent["kind"],
-                        "role": agent["role"],
-                        "state": state,
-                        "paused": false,
-                        "generation": generation,
-                    }),
+                    fields,
                 )]
             } else {
                 let mut effects = vec![effect(

@@ -8,7 +8,7 @@
 //! implements for its handle, and `Ledger` wraps it in the typed calls of `ControllerCore` the launcher uses. Every call
 //! is one closure on the kernel thread, so Herdr, git and setup commands never run inside one.
 
-use crate::api::{MAX_WAITING_OPERATIONS, STEP_BUDGET_MS};
+use crate::api::{SpawnOptions, MAX_WAITING_OPERATIONS, STEP_BUDGET_MS};
 use crate::git::DefaultGit;
 use crate::setup::run_setup_command;
 use crate::shared::*;
@@ -74,6 +74,14 @@ fn objects(value: Value) -> Vec<Value> {
         Value::Array(items) => items,
         _ => Vec::new(),
     }
+}
+
+/// The model a spawn starts with and where it came from (`source` is `none` when there is no model).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelChoice {
+    pub model: Option<String>,
+    pub source: String,
+    pub scope: Option<String>,
 }
 
 /// The calls of `ControllerCore` the launcher makes, with the project credential it makes them under.
@@ -202,13 +210,67 @@ impl Ledger {
         seat_id: &str,
         actor_id: &str,
         max_active: Option<i64>,
+        model: Option<&ModelChoice>,
     ) -> KernelResult<()> {
         let mut input = json!({"agentId": agent_id, "roleName": role_name, "seatId": seat_id, "actorId": actor_id});
         if let Some(limit) = max_active {
             input["maxActive"] = json!(limit);
         }
+        if let Some(ModelChoice {
+            model: Some(model),
+            source,
+            scope,
+        }) = model
+        {
+            input["model"] = json!(model);
+            input["modelSource"] = json!(source);
+            input["modelScope"] = json!(scope);
+        }
         self.mutate(move |core, context| core.register_agent(context, &input))
             .map(drop)
+    }
+
+    /// `modelOverrideFor`: the first scope with a row wins; (model, source, scope id).
+    pub fn model_override_for(
+        &self,
+        scopes: &[(String, String)],
+        kind: &str,
+    ) -> KernelResult<Option<(String, String, String)>> {
+        let scopes = scopes.to_vec();
+        let kind = kind.to_string();
+        let value = self.call(move |core| {
+            let refs: Vec<(&str, &str)> = scopes
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            core.model_override_for(&refs, &kind)
+        })?;
+        Ok(value.and_then(|v| {
+            Some((
+                text(&v, "model")?,
+                text(&v, "source")?,
+                text(&v, "scopeId")?,
+            ))
+        }))
+    }
+
+    /// `modelScopeOfSubject`: (scope type, scope id) of a review subject.
+    pub fn model_scope_of_subject(&self, subject: &str) -> KernelResult<Option<(String, String)>> {
+        let subject = subject.to_string();
+        self.call(move |core| core.model_scope_of_subject(&subject))
+    }
+
+    /// `agentModel`: (model, source, scope id) an agent was started with.
+    pub fn agent_model(
+        &self,
+        agent_id: &str,
+    ) -> KernelResult<Option<(String, String, Option<String>)>> {
+        let agent = agent_id.to_string();
+        let value = self.call(move |core| core.agent_model(&agent))?;
+        Ok(
+            value
+                .and_then(|v| Some((text(&v, "model")?, text(&v, "source")?, text(&v, "scopeId")))),
+        )
     }
 
     pub fn agent_panes(&self) -> KernelResult<Vec<PaneRow>> {
@@ -817,8 +879,63 @@ impl LauncherKernel {
         ))
     }
 
-    /// A new agent of `role`: its id and credential.
+    /// The model a new agent of `role` starts with: the flag (or a replace's kept model), then the override of the task's
+    /// requirement or plan, of `options.plan` or of the plan of the review subject, then the role's own chain.
+    pub fn effective_model(&self, role: &Role, options: &SpawnOptions) -> OpResult<ModelChoice> {
+        if let Some(model) = &options.model {
+            return Ok(ModelChoice {
+                model: Some(model.clone()),
+                source: options
+                    .model_source
+                    .clone()
+                    .unwrap_or_else(|| "spawn".into()),
+                scope: options.model_scope.clone(),
+            });
+        }
+        let mut scopes: Vec<(String, String)> = Vec::new();
+        if let Some(task) = options.task.as_ref().or(options.record_task_ref.as_ref()) {
+            match task.split_once('/') {
+                Some((plan, _)) => scopes.push(("plan".into(), plan.into())),
+                None => scopes.push(("requirement".into(), task.clone())),
+            }
+        }
+        if let Some(plan) = &options.plan {
+            scopes.push(("plan".into(), plan.clone()));
+        }
+        if let Some(target) = &options.review_target {
+            if let Some(scope) = self.ledger.model_scope_of_subject(target)? {
+                scopes.push(scope);
+            }
+        }
+        if !scopes.is_empty() {
+            if let Some((model, source, scope)) =
+                self.ledger.model_override_for(&scopes, &role.kind)?
+            {
+                return Ok(ModelChoice {
+                    model: Some(model),
+                    source,
+                    scope: Some(scope),
+                });
+            }
+        }
+        Ok(ModelChoice {
+            model: role.model.clone(),
+            source: role.model_source.to_string(),
+            scope: None,
+        })
+    }
+
+    /// A new agent of `role` with the config-chain model: its id and credential.
     pub fn create_agent(&self, role: &Role) -> OpResult<(String, String)> {
+        self.create_agent_with(role, None)
+    }
+
+    /// A new agent of `role`, recording `model` when it names one.
+    pub fn create_agent_with(
+        &self,
+        role: &Role,
+        model: Option<&ModelChoice>,
+    ) -> OpResult<(String, String)> {
         self.assert_role_synced(role)?;
         let seat_id = self.seat(role)?;
         let used = self
@@ -853,6 +970,7 @@ impl LauncherKernel {
                 &seat_id,
                 &actor_id,
                 role.max_active,
+                model,
             ) {
                 Ok(()) => return Ok((agent_id, credential)),
                 Err(error) => {

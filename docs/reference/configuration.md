@@ -987,3 +987,23 @@ hook).
 ## Trust
 
 A pulled `capstan.toml` can change what runs on your machine, so a controller loads it only when its checked keys are trusted on this machine. Every key is checked except `schema_version` and the keys only `capstan.local.toml` may set. Run `cstan trust` to read the changes and accept them; `cstan trust --check` fails when there are any. Records live per user in `~/.local/state/capstan/trust`, or in the absolute directory named by `CAPSTAN_TRUST_DIR` (CI and containers without a home). See [Trust check](trust.md) for the details and the upgrade path.
+
+## Model overrides
+
+`capstan.toml` stays the baseline for every model and is never written. A model override is a ledger row set while the project runs, for one plan or one requirement, optionally for one role kind (`Developer`, `Verifier` or `Supervisor`). It is not a `capstan.toml` key, so [`trust_keys.golden`](trust.md) and the trust digest are unchanged and the trust gate keeps guarding the file. Only the user, the PM or the operator may set one: any other caller gets `only the user, the PM or the operator may set a model override`.
+
+**Precedence**, first match wins: the `--model` flag of `cstan spawn` > the task (requirement) override > the plan override > the role's `model` > the host's `model` > `[defaults.<Kind>]` > `[defaults]`. A kind-specific override beats an all-kinds override of the same scope. Set them with `cstan spawn --model`, `cstan plan open --model`, `cstan plan model` and `cstan link requirement --model` / `cstan link model` (see the [command reference](commands.md#model-overrides)). `cstan status` and `cstan plan show` print each agent's model and where it came from (`spawn`, `task`, `plan`, `role`, `host` or `defaults`).
+
+**Fit.** A value must be 1 to 100 bytes, not start with a dash, hold no control character and not look like a credential. A model of one provider's family does not fit a host of another kind: `claude-*` and `opus`, `sonnet`, `haiku`, `fable`, `opusplan` belong to `claude` hosts, `gpt-*`, `codex-*`, `o1`, `o3`, `o4` to `codex` hosts; `omp` and `pi` hosts take any valid value, and an unclaimed id fits every host (the host reports unknown ids).
+
+| Where | A role that cannot run the model | Every role of the kind cannot |
+| ----- | -------------------------------- | ----------------------------- |
+| `plan model`, `link model`, `plan open --model`, `link requirement --model` | set, with a warning naming the role, host and host kind | refused: `model_host_mismatch: <reason>` |
+| `spawn --model` | refused when the named role cannot run it | the same |
+| the spawn itself (an override read at start) | refused: `model_host_mismatch: <reason>; it came from <source>` | the same |
+
+The spawn is the authority: it checks again with the configuration of that moment.
+
+**When it applies.** An override is read when a worker starts. Running agents keep their model; the answer of `plan model` and `link model` lists them (`running`) so you can replace them. `cstan replace` keeps the predecessor's model. A warm reviewer that runs another model than the review now wants is not reused: the launcher answers `model_changed` when it is retargeted, the controller logs `review_reviewer_model_changed`, releases that reviewer and starts a new one with the model that now applies.
+
+**Known limits.** `cstan link requirement --model` writes the link and the override in two steps. `cstan plan show` lists models for at most 9 agents.

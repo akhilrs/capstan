@@ -315,7 +315,9 @@ Snapshot items, as the paged reads serialize them (camelCase). A `snapshot` line
 `contentHash`, `branch`, `activity`, `activitySince`, `activitySeq`. `branch` is optional (absent or `null` without a
 pane) and untrusted text (section 8). The three activity fields are the agent's latest observed
 activity state, the time it was observed and its sequence; they are `null` while the agent has no observation, and
-`contentHash` does not cover them. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
+`contentHash` does not cover them. `model` and `modelSource` are present only when the agent's model is known (absent, never
+`null`): `model` is the model the agent was started with and is untrusted text (section 8); `modelSource` is one of `spawn`,
+`task`, `plan`, `role`, `host` or `defaults`. `contentHash` does not cover them. `PlanItem`: `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported,
 integrated}`, `requestId` (`plan:<planId>`) and `contentHash` (the SHA-256 of the canonical
 `{"plan": planId, "state": state, "title": title}`). `state` of a plan is `draft`, `in_review`, `approved` or `signed_off`: a plan with a sign-off stays in
 `plans`, as `signed_off`, while one of its sign-offs is on an integration that is neither confirmed nor discarded, and
@@ -464,6 +466,10 @@ the snapshot of the project before any further event of it.
 - a line with a `v` the client does not know is refused: the client stops and tells the person.
 
 A field is never removed or changed in meaning within a major version.
+
+`model` and `modelSource` on `AgentItem`, on the `agent.registered` body and on its `agents` upsert fields are optional: an
+older client ignores the unknown members, a newer client reads an absent member as unknown, and events written before
+they existed replay unchanged.
 
 An old host does not send `approveChoices` on its `op` items and does not accept `op approve-as` (it refuses the verb with
 `invalid_request`). A client that finds no `approveChoices` on an `op` item offers only `op approve` (section 11).

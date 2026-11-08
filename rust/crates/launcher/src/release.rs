@@ -11,6 +11,7 @@ use crate::api::{
 };
 use crate::kernel::{Closed, LauncherKernel};
 use crate::shared::*;
+use capstan_config::model_fit::fit_for_role;
 use capstan_config::CleanupWorktrees;
 use capstan_kernel::helpers::{one_line, strip_terminal_sequences};
 use serde_json::{json, Value};
@@ -732,7 +733,10 @@ impl LauncherKernel {
             self.run_starting(|budget| self.replace_in_turn(agent_id, budget))?;
         if let (ReplaceResult::Replaced(done), Some((names, warning))) = (&mut result, missing) {
             done.spawn.missing_env = Some(names);
-            done.spawn.warning = Some(warning);
+            done.spawn.warning = Some(match done.spawn.warning.take() {
+                Some(earlier) => format!("{earlier}; {warning}"),
+                None => warning,
+            });
         }
         Ok(result)
     }
@@ -866,6 +870,7 @@ impl LauncherKernel {
             }
             released = Some(result);
         }
+        let mut unfit: Option<String> = None;
         let mut kept: Option<(String, String)> = None;
         let mut rewound: Vec<(String, String)> = Vec::new();
         let started = (|| -> OpResult<SpawnResult> {
@@ -906,7 +911,7 @@ impl LauncherKernel {
                     }
                 }
             }
-            let options = SpawnOptions {
+            let mut options = SpawnOptions {
                 base_sha: Some(base.sha.clone()),
                 seed: Some(seed.clone()),
                 branch: data.branch.clone(),
@@ -914,10 +919,20 @@ impl LauncherKernel {
                 record_task_title: data.task_title.clone(),
                 ..SpawnOptions::default()
             };
+            // The replacement keeps the model its predecessor was started with, unless the host no longer takes it.
+            if let Some((model, source, scope)) = self.ledger.agent_model(agent_id)? {
+                if fit_for_role(&self.config, &agent.role_name, &model).is_ok() {
+                    options.model = Some(model);
+                    options.model_source = Some(source);
+                    options.model_scope = scope;
+                } else {
+                    unfit = Some(model);
+                }
+            }
             let task_fields = self.spawn_checks(&options)?;
             self.spawn_in_turn(&agent.role_name, &options, &task_fields, budget)
         })();
-        let spawned = match started {
+        let mut spawned = match started {
             Ok(spawned) => spawned,
             Err(error) => {
                 // A full role is the answer itself: the caller sees which agents hold the places.
@@ -934,6 +949,19 @@ impl LauncherKernel {
                 ));
             }
         };
+        if let Some(model) = unfit {
+            let host = self
+                .role_named(&agent.role_name)
+                .map(|role| role.host.clone())
+                .unwrap_or_default();
+            let (chosen, source) = match self.ledger.agent_model(&spawned.agent_id)? {
+                Some((chosen, source, _)) => (chosen, source),
+                None => ("no model".to_string(), "none".to_string()),
+            };
+            spawned.warning = Some(format!(
+                "model {model} no longer fits host {host}; the replacement uses {chosen} ({source})"
+            ));
+        }
         let mut replacement_recorded = true;
         if let Err(error) = self.ledger.record_agent_replaced(
             agent_id,
