@@ -53,9 +53,9 @@ Only the commands `cstan` sends to the controller retry; every other client of t
 **Lost reply.** When the connection closes with no answer byte, or the call times out, `cstan` asks again with the same request id, at most twice (after 500 ms and after 1 s). It does so only when both hold:
 
 - the controller's boot file (`<socket>.boot`) was read before the first connect and holds the same id after the failure, so the same controller is still running; an older controller has no boot file and is never asked again;
-- the command is not one of `NO_LOST_REPLY_RETRY`: `spawn`, `launch`, `replace`, `pm-restart`, `op`, `decide`, `decide-merge`, `wait` and `notify`.
+- the command is not one of `NO_LOST_REPLY_RETRY`: `spawn`, `launch`, `replace`, `pm-restart`, `op`, `decide`, `decide-merge`, `wait`, `notify`, and the commands that take several steps with the launcher, git or a pane between kernel calls: `plan`, `request-review`, `prompt`, `release`, `integrate`, `cleanup` and `cache`. A step of those that committed before a failure inside the controller is not stored, so a repeat could do it again. Every other command is one kernel job (rolled back as a whole on failure) or a read, so asking again is safe.
 
-A reset after part of an answer was read is a read error and is not asked again. The controller answers a repeated request id from its reply cache, so a command that finished is not run twice. A command that fails inside the controller after part of its work was committed is not stored, so a repeat may run it again; check the result before running such a command by hand.
+A reset after part of an answer was read is a read error and is not asked again. The controller answers a repeated request id from its reply cache, so a command that finished is not run twice. The multi-step commands above are why `NO_LOST_REPLY_RETRY` is longer than the commands with kept answers.
 
 **Final errors.** With no retry made the errors are as before: `connection closed`, `timed out`. After retries:
 

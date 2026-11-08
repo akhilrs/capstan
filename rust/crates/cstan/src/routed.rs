@@ -331,12 +331,12 @@ fn build_frame(credential: &str, command: &str, args: &[String], rid: Option<&st
 
 /// The text a retried call adds to its final error: how many times it was asked again and whether the controller
 /// restarted meanwhile.
-fn retry_note(attempts: u32, restarted: bool) -> String {
+fn retry_note(lost_retries: u32, restarted: bool) -> String {
     let mut note = String::new();
-    if attempts > 1 {
+    if lost_retries > 0 {
         note.push_str(&format!(
             "; retried {} times, the request may have been applied: check with cstan inbox or cstan status before running it again",
-            attempts - 1
+            lost_retries
         ));
     }
     if restarted {
@@ -386,7 +386,7 @@ impl Cli<'_> {
             Ok(done) => (Ok(done.line), String::new()),
             Err(failed) => (
                 Err(failed.error),
-                retry_note(failed.attempts, failed.restarted),
+                retry_note(failed.lost_retries, failed.restarted),
             ),
         }
     }

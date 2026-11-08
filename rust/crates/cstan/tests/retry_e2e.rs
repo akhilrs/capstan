@@ -10,6 +10,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use capstan_daemon::deps::{DaemonOptions, Deps, KernelHandle, LogEntry, Logger};
+use capstan_daemon::handlers::{handle_frame_with, FrameOutcome};
+use capstan_daemon::server::{DaemonServer, FrameHandler, ServerOptions};
+use capstan_kernel::kernel::KernelOptions;
+use capstan_kernel::{Core, SystemEnv};
+use serde_json::json;
+
+#[allow(dead_code)]
+#[path = "../../daemon/tests/common/project.rs"]
+mod project;
+use project::{write_project, Identity};
+
 const FRONT: &str = env!("CARGO_BIN_EXE_cstan");
 const BUSY: &str = r#"{"ok":false,"code":"controller_busy","message":"controller busy: all connection slots are in use","retryAfterMs":100}"#;
 const OK: &str = r#"{"ok":true,"result":{"state":"fine"}}"#;
@@ -239,4 +251,254 @@ fn a_boot_id_that_changes_adds_the_restart_note() {
         stderr(&o)
     );
     assert_eq!(f.connections.load(Ordering::SeqCst), 1);
+}
+
+// ---- Through the daemon's handler seam (`ServerOptions.handler`): the real command handlers, with a policy that
+// ---- answers busy or drops the answer of chosen attempts.
+
+#[derive(Clone, Copy)]
+enum Mode {
+    Pass,
+    /// The first attempt gets a busy line without running.
+    BusyOnce,
+    /// The command runs on every attempt; the first `n` answers are never written (the connection just closes).
+    DropFirst(usize),
+}
+
+struct Seam {
+    dir: PathBuf,
+    socket: PathBuf,
+    agents: std::collections::HashMap<String, String>,
+    mode: Arc<Mutex<(Mode, usize)>>,
+    _server: DaemonServer,
+}
+
+impl Drop for Seam {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn dispatch(core: &Core, owner: &str, op: &str, args: serde_json::Value) -> serde_json::Value {
+    let version = core.state_version().unwrap();
+    let context = json!({
+        "credential": owner,
+        "requestId": format!("req-{op}-{version}"),
+        "idempotencyKey": format!("idem-{op}-{version}"),
+        "expectedVersion": version,
+        "inputRevision": core.input_revision().unwrap(),
+    });
+    let mut all = vec![context];
+    all.extend(args.as_array().cloned().unwrap());
+    core.dispatch(op, &all)
+        .unwrap_or_else(|e| panic!("setup {op}: {e}"))
+}
+
+impl Seam {
+    fn start(label: &str) -> Seam {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::fs::canonicalize("/tmp")
+            .unwrap()
+            .join(format!("cre-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let identity = Identity {
+            project_id: "pretry".into(),
+            name: "Retry Test".into(),
+            credential: format!("operator-{}", "a".repeat(40)),
+        };
+        let state = write_project(&dir, &identity);
+        let options = KernelOptions {
+            workspace_root: Some(dir.clone()),
+            ..KernelOptions::default()
+        };
+        let core = Core::open(
+            &state,
+            &identity.initial_project(),
+            &options,
+            Box::new(SystemEnv),
+        )
+        .expect("the setup controller opens");
+        let owner = identity.credential.as_str();
+        dispatch(
+            &core,
+            owner,
+            "syncRoleDefinitions",
+            json!([[
+                {"name": "developer", "kind": "Developer", "host": "claude", "configHash": "a".repeat(64)},
+                {"name": "pm", "kind": "PM", "host": "claude", "configHash": "b".repeat(64)},
+            ]]),
+        );
+        let mut agents = std::collections::HashMap::new();
+        for (agent, role_name, kind) in [("pm-1", "pm", "PM"), ("dev-1", "developer", "Developer")]
+        {
+            let seat = format!("seat-{agent}");
+            dispatch(
+                &core,
+                owner,
+                "createSeat",
+                json!([{"seatId": seat, "name": seat, "role": kind}]),
+            );
+            let actor = dispatch(
+                &core,
+                owner,
+                "createActor",
+                json!([{"displayName": agent, "role": kind, "seatId": seat}]),
+            );
+            dispatch(
+                &core,
+                owner,
+                "registerAgent",
+                json!([{"agentId": agent, "roleName": role_name, "seatId": seat, "actorId": actor["actorId"]}]),
+            );
+            agents.insert(
+                agent.to_string(),
+                actor["credential"].as_str().unwrap().to_string(),
+            );
+        }
+        core.close();
+        let kernel = {
+            let (state, project, directory) =
+                (state.clone(), identity.initial_project(), dir.clone());
+            KernelHandle::spawn(move || {
+                Core::open(
+                    &state,
+                    &project,
+                    &KernelOptions {
+                        workspace_root: Some(directory),
+                        ..KernelOptions::default()
+                    },
+                    Box::new(SystemEnv),
+                )
+            })
+            .expect("the kernel opens")
+        };
+        let sink: Logger = Arc::new(|_: &LogEntry| {});
+        let deps = Deps::new(
+            kernel,
+            DaemonOptions::new(state.clone(), identity.initial_project(), dir.clone()),
+            sink,
+        );
+        let socket = state.join("control.sock");
+        let mode = Arc::new(Mutex::new((Mode::Pass, 0usize)));
+        let policy = mode.clone();
+        let mut options = ServerOptions::new(socket.clone());
+        options.handler = Some(FrameHandler::new(
+            move |deps, frame, signal, limit, on_limit| {
+                let (mode, attempt) = {
+                    let mut guard = policy.lock().unwrap();
+                    let seen = guard.1;
+                    guard.1 += 1;
+                    (guard.0, seen)
+                };
+                if let (Mode::BusyOnce, 0) = (mode, attempt) {
+                    return FrameOutcome {
+                        response: Some(BUSY.to_string()),
+                        log: LogEntry::new("busy", "controller_busy"),
+                        identified: true,
+                    };
+                }
+                let mut outcome = handle_frame_with(deps, frame, signal, limit, on_limit);
+                if matches!(mode, Mode::DropFirst(n) if attempt < n) {
+                    outcome.response = None;
+                }
+                outcome
+            },
+        ));
+        let server = DaemonServer::start(deps, options).expect("the server starts");
+        Seam {
+            dir,
+            socket,
+            agents,
+            mode,
+            _server: server,
+        }
+    }
+
+    fn set(&self, mode: Mode) {
+        *self.mode.lock().unwrap() = (mode, 0);
+    }
+
+    fn attempts(&self) -> usize {
+        self.mode.lock().unwrap().1
+    }
+
+    fn cstan(&self, agent: &str, args: &[&str]) -> Output {
+        self.cstan_with(agent, args, true)
+    }
+
+    fn cstan_with(&self, agent: &str, args: &[&str], log: bool) -> Output {
+        let mut command = Command::new(FRONT);
+        command
+            .args(args)
+            .current_dir(&self.dir)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("CAPSTAN_TOKEN", &self.agents[agent])
+            .env("CAPSTAN_SOCKET", &self.socket)
+            .env("CAPSTAN_AGENT_ID", agent)
+            .stdin(Stdio::null());
+        if log {
+            command.env("CAPSTAN_RETRY_LOG", "1");
+        }
+        command.output().unwrap()
+    }
+}
+
+#[test]
+fn seam_status_json_after_a_busy_wait_is_byte_identical() {
+    let seam = Seam::start("status");
+    let plain = seam.cstan("dev-1", &["status", "--json"]);
+    assert_eq!(plain.status.code(), Some(0), "{}", stderr(&plain));
+    seam.set(Mode::BusyOnce);
+    let retried = seam.cstan("dev-1", &["status", "--json"]);
+    assert_eq!(retried.status.code(), Some(0), "{}", stderr(&retried));
+    assert!(
+        stderr(&retried).contains("controller busy, retrying in "),
+        "{}",
+        stderr(&retried)
+    );
+    assert_eq!(seam.attempts(), 2);
+    assert_eq!(retried.stdout, plain.stdout);
+}
+
+#[test]
+fn seam_inbox_after_a_lost_reply_is_byte_identical() {
+    let seam = Seam::start("inbox");
+    let sent = seam.cstan("pm-1", &["send", "dev-1", "hello there"]);
+    assert_eq!(sent.status.code(), Some(0), "{}", stderr(&sent));
+    let plain = seam.cstan("dev-1", &["inbox"]);
+    assert_eq!(plain.status.code(), Some(0), "{}", stderr(&plain));
+    assert!(String::from_utf8_lossy(&plain.stdout).contains("hello there"));
+    seam.set(Mode::DropFirst(1));
+    let retried = seam.cstan("dev-1", &["inbox"]);
+    assert_eq!(retried.status.code(), Some(0), "{}", stderr(&retried));
+    assert!(
+        stderr(&retried).contains("controller did not answer, retrying"),
+        "{}",
+        stderr(&retried)
+    );
+    assert_eq!(seam.attempts(), 2);
+    assert_eq!(retried.stdout, plain.stdout);
+}
+
+#[test]
+fn seam_send_whose_reply_is_always_lost_ends_with_the_retried_text() {
+    let seam = Seam::start("send");
+    seam.set(Mode::DropFirst(usize::MAX));
+    let o = seam.cstan_with("pm-1", &["send", "dev-1", "once only"], false);
+    assert_eq!(o.status.code(), Some(5), "{}", stderr(&o));
+    let err = stderr(&o);
+    assert_eq!(err.trim_end(), format!("cstan: {RETRIED_TEXT}"));
+    assert_eq!(seam.attempts(), 3);
+    // The send ran once: the repeats were answered from the reply cache.
+    seam.set(Mode::Pass);
+    let inbox = seam.cstan("dev-1", &["inbox"]);
+    assert_eq!(
+        String::from_utf8_lossy(&inbox.stdout)
+            .matches("once only")
+            .count(),
+        1
+    );
 }

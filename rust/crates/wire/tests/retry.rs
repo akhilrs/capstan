@@ -233,6 +233,34 @@ fn a_boot_id_that_changes_after_the_first_attempt_stops_the_retry() {
 }
 
 #[test]
+fn busy_then_a_close_with_no_boot_file_counts_no_lost_retry() {
+    let f = fake("busyclose", 3, None, |i, s| {
+        if i == 0 {
+            answer(s, BUSY)
+        } else {
+            drop(s)
+        }
+    });
+    let failed = run(&f, "status", 30_000, 60_000, true).result.unwrap_err();
+    assert_eq!(failed.attempts, 2);
+    assert_eq!(failed.lost_retries, 0);
+}
+
+#[test]
+fn busy_waits_are_not_counted_with_lost_retries() {
+    let f = fake("busylost", 4, Some("b1"), |i, s| {
+        if i == 0 {
+            answer(s, BUSY)
+        } else {
+            drop(s)
+        }
+    });
+    let failed = run(&f, "status", 30_000, 60_000, true).result.unwrap_err();
+    assert_eq!(failed.attempts, 4);
+    assert_eq!(failed.lost_retries, 2);
+}
+
+#[test]
 fn no_boot_file_means_no_retry_and_no_restart_note() {
     let f = fake("noboot", 3, None, |_, s| drop(s));
     let r = run(&f, "status", 1000, 1000, true);

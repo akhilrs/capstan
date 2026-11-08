@@ -33,6 +33,8 @@ pub struct Retried {
 pub struct RetryFailed {
     pub error: WireError,
     pub attempts: u32,
+    /// How many times a lost reply was asked again (busy waits not counted).
+    pub lost_retries: u32,
     /// The daemon's boot id changed while the request was in flight.
     pub restarted: bool,
 }
@@ -155,6 +157,7 @@ pub fn call_retrying(
                     return Err(RetryFailed {
                         error,
                         attempts,
+                        lost_retries: lost as u32,
                         restarted,
                     });
                 }
