@@ -68,7 +68,11 @@ fn jittered(base: Duration) -> Duration {
         .map(|d| d.subsec_nanos() as u64)
         .unwrap_or(0);
     let mixed = nanos
-        .wrapping_add(COUNTER.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9E37_79B9))
+        .wrapping_add(
+            COUNTER
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_mul(0x9E37_79B9),
+        )
         .wrapping_mul(0x2545_F491_4F6C_DD1D)
         >> 33;
     base + base.mul_f64((mixed % 2001) as f64 / 10_000.0)
@@ -92,7 +96,9 @@ pub fn call_retrying(
     command: &str,
 ) -> Result<Retried, RetryFailed> {
     let rid = new_request_id();
-    let frame = frame_for(Some(&rid));
+    // The id exists to let the controller recognise a repeated request after a lost reply; a call that never
+    // asks again after one sends none.
+    let frame = frame_for(policy.lost_reply.then_some(rid.as_str()));
     let tail = format!(",\"rid\":\"{rid}\"}}\n");
     let carries_rid = frame.ends_with(tail.as_bytes());
     let may_ask_again = policy.lost_reply && carries_rid && !NO_LOST_REPLY_RETRY.contains(&command);
@@ -134,7 +140,8 @@ pub fn call_retrying(
                     error,
                     WireError::AfterSend(AfterSend::TimedOut)
                         | WireError::AfterSend(AfterSend::Closed)
-                ) && !(answered && error == WireError::AfterSend(AfterSend::Closed));
+                ) && !(answered
+                    && error == WireError::AfterSend(AfterSend::Closed));
                 let boot_after = boot_before.as_ref().and_then(|_| read_boot(socket));
                 if let (Some(before), Some(after)) = (&boot_before, &boot_after) {
                     restarted = before != after;

@@ -7,7 +7,7 @@ mod socket_path;
 mod transport;
 
 pub use response::{busy_retry_after, frame, frame_with_rid, response, FrameError, Response};
-pub use retry::{call_retrying, new_request_id, RetryFailed, RetryPolicy, Retried};
+pub use retry::{call_retrying, new_request_id, Retried, RetryFailed, RetryPolicy};
 pub use socket_path::{
     check_private_dir, control_socket, control_socket_in, ensure_private_dir, runtime_dir_name,
     socket_matches, SOCKET_NAME,

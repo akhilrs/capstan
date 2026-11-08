@@ -133,7 +133,8 @@ fn rids(f: &Fake) -> Vec<String> {
         .iter()
         .map(|r| {
             let at = r.find("\"rid\":\"").map(|i| i + 7);
-            at.map(|i| r[i..r.len() - 2].to_string()).unwrap_or_default()
+            at.map(|i| r[i..r.len() - 2].to_string())
+                .unwrap_or_default()
         })
         .collect()
 }
@@ -191,7 +192,10 @@ fn closed_with_an_unchanged_boot_id_is_retried_with_the_same_rid() {
     let r = run(&f, "status", 1000, 1000, true);
     assert_eq!(r.result.unwrap().attempts, 2);
     assert_eq!(r.sleeps, vec![Duration::from_millis(500)]);
-    assert_eq!(r.log, vec!["controller did not answer, retrying (attempt 2)"]);
+    assert_eq!(
+        r.log,
+        vec!["controller did not answer, retrying (attempt 2)"]
+    );
     let ids = rids(&f);
     assert_eq!(ids[0], ids[1]);
 }
@@ -258,7 +262,13 @@ fn commands_that_never_retry_a_lost_reply() {
         assert_eq!(r.result.unwrap_err().attempts, 1, "{command}");
     }
     let f = fake("policy-off", 3, Some("b1"), |_, s| drop(s));
-    assert_eq!(run(&f, "status", 1000, 1000, false).result.unwrap_err().attempts, 1);
+    assert_eq!(
+        run(&f, "status", 1000, 1000, false)
+            .result
+            .unwrap_err()
+            .attempts,
+        1
+    );
 }
 
 #[test]

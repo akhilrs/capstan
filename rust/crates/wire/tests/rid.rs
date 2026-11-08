@@ -33,7 +33,10 @@ fn busy_retry_after_cases() {
         some(r#"{"ok":false,"code":"controller_busy","retryAfterMs":"x"}"#),
         Some(500)
     );
-    assert_eq!(some(r#"{"ok":false,"code":"busy","retryAfterMs":250}"#), None);
+    assert_eq!(
+        some(r#"{"ok":false,"code":"busy","retryAfterMs":250}"#),
+        None
+    );
     assert_eq!(some(r#"{"ok":true,"code":"controller_busy"}"#), None);
     assert_eq!(some(r#"{"ok":false,"code":"invalid_request"}"#), None);
     assert_eq!(some("not json"), None);
