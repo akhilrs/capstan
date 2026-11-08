@@ -607,7 +607,9 @@ fn the_65th_connection_is_closed_at_once_and_a_freed_slot_is_used_again() {
         .unwrap();
     let _ = extra.write_all(&frame(&fixture.owner, "ping", &[]));
     let (text, closed) = read_to_close(&mut extra);
-    assert_eq!((text, closed), (None, true), "no answer, and closed");
+    let busy: Value = serde_json::from_str(&text.expect("the busy line")).unwrap();
+    assert_eq!(busy["code"], "controller_busy");
+    assert!(closed, "and closed");
     // A slot frees when a held connection goes away.
     drop(held.pop());
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -619,8 +621,11 @@ fn the_65th_connection_is_closed_at_once_and_a_freed_slot_is_used_again() {
         let _ = again.write_all(&frame(&fixture.owner, "ping", &[]));
         let (text, _) = read_to_close(&mut again);
         if let Some(text) = text {
-            assert_eq!(serde_json::from_str::<Value>(&text).unwrap()["ok"], true);
-            break;
+            let answer = serde_json::from_str::<Value>(&text).unwrap();
+            if answer["code"] != "controller_busy" {
+                assert_eq!(answer["ok"], true);
+                break;
+            }
         }
         assert!(Instant::now() < deadline, "the freed slot was never used");
         std::thread::sleep(Duration::from_millis(20));
@@ -724,11 +729,10 @@ fn unanswerable_frames_get_the_node_answers() {
     assert!(closed);
     let big = vec![b'a'; 65_537];
     let (text, closed) = exchange(&fixture.socket, &big, Duration::from_secs(10));
-    assert_eq!(
-        (text, closed),
-        (None, true),
-        "a frame over 64 KiB is dropped"
-    );
+    let too_large: Value = serde_json::from_str(&text.expect("an answer")).unwrap();
+    assert_eq!(too_large["code"], "invalid_request");
+    assert_eq!(too_large["message"], "request too large");
+    assert!(closed, "a frame over 64 KiB is answered, then dropped");
     let mut exact = vec![b'a'; 65_536];
     exact.push(b'\n');
     let (text, _) = exchange(&fixture.socket, &exact, Duration::from_secs(10));

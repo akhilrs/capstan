@@ -173,6 +173,17 @@ struct Inner {
     wake: Arc<Wake>,
 }
 
+thread_local! {
+    /// Set on a thread when one of its kernel calls found the kernel gone (closed, or the job panicked).
+    static KERNEL_FAILED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether a kernel call of this thread failed since the last call of this function; clears the mark. The reply cache
+/// reads it after a request, so an answer that was only an internal failure is never stored.
+pub fn take_kernel_failure() -> bool {
+    KERNEL_FAILED.with(|failed| failed.replace(false))
+}
+
 /// A cloneable, `Send` handle to the thread that owns the `Core`.
 #[derive(Clone)]
 pub struct KernelHandle {
@@ -207,7 +218,23 @@ impl KernelHandle {
                 while let Ok(message) = receiver.recv() {
                     match message {
                         Message::Run(job) => {
-                            job(&core);
+                            // A job that panics is contained here: the thread keeps serving and the job's answer channel is
+                            // dropped, so its caller sees `KernelGone`. AssertUnwindSafe is sound because the state a job can
+                            // leave behind is (1) the SQLite connection, which may hold a transaction `Kernel::mutate` opened
+                            // with BEGIN IMMEDIATE (it rolls back on an `Err`, not on an unwind) and which is rolled back right
+                            // below, before the next job runs, so no half-applied write is ever committed; and (2) the
+                            // kernel's own cells (config caches, the closed flag), which hold plain values replaced whole under
+                            // a short `borrow_mut` that the unwind releases. A cached value is either the old or the new one,
+                            // never a mix. The `Core` is only reachable from this thread, so no other thread sees any of it.
+                            let panicked =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    job(&core)
+                                }))
+                                .is_err();
+                            if panicked {
+                                // Errors only when no transaction is open, which is the common case.
+                                let _ = core.kernel().database.exec("ROLLBACK");
+                            }
                             // A call that moved the state version wakes everything waiting on the ledger.
                             if let Ok(now) = core.state_version() {
                                 if now != version {
@@ -258,6 +285,18 @@ impl KernelHandle {
     /// `f` must not block on anything but the ledger (see the module documentation), and must not call back into the
     /// handle (it would wait for itself).
     pub fn call<R, F>(&self, f: F) -> Result<R, KernelGone>
+    where
+        R: Send + 'static,
+        F: FnOnce(&Core) -> R + Send + 'static,
+    {
+        let answer = self.call_inner(f);
+        if answer.is_err() {
+            KERNEL_FAILED.with(|failed| failed.set(true));
+        }
+        answer
+    }
+
+    fn call_inner<R, F>(&self, f: F) -> Result<R, KernelGone>
     where
         R: Send + 'static,
         F: FnOnce(&Core) -> R + Send + 'static,

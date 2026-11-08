@@ -25,6 +25,7 @@ pub mod notify;
 pub mod operator;
 pub mod plans;
 pub mod relay;
+pub mod replay;
 pub mod reports;
 pub mod shared;
 pub mod status;
@@ -457,6 +458,8 @@ pub fn dispatch(
 pub struct FrameOutcome {
     pub response: Option<String>,
     pub log: LogEntry,
+    /// True when `identify` accepted the credential (the server's admission reads it).
+    pub identified: bool,
 }
 
 fn limited(text: String, limit: usize) -> String {
@@ -504,6 +507,7 @@ pub fn handle_frame_with(
             entry.ms = elapsed(deps);
             entry
         },
+        identified: false,
     };
     let parsed = std::str::from_utf8(frame)
         .ok()
@@ -535,6 +539,7 @@ pub fn handle_frame_with(
             entry.ms = elapsed(deps);
             entry
         },
+        identified: false,
     };
     let credential = match request.get("credential") {
         Some(js::Value::String(text)) => text.to_utf8_lossy(),
@@ -552,30 +557,197 @@ pub fn handle_frame_with(
         Err(capstan_kernel::KernelError::Authentication(_)) => return unauthorized(deps),
         Err(_) => return internal_error(deps, response_limit),
     };
-    let dispatched = dispatch_with(
-        deps,
-        &identity,
-        &Request {
-            command: &command,
-            credential: &credential,
-            args: request.get("args"),
-        },
-        signal,
-        on_limit,
-    );
-    let mut entry = LogEntry::new(command, "closed");
+    let rid = replay::parse_rid(request.get("rid"));
+    let plain_args = plain_args(request.get("args"));
+    let replies = &deps.commands.replies;
+    let caller = replay::caller_of(&credential);
+    let window = if command == "send" {
+        capstan_config::daemon_limits(deps.options.capstan.as_deref()).repeat_window_seconds
+    } else {
+        0
+    };
+    let send_key = (window > 0)
+        .then_some(plain_args.as_ref())
+        .flatten()
+        .map(|args| replay::ReplyCache::send_key(caller, args));
+    let answered = |deps: &Deps, line: Option<String>, code: &str, identity: &Identity| {
+        let mut entry = LogEntry::new(command.clone(), code);
+        entry.actor_id = Some(identity.actor_id.clone());
+        entry.role = Some(identity.role.clone());
+        entry.ms = elapsed(deps);
+        FrameOutcome {
+            response: line.map(|line| limited(line, response_limit)),
+            log: entry,
+            identified: true,
+        }
+    };
+    let mut flight = None;
+    // Order: credential, identify, reply cache, dispatch. `wait` is never stored or joined.
+    if let (Some(args), true) = (&plain_args, command != "wait") {
+        if let Some(rid) = &rid {
+            let limit = command_limit_ms(deps, &command, &identity);
+            let print = replay::fingerprint(&command, args);
+            let begun = replies.begin(caller, rid, print, limit, signal, &mut |wait| {
+                on_limit(u64::try_from(wait.as_millis()).unwrap_or(u64::MAX), false);
+            });
+            match begun {
+                replay::Begin::Run(started) => flight = started,
+                replay::Begin::Uncached => {
+                    deps.detail_log("reply_cache_uncached", json!({"command": command}))
+                }
+                replay::Begin::Answer(reply, hit_age) => {
+                    if let Some(age) = hit_age {
+                        deps.detail_log(
+                            "reply_cache_hit",
+                            json!({"command": command, "ageMs": age}),
+                        );
+                    }
+                    let (line, code) = match reply {
+                        replay::Reply::Line(line) => {
+                            let code = if line.starts_with("{\"ok\":true") {
+                                "ok"
+                            } else {
+                                "stored"
+                            };
+                            (line, code.to_string())
+                        }
+                        replay::Reply::Response(response) => {
+                            (response.to_text(), response.code_str().to_string())
+                        }
+                    };
+                    return answered(deps, Some(line), &code, &identity);
+                }
+                replay::Begin::Gone(response) => {
+                    return answered(
+                        deps,
+                        response.as_ref().map(CommandResponse::to_text),
+                        "closed",
+                        &identity,
+                    );
+                }
+            }
+        }
+        if let Some(key) = &send_key {
+            if let Some(folded) = replies.fold(key, window) {
+                let age = match &folded {
+                    CommandResponse::Ok(result) => result["repeatAgeMs"].as_i64().unwrap_or(0),
+                    CommandResponse::Err { .. } => 0,
+                };
+                deps.detail_log(
+                    "send_repeat_folded",
+                    json!({"command": command, "ageMs": age}),
+                );
+                let text = limited(folded.to_text(), response_limit);
+                if let Some(flight) = flight.take() {
+                    flight.finish(replay::Ended::Text(text.clone()));
+                }
+                return answered(deps, Some(text), "ok", &identity);
+            }
+        }
+    }
+    let _ = crate::deps::take_kernel_failure();
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let (panic_now, kernel_panic, hold) = replies.take_seams();
+        if let Some(gate) = hold {
+            replay::pass_gate(&gate);
+        }
+        if panic_now {
+            panic!("injected handler panic");
+        }
+        if kernel_panic {
+            // A kernel job that panics: the kernel thread survives and the caller sees a closed kernel.
+            let _ = deps
+                .kernel
+                .call(|_core| -> () { panic!("injected kernel panic") });
+            return Dispatched::plain(fail(ErrorCode::Error, "the command failed"));
+        }
+        dispatch_with(
+            deps,
+            &identity,
+            &Request {
+                command: &command,
+                credential: &credential,
+                args: request.get("args"),
+            },
+            signal,
+            on_limit,
+        )
+    }));
+    let kernel_failed = crate::deps::take_kernel_failure();
+    let (dispatched, panicked) = match ran {
+        Ok(dispatched) => (dispatched, false),
+        Err(_) => {
+            deps.detail_log("handler_panic", json!({"command": command}));
+            (
+                Dispatched::plain(fail(ErrorCode::Error, "internal error")),
+                true,
+            )
+        }
+    };
+    let mut entry = LogEntry::new(command.clone(), "closed");
     entry.actor_id = Some(identity.actor_id.clone());
     entry.role = Some(identity.role.clone());
     entry.arg_count = dispatched.arg_count;
     entry.arg_bytes = dispatched.arg_bytes;
-    let response = dispatched.response.map(|response| {
+    let mut stored: Option<String> = None;
+    let response = dispatched.response.as_ref().map(|response| {
         entry.code = response.code_str().to_string();
-        limited(response.to_text(), response_limit)
+        let text = limited(response.to_text(), response_limit);
+        stored = Some(text.clone());
+        text
     });
+    // The answer is stored when the handler returns, before the server's respond.
+    if let Some(flight) = flight {
+        flight.finish(match (&dispatched.response, stored) {
+            _ if panicked => replay::Ended::Aborted,
+            (None, _) | (_, None) => replay::Ended::Kept,
+            (Some(response), _) if replay::is_unstored(response, kernel_failed) => {
+                replay::Ended::Forget
+            }
+            (Some(_), Some(_)) if capstan_wire::KEPT_COMMANDS.contains(&command.as_str()) => {
+                replay::Ended::Kept
+            }
+            (Some(_), Some(text)) if text.len() > replay::MAX_ANSWER_BYTES => replay::Ended::Kept,
+            (Some(_), Some(text)) => replay::Ended::Text(text),
+        });
+    }
+    if let (Some(key), Some(args), Some(CommandResponse::Ok(result))) =
+        (send_key, &plain_args, &dispatched.response)
+    {
+        if !panicked && result["messageId"].is_string() && !args.iter().any(|a| a == "--answered") {
+            let recipient = args
+                .iter()
+                .find(|arg| !arg.starts_with("--"))
+                .cloned()
+                .unwrap_or_default();
+            let mut kept = result.clone();
+            if let Some(members) = kept.as_object_mut() {
+                members.remove("unread");
+            }
+            replies.remember_send(key, recipient, &kept, window);
+        }
+    }
     entry.ms = elapsed(deps);
     FrameOutcome {
         response,
         log: entry,
+        identified: true,
+    }
+}
+
+/// The arguments of a request as the cache sees them: none when absent, the strings of a valid array; None for what
+/// `dispatch` refuses (it answers that itself).
+fn plain_args(args: Option<&js::Value>) -> Option<Vec<String>> {
+    match args {
+        None => Some(Vec::new()),
+        Some(js::Value::Array(items)) if items.len() <= MAX_ARGS => items
+            .iter()
+            .map(|item| match item {
+                js::Value::String(text) if text.len_units() > 0 => Some(text.to_utf8_lossy()),
+                _ => None,
+            })
+            .collect(),
+        Some(_) => None,
     }
 }
 
@@ -587,6 +759,7 @@ fn internal_error(_deps: &Deps, response_limit: usize) -> FrameOutcome {
             response_limit,
         )),
         log: LogEntry::new("?", "error"),
+        identified: false,
     }
 }
 
@@ -625,6 +798,7 @@ fn handle_legacy(
         FrameOutcome {
             response: Some(limited(body.to_string(), response_limit)),
             log: entry,
+            identified: identity.is_some(),
         }
     };
     if !identity.as_ref().is_some_and(|i| i.role == "operator") {

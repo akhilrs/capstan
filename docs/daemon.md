@@ -95,6 +95,37 @@ It starts a PM, spawns, replaces and releases a developer, delivers mail, checks
 only the project's panes, stops the daemon and removes the session; and restarts the daemon through the Operator
 (`op propose --restart`, `op decide`), then runs `cstan` and one frame of `cstan-dash` against the new daemon.
 
+## Connection limits and the busy answer
+
+The daemon never drops a request without a line. `[daemon] max_connections` (64 by default) caps the open connections. A connection over the cap gets one line and is then closed:
+
+```json
+{"ok":false,"code":"controller_busy","message":"controller busy: <reason>","retryAfterMs":500}
+```
+
+`retryAfterMs` is `[daemon] busy_retry_ms`. The code `controller_busy` is separate from the older `busy` error code. A client that does not know it prints the code and message as for any refusal.
+
+The accept thread does the refusal without blocking: it reads what the client already sent (once, at most 64 KB), writes the line, ends the write side and puts the stream on a lingering list. The reaper reads and discards what the client still sends and closes the stream on the client's end or after one second, so the client reads the line before any reset. No thread is started per refused connection. At most 1024 streams linger; beyond that a stream is closed at once and counted in the log. At start the daemon reads the descriptor limit and, when it is below 3 × `max_connections` + 1024 + 256 (a connection holds three descriptors), logs `fd_limit_low` and lowers the linger count to fit.
+
+### Shares
+
+After the request frame is read, the credential and command are taken from it (a frame that is not an object, has no string credential, or is a legacy `action` request is counted against `max_connections` only). The bucket key is the SHA-256 of the credential; a bucket is removed when its last connection ends.
+
+- Any command except `wait` counts against `caller_connections` for that credential.
+- `wait` counts against `wait_connections` in all and `wait_per_caller` for that credential, and not against `caller_connections`.
+
+A connection over a share gets the same busy line, then waits at most one second for the client to close. Setting `caller_connections` and `wait_connections` to `max_connections` turns the shares off. A credential the daemon does not accept still holds its slot until it is answered `unauthorized`; those answers are counted as `unverified` in the log.
+
+A frame over 64 KB is answered `invalid_request` ("request too large") before the close. A client that sends nothing, or part of a frame, is closed after five seconds without a line.
+
+### The log line
+
+`server_busy` is written at most once every 10 seconds, with the counts since the last one by reason: `slots`, `caller`, `waits`, `unverified`, `linger_full`.
+
+### The boot id
+
+After every successful bind the daemon writes a new random 128-bit hex id to `<socket>.boot` (mode 0600, written atomically), replacing a file a crashed daemon left. A clean shutdown removes the file only if it still holds this daemon's id. A second daemon that fails to bind leaves the file alone. If the file cannot be written the daemon starts anyway and logs `boot_id_unwritten`; clients then find no boot file and never retry a lost reply.
+
 ## Ledger retention
 
 The daemon deletes the stored results of old mutation requests. `[ledger] retention_days` (integer 0 to 3650, default 30; 0
