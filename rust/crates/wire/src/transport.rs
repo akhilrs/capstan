@@ -201,6 +201,86 @@ pub fn call_in(
     frame: &[u8],
     timeout: Timeout,
 ) -> Result<Vec<u8>, WireError> {
+    call_traced(base, socket, frame, timeout).0
+}
+
+/// As `call_in`, also saying whether any answer byte was read before the call failed. `AfterSend::Closed` from
+/// the end of the stream is reported either way (a half line then EOF is still "connection closed"), but only a
+/// call with no answer byte at all may be asked again after a lost reply.
+#[doc(hidden)]
+pub fn call_traced(
+    base: &Path,
+    socket: &Path,
+    frame: &[u8],
+    timeout: Timeout,
+) -> (Result<Vec<u8>, WireError>, bool) {
+    let mut seen = false;
+    let result = call_inner(base, socket, frame, timeout, &mut seen);
+    (result, seen)
+}
+
+fn reset_or_pipe(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::EPIPE) | Some(libc::ECONNRESET)
+    )
+}
+
+/// Reads the first response line. `seen` is set once any byte arrived.
+fn read_line(
+    stream: &mut UnixStream,
+    timeout: Timeout,
+    started: Instant,
+    seen: &mut bool,
+) -> Result<Vec<u8>, WireError> {
+    let left = |limit: Duration| {
+        limit
+            .checked_sub(started.elapsed())
+            .filter(|d| !d.is_zero())
+    };
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    let mut searched = 0;
+    loop {
+        if let Some(offset) = bytes[searched..].iter().position(|b| *b == b'\n') {
+            let newline = searched + offset;
+            if newline > MAX_RESPONSE_BYTES {
+                return Err(WireError::AfterSend(AfterSend::TooLarge));
+            }
+            bytes.truncate(newline);
+            return Ok(bytes);
+        }
+        searched = bytes.len();
+        if bytes.len() > MAX_RESPONSE_BYTES {
+            return Err(WireError::AfterSend(AfterSend::TooLarge));
+        }
+        let allowed = match timeout {
+            Timeout::Idle(d) => d,
+            Timeout::Deadline(d) => left(d).ok_or(WireError::AfterSend(AfterSend::TimedOut))?,
+        };
+        match bounded(stream, Direction::Read, allowed, |s| s.read(&mut chunk)) {
+            Ok(0) => return Err(WireError::AfterSend(AfterSend::Closed)),
+            Ok(n) => {
+                *seen = true;
+                bytes.extend_from_slice(&chunk[..n]);
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            // A reset before any answer byte is a lost reply like a plain close; after bytes it stays an I/O error.
+            Err(e) if bytes.is_empty() && !*seen && e.raw_os_error() == Some(libc::ECONNRESET) => {
+                return Err(WireError::AfterSend(AfterSend::Closed));
+            }
+            Err(e) => return Err(WireError::AfterSend(after_send(&e))),
+        }
+    }
+}
+
+fn call_inner(
+    base: &Path,
+    socket: &Path,
+    frame: &[u8],
+    timeout: Timeout,
+    seen: &mut bool,
+) -> Result<Vec<u8>, WireError> {
     let started = Instant::now();
     let left = |limit: Duration| {
         limit
@@ -261,37 +341,19 @@ pub fn call_in(
             Ok(0) => return Err(WireError::AfterSend(AfterSend::Closed)),
             Ok(n) => written += n,
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(fail(e, written)),
-        }
-    }
-
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut chunk = [0u8; 16 * 1024];
-    let mut searched = 0;
-    loop {
-        if let Some(offset) = bytes[searched..].iter().position(|b| *b == b'\n') {
-            let newline = searched + offset;
-            if newline > MAX_RESPONSE_BYTES {
-                return Err(WireError::AfterSend(AfterSend::TooLarge));
+            Err(e) => {
+                // A daemon that refuses a connection (busy) answers and closes without reading the frame; the write
+                // then fails, but the answer is waiting. Try one read before giving up.
+                if reset_or_pipe(&e) {
+                    let grace = Timeout::Idle(Duration::from_millis(500));
+                    let mut ignored = false;
+                    if let Ok(line) = read_line(&mut stream, grace, Instant::now(), &mut ignored) {
+                        return Ok(line);
+                    }
+                }
+                return Err(fail(e, written));
             }
-            bytes.truncate(newline);
-            return Ok(bytes);
-        }
-        searched = bytes.len();
-        if bytes.len() > MAX_RESPONSE_BYTES {
-            return Err(WireError::AfterSend(AfterSend::TooLarge));
-        }
-        let allowed = match timeout {
-            Timeout::Idle(d) => d,
-            Timeout::Deadline(d) => left(d).ok_or(WireError::AfterSend(AfterSend::TimedOut))?,
-        };
-        match bounded(&mut stream, Direction::Read, allowed, |s| {
-            s.read(&mut chunk)
-        }) {
-            Ok(0) => return Err(WireError::AfterSend(AfterSend::Closed)),
-            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
-            Err(e) if e.kind() == ErrorKind::Interrupted => {}
-            Err(e) => return Err(WireError::AfterSend(after_send(&e))),
         }
     }
+    read_line(&mut stream, timeout, started, seen)
 }
