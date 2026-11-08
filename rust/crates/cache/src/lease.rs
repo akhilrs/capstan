@@ -60,6 +60,7 @@ fn lock_path(
     exclusive: bool,
     after_open: &dyn Fn(),
 ) -> Result<Option<File>, LeaseError> {
+    let mut mkdir_error = None;
     for _ in 0..MAX_REPLACED {
         let mut options = OpenOptions::new();
         if create {
@@ -70,6 +71,17 @@ fn lock_path(
         let file = match options.open(path) {
             Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && !create => return Ok(None),
+            // The directory itself is gone (an idle whole-entry prune or a clear): recreate it and open again.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(parent) = path.parent() {
+                    // A prune renaming the directory away mid-create fails with `File exists`: open again, and
+                    // report the failure only if the retries never get past it.
+                    if let Err(e) = mkdir_private(parent) {
+                        mkdir_error = Some(e.to_string());
+                    }
+                }
+                continue;
+            }
             Err(e) => return Err(io_error(format!("open {}", path.display()), e)),
         };
         after_open();
@@ -97,10 +109,9 @@ fn lock_path(
             Err(e) => return Err(io_error(format!("stat {}", path.display()), e)),
         }
     }
-    Err(LeaseError::Io(format!(
-        "{} keeps being replaced",
-        path.display()
-    )))
+    Err(LeaseError::Io(mkdir_error.unwrap_or_else(|| {
+        format!("{} keeps being replaced", path.display())
+    })))
 }
 
 /// The entry guard: shared by the gate path while it creates and leases a slot, exclusive for prune and clear.
@@ -306,7 +317,7 @@ fn lease_one(
 
 /// Guard shared, slot directories, slot lease exclusive, guard released.
 fn attempt(target: &Target, slot: usize) -> Result<GateLease, LeaseError> {
-    mkdir_private(&target.entry_dir).map_err(|e| LeaseError::Io(e.to_string()))?;
+    // The guard file's open creates the entry directory when it is missing (see `lock_path`).
     let _guard = EntryGuard::try_shared(&target.entry_dir)?;
     for dir in slot_dirs(&target.entry_dir, &target.subdirs, &target.project, slot) {
         mkdir_private(&dir).map_err(|e| LeaseError::Io(e.to_string()))?;

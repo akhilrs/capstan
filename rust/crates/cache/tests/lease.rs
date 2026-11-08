@@ -289,3 +289,51 @@ fn two_projects_on_a_user_root_lease_the_same_slot_apart() {
     assert!(r1.gate_slots().is_empty());
     drop(l2);
 }
+
+#[test]
+fn lease_gate_recreates_an_entry_dir_removed_between_leases() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = rt(&one(&dir.path().join("b")), dir.path(), "p1");
+    let ed = entry_dir(&runtime);
+    let abort = no_abort();
+    drop(runtime.lease_gate(1, WAIT, &abort).unwrap());
+    fs::remove_dir_all(&ed).unwrap();
+    let _leases = runtime.lease_gate(1, WAIT, &abort).unwrap();
+    assert!(in_use(&ed, "p1", 1));
+    // The guard and a slot lease also recreate a missing directory themselves.
+    fs::remove_dir_all(&ed).unwrap();
+    drop(EntryGuard::try_shared(&ed).unwrap());
+    fs::remove_dir_all(&ed).unwrap();
+    assert!(GateLease::acquire(&ed, "p1", 2).is_ok());
+}
+
+#[test]
+fn leases_survive_a_concurrent_whole_entry_prune() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = rt(&one(&dir.path().join("b")), dir.path(), "p1");
+    let ed = entry_dir(&runtime);
+    let stop = Arc::new(AtomicBool::new(false));
+    let pruner = {
+        let (ed, stop) = (ed.clone(), stop.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                // Like an idle whole-entry prune: exclusive guard, then the entry is renamed away and deleted.
+                if let Ok(guard) = EntryGuard::try_exclusive(&ed) {
+                    let trash = ed.with_file_name("entry-trash");
+                    if fs::rename(&ed, &trash).is_ok() {
+                        drop(guard);
+                        let _ = fs::remove_dir_all(&trash);
+                    }
+                }
+                std::thread::yield_now();
+            }
+        })
+    };
+    let abort = no_abort();
+    for round in 0..200 {
+        let leases = runtime.lease_gate(1, Duration::from_secs(10), &abort);
+        assert!(leases.is_ok(), "round {round}: {:?}", leases.err());
+    }
+    stop.store(true, Ordering::Relaxed);
+    pruner.join().unwrap();
+}
