@@ -108,7 +108,11 @@ fn register_agents(state: &Path, directory: &Path, identity: &Identity) -> HashM
     credentials
 }
 
-fn role_config(dir: &Path, daemon: &str) -> capstan_config::RoleConfig {
+fn role_config(
+    dir: &Path,
+    daemon: &str,
+    trust: &capstan_config::TrustStore,
+) -> capstan_config::RoleConfig {
     let file = dir.join("capstan.toml");
     std::fs::write(
         &file,
@@ -116,7 +120,8 @@ fn role_config(dir: &Path, daemon: &str) -> capstan_config::RoleConfig {
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    capstan_config::load_role_config(dir).expect("the configuration loads")
+    common::trusted_project(dir, trust);
+    capstan_config::load_role_config_with(dir, trust).expect("the configuration loads")
 }
 
 /// The blocking commands `hold` and `wait` stay open until the gate opens or the connection is aborted.
@@ -190,7 +195,9 @@ impl Env {
             identity.initial_project(),
             dir.path().to_path_buf(),
         );
-        options.capstan = Some(Arc::new(role_config(dir.path(), daemon)));
+        let trust = common::kept_trust_store();
+        options.capstan = Some(Arc::new(role_config(dir.path(), daemon, &trust)));
+        options.trust_store = trust;
         let deps = Deps::new(kernel, options, sink);
         let gate = Arc::new(Gate::default());
         let mut env = Env {

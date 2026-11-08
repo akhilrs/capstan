@@ -94,7 +94,7 @@ fn register_agents(state: &Path, directory: &Path, identity: &Identity) -> HashM
     credentials
 }
 
-fn role_config(dir: &Path) -> capstan_config::RoleConfig {
+fn role_config(dir: &Path, trust: &capstan_config::TrustStore) -> capstan_config::RoleConfig {
     let file = dir.join("capstan.toml");
     std::fs::write(
         &file,
@@ -102,7 +102,8 @@ fn role_config(dir: &Path) -> capstan_config::RoleConfig {
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    capstan_config::load_role_config(dir).expect("the configuration loads")
+    common::trusted_project(dir, trust);
+    capstan_config::load_role_config_with(dir, trust).expect("the configuration loads")
 }
 
 struct World {
@@ -150,7 +151,9 @@ fn world_with(with_config: bool, cache: impl FnOnce(Arc<AtomicI64>) -> ReplyCach
     let mut options =
         DaemonOptions::new(state, identity.initial_project(), dir.path().to_path_buf());
     if with_config {
-        options.capstan = Some(Arc::new(role_config(dir.path())));
+        let trust = common::kept_trust_store();
+        options.capstan = Some(Arc::new(role_config(dir.path(), &trust)));
+        options.trust_store = trust;
     }
     let clock = Arc::new(AtomicI64::new(1_000_000));
     let mut deps = Deps::new(kernel, options, sink);
