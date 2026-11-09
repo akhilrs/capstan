@@ -95,7 +95,13 @@ fn replay_in(
         no_trust: transcript.get("no_trust").and_then(Value::as_bool) == Some(true),
     };
     let observed = run_once(&args, &settings);
-    let request = daemon.and_then(FakeDaemon::finish);
+    // The request id is new on every run; the recorded request is the frame without it.
+    let request = daemon
+        .and_then(FakeDaemon::finish)
+        .map(|r| match r.find(",\"rid\":\"") {
+            Some(at) => format!("{}}}", &r[..at]),
+            None => r,
+        });
     let fixture = format!(
         "transcripts/{}",
         file.file_name().unwrap().to_string_lossy()

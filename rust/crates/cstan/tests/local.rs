@@ -264,8 +264,13 @@ fn replay_in(
         }
         commits = Some(map);
     }
+    // The request id is new on every run; the recorded request is the frame without it.
+    let without_rid = |r: String| match r.find(",\"rid\":\"") {
+        Some(at) => format!("{}}}", &r[..at]),
+        None => r,
+    };
     let got_request = request
-        .map(|r| normaliser.full(&r))
+        .map(|r| normaliser.full(&without_rid(r)))
         .filter(|r| !r.is_empty());
     let got_out = normaliser.full(&observed.stdout);
     let got_err = normaliser.full(&observed.stderr);

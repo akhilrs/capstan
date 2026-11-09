@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use capstan_wire::js::{self, JsStr, Value};
-use capstan_wire::{call, frame, response, AfterSend, Response, Timeout, WireError};
+use capstan_wire::{
+    call_retrying, frame, frame_with_rid, response, AfterSend, Response, RetryPolicy, Timeout,
+    WireError,
+};
 
 use crate::agent::{socket_verdict, var, Verdict};
 use crate::jsops::{self, as_number, concat, JsError, EXIT_BLOCKED, EXIT_INVALID, EXIT_RUNTIME};
@@ -11,6 +14,10 @@ use crate::{blocked, compact, invalid, output, render, Cli, Fail, Flow};
 
 const WAIT_SECONDS: u64 = 3600 + 30;
 const HOOK_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long `inbox --hook` waits for a busy controller.
+const HOOK_BUSY_BUDGET: Duration = Duration::from_secs(2);
+/// The default time all busy waits of one command may take.
+const BUSY_BUDGET_MS: u64 = 30_000;
 
 /// How a route is reached: with the agent's token, with the operator's, or with whichever the shell has.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -192,15 +199,15 @@ impl Cli<'_> {
         } else {
             args
         };
-        let request = frame(&credential, command, args)
-            .map_err(|_| invalid("command request is too large"))?;
+        frame(&credential, command, args).map_err(|_| invalid("command request is too large"))?;
         let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms(command)));
-        let mut reply = call(&socket, &request, timeout);
+        let (mut reply, mut note) =
+            self.call_standard(&socket, &credential, command, args, timeout);
         // A daemon older than the client rejects the digest argument it never heard of; ask again the way it understands.
         if args == digest_args && refused_as_invalid(&reply) {
-            let request = frame(&credential, command, &[])
+            frame(&credential, command, &[])
                 .map_err(|_| invalid("command request is too large"))?;
-            reply = call(&socket, &request, timeout);
+            (reply, note) = self.call_standard(&socket, &credential, command, &[], timeout);
         }
         // A daemon older than the client rejects an `auto=` window it never heard of: say so, and do not retry it as a
         // timed grant. A current daemon's refusal of a bad window names `auto`, and is shown as it is.
@@ -231,7 +238,15 @@ impl Cli<'_> {
                 _ => "",
             },
         };
-        let code = handle_wire(reply, &socket, json, command, now_ms, view, &mut self.io)?;
+        let code = handle_wire(
+            (reply, &note),
+            &socket,
+            json,
+            command,
+            now_ms,
+            view,
+            &mut self.io,
+        )?;
         Ok(Flow::Code(code))
     }
 
@@ -260,12 +275,30 @@ impl Cli<'_> {
         ) {
             return Ok(Flow::Code(0));
         }
-        let Ok(request) = frame(&token, "inbox", &["--hook".to_string()]) else {
+        let hook_args = ["--hook".to_string()];
+        if frame(&token, "inbox", &hook_args).is_err() {
+            return Ok(Flow::Code(0));
+        }
+        let log_line = self.retry_logger();
+        let sleep = |d: Duration| std::thread::sleep(d);
+        let policy = RetryPolicy {
+            busy_budget: HOOK_BUSY_BUDGET,
+            deadline: HOOK_TIMEOUT + HOOK_BUSY_BUDGET,
+            lost_reply: false,
+            log_line: &log_line,
+            sleep: &sleep,
+        };
+        let frame_for = |rid: Option<&str>| build_frame(&token, "inbox", &hook_args, rid);
+        let Ok(retried) = call_retrying(
+            socket,
+            &frame_for,
+            Timeout::Idle(HOOK_TIMEOUT),
+            &policy,
+            "inbox",
+        ) else {
             return Ok(Flow::Code(0));
         };
-        let Ok(line) = call(socket, &request, Timeout::Idle(HOOK_TIMEOUT)) else {
-            return Ok(Flow::Code(0));
-        };
+        let line = retried.line;
         let Response::Ok { result } = response(&line) else {
             return Ok(Flow::Code(0));
         };
@@ -286,6 +319,76 @@ impl Cli<'_> {
             "{{\"hookSpecificOutput\":{{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"{message}\"}}}}"
         ));
         Ok(Flow::Code(0))
+    }
+}
+
+/// The request frame, with the request id when it is given and the frame still fits with it.
+fn build_frame(credential: &str, command: &str, args: &[String], rid: Option<&str>) -> Vec<u8> {
+    rid.and_then(|rid| frame_with_rid(credential, command, args, rid).ok())
+        .or_else(|| frame(credential, command, args).ok())
+        .unwrap_or_default()
+}
+
+/// The text a retried call adds to its final error: how many times it was asked again and whether the controller
+/// restarted meanwhile.
+fn retry_note(lost_retries: u32, restarted: bool) -> String {
+    let mut note = String::new();
+    if lost_retries > 0 {
+        note.push_str(&format!(
+            "; retried {} times, the request may have been applied: check with cstan inbox or cstan status before running it again",
+            lost_retries
+        ));
+    }
+    if restarted {
+        note.push_str("; the controller restarted during the request");
+    }
+    note
+}
+
+impl Cli<'_> {
+    /// One line per retry on stderr, only when stderr is a terminal or `CAPSTAN_RETRY_LOG=1`.
+    fn retry_logger(&self) -> impl Fn(&str) {
+        let forced = var(&self.ctx.env, "CAPSTAN_RETRY_LOG").is_some_and(|v| v == "1");
+        // SAFETY: isatty only inspects the descriptor.
+        let on = forced || unsafe { libc::isatty(2) == 1 };
+        move |line: &str| {
+            if on {
+                eprintln!("{line}");
+            }
+        }
+    }
+
+    /// A routed call with the standard retry policy: busy answers are waited out for any command, a lost reply is
+    /// asked again where that is safe. Returns the reply as `call` would, and the text to add to an after-send error.
+    fn call_standard(
+        &self,
+        socket: &std::path::Path,
+        credential: &str,
+        command: &str,
+        args: &[String],
+        timeout: Timeout,
+    ) -> (Result<Vec<u8>, WireError>, String) {
+        let budget_ms = var(&self.ctx.env, "CAPSTAN_BUSY_BUDGET_MS")
+            .and_then(|v| v.to_string_lossy().parse::<u64>().ok())
+            .unwrap_or(BUSY_BUDGET_MS);
+        let call_ms = client_timeout_ms(command);
+        let log_line = self.retry_logger();
+        let sleep = |d: Duration| std::thread::sleep(d);
+        let policy = RetryPolicy {
+            busy_budget: Duration::from_millis(budget_ms),
+            deadline: Duration::from_millis(call_ms.saturating_add(30_000)),
+            lost_reply: true,
+            log_line: &log_line,
+            sleep: &sleep,
+        };
+        let frame_for = |rid: Option<&str>| build_frame(credential, command, args, rid);
+        match call_retrying(socket, &frame_for, timeout, &policy, command) {
+            Ok(done) => (Ok(done.line), String::new()),
+            Err(failed) => (
+                Err(failed.error),
+                retry_note(failed.lost_retries, failed.restarted),
+            ),
+        }
     }
 }
 
@@ -367,10 +470,10 @@ impl Cli<'_> {
                     limit.max(1).to_string(),
                 ]
             };
-            let request = frame(credential, "wait", &wait_args)
+            frame(credential, "wait", &wait_args)
                 .map_err(|_| invalid("command request is too large"))?;
             let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms("wait")));
-            let reply = call(socket, &request, timeout);
+            let (reply, _) = self.call_standard(socket, credential, "wait", &wait_args, timeout);
             if !legacy && refused_as_invalid(&reply) {
                 legacy = true;
                 continue;
@@ -420,7 +523,7 @@ impl Cli<'_> {
             }
             let now_ms = self.ctx.now_ms;
             let _ = handle_wire(
-                reply,
+                (reply, ""),
                 socket,
                 json,
                 "wait",
@@ -471,7 +574,7 @@ struct View {
 
 /// `handleWire` and the error mapping of `runRouted`: what is printed, or the error the CLI would print.
 fn handle_wire(
-    reply: Result<Vec<u8>, WireError>,
+    (reply, note): (Result<Vec<u8>, WireError>, &str),
     socket: &std::path::Path,
     json: bool,
     command: &str,
@@ -482,7 +585,10 @@ fn handle_wire(
     let line = match reply {
         Ok(line) => line,
         Err(WireError::AfterSend(error)) => {
-            return Err(JsError::runtime(after_send_message(&error)));
+            return Err(JsError::runtime(format!(
+                "{}{note}",
+                after_send_message(&error)
+            )));
         }
         Err(WireError::NotSent { code, .. }) => {
             return Err(JsError::runtime(if code.is_empty() {

@@ -2,10 +2,12 @@
 //! front ends print. Everything here is checked byte for byte against Node by `tests/parity`.
 pub mod js;
 mod response;
+mod retry;
 mod socket_path;
 mod transport;
 
-pub use response::{frame, response, FrameError, Response};
+pub use response::{busy_retry_after, frame, frame_with_rid, response, FrameError, Response};
+pub use retry::{call_retrying, new_request_id, Retried, RetryFailed, RetryPolicy};
 pub use socket_path::{
     check_private_dir, control_socket, control_socket_in, ensure_private_dir, runtime_dir_name,
     socket_matches, SOCKET_NAME,
@@ -31,10 +33,22 @@ pub const KEPT_COMMANDS: [&str; 7] = [
     "decide",
     "decide-merge",
 ];
-/// Commands whose lost reply the client never retries: [`KEPT_COMMANDS`] (no replayable answer) plus `wait` and
-/// `notify` (a long wait). Built from [`KEPT_COMMANDS`], so a command added there is never retried either.
-pub const NO_LOST_REPLY_RETRY: [&str; 9] = {
-    let mut all = [""; 9];
+/// Commands that take more than one step, with the launcher, git or a pane between kernel calls: a first attempt that
+/// failed after an earlier step committed is not stored, so a repeat could do that step again.
+const MULTI_STEP_COMMANDS: [&str; 7] = [
+    "plan",
+    "request-review",
+    "prompt",
+    "release",
+    "integrate",
+    "cleanup",
+    "cache",
+];
+/// Commands whose lost reply the client never retries: [`KEPT_COMMANDS`] (no replayable answer), `wait` and `notify`
+/// (a long wait) and [`MULTI_STEP_COMMANDS`] (at-least-once). Built from the lists, so a command added there is never
+/// retried either.
+pub const NO_LOST_REPLY_RETRY: [&str; 16] = {
+    let mut all = [""; 16];
     let mut i = 0;
     while i < KEPT_COMMANDS.len() {
         all[i] = KEPT_COMMANDS[i];
@@ -42,6 +56,11 @@ pub const NO_LOST_REPLY_RETRY: [&str; 9] = {
     }
     all[7] = "wait";
     all[8] = "notify";
+    let mut j = 0;
+    while j < MULTI_STEP_COMMANDS.len() {
+        all[9 + j] = MULTI_STEP_COMMANDS[j];
+        j += 1;
+    }
     all
 };
 /// The default per-call timeout.
