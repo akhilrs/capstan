@@ -435,3 +435,83 @@ fn a_gate_dirs_variable_repeats_only_its_own_entrys_dirs_variable() {
         "{message}"
     );
 }
+
+#[test]
+fn gate_debug_off_by_default_sets_the_gate_profile_variables_for_rust_only() {
+    let off = cache("[cache]\npresets = [\"rust\", \"python\", \"node\"]\n");
+    assert_eq!(
+        off.entries[0].gate_set,
+        vec![
+            ("CARGO_PROFILE_DEV_DEBUG".to_string(), "0".to_string()),
+            ("CARGO_PROFILE_TEST_DEBUG".to_string(), "0".to_string()),
+        ]
+    );
+    assert!(off.entries[1..].iter().all(|e| e.gate_set.is_empty()));
+    let json: serde_json::Value = serde_json::from_str(
+        &load("[cache]\npresets = [\"rust\", \"python\"]\n")
+            .unwrap()
+            .to_json(),
+    )
+    .unwrap();
+    let entries = &json["cache"]["entries"];
+    assert_eq!(entries[0]["gateSet"][0]["env"], "CARGO_PROFILE_DEV_DEBUG");
+    assert_eq!(entries[0]["gateSet"][0]["value"], "0");
+    assert_eq!(entries[0]["gateDebug"], false);
+    assert!(entries[0]["unitLock"].is_null());
+    assert!(entries[1]["gateDebug"].is_null());
+    assert_eq!(entries[1]["gateSet"], serde_json::json!([]));
+    assert_eq!(json["cache"]["evictWhileActive"], true);
+    assert_eq!(json["cache"]["activeEvictMinAgeMinutes"], 120);
+
+    let on = cache("[cache]\npresets = [\"rust\"]\n[cache.rust]\ngate_debug = true\n");
+    assert!(on.entries[0].gate_set.is_empty());
+}
+
+#[test]
+fn the_unit_lock_prints_for_a_rust_target_dir() {
+    let json: serde_json::Value = serde_json::from_str(
+        &load("[cache]\npresets = [\"rust\"]\n[cache.rust]\ntarget_dir = true\n")
+            .unwrap()
+            .to_json(),
+    )
+    .unwrap();
+    assert_eq!(json["cache"]["entries"][0]["unitLock"], ".cargo-lock");
+}
+
+#[test]
+fn gate_debug_must_be_a_boolean() {
+    let err = refusal("[cache]\npresets = [\"rust\"]\n[cache.rust]\ngate_debug = 1\n");
+    assert!(err.contains("cache.rust.gate_debug"), "{err}");
+}
+
+#[test]
+fn the_active_eviction_keys_default_resolve_and_are_checked() {
+    let d = cache("[cache]\n");
+    assert!(d.evict_while_active);
+    assert_eq!(d.active_evict_min_age_minutes, 120);
+    let c = cache("[cache]\nevict_while_active = false\nactive_evict_min_age_minutes = 30\n");
+    assert!(!c.evict_while_active);
+    assert_eq!(c.active_evict_min_age_minutes, 30);
+    assert_eq!(
+        cache("[cache]\nactive_evict_min_age_minutes = 0\n").active_evict_min_age_minutes,
+        0
+    );
+    for (line, key) in [
+        (
+            "active_evict_min_age_minutes = 10081",
+            "active_evict_min_age_minutes",
+        ),
+        (
+            "active_evict_min_age_minutes = -1",
+            "active_evict_min_age_minutes",
+        ),
+        (
+            "active_evict_min_age_minutes = \"x\"",
+            "active_evict_min_age_minutes",
+        ),
+        ("evict_while_active = \"yes\"", "evict_while_active"),
+    ] {
+        let err = refusal(&format!("[cache]\n{line}\n"));
+        assert!(err.contains(key), "{line}: {err}");
+    }
+}

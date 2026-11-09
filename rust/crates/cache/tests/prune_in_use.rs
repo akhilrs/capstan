@@ -315,6 +315,7 @@ fn the_guard_is_held_across_the_rename_and_a_gate_waits_then_uses_the_fresh_entr
         let hooks = PruneHooks {
             before_rename: &hook,
             after_rename: &|| {},
+            before_unit_rename: &|_| {},
         };
         let report = retry(|| clear_with_hooks(&w.rt, None, true, &env(&[]), &ok_runner, &hooks));
         assert_eq!(report.cleared, ["rust"]);
@@ -342,6 +343,7 @@ fn a_slot_eviction_holds_the_guard_too() {
         let hooks = PruneHooks {
             before_rename: &hook,
             after_rename: &|| {},
+            before_unit_rename: &|_| {},
         };
         let report =
             retry(|| prune_with_hooks(&w.rt, policy(10, true), &env(&[]), &ok_runner, &hooks));
@@ -368,6 +370,7 @@ fn an_acquire_between_rename_and_trash_removal_gets_a_slot_outside_the_trash() {
     let hooks = PruneHooks {
         before_rename: &|_| {},
         after_rename: &after,
+        before_unit_rename: &|_| {},
     };
     let report = retry(|| clear_with_hooks(&w.rt, None, true, &env(&[]), &ok_runner, &hooks));
     assert_eq!(report.cleared, ["rust"]);
@@ -429,6 +432,7 @@ fn a_slot_leased_before_the_prune_is_listed_and_kept_until_released() {
     let hooks = PruneHooks {
         before_rename: &before,
         after_rename: &|| {},
+        before_unit_rename: &|_| {},
     };
     let report = settle(&[0], || {
         prune_with_hooks(&w.rt, policy(10, true), &env(&[]), &ok_runner, &hooks)

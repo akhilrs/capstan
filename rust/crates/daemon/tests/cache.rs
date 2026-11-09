@@ -3,10 +3,12 @@
 
 mod common;
 
-use capstan_cache::{read_manifest, Runtime};
+use capstan_cache::{read_manifest, Occupant, Runtime};
 use capstan_daemon::deps::Loops;
 use capstan_daemon::deps::{DaemonOptions, Deps, KernelHandle, LogEntry, Logger};
-use capstan_daemon::handlers::cache::{refresh_manifest, runtime_of_deps};
+use capstan_daemon::handlers::cache::{
+    process_env, refresh_manifest, run_prune, run_prune_with, runtime_of_deps,
+};
 use capstan_daemon::handlers::handle_frame;
 use capstan_daemon::handlers::shared::AbortSignal;
 use capstan_daemon::handlers::MAX_RESPONSE_BYTES;
@@ -620,4 +622,46 @@ fn one_cycle_that_finds_a_worktree_only_reports() {
     assert_eq!(seen[0].0, "cache_pruned");
     assert_eq!(seen[0].1["idle"], false);
     assert_eq!(seen[0].1["wouldClear"], json!(["python"]));
+}
+
+#[test]
+fn occupants_count_against_the_cap_and_status_keeps_them_until_a_prune_clears_them() {
+    let world = World::new(true, "");
+    world.fill("python", 60 * MB, 5);
+    world.fill("bundler", 30 * MB, 1);
+    let runtime = world.runtime();
+    let gb = 1u64 << 30;
+    let occupant = [Occupant {
+        label: "verify/r1".into(),
+        bytes: 3 * gb,
+    }];
+    let result = run_prune_with(&runtime, &[], false, &process_env(), Some(&occupant)).unwrap();
+    assert_eq!(result["cleared"].as_array().unwrap().len(), 2, "{result}");
+    assert_eq!(
+        result["skipped"],
+        json!([{"label": "verify/r1", "reason": "held by verify"}])
+    );
+    let cap = runtime.max_bytes;
+    let member = world.status_cache();
+    assert_eq!(member["overCapBytes"], 3 * gb - cap, "{member}");
+    assert_eq!(
+        member["lastSkipped"],
+        json!([{"label": "verify/r1", "reason": "held by verify"}])
+    );
+    assert_eq!(member["occupants"][0]["label"], "verify/r1");
+    assert_eq!(member["occupants"][0]["bytes"], 3 * gb);
+    assert!(member["occupants"][0]["at"].is_string());
+
+    // A prune that does not know the occupants (the local CLI path) and a fresh measurement keep what is recorded.
+    run_prune(&runtime, &[], false, &process_env()).unwrap();
+    refresh_manifest(&runtime, None).unwrap();
+    let member = world.status_cache();
+    assert_eq!(member["overCapBytes"], 3 * gb - cap);
+    assert_eq!(member["occupants"][0]["label"], "verify/r1");
+
+    run_prune_with(&runtime, &[], false, &process_env(), Some(&[])).unwrap();
+    let member = world.status_cache();
+    assert_eq!(member["overCapBytes"], 0);
+    assert_eq!(member["occupants"], json!([]));
+    assert_eq!(member["lastSkipped"], json!([]));
 }

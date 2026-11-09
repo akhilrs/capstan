@@ -448,6 +448,19 @@ fn a_gate_builds_in_its_slot_directory_and_the_verify_env_wins() {
     assert!(world.wait_lease_free(0));
 }
 
+#[test]
+fn a_gate_has_no_debug_info_by_default_and_the_verify_env_wins() {
+    let mut c = cfg(&["gate"]);
+    c.verify_extra = "env = { CARGO_PROFILE_DEV_DEBUG = \"2\" }\n".into();
+    let world = World::new(c, passing(), nothing);
+    let run = world.run_to_end();
+    assert_eq!(run["state"], "passed", "{run}");
+    let env = world.env_of(0);
+    assert_eq!(env["CARGO_PROFILE_DEV_DEBUG"], "2");
+    assert_eq!(env["CARGO_PROFILE_TEST_DEBUG"], "0");
+    assert!(world.wait_lease_free(0));
+}
+
 /// A behaviour: `build` always passes; `test` fails once, wiping the slot's target as it does.
 fn wipes_once(counter_command: &'static str, fail_tail: &'static str) -> Behave {
     Arc::new(move |command, nth, env| {

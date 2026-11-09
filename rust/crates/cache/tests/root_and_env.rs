@@ -112,7 +112,7 @@ fn an_absent_tool_disables_one_entry_with_one_warning() {
 }
 
 #[test]
-fn sccache_size_defaults_to_half_the_total_and_env_dirs_are_absolute() {
+fn sccache_size_defaults_to_forty_percent_of_the_total_and_env_dirs_are_absolute() {
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(&dir.path().join("base"));
     cfg.max_size_bytes = 10 * (1 << 30);
@@ -126,7 +126,7 @@ fn sccache_size_defaults_to_half_the_total_and_env_dirs_are_absolute() {
     );
     let env = &rt.entry("rust").unwrap().env;
     assert!(
-        env.contains(&("SCCACHE_CACHE_SIZE".into(), "5G".into())),
+        env.contains(&("SCCACHE_CACHE_SIZE".into(), "4G".into())),
         "{env:?}"
     );
     let sccache_dir = &env.iter().find(|(k, _)| k == "SCCACHE_DIR").unwrap().1;

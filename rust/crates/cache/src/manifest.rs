@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use crate::error::{CacheError, Result};
 use crate::fsutil::{mkdir_private, nanos};
 use crate::measure::EntrySize;
+use crate::prune::Skipped;
 use crate::runtime::Runtime;
 
 pub const MANIFEST_VERSION: u64 = 1;
@@ -49,6 +50,18 @@ pub struct Manifest {
     pub entries: Vec<EntrySize>,
     pub measured_at_ms: u64,
     pub last_prune_at_ms: Option<u64>,
+    /// What the last prune that knew the occupants left alone (`lastSkipped`).
+    pub last_skipped: Vec<Skipped>,
+    /// The scratch the last such prune counted against the cap but never removes (`lastOccupants`).
+    pub last_occupants: Vec<OccupantRecord>,
+}
+
+/// One occupant as the last prune saw it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OccupantRecord {
+    pub label: String,
+    pub bytes: u64,
+    pub at_ms: u64,
 }
 
 impl Manifest {
@@ -60,6 +73,8 @@ impl Manifest {
             entries,
             measured_at_ms,
             last_prune_at_ms: None,
+            last_skipped: Vec::new(),
+            last_occupants: Vec::new(),
         }
     }
 
@@ -70,9 +85,15 @@ impl Manifest {
             "scope": self.scope,
             "measuredAt": self.measured_at_ms,
             "lastPruneAt": self.last_prune_at_ms,
+            "lastSkipped": self.last_skipped.iter().map(|s| json!({
+                "label": s.label, "reason": s.reason,
+            })).collect::<Vec<_>>(),
+            "lastOccupants": self.last_occupants.iter().map(|o| json!({
+                "label": o.label, "bytes": o.bytes, "at": o.at_ms,
+            })).collect::<Vec<_>>(),
             "entries": self.entries.iter().map(|e| json!({
                 "name": e.name, "bytes": e.bytes, "files": e.files,
-                "lastUsedMs": e.last_used_ms, "partial": e.partial,
+                "lastUsedMs": e.last_used_ms, "partial": e.partial, "fixedBytes": e.fixed_bytes,
             })).collect::<Vec<_>>(),
         })
     }
@@ -90,6 +111,8 @@ impl Manifest {
                     last_used_ms: e.get("lastUsedMs")?.as_u64()?,
                     partial: e.get("partial")?.as_bool()?,
                     slots: Vec::new(),
+                    units: Vec::new(),
+                    fixed_bytes: e.get("fixedBytes").and_then(Value::as_u64).unwrap_or(0),
                 })
             })
             .collect::<Option<Vec<_>>>()?;
@@ -100,6 +123,35 @@ impl Manifest {
             entries,
             measured_at_ms: value.get("measuredAt")?.as_u64()?,
             last_prune_at_ms: value.get("lastPruneAt").and_then(Value::as_u64),
+            last_skipped: value
+                .get("lastSkipped")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(|s| {
+                            Some(Skipped {
+                                label: s.get("label")?.as_str()?.to_string(),
+                                reason: s.get("reason")?.as_str()?.to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            last_occupants: value
+                .get("lastOccupants")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(|o| {
+                            Some(OccupantRecord {
+                                label: o.get("label")?.as_str()?.to_string(),
+                                bytes: o.get("bytes")?.as_u64()?,
+                                at_ms: o.get("at")?.as_u64()?,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 }
