@@ -23,7 +23,11 @@ pub const TRUNCATION_MARKER: &str = "[truncated]";
 pub const MAX_REPORT_SUMMARY_BYTES: usize = 1000;
 /// After this many rejected reports for one agent generation, further reports are refused without a new row.
 pub const MAX_REJECTED_REPORTS: usize = 100;
-pub const MAX_REVIEW_TEXT_BYTES: usize = 4000;
+pub const MAX_REVIEW_TEXT_BYTES: usize = 16000;
+/// A verdict text up to this size is quoted whole in the verdict notice; a longer one is cut.
+pub const NOTICE_REVIEW_TEXT_BYTES: usize = 4000;
+/// How much of a longer verdict text the notice quotes.
+pub const NOTICE_CUT_BYTES: usize = 3600;
 /// Rounds that ended in a verdict; failed and cancelled rounds do not use the budget.
 pub const MAX_REVIEW_ROUNDS: i64 = 5;
 /// The design review rounds a plan gets when it records no limit of its own (a plan opened before the limit was stored).

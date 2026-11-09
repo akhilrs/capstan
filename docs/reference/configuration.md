@@ -105,6 +105,7 @@ Keys that run commands on the host, send data off the host or widen what an agen
 | `[cache]` dirs and presets | host directories shared into worktrees and the build environment | Allowed |
 | `[hosts.<name>]` `command`, `kind`, `model`, `permission_mode` | the program started for an agent and its default permission mode | Allowed |
 | `[mcp_servers.<name>]` `command`, `args` | programs started for roles that list them in `mcp` | Allowed |
+| `[roles.<name>]` `write_dirs` | folders a Developer role on a claude host may write although `Write` and `Edit` are denied | Allowed (widens what an agent may do; review it like `allow`) |
 | `[roles.<name>]` `allow`, `deny`, `permission_mode`, `host`, `model`, `hooks`, `mcp`, `prompt`, `prompt_file` | an agent's tool permissions, host, hooks and instructions | Allowed |
 | `[defaults]`, `[defaults.<Kind>]` `model`, `permission_mode` | the same, as defaults | Allowed |
 | `[operator]` `auto_approve`, `auto_approve_prefix` | approvals given without asking | Allowed |
@@ -162,6 +163,8 @@ Defaults and ranges of keys the starter does not show:
 | `[roles.<name>] hooks` | none | `off` or `inherit`: whether the role runs your own Claude Code hooks (claude hosts only). |
 | `[roles.<name>] memory` | `true` on a PM (claude host) | PM only: the PM may create and edit files in its own Claude Code memory folder, `<claude config dir>/projects/<slug>/memory/` (`MEMORY.md` included; `<slug>` is the project's real path with every character that is not a letter or digit turned into `-`; the config dir is `$CLAUDE_CONFIG_DIR` or `~/.claude`). Set `false` for the full `Write`/`Edit` deny. |
 | `[roles.<name>] max_active` | unlimited | See [`max_active`](#max_active). |
+| `[roles.<name>] write_dirs` | none | `write_dirs = ["docs/research"]`: Developer role on a claude host only: up to 8 folders, relative to the agent's worktree, the role may write although `Write` and `Edit` are denied. Letters, digits, `.`, `_` and `-`; no `.`, `..`, `.git` or `.capstan` segment; no duplicates. Never set by default: only a file that lists it grants it. |
+| `[messages] max_body_bytes` | 4096 | `max_body_bytes = 8192`: 512 to 15360: the most bytes a message sent with `cstan send` may carry; longer text goes in a file and `cstan send --file`. |
 | `[mcp_servers.<name>]` | none | The name becomes the `mcp__<name>__` tool prefix. Pin the package version: an unpinned package (`@latest` or no `@version`) is warned about. |
 | `[architect] high_risk_triggers` | `["schema or migrations", "security or auth", "public contracts or wire formats", "cross-cutting changes"]` | Plans that match one are reviewed when `plan_review = "high_risk"`. |
 | `[nexora] track`, `default_action` | `"ask"`, `"create"` | Policy only; connection details stay in `.nexora.toml`, which Capstan never reads. `"ask"` shows the PM's intake picker, `"always"` applies `default_action` without asking, `"never"` removes every Nexora instruction from the PM prompt. |
@@ -199,9 +202,10 @@ A message is either *action* (it needs the recipient to act or answer) or *info*
 | `send_default` | `"action"` | `"action"`, `"info"` | The class of a `cstan send` that names neither `--action` nor `--info`. |
 | `info_wake_after_seconds` | `600` | integer 0 to 604800 | The PM is woken for info that has stayed unread this long. `0` wakes it at once. |
 | `auto_ack_info` | `true` | boolean | The digest acknowledges the info it shows. When `false`, the PM acknowledges info itself. |
+| `max_body_bytes` | `4096` | integer 512 to 15360 | The most bytes the body of a `cstan send` from an agent other than the PM may have. Longer text goes in a file committed on the agent's branch and `cstan send --file`. See [Message and text limits](#message-and-text-limits). |
 | `notice_class` | empty | table of notice kind to `"action"` or `"info"` | Changes the class of a system notice kind. Only the kinds marked overridable below may be changed. |
 
-`cstan config check` refuses a value outside these, an unknown key, an unknown notice kind and a kind that is not overridable, with an error that names the key (for example `messages.notice_class.delivery_problem`).
+`cstan config check` refuses a value outside these (`messages.max_body_bytes must be an integer from 512 to 15360`), an unknown key, an unknown notice kind and a kind that is not overridable, with an error that names the key (for example `messages.notice_class.delivery_problem`).
 
 The notice kinds, their built-in class and whether `notice_class` may change them:
 
@@ -246,6 +250,23 @@ The notice kinds, their built-in class and whether `notice_class` may change the
 A notice kind that is not overridable is always an action message, so a problem that needs the PM cannot be hidden in the digest.
 
 Upgrade note: this table is part of the configuration hash, and the ledger schema that carries message classes is 40. An older binary refuses a ledger at schema 40. To go back, stop the daemon, restore the backup the migration made (`.capstan/state/controller.sqlite.pre-v<N>-<timestamp>.sqlite`, see `[ledger]`) over `controller.sqlite`, and start the older binary.
+
+### Message and text limits
+
+Sizes in bytes. A text over its limit is refused with the limit in the message, or (a verdict notice) cut with a pointer to the full text.
+
+| Text | Limit | What happens over it |
+| --- | --- | --- |
+| Body of a `cstan send` to an agent or `@pm`, from an agent other than the PM | `[messages] max_body_bytes`, default `4096`, 512 to 15360 | Refused: `a message body may be at most <n> bytes ([messages] max_body_bytes); write the text to a file on your branch, commit it and send cstan send --file <path> --summary <text>`. |
+| The same body, from the PM | 15360 | Refused. 15360 is the terminal text limit, 16384, minus 1024 for the message frame; `max_body_bytes` cannot go above it. |
+| Message to `@user` | 4096 | Refused. |
+| `cstan send --file` summary | 1000 | Refused. |
+| Review text (a verdict's findings) | 16000 | Refused with the length and "Keep each finding to one line that says what is wrong and where". Under the limit the text is stored whole, never cut. |
+| Review text quoted in a verdict notice | 4000 whole | Over 4000 the notice shows the first 3600 bytes and `[cut: showing <n> of <total> bytes; full text: cstan inspect <review-id>]`. |
+| One request or reply frame on the control socket | 65536 | Refused. |
+| Event feed text | 4096 | Cut. |
+
+A file handed over with `cstan send --file` has no size limit of its own: the message carries only its path, branch, commit, size and summary. See [`cstan send --file`](commands.md#messaging-and-workers).
 
 ### Approval windows (`[operator]`)
 
@@ -951,7 +972,28 @@ integration = false
 | `max_reviews` | 1 to 20. How many requests one reviewer answers before it is replaced by a fresh one. Default `6`: a long-lived reviewer's context fills with earlier verdicts, so a bound keeps its judgement of each commit independent. |
 | `integration` | `true` or `false`. Whether integration reviews may also reuse the plan's reviewer. Default `false`: an integration review should look at the merged result without the bias of the package reviews. |
 
+A reviewer's verdict text (the text of `cstan review pass|findings <text>`) is stored whole up to 16000 bytes, so a long review is not shortened; over that `cstan review` is refused and the reviewer shortens it. The verdict notice that reaches the architect quotes up to 4000 bytes and otherwise the first 3600 bytes with the full text's size and `cstan inspect <review-id>` to read it. See [Message and text limits](#message-and-text-limits).
+
 Each request is its own task: the reviewer judges the commit it names, treats earlier verdicts as context only, and waits for the next request until the controller ends the session.
+
+## Write folders
+
+A Developer role normally denies `Write` and `Edit` when it must not edit files (an architect that plans and integrates). Claude Code evaluates deny rules before allow rules, so a blanket `deny` of `Write` cannot be narrowed by an `allow` of a folder: the deny wins. `write_dirs` solves this for a claude host:
+
+```toml
+[roles.architect]
+kind = "Developer"
+host = "claude"
+deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
+write_dirs = ["docs/architecture", "docs/research"]
+```
+
+- The launcher drops only the bare `Write` and `Edit` rules from the role's `deny` and adds `Edit(/<folder>/**)` for each folder, resolved inside the agent's own worktree. Every other deny stays, including path denies such as `Write(src/**)`, `NotebookEdit`, `Agent` and the `git push` and `git merge` rules.
+- It also installs a `PreToolUse` hook, `cstan guard-write --dirs <folder>...`, on `Write`, `Edit` and `MultiEdit`. The hook allows a call only when the real path of the file (symlinks resolved) lies strictly inside one of the folders, and refuses with exit 2 anything else, including an error: it fails closed. If the worktree is missing or a folder cannot be resolved, the role keeps the full deny and gets no folder.
+- Rules: up to 8 folders, relative, letters, digits, `.`, `_` and `-`, no `.`, `..`, `.git` or `.capstan` segment, no duplicates. Only a `Developer` role on a `claude` host may have it (other hosts cannot enforce it), the operator role may not, and a role cannot have both this and the PM's memory guard. `cstan config check` refuses the rest. No role has it unless the file lists it: an existing project gets no folders from an upgrade. The starter gives the architect `docs/architecture` and `docs/research`.
+- The folders are for long output (design notes, research) that the role commits on its branch and hands over with [`cstan send --file`](commands.md#messaging-and-workers) instead of pasting it into a message.
+
+Why not deny the code folders instead: a list of denied folders is a stopgap, because any new top-level folder is writable until someone adds it to the list. An allow list of write folders keeps everything else closed.
 
 ## `CAPSTAN_ALLOW_FOREIGN_SOCKET`
 

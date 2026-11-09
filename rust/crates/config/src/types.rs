@@ -268,6 +268,12 @@ impl MessageClassName {
 }
 
 pub const DEFAULT_INFO_WAKE_AFTER_SECONDS: i64 = 600;
+/// The default body limit of a message sent with `cstan send` (`messages.max_body_bytes`).
+pub const DEFAULT_MAX_BODY_BYTES: i64 = 4096;
+/// The largest `messages.max_body_bytes`: the daemon's send body limit (Herdr's text limit minus the frame reserve).
+pub const MAX_BODY_BYTES_LIMIT: i64 = 15360;
+/// The most folders in `roles.<name>.write_dirs`.
+pub const MAX_WRITE_DIRS: usize = 8;
 pub const MAX_INFO_WAKE_AFTER_SECONDS: i64 = 604_800;
 
 /// Every notice kind of the system with whether `messages.notice_class` may change its class. The names and flags
@@ -319,6 +325,8 @@ pub struct Messages {
     pub info_wake_after_seconds: i64,
     pub auto_ack_info: bool,
     pub notice_class: std::collections::BTreeMap<String, MessageClassName>,
+    /// The most bytes a message body may have (`messages.max_body_bytes`).
+    pub max_body_bytes: i64,
 }
 
 impl Default for Messages {
@@ -329,6 +337,7 @@ impl Default for Messages {
             info_wake_after_seconds: DEFAULT_INFO_WAKE_AFTER_SECONDS,
             auto_ack_info: true,
             notice_class: std::collections::BTreeMap::new(),
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
         }
     }
 }
@@ -447,6 +456,9 @@ pub struct Role {
     pub guidance: Option<AppendedGuidance>,
     /// The most agents of this role that may be active at once; `None` is unlimited.
     pub max_active: Option<i64>,
+    /// Folders (relative to the agent's worktree) a Developer role may write although `Write` and `Edit` are denied;
+    /// entries as written, trailing '/' removed. Empty means none.
+    pub write_dirs: Vec<String>,
     pub config_hash: String,
 }
 

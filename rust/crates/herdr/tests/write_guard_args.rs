@@ -12,6 +12,7 @@ fn pm(hooks: &str, guard: Option<&str>) -> ClaudeRoleSettings {
         hooks: hooks.into(),
         mcp: vec![],
         write_guard: guard.map(str::to_string),
+        write_dirs: Vec::new(),
     }
 }
 
@@ -76,4 +77,51 @@ fn unusable_guard_folders_are_refused() {
         );
     }
     assert!(guard_path_is_usable("/home/a b/.claude/projects/-x/memory"));
+}
+
+fn developer(dirs: &[&str]) -> ClaudeRoleSettings {
+    let mut role = pm("inherit", None);
+    role.write_dirs = dirs.iter().map(|d| d.to_string()).collect();
+    role
+}
+
+#[test]
+fn write_dirs_allow_each_folder_and_install_the_dirs_hook() {
+    let args = claude_arguments(&developer(&["/w/docs/a", "/w/docs/b"]), None).unwrap();
+    assert!(args.contains(&"Edit(//w/docs/a/**)".to_string()));
+    assert!(args.contains(&"Edit(//w/docs/b/**)".to_string()));
+    let deny_at = args.iter().position(|a| a == "--disallowedTools").unwrap();
+    let deny = &args[deny_at + 1..deny_at + 4];
+    assert_eq!(deny, ["NotebookEdit", "Agent", "Task"]);
+    assert!(!args.contains(&"Write".to_string()) && !args.contains(&"Edit".to_string()));
+    let s = settings(&args);
+    assert_eq!(s["disableAllHooks"], false);
+    let hook = &s["hooks"]["PreToolUse"][0];
+    assert_eq!(hook["matcher"], "Write|Edit|MultiEdit");
+    assert_eq!(
+        hook["hooks"][0]["command"],
+        "cstan guard-write --dirs '/w/docs/a' '/w/docs/b' || exit 2"
+    );
+}
+
+#[test]
+fn both_guards_are_refused() {
+    let mut role = developer(&["/w/docs"]);
+    role.write_guard = Some("/m/memory".into());
+    let error = claude_arguments(&role, None).unwrap_err();
+    assert!(format!("{error:?}").contains("either the memory guard or write folders"));
+}
+
+#[test]
+fn an_unusable_write_dir_is_refused() {
+    for bad in ["docs", "/a/../b", "/a/it's", "/a/*"] {
+        let error = claude_arguments(&developer(&[bad]), None).unwrap_err();
+        assert!(format!("{error:?}").contains("a write folder is not a usable path"));
+    }
+}
+
+#[test]
+fn empty_write_dirs_change_nothing() {
+    let args = claude_arguments(&developer(&[]), None).unwrap();
+    assert_eq!(args, claude_arguments(&pm("inherit", None), None).unwrap());
 }

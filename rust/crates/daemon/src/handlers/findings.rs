@@ -6,6 +6,7 @@ use super::shared::{
 use super::HandlerMap;
 use crate::deps::new_context;
 use crate::reviews::{release_reviewer_later, review_text};
+use capstan_kernel::records::MAX_REVIEW_TEXT_BYTES;
 use capstan_kernel::KernelError;
 use serde_json::{json, Value};
 
@@ -157,6 +158,15 @@ fn review(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         return Some(fail(
             ErrorCode::InvalidRequest,
             "the review text must not be empty",
+        ));
+    }
+    if text.len() > MAX_REVIEW_TEXT_BYTES {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            format!(
+                "the review text is {} bytes; the most is {MAX_REVIEW_TEXT_BYTES}. Keep each finding to one line that says what is wrong and where",
+                text.len()
+            ),
         ));
     }
     let credential = call.credential.to_string();

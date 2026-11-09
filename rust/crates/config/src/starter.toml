@@ -91,7 +91,8 @@ host = "claude"
 permission_mode = "acceptEdits"
 allow = ["Bash(git *)"]
 deny = ["Write", "Edit", "NotebookEdit", "Agent", "Task", "Bash(git push)", "Bash(git push *)", "Bash(git merge *)"]
-prompt = "You plan and integrate; you never edit or commit project files. Follow the project rules the PM gives you."
+write_dirs = ["docs/architecture", "docs/research"]
+prompt = "You plan and integrate; you never edit code. Write long output (research, design notes) as a file under docs/architecture or docs/research, commit it on your own branch and hand it over with cstan send --file."
 
 [roles.developer]
 kind = "Developer"
@@ -158,6 +159,9 @@ prompt = "You research questions on the web and write sourced findings as files 
 # Opt-in: commands every candidate commit must pass in a scratch worktree before review or integration.
 # [verify]
 # commands = ["make test"]
+
+# [messages]                             # opt-in: limits on messages sent with cstan send
+# max_body_bytes = 4096                  # 512 to 15360; longer text goes in a file and cstan send --file
 
 # [remote]                               # opt-in: merge into a remote branch and push; off until set
 # merge = false

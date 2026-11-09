@@ -7,12 +7,10 @@
 use crate::deps::Deps;
 use capstan_config::RoleConfig;
 use capstan_kernel::helpers::{js_trim, normalize_text};
-use capstan_kernel::records::MAX_REVIEW_TEXT_BYTES;
 use capstan_kernel::KernelError;
 use capstan_launcher::api::{LauncherError, SpawnOptions};
 use serde_json::{json, Value};
 use std::time::Duration;
-use unicode_segmentation::UnicodeSegmentation;
 
 /// How long the reviewer's own `cstan review` call has to finish printing before its pane is closed.
 pub const REVIEWER_RELEASE_DELAY_MS: u64 = 750;
@@ -101,41 +99,10 @@ pub fn choose_reviewer_role(
     ))
 }
 
-/// Normalizes what a reviewer wrote: CR, CRLF, NEL and the Unicode line and paragraph separators become LF, control and
-/// format characters other than LF become spaces, and the text is cut at a character boundary within the limit, with a
-/// marker when something was cut.
+/// Normalizes what a reviewer wrote: CR, CRLF, NEL and the Unicode line and paragraph separators become LF, and control
+/// and format characters other than LF become spaces. The text is not cut; the caller refuses one over the limit.
 pub fn review_text(text: &str) -> String {
-    let clean = normalize_text(text);
-    if clean.len() <= MAX_REVIEW_TEXT_BYTES {
-        return clean;
-    }
-    let marker = " [text cut]";
-    let room = MAX_REVIEW_TEXT_BYTES - marker.len();
-    let mut out = String::new();
-    let mut bytes = 0;
-    for segment in clean.graphemes(true) {
-        if bytes + segment.len() > room {
-            break;
-        }
-        out.push_str(segment);
-        bytes += segment.len();
-    }
-    if out.is_empty() {
-        // A first character longer than the limit (a letter with a flood of combining marks): keep whole code points.
-        bytes = 0;
-        for point in clean.chars() {
-            if bytes + point.len_utf8() > room {
-                break;
-            }
-            out.push(point);
-            bytes += point.len_utf8();
-        }
-    }
-    let joined = format!(
-        "{}{marker}",
-        out.trim_end_matches(capstan_kernel::helpers::is_js_space)
-    );
-    js_trim(&joined).to_string()
+    js_trim(&normalize_text(text)).to_string()
 }
 
 fn field(value: &Value, key: &str) -> Value {
@@ -398,6 +365,7 @@ pub fn recover_reviews(deps: &Deps, credential: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use capstan_kernel::records::MAX_REVIEW_TEXT_BYTES;
 
     #[test]
     fn short_text_is_only_normalized() {
@@ -405,20 +373,18 @@ mod tests {
     }
 
     #[test]
-    fn long_text_is_cut_at_a_character_with_a_marker() {
+    fn long_text_is_kept_whole() {
         let text = "é".repeat(MAX_REVIEW_TEXT_BYTES);
-        let cut = review_text(&text);
-        assert!(cut.len() <= MAX_REVIEW_TEXT_BYTES);
-        assert!(cut.ends_with(" [text cut]"));
-        assert!(cut.starts_with('é'));
+        let kept = review_text(&text);
+        assert_eq!(kept, text);
+        assert!(!kept.contains("cut"));
     }
 
     #[test]
-    fn a_first_character_longer_than_the_limit_keeps_code_points() {
+    fn a_text_over_the_limit_is_not_shortened() {
         let text = format!("e{}", "\u{301}".repeat(MAX_REVIEW_TEXT_BYTES));
-        let cut = review_text(&text);
-        assert!(cut.len() <= MAX_REVIEW_TEXT_BYTES);
-        assert!(cut.starts_with('e'));
-        assert!(cut.ends_with("[text cut]"));
+        let kept = review_text(&text);
+        assert_eq!(kept, text);
+        assert!(kept.len() > MAX_REVIEW_TEXT_BYTES);
     }
 }

@@ -1213,6 +1213,36 @@ impl LauncherKernel {
         (deny, Some(dir))
     }
 
+    /// The deny rules and the write folders of a developer role with `write_dirs`: each folder joined onto the
+    /// worktree's real path. Without a worktree, with a worktree that cannot be resolved, or with a folder that is not
+    /// a usable path the full deny stays and no folder is passed (fail closed).
+    fn write_dirs(&self, role: &Role, worktree_path: Option<&str>) -> (Vec<String>, Vec<String>) {
+        let keep = (role.deny.clone(), Vec::new());
+        if role.write_dirs.is_empty() || role.kind != "Developer" {
+            return keep;
+        }
+        let Some(worktree) = worktree_path.and_then(|path| std::fs::canonicalize(path).ok()) else {
+            return keep;
+        };
+        let mut dirs = Vec::new();
+        for folder in &role.write_dirs {
+            let Some(dir) = worktree.join(folder).to_str().map(str::to_string) else {
+                return keep;
+            };
+            if !capstan_herdr::claude_args::guard_path_is_usable(&dir) {
+                return keep;
+            }
+            dirs.push(dir);
+        }
+        let deny = role
+            .deny
+            .iter()
+            .filter(|rule| !PM_GUARDED_DENY.contains(&rule.as_str()))
+            .cloned()
+            .collect();
+        (deny, dirs)
+    }
+
     /// The command-line arguments of the agent's host.
     pub fn arguments(
         &self,
@@ -1231,6 +1261,11 @@ impl LauncherKernel {
             "pi" => pi_arguments(&host, prompt_file)?,
             _ => {
                 let (deny, write_guard) = self.memory_guard(role);
+                let (deny, write_dirs) = if write_guard.is_some() {
+                    (deny, Vec::new())
+                } else {
+                    self.write_dirs(role, worktree_path)
+                };
                 let mut allow = role.allow.clone();
                 if !allow.iter().any(|rule| rule == CSTAN_ALLOW_RULE) {
                     allow.push(CSTAN_ALLOW_RULE.to_string());
@@ -1252,6 +1287,7 @@ impl LauncherKernel {
                             })
                             .collect(),
                         write_guard,
+                        write_dirs,
                     },
                     Some(prompt_file),
                 )?

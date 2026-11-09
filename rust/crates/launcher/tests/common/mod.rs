@@ -104,6 +104,13 @@ fn is_pm_prompt(text: &str) -> bool {
 
 const RUST_ONLY_OPERATOR_SENTENCE: &str = "To restart the controller always use the restart form: a command that runs `cstan stop` or `cstan restart` is refused, because the controller that runs the command would stop itself and the rest of the command would never run. ";
 
+const RUST_ONLY_HANDOVER: [&str; 4] = [
+    "- `cstan send @pm --file <path> --summary \"<text>\"` hands over a file you committed on your branch; the PM reads it with git show only if it needs to.\n",
+    "A message is at most 4 KB by default ([messages] max_body_bytes). Write anything longer (research, design notes, analyses, logs) to a file in your worktree, commit it on your branch and send its path with --file and a one-line summary; never paste a long document into a message.\n",
+    "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan inspect <review-id>. ",
+    " Also send the PM `cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit and next to the report command; the report text never goes in a message.",
+];
+
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and
 /// a long string is its SHA-256 and byte length (`normal` of test/launcher-parity-export.ts).
 pub fn normal(value: &Value, scratch: &str) -> Value {
@@ -115,6 +122,12 @@ pub fn normal(value: &Value, scratch: &str) -> Value {
             // The Operator reference carries one Rust-only sentence (restart through the restart kind) that the
             // frozen Node text lacks.
             let text = text.replace(RUST_ONLY_OPERATOR_SENTENCE, "");
+            // The by-file handover sentences (plan-175) are Rust-only as well.
+            // A codex arg carries the prompt as a quoted TOML string (a newline is \u000a), so the escaped form goes too.
+            let text = RUST_ONLY_HANDOVER.iter().fold(text, |text, part| {
+                let escaped = part.replace('"', "\\\"").replace('\n', "\\u000a");
+                text.replace(part, "").replace(&escaped, "")
+            });
             if text.encode_utf16().count() > LONG_STRING && is_pm_prompt(&text) {
                 return json!({ PM_PROMPT_MARKER: true });
             }
@@ -237,6 +250,7 @@ fn role(name: &str, kind: &str, host: &str, prompt_text: Option<&str>) -> Role {
         prompt_text: prompt_text.map(str::to_string),
         guidance: None,
         max_active: (kind == "Supervisor").then_some(1),
+        write_dirs: Vec::new(),
         config_hash: hash_of(name),
     }
 }

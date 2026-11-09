@@ -1040,10 +1040,32 @@ pub fn review_notice(row: &ReviewRow, author_agent_ids: &[String]) -> String {
             "The reviewer's text, not verified: {}",
             row.verdict_text
                 .as_deref()
-                .map_or("null".to_string(), quoted)
+                .map_or("null".to_string(), |text| review_text_notice(
+                    &row.review_id,
+                    text
+                ))
         ),
     ]
     .join("\n")
+}
+
+/// The reviewer's text as the notice quotes it: whole up to the notice limit, otherwise its first bytes with a pointer
+/// to the full text.
+fn review_text_notice(review_id: &str, text: &str) -> String {
+    if text.len() <= NOTICE_REVIEW_TEXT_BYTES {
+        return quoted(text);
+    }
+    let mut end = NOTICE_CUT_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let shown = text[..end].trim_end_matches(is_js_space);
+    format!(
+        "{} [cut: showing {} of {} bytes; full text: cstan inspect {review_id}]",
+        quoted(shown),
+        shown.len(),
+        text.len()
+    )
 }
 
 pub fn plan_needs_attention_notice(plan_id: &str, limit: i64, design_rounds: i64) -> String {

@@ -201,7 +201,7 @@ fn every_prompt_variant_equals_nodes_text() {
             (Ok(prompt), None) => {
                 // The Operator reference carries one Rust-only sentence (restart through the restart kind); Node's
                 // frozen text, hash and golden file lack it, so compare without it.
-                let prompt = prompt.replace(RUST_ONLY_OPERATOR_SENTENCE, "");
+                let prompt = strip_handover(&prompt.replace(RUST_ONLY_OPERATOR_SENTENCE, ""));
                 if let Some(fixture) = text(want, "fixture") {
                     let golden = std::fs::read_to_string(format!(
                         "{}/../../testdata/fixtures/prompts-off/{fixture}.txt",
@@ -266,4 +266,19 @@ const RUST_ONLY_OPERATOR_SENTENCE: &str = "To restart the controller always use 
 fn the_constants_are_node_s() {
     assert_eq!(CSTAN_ALLOW_RULE, "Bash(cstan *)");
     assert_eq!(MAX_PROMPT_BYTES, 163_840);
+}
+
+/// The by-file handover sentences (plan-175) are Rust-only: Node's frozen text lacks them, so a case without an overlay is
+/// compared without them.
+const RUST_ONLY_HANDOVER: [&str; 4] = [
+    "- `cstan send @pm --file <path> --summary \"<text>\"` hands over a file you committed on your branch; the PM reads it with git show only if it needs to.\n",
+    "A message is at most 4 KB by default ([messages] max_body_bytes). Write anything longer (research, design notes, analyses, logs) to a file in your worktree, commit it on your branch and send its path with --file and a one-line summary; never paste a long document into a message.\n",
+    "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan inspect <review-id>. ",
+    " Also send the PM `cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit and next to the report command; the report text never goes in a message.",
+];
+
+fn strip_handover(prompt: &str) -> String {
+    RUST_ONLY_HANDOVER
+        .iter()
+        .fold(prompt.to_string(), |text, part| text.replace(part, ""))
 }

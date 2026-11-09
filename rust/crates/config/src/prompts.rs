@@ -596,7 +596,10 @@ pub fn build_role_prompt(input: &PromptInput) -> Result<String, PromptTooLarge> 
 
 #[cfg(test)]
 mod tests {
-    use super::{fill, ARCHITECT_REFERENCE, PM_OPERATOR_SECTION, VERIFIER_REFERENCE};
+    use super::{
+        fill, ARCHITECT_FINISH_RULES, ARCHITECT_REFERENCE, PM_OPERATOR_SECTION, PM_REFERENCE,
+        PM_RESEARCH_SECTION, RESEARCHER_REFERENCE, VERIFIER_REFERENCE, WORKER_REFERENCE,
+    };
 
     #[test]
     fn verifier_reference_asks_for_an_exhaustive_plan_review() {
@@ -696,5 +699,36 @@ mod tests {
         assert!(section.contains("cstan design changes <plan-id>/<package-id> --asked-user"));
         assert!(section.contains("Never approve on your own judgement"));
         assert!(section.contains("design_approval_missing"));
+    }
+
+    #[test]
+    fn long_output_goes_over_by_file() {
+        assert!(WORKER_REFERENCE.contains(
+            "- `cstan send @pm --file <path> --summary \"<text>\"` hands over a file you committed on your branch; the PM reads it with git show only if it needs to."
+        ));
+        assert!(WORKER_REFERENCE.contains(
+            "A message is at most 4 KB by default ([messages] max_body_bytes). Write anything longer (research, design notes, analyses, logs) to a file in your worktree, commit it on your branch and send its path with --file and a one-line summary; never paste a long document into a message."
+        ));
+        assert!(ARCHITECT_REFERENCE.contains(
+            "you never edit code; you may create and commit files only under your role's write folders (write_dirs; the write guard refuses anything else), to hand over long output with cstan send --file"
+        ));
+        assert!(!ARCHITECT_REFERENCE.contains("you never edit or commit project files"));
+        assert!(ARCHITECT_FINISH_RULES.contains("You commit only files in your write folders"));
+        assert!(!ARCHITECT_FINISH_RULES.contains("You make no commits"));
+        assert!(VERIFIER_REFERENCE.contains(
+            "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan inspect <review-id>."
+        ));
+        assert!(RESEARCHER_REFERENCE.contains(
+            "cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit"
+        ));
+        assert!(RESEARCHER_REFERENCE.contains("the report text never goes in a message"));
+        assert!(PM_RESEARCH_SECTION.contains(
+            "Route research (web lookups, comparisons, source checks) to the researcher role when one is configured, never to the architect; the architect plans."
+        ));
+        assert!(PM_REFERENCE.contains(
+            "A message naming a file (File handed over: ...) carries its path, branch and commit: read it with git show <commit>:<path> only when you need it, and forward the reference, not the text."
+        ));
+        assert!(PM_RESEARCH_SECTION.contains("cstan send @pm --file"));
+        assert!(!PM_REFERENCE.contains("cstan plan"));
     }
 }

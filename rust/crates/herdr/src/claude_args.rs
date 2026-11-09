@@ -83,6 +83,9 @@ pub struct ClaudeRoleSettings {
     /// The folder a PM may write to (absolute). When set, the Write/Edit guard hook is installed and the folder is
     /// allowed; the caller has already left bare `Write` and `Edit` out of `deny`.
     pub write_guard: Option<String>,
+    /// The folders a developer-kind role may write to (absolute). When not empty, the same guard hook is installed
+    /// with `--dirs`, each folder is allowed, and the caller has already left bare `Write` and `Edit` out of `deny`.
+    pub write_dirs: Vec<String>,
 }
 
 /// The hook matcher of the guard: every tool that edits a file except NotebookEdit, which the PM keeps denied.
@@ -92,6 +95,12 @@ pub const WRITE_GUARD_MATCHER: &str = "Write|Edit|MultiEdit";
 /// refuse the write: Claude Code treats any other non-zero exit as a non-blocking error.
 pub fn write_guard_command(memory_dir: &str) -> String {
     format!("cstan guard-write '{memory_dir}' || exit 2")
+}
+
+/// The shell command of the guard hook for a role with write folders; same fail-closed `|| exit 2`.
+pub fn write_dirs_guard_command(dirs: &[String]) -> String {
+    let quoted: Vec<String> = dirs.iter().map(|d| format!("'{d}'")).collect();
+    format!("cstan guard-write --dirs {} || exit 2", quoted.join(" "))
 }
 
 /// The folder is put inside single quotes and a `//` absolute-path rule, so it must not hold a quote, a glob
@@ -122,6 +131,17 @@ pub fn claude_arguments(
     args.push("--permission-mode".into());
     args.push(role.permission_mode.clone());
     let mut allow = role.allow.clone();
+    if role.write_guard.is_some() && !role.write_dirs.is_empty() {
+        return Err(invalid(
+            "a role has either the memory guard or write folders",
+        ));
+    }
+    for dir in &role.write_dirs {
+        if !guard_path_is_usable(dir) {
+            return Err(invalid("a write folder is not a usable path"));
+        }
+        allow.push(format!("Edit(/{}/**)", dir.trim_end_matches('/')));
+    }
     if let Some(dir) = &role.write_guard {
         if !guard_path_is_usable(dir) {
             return Err(invalid("the write guard folder is not a usable path"));
@@ -168,13 +188,18 @@ pub fn claude_arguments(
         base
     };
     args.push("--settings".into());
-    if let Some(dir) = &role.write_guard {
+    let guard_command = match &role.write_guard {
+        Some(dir) => Some(write_guard_command(dir)),
+        None if !role.write_dirs.is_empty() => Some(write_dirs_guard_command(&role.write_dirs)),
+        None => None,
+    };
+    if let Some(command) = guard_command {
         // Only the guard: hooks = "off" still installs no inbox hook. disableAllHooks cannot stay, because it would
         // switch the guard off too, so hooks from the user's or project's own Claude settings run as well.
         let mut settings = attribution(Map::new());
         settings.insert("disableAllHooks".into(), json!(false));
         let mut hooks = Vec::new();
-        hooks.push(json!({"matcher": WRITE_GUARD_MATCHER, "hooks": [{"type": "command", "command": write_guard_command(dir), "timeout": 10}]}));
+        hooks.push(json!({"matcher": WRITE_GUARD_MATCHER, "hooks": [{"type": "command", "command": command, "timeout": 10}]}));
         let mut events = Map::new();
         events.insert("PreToolUse".into(), Value::Array(hooks));
         if role.hooks != "off" {

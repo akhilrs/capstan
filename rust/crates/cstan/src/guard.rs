@@ -19,8 +19,53 @@ pub fn run(memory_dir: &str) -> Result<(), String> {
     check(memory_dir, &input)
 }
 
+/// Reads the hook input from stdin and decides for a role with write folders.
+pub fn run_dirs(dirs: &[String]) -> Result<(), String> {
+    let mut input = String::new();
+    std::io::stdin()
+        .take(MAX_INPUT)
+        .read_to_string(&mut input)
+        .map_err(|_| "cannot read the tool call".to_string())?;
+    check_dirs(dirs, &input)
+}
+
+/// Allows a Write, Edit or MultiEdit whose real path lies strictly inside one of `dirs`.
+pub fn check_dirs(dirs: &[String], input: &str) -> Result<(), String> {
+    let (target, path) = target_of(input)?;
+    let mut resolved = Vec::new();
+    for dir in dirs {
+        resolved.push(real_path(dir).map_err(|_| "a write folder cannot be resolved".to_string())?);
+    }
+    if resolved
+        .iter()
+        .any(|dir| target != *dir && target.starts_with(dir))
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "this role may write only under {}; {path} is outside them",
+            dirs.join(", ")
+        ))
+    }
+}
+
 /// Allows a Write, Edit or MultiEdit whose real path lies strictly inside `memory_dir`.
 pub fn check(memory_dir: &str, input: &str) -> Result<(), String> {
+    let (target, path) = target_of(input)?;
+    let memory =
+        real_path(memory_dir).map_err(|_| "the memory folder cannot be resolved".to_string())?;
+    if target != memory && target.starts_with(&memory) {
+        Ok(())
+    } else {
+        Err(format!(
+            "a PM may write only under its memory folder ({}); {path} is outside it",
+            memory.display()
+        ))
+    }
+}
+
+/// The real path of the file a Write, Edit or MultiEdit call names, with the path as given.
+fn target_of(input: &str) -> Result<(PathBuf, String), String> {
     let call: Value =
         serde_json::from_str(input).map_err(|_| "the tool call is not valid JSON".to_string())?;
     match call.get("tool_name").and_then(Value::as_str) {
@@ -32,17 +77,7 @@ pub fn check(memory_dir: &str, input: &str) -> Result<(), String> {
         .and_then(|input| input.get("file_path"))
         .and_then(Value::as_str)
         .ok_or("the tool call has no file_path")?;
-    let target = real_path(path)?;
-    let memory =
-        real_path(memory_dir).map_err(|_| "the memory folder cannot be resolved".to_string())?;
-    if target != memory && target.starts_with(&memory) {
-        Ok(())
-    } else {
-        Err(format!(
-            "a PM may write only under its memory folder ({}); {path} is outside it",
-            memory.display()
-        ))
-    }
+    Ok((real_path(path)?, path.to_string()))
 }
 
 /// The path with every symlink resolved, also for the part that does not exist yet. Refuses a relative path, a `..`
