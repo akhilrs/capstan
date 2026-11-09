@@ -370,6 +370,21 @@ impl Cli<'_> {
             "cache" => return self.cache(&rest),
             "guard-write" => {
                 // A hook: exit 2 refuses the tool call, so every failure, a bad argument included, is 2.
+                if rest.first().map(String::as_str) == Some("--dirs") {
+                    let dirs = &rest[1..];
+                    if dirs.is_empty() || dirs.len() > 8 {
+                        self.io
+                            .err_line("guard-write: --dirs takes 1 to 8 absolute folders");
+                        return Ok(Flow::Code(2));
+                    }
+                    return Ok(match guard::run_dirs(dirs) {
+                        Ok(()) => Flow::Code(0),
+                        Err(reason) => {
+                            self.io.err_line(&format!("guard-write: {reason}"));
+                            Flow::Code(2)
+                        }
+                    });
+                }
                 let [memory_dir] = rest.as_slice() else {
                     self.io
                         .err_line("guard-write: usage: guard-write <memory-dir>");

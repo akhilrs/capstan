@@ -4,7 +4,7 @@ use capstan_wire::js::{self, JsStr, Value};
 use sha2::{Digest, Sha256};
 
 use crate::remote::Remote;
-use crate::types::{Cleanup, Host, McpServer, Operator, Role, RoleConfig};
+use crate::types::{Cleanup, Host, McpServer, Operator, Role, RoleConfig, DEFAULT_MAX_BODY_BYTES};
 
 pub(crate) fn text(value: &str) -> Value {
     Value::String(JsStr::from(value))
@@ -174,6 +174,9 @@ fn resolved_role(role: &Role, prompt_value: Value, hashed: bool) -> Vec<(&'stati
         ("deny", strings(&role.deny)),
         ("hooks", text(role.hooks)),
     ];
+    if !role.write_dirs.is_empty() {
+        members.push(("writeDirs", strings(&role.write_dirs)));
+    }
     // `configHash` covers only what the user wrote: the limit a kind has by default is left out, so adding the
     // setting did not change the hash (and the role re-sync) of a project that does not use it.
     if !(hashed && role.max_active == default_max_active(&role.kind)) {
@@ -225,6 +228,29 @@ impl RoleConfig {
         let n = &self.notifications;
         let t = &self.timers;
         let o = &self.operator;
+        let mut messages_members = vec![
+            ("wake", text(self.messages.wake.as_str())),
+            ("sendDefault", text(self.messages.send_default.as_str())),
+            (
+                "infoWakeAfterSeconds",
+                number(self.messages.info_wake_after_seconds),
+            ),
+            ("autoAckInfo", Value::Bool(self.messages.auto_ack_info)),
+            (
+                "noticeClass",
+                object(
+                    self.messages
+                        .notice_class
+                        .iter()
+                        .map(|(kind, class)| (kind.as_str(), text(class.as_str())))
+                        .collect(),
+                ),
+            ),
+        ];
+        // Only a limit other than the default is printed, so every earlier config JSON keeps its bytes.
+        if self.messages.max_body_bytes != DEFAULT_MAX_BODY_BYTES {
+            messages_members.push(("maxBodyBytes", number(self.messages.max_body_bytes)));
+        }
         let mut members = vec![
             ("schemaVersion", number(1)),
             ("projectName", optional(&self.project_name)),
@@ -278,28 +304,7 @@ impl RoleConfig {
                     ),
                 ]),
             ),
-            (
-                "messages",
-                object(vec![
-                    ("wake", text(self.messages.wake.as_str())),
-                    ("sendDefault", text(self.messages.send_default.as_str())),
-                    (
-                        "infoWakeAfterSeconds",
-                        number(self.messages.info_wake_after_seconds),
-                    ),
-                    ("autoAckInfo", Value::Bool(self.messages.auto_ack_info)),
-                    (
-                        "noticeClass",
-                        object(
-                            self.messages
-                                .notice_class
-                                .iter()
-                                .map(|(kind, class)| (kind.as_str(), text(class.as_str())))
-                                .collect(),
-                        ),
-                    ),
-                ]),
-            ),
+            ("messages", object(messages_members)),
             (
                 "architect",
                 object(vec![

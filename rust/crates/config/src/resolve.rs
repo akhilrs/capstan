@@ -1180,6 +1180,7 @@ fn resolve_roles(
                 1,
             )?),
         };
+        let write_dirs = resolve_write_dirs(role.get("write_dirs"), &at, kind, host)?;
         let (prompt, prompt_text, guidance) =
             resolve_prompt(role, &at, name, kind, project_root, design, warnings)?;
         let (mut allow, mut deny, mut mcp) = (allow, deny, mcp);
@@ -1221,12 +1222,70 @@ fn resolve_roles(
             prompt_text,
             guidance,
             max_active,
+            write_dirs,
             config_hash: String::new(),
         };
         resolved.config_hash = role_hash(&resolved, host);
         roles.push(resolved);
     }
     Ok(roles)
+}
+
+/// `roles.<name>.write_dirs`: 0..=`MAX_WRITE_DIRS` relative folders, Developer role on a claude host only.
+fn resolve_write_dirs(
+    value: Option<&Item>,
+    at: &str,
+    kind: &str,
+    host: &Host,
+) -> Result<Vec<String>> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let Item::Array(items) = value else {
+        return invalid(format!("{at}.write_dirs must be a list of strings"));
+    };
+    if items.len() > MAX_WRITE_DIRS {
+        return invalid(format!(
+            "{at}.write_dirs may list at most {MAX_WRITE_DIRS} folders"
+        ));
+    }
+    let mut dirs: Vec<String> = Vec::new();
+    for item in items {
+        let Item::Str(text) = item else {
+            return invalid(format!("{at}.write_dirs must be a list of strings"));
+        };
+        let trimmed = text.strip_suffix('/').unwrap_or(text);
+        let bad = trimmed.is_empty()
+            || trimmed.len() > 200
+            || !output_dir_ok(trimmed)
+            || trimmed
+                .split('/')
+                .any(|part| part == ".git" || part == ".capstan");
+        if bad {
+            return invalid(format!(
+                "{at}.write_dirs: \"{text}\" must be a relative folder of letters, digits, ., _ and - without ., .., .git or .capstan segments"
+            ));
+        }
+        if dirs.iter().any(|seen| seen == trimmed) {
+            return invalid(format!("{at}.write_dirs lists \"{trimmed}\" twice"));
+        }
+        dirs.push(trimmed.to_string());
+    }
+    if dirs.is_empty() {
+        return Ok(dirs);
+    }
+    if kind != "Developer" {
+        return invalid(format!(
+            "{at}.write_dirs: only a Developer role may have write folders; kind is {kind}"
+        ));
+    }
+    if host.kind != "claude" {
+        return invalid(format!(
+            "{at}.write_dirs: needs a claude host, which enforces it; host {} is {}",
+            host.name, host.kind
+        ));
+    }
+    Ok(dirs)
 }
 
 fn resolve_prompt(
@@ -1920,6 +1979,11 @@ fn resolve_operator(
             operator_role.kind
         ));
     }
+    if !operator_role.write_dirs.is_empty() {
+        return invalid(format!(
+            "roles.{role}.write_dirs: the operator role cannot have write folders"
+        ));
+    }
     let host = hosts.iter().find(|host| host.name == operator_role.host);
     if host.map(|h| h.kind.as_str()) != Some("claude") {
         return invalid(format!(
@@ -1968,6 +2032,15 @@ fn resolve_messages(table: &Table) -> Result<Messages> {
     )?;
     let auto_ack_info =
         optional_boolean(table.get("auto_ack_info"), "messages.auto_ack_info", true)?;
+    let max_body_bytes = match table.get("max_body_bytes") {
+        None => DEFAULT_MAX_BODY_BYTES,
+        Some(Item::Int(n)) if (512..=MAX_BODY_BYTES_LIMIT).contains(n) => *n,
+        Some(_) => {
+            return invalid(format!(
+                "messages.max_body_bytes must be an integer from 512 to {MAX_BODY_BYTES_LIMIT}"
+            ))
+        }
+    };
     let mut notice_class = std::collections::BTreeMap::new();
     for (kind, value) in
         optional_table(table.get("notice_class"), "messages.notice_class")?.entries()
@@ -1993,6 +2066,7 @@ fn resolve_messages(table: &Table) -> Result<Messages> {
         info_wake_after_seconds,
         auto_ack_info,
         notice_class,
+        max_body_bytes,
     })
 }
 

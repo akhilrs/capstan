@@ -5,6 +5,7 @@
 
 pub mod cli;
 pub mod deps;
+pub mod file_handoff;
 pub mod handlers;
 pub mod loops;
 pub mod ntfy;

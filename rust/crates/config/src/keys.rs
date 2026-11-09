@@ -51,6 +51,7 @@ pub const MESSAGES_KEYS: &[&str] = &[
     "info_wake_after_seconds",
     "auto_ack_info",
     "notice_class",
+    "max_body_bytes",
 ];
 pub const LIMITS_KEYS: &[&str] = &["max_workers"];
 pub const LEDGER_KEYS: &[&str] = &[
@@ -133,6 +134,7 @@ pub const ROLE_KEYS: &[&str] = &[
     "prompt",
     "prompt_file",
     "max_active",
+    "write_dirs",
 ];
 /// The keys of `[defaults]` itself and of each `[defaults.<Kind>]`.
 pub const DEFAULTS_ROLE_KEYS: &[&str] = &["model", "permission_mode"];

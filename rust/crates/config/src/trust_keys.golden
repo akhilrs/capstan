@@ -90,6 +90,7 @@ checked mcp_servers.<name>.args
 checked mcp_servers.<name>.command
 checked messages.auto_ack_info
 checked messages.info_wake_after_seconds
+checked messages.max_body_bytes
 checked messages.notice_class.<kind>
 checked messages.send_default
 checked messages.wake
@@ -152,6 +153,7 @@ checked roles.<name>.model
 checked roles.<name>.permission_mode
 checked roles.<name>.prompt
 checked roles.<name>.prompt_file
+checked roles.<name>.write_dirs
 checked supervision.check_seconds
 checked supervision.enabled
 checked timers.finding_check_seconds

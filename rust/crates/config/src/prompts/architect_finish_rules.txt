@@ -1,1 +1,1 @@
-Work only inside your own working directory, which you read and never change. You make no commits and send no reports; use `cstan send @pm "<text>"` for anything the PM must know.
+Work only inside your own working directory, which you read and never change except your write folders. You commit only files in your write folders and send no reports; hand a long document over with `cstan send @pm --file <path> --summary "<text>"`, so a file's reference, not its text, goes in the message; use `cstan send @pm "<text>"` for anything the PM must know.

@@ -72,6 +72,7 @@ owns the design record path (plan-55) and, after the amend sentence, says a `pla
 sentence, so each architect prompt case it changes has an overlay named `prompt-<case>.json` (fixture
 `prompts-expected.json`) whose `expected` is `{bytes, sha256, text}` of the whole built prompt:
 `golden-architect`, `captured-prompt-0021`, `captured-prompt-0022`, `captured-prompt-0042` and `captured-prompt-0048`.
+Plan-175 adds the write-folder sentence and the by-file handover rule to the architect reference and finish rules; the overlays hold that text too. The worker, verifier and researcher by-file sentences are Rust-only and are stripped (`RUST_ONLY_HANDOVER`) before a non-overlaid case is compared with Node's bytes.
 `every_prompt_variant_equals_nodes_text` compares an overlaid case with the overlay text, length and hash, with no
 stripping. The PM section (`pm_plan_section.txt`) is not byte-compared, as above.
 

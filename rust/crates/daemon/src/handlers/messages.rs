@@ -10,6 +10,7 @@ use super::shared::{
 };
 use super::HandlerMap;
 use crate::deps::new_context;
+use crate::file_handoff;
 use capstan_herdr::api::is_agent_name;
 use capstan_kernel::areas::messaging::RESOLUTION_DECISIONS;
 use capstan_kernel::types::AgentRecord;
@@ -174,6 +175,9 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             "send takes --action or --info, not both",
         ));
     }
+    if args.get(1).map(String::as_str) == Some("--file") {
+        return Some(send_file(env, call, &args, action_flag, info_flag));
+    }
     // `@user <text> --option <a> --option <b>`: a question's choices follow its text.
     let mut options: Vec<String> = Vec::new();
     let args: Vec<String> =
@@ -199,10 +203,17 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         ));
     }
     let (target, body) = (args[0].clone(), args[1].clone());
-    if body.len() > MAX_SEND_BODY_BYTES {
+    let (limit, from_config) = body_limit(env, call);
+    if body.len() > limit {
         return Some(fail(
             ErrorCode::BodyTooLarge,
-            format!("a message body may be at most {MAX_SEND_BODY_BYTES} bytes"),
+            if !from_config {
+                format!("a message body may be at most {MAX_SEND_BODY_BYTES} bytes")
+            } else {
+                format!(
+                    "a message body may be at most {limit} bytes ([messages] max_body_bytes); write the text to a file on your branch, commit it and send cstan send --file <path> --summary <text>"
+                )
+            },
         ));
     }
     if imitates_frame(&body) {
@@ -211,6 +222,125 @@ fn send(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             "a message body must not contain a line that looks like a Capstan message frame",
         ));
     }
+    deliver(env, call, target, body, action_flag, info_flag, options)
+}
+
+/// The most bytes a body may have and whether it comes from the config: `messages.max_body_bytes` for an agent other
+/// than the PM, else the daemon's limit.
+fn body_limit(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> (usize, bool) {
+    match (&call.identity.agent, env.deps.options.capstan.as_deref()) {
+        (Some(agent), Some(config)) if agent.kind != "PM" => (
+            usize::try_from(config.messages.max_body_bytes)
+                .map_or(MAX_SEND_BODY_BYTES, |n| n.min(MAX_SEND_BODY_BYTES)),
+            true,
+        ),
+        _ => (MAX_SEND_BODY_BYTES, false),
+    }
+}
+
+/// `send [--info|--action] <recipient> --file <path> [--summary <text>]`: hands over a file committed on the caller's
+/// branch by reference.
+fn send_file(
+    env: &CommandEnv<'_>,
+    call: &CommandCall<'_>,
+    args: &[String],
+    action_flag: bool,
+    info_flag: bool,
+) -> CommandResponse {
+    let usage = "send --file takes a recipient, --file <path> and an optional --summary <text>";
+    if args.len() != 3 && !(args.len() == 5 && args[3] == "--summary") {
+        return fail(ErrorCode::InvalidRequest, usage);
+    }
+    let (target, path) = (args[0].clone(), args[2].clone());
+    let summary = args.get(4).cloned();
+    if target != "@user" && target != "@pm" && !is_safe_agent_id(&target) {
+        return fail(ErrorCode::InvalidRequest, "the recipient id is not valid");
+    }
+    let Some(caller) = call.identity.agent.clone() else {
+        return fail(ErrorCode::InvalidRequest, NEEDS_BRANCH);
+    };
+    if !file_handoff::valid_path(&path) {
+        return fail(ErrorCode::InvalidRequest, file_handoff::PATH_RULE);
+    }
+    if let Some(summary) = &summary {
+        if summary.len() > file_handoff::MAX_SUMMARY_BYTES {
+            return fail(
+                ErrorCode::InvalidRequest,
+                "the summary may be at most 1000 bytes",
+            );
+        }
+        if imitates_frame(summary) {
+            return fail(
+                ErrorCode::InvalidRequest,
+                "a message body must not contain a line that looks like a Capstan message frame",
+            );
+        }
+    }
+    let controller = env.deps.credential().to_string();
+    let agent_id = caller.agent_id.clone();
+    let row = env.deps.kernel.run(move |core| {
+        let panes = core.agent_panes(&controller)?;
+        Ok(panes
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["agentId"] == agent_id.as_str())
+            .map(|row| {
+                (
+                    row["branch"].as_str().map(str::to_string),
+                    row["worktreePath"].as_str().map(str::to_string),
+                )
+            }))
+    });
+    let (branch, worktree) = match row {
+        Ok(Some((Some(branch), Some(worktree)))) => (branch, worktree),
+        Ok(_) => return fail(ErrorCode::InvalidRequest, NEEDS_BRANCH),
+        Err(error) => return map_kernel_error(&error),
+    };
+    let found =
+        match file_handoff::locate(&env.deps.options.workspace_root, &branch, &worktree, &path) {
+            Ok(found) => found,
+            Err(message) => return fail(ErrorCode::InvalidRequest, message),
+        };
+    let body = file_handoff::body(&path, &branch, &found, summary.as_deref());
+    let answer = deliver(env, call, target, body, action_flag, info_flag, Vec::new())
+        .unwrap_or_else(|| fail(ErrorCode::InvalidRequest, "the controller is not answering"));
+    match answer {
+        CommandResponse::Ok(mut result) => {
+            if let Some(map) = result.as_object_mut() {
+                map.insert(
+                    "file".into(),
+                    json!({"path": path, "branch": branch, "commit": found.commit, "size": found.size}),
+                );
+                if found.uncommitted {
+                    map.insert("uncommitted".into(), json!(true));
+                    map.insert(
+                        "warning".into(),
+                        json!(format!(
+                            "{path} has uncommitted changes; the message names the committed version"
+                        )),
+                    );
+                }
+            }
+            ok(result)
+        }
+        other => other,
+    }
+}
+
+const NEEDS_BRANCH: &str =
+    "send --file needs your own branch: only an agent with a worktree can hand over a file";
+
+/// Queues `body` for `target` (an agent id, `@pm` or `@user`).
+fn deliver(
+    env: &CommandEnv<'_>,
+    call: &CommandCall<'_>,
+    target: String,
+    body: String,
+    action_flag: bool,
+    info_flag: bool,
+    options: Vec<String>,
+) -> Option<CommandResponse> {
     if target == "@user" {
         return Some(send_to_user(env, call, body, action_flag, options));
     }
