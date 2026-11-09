@@ -4,6 +4,8 @@
 #     run that leaves a daemon of its own build alive fails (scripts/daemon-survivors.sh)
 #   - the release builds of cstan and cstan-dash, then scripts/smoke-binary.sh on them
 #   - scripts/test-install.sh, scripts/check-release-workflow.sh, scripts/check-version.sh
+#   - a report gate (CAPSTAN_VERIFY_SUBJECT=report and CAPSTAN_VERIFY_BASE, set by the daemon) tests only the rust/ packages the
+#     report changed and their dependents (scripts/rust-scope.sh); an integration or a bare run tests the whole workspace
 #   - the live suites (a real Herdr, and a real Claude Code where a test needs one), only with CSTAN_LIVE=1
 #   - the no-Node guard: git ls-files lists no TypeScript, .mjs/.cjs, package.json, lockfile, tsconfig, eslint or prettier file
 #     outside scripts/node-allowlist; scripts/test-node-guard.sh proves the guard fails on an added one
@@ -47,16 +49,32 @@ cargo_gate() (
     CARGO_TARGET_DIR="${CARGO_TARGET_DIR%/}/gate-$(basename "$dir")"
     export CARGO_TARGET_DIR
   fi
+  # A report gate of the rust/ workspace tests only what the report touched (scripts/rust-scope.sh); integrations and any
+  # run without CAPSTAN_VERIFY_SUBJECT=report and CAPSTAN_VERIFY_BASE run the whole workspace.
+  PKGS=""
+  if [ "$dir" = rust ]; then
+    step "scope ($dir)"
+    scope="$(sh "$ROOT/scripts/rust-scope.sh" "$ROOT")" || scope=full
+    case "$scope" in
+      none) PKGS="none" ;;
+      "packages: "*) for name in ${scope#packages: }; do PKGS="$PKGS -p $name"; done ;;
+    esac
+    echo "scope: ${scope:-full}"
+  fi
   step "cargo fmt --check ($dir)"
   (cd "$ROOT/$dir" && cargo fmt --check)
+  if [ "$PKGS" = none ]; then
+    echo "nothing under $dir changed since the base: clippy and test skipped"
+    return 0
+  fi
   step "cargo clippy ($dir)"
   # shellcheck disable=SC2086
-  (cd "$ROOT/$dir" && cargo clippy $JOBS --all-targets --locked -- -D warnings)
+  (cd "$ROOT/$dir" && cargo clippy $JOBS $PKGS --all-targets --locked -- -D warnings)
   step "cargo test ($dir)"
   # shellcheck disable=SC2086
   # The tests start daemons; the run fails if one of them is still alive when it ends (scripts/daemon-survivors.sh).
   "$ROOT/scripts/daemon-survivors.sh" check "${CARGO_TARGET_DIR:-$ROOT/$dir/target}" \
-    sh -c 'cd "$1" && shift && exec cargo test --no-fail-fast "$@"' sh "$ROOT/$dir" $JOBS --locked
+    sh -c 'cd "$1" && shift && exec cargo test --no-fail-fast "$@"' sh "$ROOT/$dir" $JOBS $PKGS --locked
 )
 
 # ------------------------------------------------------------------------------------------------- the no-Node guard
@@ -210,6 +228,8 @@ if want scripts; then
   sh "$ROOT/scripts/test-no-node-path.sh"
   step "test-gate-env.sh"
   sh "$ROOT/scripts/test-gate-env.sh"
+  step "test-rust-scope.sh"
+  sh "$ROOT/scripts/test-rust-scope.sh"
   node_guard
   step "test-node-guard.sh"
   sh "$ROOT/scripts/test-node-guard.sh"

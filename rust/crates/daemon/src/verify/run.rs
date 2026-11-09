@@ -111,6 +111,8 @@ pub(crate) struct Job<'a> {
     pub started: Instant,
     pub slot: usize,
     pub scope: GateScope,
+    /// `(subject kind, base commit)` for `CAPSTAN_VERIFY_SUBJECT` and `CAPSTAN_VERIFY_BASE`.
+    pub subject: Option<&'a (String, String)>,
 }
 
 /// What a slot directory looked like before a step: its inode and the names of its top-level subdirectories.
@@ -151,6 +153,7 @@ impl VerifyService {
         run_id: &str,
         commit: &str,
         scope: GateScope,
+        subject: Option<&(String, String)>,
     ) -> Result<Vec<(String, String)>, String> {
         let base: HashMap<String, String> = std::env::vars().collect();
         let mut extras: Vec<(String, String)> = Vec::new();
@@ -167,6 +170,12 @@ impl VerifyService {
             .map_err(|error| format!("the gate environment is not acceptable: {error}"))?;
         environment.insert("CAPSTAN_VERIFY_RUN_ID".into(), run_id.to_string());
         environment.insert("CAPSTAN_VERIFY_COMMIT".into(), commit.to_string());
+        if let Some((kind, base)) = subject {
+            environment.insert("CAPSTAN_VERIFY_SUBJECT".into(), kind.clone());
+            if !base.is_empty() {
+                environment.insert("CAPSTAN_VERIFY_BASE".into(), base.clone());
+            }
+        }
         Ok(environment.into_iter().collect())
     }
 
@@ -295,6 +304,7 @@ impl VerifyService {
             started,
             slot,
             scope,
+            subject,
         } = *job;
         let deadline = started + Duration::from_secs(self.verify.timeout_seconds.max(1) as u64);
         let remaining = |now: Instant| deadline.saturating_duration_since(now).as_millis() as u64;
@@ -308,7 +318,7 @@ impl VerifyService {
         if abort.load(Ordering::SeqCst) {
             return None;
         }
-        let environment = match self.command_environment(run_id, commit, scope) {
+        let environment = match self.command_environment(run_id, commit, scope, subject) {
             Ok(environment) => environment,
             Err(message) => return Some(Outcome::error(message)),
         };
@@ -553,7 +563,7 @@ impl VerifyService {
         };
         let mut env: Vec<(String, String)> = match environment {
             Some(env) => env.to_vec(),
-            None => match self.command_environment(run_id, commit, scope) {
+            None => match self.command_environment(run_id, commit, scope, None) {
                 Ok(env) => env,
                 Err(_) => return,
             },
@@ -735,6 +745,28 @@ impl VerifyService {
         }
     }
 
+    /// `("report" | "integration", base commit)` of a run's subject; the base is empty when it cannot be read.
+    fn subject_of_run(&self, run: &Value) -> Option<(String, String)> {
+        let kind = run["subjectKind"].as_str()?.to_string();
+        let id = run["subjectId"].as_str()?.to_string();
+        let lookup_kind = kind.clone();
+        let base = self
+            .kernel
+            .run(move |core| {
+                if lookup_kind == "integration" {
+                    Ok(core.integration(&id)?["baseSha"]
+                        .as_str()
+                        .map(str::to_string))
+                } else {
+                    core.report_base_sha(&id)
+                }
+            })
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        Some((kind, base))
+    }
+
     /// Runs a claimed run to its end.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn execute(
@@ -760,6 +792,7 @@ impl VerifyService {
             panic!("verify worker test panic");
         }
         let scratch = self.scratch_root.join(&run_id);
+        let subject = self.subject_of_run(run);
         let outcome = match self.open_log(&run_id) {
             _ if matches!(lease_outcome, LeaseOutcome::Failed(_)) => match lease_outcome {
                 LeaseOutcome::Failed(outcome) => outcome,
@@ -777,6 +810,7 @@ impl VerifyService {
                     started,
                     slot,
                     scope,
+                    subject: subject.as_ref(),
                 };
                 let outcome = self.steps(&job, left, leases);
                 log.finish();

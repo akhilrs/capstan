@@ -525,6 +525,42 @@ fn the_environment_has_the_marker_the_configured_variables_and_no_credentials() 
 }
 
 #[test]
+fn a_report_run_gets_its_subject_and_base_and_an_integration_run_its_own() {
+    let out = tempfile::tempdir().unwrap();
+    let file = out.path().join("subject");
+    let command = format!(
+        "echo subject=$CAPSTAN_VERIFY_SUBJECT base=$CAPSTAN_VERIFY_BASE > {}",
+        file.display()
+    );
+    let world = World::new(spec(&[&command]));
+    let (report, _) = world.report("dev-1");
+    let id = world.ok("operator", "verify", &[&report])["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(world.finished(&id)["state"], "passed");
+    let line = std::fs::read_to_string(&file).unwrap();
+    let (subject, base) = line.trim().split_once(" base=").unwrap();
+    assert_eq!(subject, "subject=report");
+    assert_eq!(base.len(), 40, "{line}");
+    assert!(base.chars().all(|c| c.is_ascii_hexdigit()), "{line}");
+
+    std::fs::remove_file(&file).unwrap();
+    pass_review(&world, &report);
+    let merged = world.ok("pm-1", "integrate", &[&report]);
+    let integration = merged["integrationId"].as_str().unwrap().to_string();
+    let id = world.ok("operator", "verify", &[&integration])["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(world.finished(&id)["state"], "passed");
+    let line = std::fs::read_to_string(&file).unwrap();
+    let (subject, base) = line.trim().split_once(" base=").unwrap();
+    assert_eq!(subject, "subject=integration");
+    assert_eq!(base.len(), 40, "{line}");
+}
+
+#[test]
 fn a_command_past_the_timeout_records_timeout_and_its_group_is_gone() {
     let pidfile = tempfile::tempdir().unwrap();
     let pid_path = pidfile.path().join("pid");

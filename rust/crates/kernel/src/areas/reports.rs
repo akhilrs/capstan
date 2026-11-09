@@ -55,6 +55,16 @@ fn report_by_id(kernel: &Kernel, report_id: &str) -> KernelResult<Option<AgentRe
     )
 }
 
+/// The base commit the evidence of a report recorded (`evidence.baseSha`); `None` for an unknown report or a report
+/// whose evidence has no base.
+pub fn report_base_sha(kernel: &Kernel, report_id: &str) -> KernelResult<Option<String>> {
+    let Some(row) = report_by_id(kernel, report_id)? else {
+        return Ok(None);
+    };
+    let evidence: Value = serde_json::from_str(&row.evidence_json)?;
+    Ok(evidence["baseSha"].as_str().map(str::to_string))
+}
+
 /// The accepted report of an agent generation for a commit (index: `agent_reports_by_agent`).
 pub const ACCEPTED_REPORT_FOR_SQL: &str = "SELECT * FROM agent_reports INDEXED BY agent_reports_by_agent WHERE project_id = ? AND agent_id = ? AND generation = ? AND commit_sha = ? AND state = 'accepted'";
 

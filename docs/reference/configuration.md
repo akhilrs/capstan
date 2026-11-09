@@ -858,6 +858,15 @@ scratch_dir = "~/.cache/capstan/verify"
 | `reap` | `true` (default) stops, when a run ends, every process that still carries the run's `CAPSTAN_VERIFY_RUN_ID` in its environment, including a tool daemon (an sccache server, say) the gate started in another session; `false` leaves them running, for tools other agents reuse. The scratch worktree is always removed. After a daemon crash or restart the processes of an interrupted run are always stopped this way, whatever `reap` says, because the ledger records only the first step's process group; the recovery teardown hook gets `CAPSTAN_VERIFY_COMMIT` like the run. |
 | `scratch_dir` | Where scratch worktrees are made: an absolute path or one starting with `~/`, without `..`. Default `<cache root>/projects/<project id>/verify`, resolved by the daemon. The daemon makes the directory with a `.capstan-verify` marker file naming the project and refuses a directory that already holds other files and has no marker (`verify_scratch_refused`); it removes only worktrees of this repository that it finds there. |
 
+Every command also gets these variables, besides `CAPSTAN_VERIFY_RUN_ID` and `CAPSTAN_VERIFY_COMMIT`:
+
+| Variable | Value |
+| --- | --- |
+| `CAPSTAN_VERIFY_SUBJECT` | `report` or `integration`: what the run verifies. |
+| `CAPSTAN_VERIFY_BASE` | The commit the subject is compared against: the base commit of the report's evidence, or the base of the integration. Unset when the base is unknown. |
+
+A command that ignores them behaves as before. A command can use them to test less for a report, for instance by testing only what changed since `CAPSTAN_VERIFY_BASE`, and to run everything for an integration. This project's `scripts/check.sh rust` does so: for a report it tests only the workspace packages the report changed and the packages that depend on them (`scripts/rust-scope.sh`), and falls back to the whole workspace when the set cannot be computed or for an integration.
+
 A passed run is keyed by the commit and by the SHA-256 of the command list (`commands_sha`): changing, adding, removing or reordering a command makes earlier passes stale. A review brief carries a gate line; when it says the gate passed at the reviewed commit, the reviewer does targeted checks and does not rerun the full gate.
 
 ### Path-aware steps

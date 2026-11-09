@@ -320,6 +320,11 @@ impl Core {
         reports::announce_report(&self.kernel, context, report_id)
     }
 
+    /// The base commit a report's evidence recorded.
+    pub fn report_base_sha(&self, report_id: &str) -> KernelResult<Option<String>> {
+        reports::report_base_sha(&self.kernel, report_id)
+    }
+
     /// `ControllerCore.agentReports`.
     pub fn agent_reports(&self, credential: &str, limit: Option<i64>) -> KernelResult<Value> {
         reports::agent_reports(&self.kernel, credential, limit)
