@@ -31,7 +31,7 @@ pub const TOP_LEVEL_KEYS: &[&str] = &[
 ];
 /// Accepted at the top level but left out of the refusal text, which the frozen corpus pins.
 pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] = &[
-    "cleanup", "cache", "verify", "review", "design", "remote", "impact", "ntfy",
+    "cleanup", "cache", "verify", "review", "design", "remote", "impact", "ntfy", "agents",
 ];
 
 pub const PROJECT_KEYS: &[&str] = &["name"];
@@ -210,6 +210,7 @@ pub const VERIFY_KEYS: &[&str] = &[
     "reap",
     "scratch_dir",
 ];
+pub const AGENTS_KEYS: &[&str] = &["idle_release_minutes", "idle_release_warn_minutes"];
 pub const REVIEW_KEYS: &[&str] = &[
     "warm_reviewer",
     "idle_minutes",
@@ -306,6 +307,7 @@ pub fn accepted_keys() -> Vec<KeyPath> {
     add("cache.entries.<name>", CACHE_ENTRY_KEYS);
     add("verify", VERIFY_KEYS);
     add("review", REVIEW_KEYS);
+    add("agents", AGENTS_KEYS);
     add("design", DESIGN_KEYS);
     for kind in ROLE_KINDS {
         add(&format!("defaults.{kind}"), DEFAULTS_ROLE_KEYS);

@@ -19,6 +19,7 @@ pub mod env;
 pub mod feed;
 pub mod findings;
 pub mod id_prefix;
+pub mod keep;
 pub mod links;
 pub mod messages;
 pub mod notify;
@@ -106,7 +107,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 38] = [
+pub const ROUTES: [Route; 39] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -145,10 +146,11 @@ pub const ROUTES: [Route; 38] = [
     route("decide", Access::Operator, "decide"),
     route("decide-merge", Access::Operator, "decide"),
     route("notify", Access::Operator, "notify"),
+    route("keep", Access::Any, "keep"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 9] = [
+pub const RUST_ONLY_ROUTES: [&str; 10] = [
     "cleanup",
     "cache",
     "verify",
@@ -158,6 +160,7 @@ pub const RUST_ONLY_ROUTES: [&str; 9] = [
     "decide",
     "decide-merge",
     "notify",
+    "keep",
 ];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
@@ -171,9 +174,9 @@ pub fn route_of(command: &str) -> Option<&'static Route> {
 pub const BUILTIN_ROUTES: [&str; 2] = ["ping", "shutdown"];
 
 /// The handler modules, in the order their `register` functions run.
-pub const MODULES: [&str; 17] = [
+pub const MODULES: [&str; 18] = [
     "messages", "wait", "status", "agents", "plans", "reports", "links", "relay", "findings",
-    "operator", "cleanup", "cache", "verify", "design", "feed", "decide", "notify",
+    "operator", "cleanup", "cache", "verify", "design", "feed", "decide", "notify", "keep",
 ];
 
 /// The table of handlers by command name.
@@ -212,6 +215,7 @@ static HANDLERS: LazyLock<HandlerMap> = LazyLock::new(|| {
     design::register(&mut map);
     feed::register(&mut map);
     decide::register(&mut map);
+    keep::register(&mut map);
     map
 });
 
@@ -919,7 +923,8 @@ mod tests {
                 "feed",
                 "decide",
                 "decide-merge",
-                "notify"
+                "notify",
+                "keep"
             ]
         );
         let merge = route_of("decide-merge").expect("the merge route");
@@ -959,7 +964,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(MODULES.len(), 17);
+        assert_eq!(MODULES.len(), 18);
     }
 
     #[test]

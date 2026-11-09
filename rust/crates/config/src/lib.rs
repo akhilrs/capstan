@@ -7,6 +7,7 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
+pub mod agents;
 pub mod cache;
 pub mod design;
 pub mod design_guidance;
@@ -36,6 +37,7 @@ mod types;
 mod value;
 pub mod verify;
 
+pub use agents::Agents;
 pub use cache::{
     CacheConfig, CacheEntry, CacheOrigin, CacheScope, SetupReuse, DETECT_MARKERS, DETECT_MAX_DEPTH,
     DETECT_SKIP_DIRS,

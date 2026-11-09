@@ -9,6 +9,7 @@ pub mod activity;
 pub mod auto_answer;
 pub mod cache;
 pub mod driver;
+pub mod idle_release;
 pub mod notifier;
 pub mod pm_mail;
 pub mod recover;
@@ -293,6 +294,9 @@ impl Loops for RustLoops {
                 Arc::clone(&self.now),
                 notifier_log,
             ));
+            let probe = self.probe.clone().or_else(|| default_probe(&config));
+            let child_activity = Arc::new(Mutex::new(std::collections::HashMap::new()));
+            let idle_adapter = Arc::clone(&adapter);
             let mut driver = Driver::new(DriverOptions {
                 kernel: deps.kernel.clone(),
                 adapter: Arc::new(DriverPart(adapter)),
@@ -302,7 +306,7 @@ impl Loops for RustLoops {
                 now: Arc::clone(&self.now),
                 log: Arc::clone(&log),
                 tick_ms: deps.options.tick_ms,
-                process_probe: self.probe.clone().or_else(|| default_probe(&config)),
+                process_probe: probe.clone(),
                 pm_stale_seconds: config.notifications.pm_stale_minutes * 60,
                 pm_stuck_minutes: config.notifications.pm_stuck_minutes,
                 liveness: config.liveness.enabled.then_some(LivenessOptions {
@@ -314,6 +318,7 @@ impl Loops for RustLoops {
                 snapshot: Some(Arc::clone(&self.snapshot)),
             });
             driver.hold_blocked_notice_while(crate::relay_answer::attempts_of(deps));
+            driver.publish_child_activity_to(Arc::clone(&child_activity));
             let (flag, tick_ms, tick_log) = (stop.clone(), driver.tick_ms(), Arc::clone(&log));
             handles.extend(spawn("driver", move || {
                 // The first tick comes at once, the next ones a tick interval after the end of the one before.
@@ -362,6 +367,38 @@ impl Loops for RustLoops {
                         }
                     }
                 }));
+                if config.agents.idle_release_minutes > 0 {
+                    // Without a probe nothing can be sampled, so the loop would have to trust the driver alone: it stays off.
+                    // The loop samples through a probe of its own (an injected one is used as given): the shared one would
+                    // lose its process-table cache in the middle of a driver tick.
+                    let idle_probe = if self.probe.is_some() {
+                        probe.clone()
+                    } else {
+                        default_probe(&config)
+                    };
+                    if let Some(probe) = idle_probe {
+                        let mut idle =
+                            idle_release::IdleRelease::new(idle_release::IdleReleaseOptions {
+                                steps: Steps::new(deps.kernel.clone(), credential.clone()),
+                                launcher: deps.launcher.clone().expect("the launcher is set here"),
+                                idle_minutes: config.agents.idle_release_minutes,
+                                warn_minutes: config.agents.idle_release_warn_minutes,
+                                now: Arc::clone(&self.now),
+                                log: Arc::clone(&log),
+                                child_activity: Arc::clone(&child_activity),
+                                sampler: Arc::new(idle_release::PaneSampler {
+                                    adapter: idle_adapter,
+                                    probe,
+                                }),
+                            });
+                        let (flag, tick_log) = (stop.clone(), Arc::clone(&log));
+                        handles.extend(spawn("idle-release", move || {
+                            while !flag.sleep(Duration::from_millis(idle_release::TICK_MS)) {
+                                guarded(&tick_log, "idle_release_failed", || idle.tick());
+                            }
+                        }));
+                    }
+                }
                 if config.review.warm_reviewer {
                     let (flag, tick_log, deps) = (stop.clone(), Arc::clone(&log), deps.clone());
                     let (now, idle_minutes) = (Arc::clone(&self.now), config.review.idle_minutes);

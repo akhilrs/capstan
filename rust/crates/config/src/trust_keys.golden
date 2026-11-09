@@ -1,3 +1,5 @@
+checked agents.idle_release_minutes
+checked agents.idle_release_warn_minutes
 checked architect.count_toward_worker_limit
 checked architect.enabled
 checked architect.high_risk_triggers

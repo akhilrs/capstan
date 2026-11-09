@@ -253,10 +253,14 @@ pub struct Driver {
     /// The controller's auto-answer attempts: no input-blocked notice is opened for an agent whose prompt is being
     /// answered, because the answer is about to unblock it.
     answering: Option<Arc<crate::relay_answer::Attempts>>,
+    /// Where the last child-process activity per agent is published, for the idle-release loop.
+    child_activity: Option<Arc<Mutex<HashMap<String, i64>>>>,
+    started_at_ms: i64,
 }
 
 impl Driver {
     pub fn new(options: DriverOptions) -> Self {
+        let started_at_ms = (options.now)();
         Self {
             steps: Steps::new(options.kernel, options.credential),
             adapter: options.adapter,
@@ -301,7 +305,15 @@ impl Driver {
             stale_episodes: Vec::new(),
             unreadable: HashMap::new(),
             answering: None,
+            child_activity: None,
+            started_at_ms,
         }
+    }
+
+    /// Publishes, at the end of every tick, the last time a tool process under each agent was alive or used CPU
+    /// (agent id to milliseconds).
+    pub fn publish_child_activity_to(&mut self, map: Arc<Mutex<HashMap<String, i64>>>) {
+        self.child_activity = Some(map);
     }
 
     /// Holds the input-blocked notice of an agent while `attempts` shows an answer to its prompt running.
@@ -340,11 +352,24 @@ impl Driver {
                 "notified": e.notified,
             })
         });
+        // No cap: a process alive for hours is still activity.
+        let signs = self
+            .activity
+            .work_signs((self.now)().max(0) as u64, u64::MAX);
+        let mut child_activity: Vec<(String, i64)> =
+            signs.into_iter().map(|(id, at)| (id, at as i64)).collect();
+        child_activity.sort();
+        if let Some(map) = &self.child_activity {
+            *map.lock().unwrap_or_else(|p| p.into_inner()) =
+                child_activity.iter().cloned().collect();
+        }
         *self.snapshot.lock().unwrap_or_else(|p| p.into_inner()) = DriverSnapshot {
             stalled_agent_ids: self.stalled.clone(),
             lost_agent_ids: Some(self.lost.iter().cloned().collect()),
             stuck: self.stuck.clone(),
             pm_stale: stale,
+            child_activity,
+            grace_floor_ms: self.started_at_ms,
         };
     }
 

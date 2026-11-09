@@ -147,9 +147,39 @@ All agent-to-agent text goes through the controller, one strict FIFO per recipie
 - **Release:** `cstan release <agent-id>` removes the pane and the worktree. The answer reports `paneClosed` and `worktreeRemoved`; `false` means that cleanup is still pending and the next spawn or release finishes it (`cstan status` shows `cleanupFailed` and `orphanPanes`). `agent_not_active` means the worker is already gone. Reviewers are released by the controller after they answer.
 - **Replace:** `cstan replace <agent-id>` replaces a lost or stuck worker. The controller releases it (when still running) and starts a new agent of the same role with a new id, the predecessor's branch name, restarted at the predecessor's last accepted report (else HEAD; commits past it are kept at `refs/capstan/kept/<agent-id>`), and a seed built from the ledger (its instructions and their states, accepted reports, open findings). Nothing is re-sent; the PM sends what still matters. It is refused while an integration is running and for an agent that was already replaced.
 - **Reassign a plan:** `cstan replace <agent-id>` is for a lost or stuck architect whose seeded successor should take over; its plans follow it. `cstan plan reassign <plan-id> <architect-agent-id> [--reason "<text>"]` (PM or operator) is for a plan whose owner already ended or was released while another architect is running, or to move one plan between architects. The new owner receives a `plan_handover` message (action) and developers holding packages receive `architect_changed` (info); the architect prompt tells the owner to read `cstan plan show <plan-id>` and act on the pending ids. A signed-off plan, a plan with no owner yet and a plan whose owner is still active are refused.
+- **Idle release:** a worker that has sat idle with nothing left to do is released by the controller after a warning; see [Idle release](#idle-release).
 - **Lost:** when Herdr no longer finds an agent's pane or process (or its pane was already gone when the daemon started), the controller ends the agent in the ledger and sends the PM an `Agent ... is lost` message with its branch and its unacknowledged messages. The controller never replaces it by itself: use `cstan replace` or `cstan release`.
 - **Stalled / blocked:** the controller watches worker activity. `Agent stalled` means no activity while working for `timers.stall_after_seconds`. The alert is suppressed while a tool process under the agent (a shell started by it, such as a test run or build, with its descendants; MCP servers are not counted) used CPU within that window, so a long silent command is not reported. On Linux the CPU counted is `utime + stime + cutime + cstime` from `/proc/<pid>/stat`, so short-lived children that already exited, such as test-file runners, count; elsewhere it is the CPU time `ps` reports. A hung process that uses no CPU, an agent with no tool process, or a failed process probe still alerts after `timers.stall_after_seconds` (`suppressActiveStalls` is `rust/crates/daemon/src/loops/activity.rs`; the CPU probe is in `rust/crates/herdr/src/process_activity.rs`); `Agent blocked` means it waits at a dialog or permission prompt only a person can answer. Use `cstan observe <agent-id>`, then replace the worker or tell the user. Nobody answers another agent's permission prompt.
 - **PM restart:** `cstan pm restart` (operator) replaces the PM session with a new one that starts from a summary of the ledger (open work, unacknowledged messages).
+
+## Idle release
+
+With `[agents] idle_release_minutes` above 0 (default 120) the controller releases a Developer or Verifier that has sat idle with no open work, so an idle project does not keep panes and sessions it no longer needs. `idle_release_minutes = 0` turns it off. See [Agents](configuration.md#agents).
+
+**What counts as idle.** An agent is idle when its latest Herdr state is idle, done or unknown. It has been idle since the latest of: its last authenticated call, the last time Herdr saw it working or blocked, the last time a tool process under its pane was alive or used CPU, and its latest message delivery or acknowledgement. A new agent, and every agent after a daemon start, gets the full `idle_release_minutes` before it counts. `cstan status` shows `idleSince`, `warnedAt`, `autoReleaseAt`, `keptUntil` and `openWork` for every active worker (the text status prints ` idle 3h 20m` from 15 minutes on, ` release at <time>` once warned and ` kept until <time>`).
+
+**Open work.** An agent with any of these is never released, and `cstan status` lists up to five of them in `openWork`:
+
+- a plan package assigned to it that is not integrated and not cancelled;
+- its newest accepted report, when no merged or confirmed integration holds it;
+- a verify run queued or running for its report or requested by it;
+- a review running where it is the reviewer or the author;
+- a plan it is the architect of that is in draft or review, or approved with a package not yet integrated;
+- an integration it created that is running or under review;
+- mail to it not yet delivered or acknowledged, and a message it sent (other than info) that nobody acknowledged;
+- a prompt relay for it that is pending.
+
+**Builds are protected.** A tool process under the agent's pane (a shell it started, such as a build or a test run, with its descendants) counts as activity however long it runs, and the controller looks at the pane afresh before it warns and again before it releases. If a process is alive, or the pane cannot be sampled, the agent is left alone and its idle time moves. Without a process probe the release stays off.
+
+**Warning, then release.** `idle_release_warn_minutes` (default 10) before the release the PM gets an info note: `<agent-id> (<role>) has been idle since <time> and has no open work; it will be released at <time>. To keep it: cstan keep <agent-id> [hours], or give it work.` The release needs that warning to be at least `idle_release_warn_minutes` old, and every check is made again just before. After the release the PM gets `<agent-id> was released after <n> minutes idle; branches kept: <list>` (`none` when the branch had no commits). The release is the one of `cstan release`: the pane closes, a worktree without commits is removed and a branch with commits is kept. The ledger records the warning and an `agent_auto_release` event with the reason `idle_auto_release` (the release itself writes the one `agent` end event). If the release fails the PM is told `could not be released after being idle: <reason>. It will be tried again in 30 minutes.`
+
+**Keep and giving work.** `cstan keep <agent-id> [<hours>]` (PM or operator) keeps a worker for 24 hours by default, up to 168; `cstan keep <agent-id> 0` clears it. Any new activity, such as a message or an assignment, moves the idle time and ends the episode; a later idle episode needs a new warning. A paused agent or run is never released.
+
+**Warm reviewers.** A plan's warm reviewer is left out; it has its own `idle_minutes` (see step 4).
+
+**Replacements.** An agent that was already replaced is left out. A released worker is gone like one released by hand: start a new one with `cstan spawn`, or `cstan replace` for one that was lost.
+
+**Supervisor and an idle project.** Only Developers and Verifiers are released this way; the PM and the Supervisor never are. The Supervisor runs while workers are active and the controller releases it 10 minutes after the last worker is gone, so a project whose workers were all released keeps only its PM.
 
 ## Pause and resume
 

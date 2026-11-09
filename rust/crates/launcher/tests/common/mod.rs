@@ -489,6 +489,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             warm_reviewer: false,
             ..capstan_config::Review::default()
         },
+        agents: Default::default(),
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

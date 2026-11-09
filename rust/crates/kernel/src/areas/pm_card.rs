@@ -141,6 +141,26 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         "a revoked actor keeps its role",
     ),
     (
+        "agent.idle_auto_release",
+        &["controller_events"],
+        "an idle-release ledger row the card does not read",
+    ),
+    (
+        "agent.idle_episode_end",
+        &["controller_events"],
+        "an idle-episode ledger row the card does not read",
+    ),
+    (
+        "agent.idle_warning",
+        &["controller_events"],
+        "an idle-warning ledger row the card does not read",
+    ),
+    (
+        "agent.keep",
+        &["controller_events"],
+        "a keep ledger row the card does not read",
+    ),
+    (
         "agent.observe",
         &["agent_state_history"],
         "an observation is the activity the agents item already carries",

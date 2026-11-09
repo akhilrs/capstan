@@ -12,6 +12,10 @@
 code actor.create
 code actor.revoke
 code agent.end
+code agent.idle_auto_release
+code agent.idle_episode_end
+code agent.idle_warning
+code agent.keep
 code agent.lost
 code agent.observe
 code agent.pause

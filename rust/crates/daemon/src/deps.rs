@@ -549,6 +549,11 @@ pub struct DriverSnapshot {
     pub stuck: Vec<(String, String)>,
     /// The open stale-mail episode of the PM, as JSON.
     pub pm_stale: Option<Value>,
+    /// The last child-process activity of each agent in milliseconds, as the idle release reads it.
+    pub child_activity: Vec<(String, i64)>,
+    /// When the delivery driver started (the daemon start): an agent is in its grace period until `idle_release_minutes`
+    /// after it, as the idle-release loop counts.
+    pub grace_floor_ms: i64,
 }
 
 impl DriverSnapshot {
@@ -561,6 +566,10 @@ impl DriverSnapshot {
             lost_agent_ids,
             stuck,
             pm_stale,
+            // Moves with every tick and only feeds the idle facts of status, which a cached answer may lag on (TTL).
+            child_activity: _,
+            // Fixed for the life of the daemon.
+            grace_floor_ms: _,
         } = self;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         stalled_agent_ids.hash(&mut hasher);

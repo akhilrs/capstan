@@ -295,7 +295,11 @@ impl Cli<'_> {
         if json {
             output(&mut self.io.out, Some(&status), true);
         } else {
-            let compact = crate::compact::status(&render::without_ntfy(&status), self.status_all);
+            let compact = crate::compact::status(
+                &render::without_ntfy(&status),
+                self.status_all,
+                self.ctx.now_ms,
+            );
             output(&mut self.io.out, Some(&compact), false);
             if let Some((_, _, line)) = trust_summary(&trust) {
                 self.io.out_line(&line);

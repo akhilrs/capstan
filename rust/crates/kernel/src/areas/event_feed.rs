@@ -626,6 +626,10 @@ const NOTICE_ACTIONS: &str = "cleanup.branch|cleanup.complete|cleanup.offer|find
 pub const SKIPPED_ACTIONS: &[&str] = &[
     "actor.create",
     "actor.revoke",
+    "agent.idle_auto_release",
+    "agent.idle_episode_end",
+    "agent.idle_warning",
+    "agent.keep",
     "fallback_pane.clear",
     "fallback_pane.record",
     "link.bind",

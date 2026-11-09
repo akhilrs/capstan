@@ -49,6 +49,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("send", Access::Any),
     ("pause", Access::Any),
     ("resume", Access::Any),
+    ("keep", Access::Any),
     ("spawn", Access::Any),
     ("release", Access::Any),
     ("replace", Access::Any),
@@ -667,7 +668,8 @@ fn handle_wire(
             }
         }
         if !json && command == "status" {
-            let compact = result.map(|r| compact::status(&render::without_ntfy(r), view.all));
+            let compact =
+                result.map(|r| compact::status(&render::without_ntfy(r), view.all, now_ms));
             output(stdout, compact.as_ref(), false);
         } else if let Some(lines) = result
             .filter(|_| !json && view.brief)

@@ -349,13 +349,60 @@ pub struct StatusKey {
 /// The most answers kept.
 pub const STATUS_CACHE_ENTRIES: usize = 64;
 
+/// Adds `idleSince`, `warnedAt`, `autoReleaseAt`, `keptUntil` and `openWork` to every active worker of `agents` (only
+/// while the idle release is on). `child_activity` is the driver's map of the last child-process activity.
+fn add_idle_members(
+    core: &capstan_kernel::Core,
+    agents: &mut Value,
+    idle_minutes: i64,
+    child_activity: Value,
+    grace_floor_ms: i64,
+) -> capstan_kernel::KernelResult<()> {
+    let now = core.kernel().env.now();
+    let overview = core.idle_overview(
+        now,
+        &json!({"idleMinutes": idle_minutes, "childActivity": child_activity, "graceFloorMs": grace_floor_ms}),
+    )?;
+    for agent in agents.as_array_mut().into_iter().flatten() {
+        let Some(facts) = overview.iter().find(|f| f["agentId"] == agent["agentId"]) else {
+            continue;
+        };
+        for key in [
+            "idleSince",
+            "warnedAt",
+            "autoReleaseAt",
+            "keptUntil",
+            "openWork",
+        ] {
+            agent[key] = facts[key].clone();
+        }
+    }
+    Ok(())
+}
+
 /// Reads every input in the kernel's closure, in the order Node reads them.
 fn gather(
     core: &capstan_kernel::Core,
     mut inputs: StatusInputs,
     credential: &str,
+    child_activity: Value,
+    grace_floor_ms: i64,
 ) -> capstan_kernel::KernelResult<StatusInputs> {
     inputs.agents = core.list_agents()?;
+    if let Some(minutes) = inputs
+        .config
+        .as_deref()
+        .map(|c| c.agents.idle_release_minutes)
+        .filter(|m| *m > 0)
+    {
+        add_idle_members(
+            core,
+            &mut inputs.agents,
+            minutes,
+            child_activity,
+            grace_floor_ms,
+        )?;
+    }
     inputs.snapshot = core.status_snapshot()?;
     inputs.supervision_activity = core.supervision_activity()?;
     if inputs.is_operator {
@@ -676,6 +723,15 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     };
     let config = deps.options.capstan.clone();
     let credential = call.credential.to_string();
+    let driver_view = deps.driver.snapshot();
+    let grace_floor_ms = driver_view.grace_floor_ms;
+    let child_activity = Value::Object(
+        driver_view
+            .child_activity
+            .into_iter()
+            .map(|(id, at)| (id, json!(at)))
+            .collect(),
+    );
     let inputs = StatusInputs {
         is_operator,
         is_pm,
@@ -708,9 +764,9 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         verify: deps.verify.is_some().then_some(Value::Null),
         ntfy: env.deps.ntfy().map(|sender| sender.status()),
     };
-    let built = deps
-        .kernel
-        .run(move |core| gather(core, inputs, &credential).map(render));
+    let built = deps.kernel.run(move |core| {
+        gather(core, inputs, &credential, child_activity, grace_floor_ms).map(render)
+    });
     Some(match built {
         Ok(result) => {
             if let Some((key, now)) = cache_key {

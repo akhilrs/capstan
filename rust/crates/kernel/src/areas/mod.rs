@@ -9,6 +9,7 @@ pub mod event_feed;
 pub mod feed_cursor;
 pub mod findings;
 pub mod id_prefix;
+pub mod idle_release;
 pub mod integrations;
 pub mod links;
 pub mod message_notices;

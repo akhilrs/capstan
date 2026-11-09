@@ -929,7 +929,13 @@ fn the_run_function_keeps_nodes_order_with_the_core_stubs() {
     let socket = state.join("control.sock");
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        if events.lock().unwrap().iter().any(|e| e == "announce ready") {
+        // The adoption thread starts the loops only if no shutdown is requested yet, so the test must not ask for one
+        // before it has run (a loaded machine runs it after the ping): wait for its last step too.
+        let seen = events.lock().unwrap().clone();
+        if ["announce ready", "recover_and_relay"]
+            .iter()
+            .all(|name| seen.iter().any(|e| e == name))
+        {
             break;
         }
         assert!(

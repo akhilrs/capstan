@@ -309,6 +309,7 @@ fn the_registry_equals_the_lists_the_parser_prints() {
         ),
         ("", "[verify]", VERIFY_KEYS.join(", ")),
         ("", "[review]", REVIEW_KEYS.join(", ")),
+        ("", "[agents]", AGENTS_KEYS.join(", ")),
         ("", "[design]", DESIGN_KEYS.join(", ")),
     ];
     for (before, header, expected) in cases {
@@ -426,6 +427,7 @@ fn slices() -> Vec<(&'static str, &'static [&'static str], Vec<String>)> {
         ),
         ("VERIFY_KEYS", VERIFY_KEYS, s("verify")),
         ("REVIEW_KEYS", REVIEW_KEYS, s("review")),
+        ("AGENTS_KEYS", AGENTS_KEYS, s("agents")),
         ("DESIGN_KEYS", DESIGN_KEYS, s("design")),
     ]
 }

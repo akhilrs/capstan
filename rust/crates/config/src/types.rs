@@ -644,6 +644,8 @@ pub struct RoleConfig {
     pub design: crate::design::Design,
     /// The `[review]` section; `Review::default()` when it is absent.
     pub review: crate::review::Review,
+    /// The `[agents]` section; `Agents::default()` when it is absent. Never printed.
+    pub agents: crate::agents::Agents,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,

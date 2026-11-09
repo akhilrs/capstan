@@ -6,10 +6,10 @@
 //! changes when they do.
 
 use crate::areas::{
-    actors, agents, approval_windows, design_approvals, findings, integrations, links,
-    message_notices, messages, model_overrides, operator_grants, operator_proposals, operator_runs,
-    panes, pauses, plan_packages, plans, pm_stuck, prompt_relay, remote_decisions, reports,
-    reviews, status, user_messages, verify_runs, warm_reviewers,
+    actors, agents, approval_windows, design_approvals, findings, idle_release, integrations,
+    links, message_notices, messages, model_overrides, operator_grants, operator_proposals,
+    operator_runs, panes, pauses, plan_packages, plans, pm_stuck, prompt_relay, remote_decisions,
+    reports, reviews, status, user_messages, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -1202,6 +1202,63 @@ impl Core {
             minutes,
             watch_start,
         )
+    }
+
+    /// Why an agent must not be released automatically; empty when nothing holds it (see `idle_release`).
+    pub fn open_work(&self, agent_id: &str) -> KernelResult<Vec<String>> {
+        idle_release::open_work(&self.kernel, agent_id)
+    }
+
+    /// The workers idle by the ledger's evidence at `now_ms` (see `idle_release::idle_candidates` for `input`).
+    pub fn idle_candidates(&self, now_ms: i64, input: &Value) -> KernelResult<Vec<Value>> {
+        idle_release::idle_candidates(&self.kernel, now_ms, input)
+    }
+
+    /// The end of the newest keep record of an agent, or `None`.
+    pub fn keep_until(&self, agent_id: &str) -> KernelResult<Option<String>> {
+        idle_release::keep_until(&self.kernel, agent_id)
+    }
+
+    /// Records a keep of an agent from automatic release (`hours` 0 clears it).
+    pub fn record_keep(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        idle_release::record_keep(&self.kernel, context, input)
+    }
+
+    /// The idle facts `cstan status` shows of every active worker (see `idle_release::idle_overview`).
+    pub fn idle_overview(&self, now_ms: i64, input: &Value) -> KernelResult<Vec<Value>> {
+        idle_release::idle_overview(&self.kernel, now_ms, input)
+    }
+
+    /// The newest idle warning of an agent: `{warnedAt, idleSince, releaseAt}`, or `None`.
+    pub fn last_idle_warning(&self, agent_id: &str) -> KernelResult<Option<Value>> {
+        idle_release::last_idle_warning(&self.kernel, agent_id)
+    }
+
+    /// Records the warning to the PM about an idle agent (`controller:reconcile`).
+    pub fn record_idle_warning(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        idle_release::record_idle_warning(&self.kernel, context, input)
+    }
+
+    /// Records that an idle episode ended without a release (`controller:reconcile`).
+    pub fn record_idle_episode_end(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        idle_release::record_idle_episode_end(&self.kernel, context, input)
+    }
+
+    /// Records an automatic release after the launcher ended the agent (`controller:reconcile`).
+    pub fn record_auto_release(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        idle_release::record_auto_release(&self.kernel, context, input)
     }
 
     /// `ControllerCore.readiness`.
