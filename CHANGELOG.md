@@ -2,15 +2,40 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
-## Unreleased
+## 0.22.0 (2026-11-09)
 
 ### Upgrade note
 
-`capstan.toml` is now checked before a controller loads it. The first `cstan start` after the upgrade refuses a `capstan.toml` that has checked keys (exit 3, text naming `cstan trust`) and starts nothing: run `cstan trust`, read the list and start again. A running controller keeps the configuration it loaded; `cstan status` shows `trust: needed (<n> keys) - run cstan trust`, and `cstan restart` and the Operator restart refuse (`untrusted_config`) until then. CI and containers without a home directory: set `CAPSTAN_TRUST_DIR` to an absolute directory, then run `cstan trust` (or `cstan trust --check` to fail a job). See `docs/reference/trust.md`.
+BREAKING: the trust gate is now always on for `capstan.toml`. After installing, run `cstan trust` once per project: the first `cstan start` after the upgrade refuses a `capstan.toml` that has checked keys (exit 3, text naming `cstan trust`) and starts nothing, so run `cstan trust`, read the list and start again. A running controller keeps going with the configuration it loaded; `cstan status` shows `trust: needed (<n> keys) - run cstan trust`, and `cstan restart` and the Operator restart refuse (`untrusted_config`) until then. CI and containers without a home directory: set `CAPSTAN_TRUST_DIR` to an absolute directory, then run `cstan trust` (or `cstan trust --check` to fail a job). See `docs/reference/trust.md`.
 
-### Documentation
+### Features
 
-- docs: model overrides: `cstan spawn --model`/`--plan`, `cstan plan open --model`, `cstan plan model`, `cstan link requirement --model` and `cstan link model`, with the precedence, the fit table and the `model_host_mismatch` and `model_changed` refusals (`docs/reference/configuration.md`, `docs/reference/commands.md`).
+- feat(cstan): Model override per spawn, plan and task (802fda5). `cstan spawn --model`/`--plan`, `cstan plan open --model`, `cstan plan model`, `cstan link requirement --model` and `cstan link model`, with the precedence, the fit table and the `model_host_mismatch` and `model_changed` refusals (`docs/reference/configuration.md`, `docs/reference/commands.md`).
+- feat(config): Controller never drops requests silently: busy answer (73d67d3). Plan-163: busy answer, reply cache and safe stop.
+- feat(kit): Phone Operator approvals: scope and auto-approve window (ac256fe)
+- feat(ios): Capstan in CarPlay via Siri: announced notifications (633479a)
+
+### Bug fixes
+
+- fix(server): Controller never drops requests silently: busy answer, read (ebff43d)
+- fix(cache): recreate the entry dir when a lease lock open finds it gone (2350442)
+- fix(daemon): wait for the lease to be free in verify_gate_env (4102274)
+- fix: Verify gate build folder (8ec6a5b)
+- fix(ios): make the Time Sensitive entitlement opt-in so personal teams (8438524)
+- fix(ios): qualify PlanItem in PlansScreen and check for ambiguous type (fc747a0)
+- fix: merge main and keep one ApproveChoice declaration (433a17e)
+
+### Performance
+
+- perf(daemon): Controller CPU part A (d1c4b1c)
+
+### Tests
+
+- test(harness): Trust check B: enforce the gate for every crate (ecd7148). The trust gate is always on.
+- test(daemon): trust the fresh capstan.toml in reply_cache and server_admission (3d63f9c)
+- test(cache): wait out the fork-to-exec lock window in prune_in_use (a9a9416)
+- test: wait for the server to see the closed client before the merge lock (86233b6)
+- test: bless six daemon and ledger keys in the trust key golden (05e563d)
 
 ## 0.21.0 (2026-11-06)
 
