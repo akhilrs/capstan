@@ -9,6 +9,7 @@ checked architect.plan_amend
 checked architect.plan_review
 checked architect.reviewer_role
 checked architect.role
+checked cache.active_evict_min_age_minutes
 checked cache.detect
 checked cache.entries.<name>.dirs
 checked cache.entries.<name>.max_size_gb
@@ -16,6 +17,7 @@ checked cache.entries.<name>.prune
 checked cache.entries.<name>.requires
 checked cache.entries.<name>.set
 checked cache.entries.<name>.stop
+checked cache.evict_while_active
 checked cache.go.max_size_gb
 checked cache.max_age_days
 checked cache.max_size_gb
@@ -23,6 +25,7 @@ checked cache.node.max_size_gb
 checked cache.presets
 checked cache.python.max_size_gb
 checked cache.root
+checked cache.rust.gate_debug
 checked cache.rust.incremental
 checked cache.rust.max_size_gb
 checked cache.rust.mode

@@ -7,8 +7,9 @@
 use super::shared::{fail, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode};
 use super::HandlerMap;
 use capstan_cache::{
-    clear, is_idle, measure, prune, read_manifest, setup_keys, write_manifest, CacheError,
-    CommandOutcome, Manifest, Policy, Runtime, SETUP_ENTRY,
+    clear, is_idle, measure, over_cap, prune_with_occupants, read_manifest, setup_keys,
+    write_manifest, CacheError, CommandOutcome, Manifest, Occupant, Policy, PruneHooks, Runtime,
+    SETUP_ENTRY,
 };
 use capstan_config::{CacheScope, RoleConfig};
 use capstan_launcher::api::SetupOutcome;
@@ -188,6 +189,11 @@ pub fn refresh_manifest(
     let sizes = measure(runtime, Instant::now() + MEASURE_BUDGET);
     let mut manifest = Manifest::new(runtime, sizes, now_millis().max(0) as u64);
     manifest.last_prune_at_ms = last_prune_at_ms;
+    // The occupants and skipped list belong to the last prune that knew them: a fresh measurement keeps them.
+    if let Some(previous) = read_manifest(&runtime.root).ok().flatten() {
+        manifest.last_skipped = previous.last_skipped;
+        manifest.last_occupants = previous.last_occupants;
+    }
     retrying(|| write_manifest(runtime, &manifest))?;
     Ok(manifest)
 }
@@ -225,6 +231,18 @@ pub fn run_prune(
     dry_run: bool,
     base_env: &BTreeMap<String, String>,
 ) -> Result<Value, CacheFailure> {
+    run_prune_with(runtime, names, dry_run, base_env, None)
+}
+
+/// `run_prune` that also counts `occupants` (`Some`: the live verify scratch the caller knows; `None`: unknown) against
+/// the cap. A dry run never records or removes anything, so it ignores them.
+pub fn run_prune_with(
+    runtime: &Runtime,
+    names: &[String],
+    dry_run: bool,
+    base_env: &BTreeMap<String, String>,
+    occupants: Option<&[Occupant]>,
+) -> Result<Value, CacheFailure> {
     let mut target = scoped(runtime, names)?;
     let idle = is_idle(&runtime.project_root)?;
     let before = last_prune_of(runtime);
@@ -242,8 +260,22 @@ pub fn run_prune(
             entry.prune.clear();
         }
     }
+    if dry_run {
+        // A dry run only reports: not even the units and slots a prune may remove while agents work.
+        target.evict_while_active = false;
+    }
     let policy = Policy::for_runtime(&target, idle && !dry_run);
-    let report = retrying(|| prune(&target, policy, base_env, &run_command))?;
+    let occupants = if dry_run { None } else { occupants };
+    let report = retrying(|| {
+        prune_with_occupants(
+            &target,
+            policy,
+            base_env,
+            &run_command,
+            &PruneHooks::default(),
+            occupants,
+        )
+    })?;
     // The prune wrote a manifest of only the selected entries: measure them all again.
     let last = if dry_run {
         before
@@ -305,6 +337,12 @@ pub(crate) fn skipped_json(skipped: &[capstan_cache::Skipped]) -> Vec<Value> {
         .collect()
 }
 
+/// How far an entry is over its own `max_size_gb`; 0 without one.
+fn entry_over(own: Option<u64>, bytes: Option<u64>) -> u64 {
+    own.zip(bytes)
+        .map_or(0, |(own, bytes)| bytes.saturating_sub(own))
+}
+
 fn iso(ms: u64) -> Value {
     json!(iso_from_millis(ms as i64))
 }
@@ -328,6 +366,7 @@ pub fn status_member(runtime: &Runtime) -> Value {
                 "enabled": entry.enabled,
                 "reason": entry.reason,
                 "bytes": size.map(|s| s.bytes),
+                "overCapBytes": entry_over(entry.max_bytes, size.map(|s| s.bytes)),
                 "lastUsedAt": size.filter(|s| s.last_used_ms > 0).map(|s| iso(s.last_used_ms)),
             })
         })
@@ -340,7 +379,11 @@ pub fn status_member(runtime: &Runtime) -> Value {
             .map(|s| s.bytes)
             .sum::<u64>()
     });
-    json!({
+    let sizes: Vec<_> = manifest
+        .as_ref()
+        .map(|m| m.entries.clone())
+        .unwrap_or_default();
+    let mut member = json!({
         "root": runtime.root.to_string_lossy(),
         "scope": runtime.scope.as_str(),
         "entries": entries,
@@ -348,7 +391,44 @@ pub fn status_member(runtime: &Runtime) -> Value {
         "maxBytes": runtime.max_bytes,
         "measuredAt": manifest.as_ref().map(|m| iso(m.measured_at_ms)),
         "warnings": runtime.warnings,
-    })
+    });
+    if let Value::Object(map) = &mut member {
+        over_cap_members(runtime, manifest.as_ref(), &sizes, map);
+    }
+    member
+}
+
+/// The additive over-cap members of a status: `overCapBytes`, `notEnforced` (`[{label, reason}]`), `lastSkipped` and
+/// `occupants` (`[{label, bytes, at}]`), the last two as the last daemon prune that knew them left them in the manifest.
+fn over_cap_members(
+    runtime: &Runtime,
+    manifest: Option<&Manifest>,
+    sizes: &[capstan_cache::EntrySize],
+    out: &mut serde_json::Map<String, Value>,
+) {
+    let occupants = manifest.map(|m| m.last_occupants.as_slice()).unwrap_or(&[]);
+    let occupant_bytes: u64 = occupants.iter().map(|o| o.bytes).sum();
+    let over = if manifest.is_some() {
+        over_cap(runtime, sizes, occupant_bytes)
+    } else {
+        Default::default()
+    };
+    out.insert("overCapBytes".into(), json!(over.bytes));
+    out.insert(
+        "notEnforced".into(),
+        json!(skipped_json(&over.not_enforced)),
+    );
+    out.insert(
+        "lastSkipped".into(),
+        json!(manifest.map_or_else(Vec::new, |m| skipped_json(&m.last_skipped))),
+    );
+    out.insert(
+        "occupants".into(),
+        json!(occupants
+            .iter()
+            .map(|o| json!({"label": o.label, "bytes": o.bytes, "at": iso(o.at_ms)}))
+            .collect::<Vec<_>>()),
+    );
 }
 
 /// The live view `cstan cache status` prints: bounded walk of every entry.
@@ -361,6 +441,7 @@ pub fn live_status(runtime: &Runtime, budget: Duration) -> Value {
         (Vec::new(), false)
     };
     let mut partial = keys_partial;
+    let manifest = read_manifest(&runtime.root).ok().flatten();
     let entries: Vec<Value> = runtime
         .entries
         .iter()
@@ -374,6 +455,7 @@ pub fn live_status(runtime: &Runtime, budget: Duration) -> Value {
                 "reason": entry.reason,
                 "mode": entry.mode,
                 "bytes": size.map_or(0, |s| s.bytes),
+                "overCapBytes": entry_over(entry.max_bytes, size.map(|s| s.bytes)),
                 "files": size.map_or(0, |s| s.files),
                 "lastUsedAt": size.filter(|s| s.last_used_ms > 0).map(|s| iso(s.last_used_ms)),
                 "partial": size.is_some_and(|s| s.partial),
@@ -381,7 +463,7 @@ pub fn live_status(runtime: &Runtime, budget: Duration) -> Value {
             })
         })
         .collect();
-    json!({
+    let mut status = json!({
         "schemaVersion": 1,
         "root": runtime.root.to_string_lossy(),
         "scope": runtime.scope.as_str(),
@@ -396,7 +478,18 @@ pub fn live_status(runtime: &Runtime, budget: Duration) -> Value {
             "lastUsedAt": (k.last_used_ms > 0).then(|| iso(k.last_used_ms)),
         })).collect::<Vec<_>>(),
         "warnings": runtime.warnings,
-    })
+    });
+    // This process cannot see live verify scratch: the occupants are the manifest's last known ones.
+    if let Value::Object(map) = &mut status {
+        let fallback = Manifest::new(runtime, Vec::new(), 0);
+        over_cap_members(
+            runtime,
+            Some(manifest.as_ref().unwrap_or(&fallback)),
+            &sizes,
+            map,
+        );
+    }
+    status
 }
 
 fn failure_response(failure: &CacheFailure) -> CommandResponse {

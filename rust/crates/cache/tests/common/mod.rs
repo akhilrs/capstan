@@ -15,6 +15,8 @@ pub fn config(base: &Path) -> CacheConfig {
         scope: CacheScope::Project,
         max_size_bytes: 20 * (1 << 30),
         max_age_days: 3650,
+        evict_while_active: true,
+        active_evict_min_age_minutes: 120,
         detect: false,
         entries: Vec::new(),
         detectable: Vec::new(),
@@ -28,12 +30,14 @@ pub fn custom(name: &str, dir_env: &str, subdir: &str) -> CacheEntry {
         origin: CacheOrigin::Custom,
         dirs: vec![(dir_env.into(), subdir.into())],
         gate_dirs: Vec::new(),
+        gate_set: Vec::new(),
         set: Vec::new(),
         requires: None,
         prune: Vec::new(),
         stop: Vec::new(),
         mode: None,
         max_size_bytes: None,
+        unit_lock: None,
     }
 }
 

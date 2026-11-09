@@ -625,7 +625,58 @@ fn cache_status_lines(result: &Value, now_ms: f64) -> Vec<String> {
             ""
         }
     ));
+    over_cap_lines(&mut lines, result, now_ms);
     lines
+}
+
+/// `label (reason), label (reason)` of a list of `{label, reason}`.
+fn reasons(value: Option<&Value>) -> String {
+    items(value)
+        .iter()
+        .map(|item| {
+            format!(
+                "{} ({})",
+                text_of(item.get("label")).unwrap_or_default(),
+                text_of(item.get("reason")).unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The over-cap lines of `cstan cache status`: how far over the cap the cache is and what stayed (`lastSkipped`), where
+/// the cap cannot be enforced (`notEnforced`) and the scratch the last daemon prune counted (`occupants`).
+fn over_cap_lines(lines: &mut Vec<String>, result: &Value, now_ms: f64) {
+    let over = bytes_of(result.get("overCapBytes")).unwrap_or(0);
+    let not_enforced = reasons(result.get("notEnforced"));
+    if over > 0 {
+        let skipped = reasons(result.get("lastSkipped"));
+        let mut line = format!("over cap by {}", human_bytes(over));
+        if !not_enforced.is_empty() {
+            line.push_str(&format!(", not enforced: {not_enforced}"));
+        } else if !skipped.is_empty() {
+            line.push_str(&format!(": {skipped}"));
+        }
+        lines.push(line);
+    }
+    let occupants = items(result.get("occupants"));
+    if !occupants.is_empty() {
+        let list: Vec<String> = occupants
+            .iter()
+            .map(|o| {
+                let when = ago(o.get("at"), now_ms).map_or(String::new(), |t| format!(", {t}"));
+                format!(
+                    "{} {}{when}",
+                    text_of(o.get("label")).unwrap_or_default(),
+                    bytes_of(o.get("bytes")).map_or("-".to_string(), human_bytes)
+                )
+            })
+            .collect();
+        lines.push(format!(
+            "occupants (counted, never removed): {}",
+            list.join(", ")
+        ));
+    }
 }
 
 fn cache_prune_lines(result: &Value) -> Vec<String> {

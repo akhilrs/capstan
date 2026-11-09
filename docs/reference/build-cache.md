@@ -71,7 +71,24 @@ No variables. Use it to keep `[cache.rust]` in the file while turning the preset
 | `max_size_gb` | 20 | Total size of all entries. A `[cache.<name>] max_size_gb` caps one entry; an entry's cap may not exceed the total and the caps may not add up to more than it. For `sccache` the effective cap is also given to the tool as `SCCACHE_CACHE_SIZE`. |
 | `max_age_days` | 30 | An entry not used for longer is removed. |
 
-The daemon measures and prunes every 6 hours (off the controller's main thread). A prune first runs the tools' own commands (`uv cache prune`, `npm cache verify`, `pnpm store prune`), then removes entries older than `max_age_days`, then the least recently used until the total is under the cap. A prune removes whole entries only while no agent worktree exists; while agents work it runs the tool commands and reports what it would remove. Sizes come from walks that are bounded in time; a partial figure is marked `partial`.
+The daemon measures and prunes every 6 hours (off the controller's main thread; sooner when the last measurement was over the cap). A prune first runs the tools' own commands (`uv cache prune`, `npm cache verify`, `pnpm store prune`), then removes entries older than `max_age_days`, then trims until the total is under the cap. While no agent worktree exists it may remove whole entries; while agents work it only evicts what the rules below allow and reports the rest. Sizes come from walks that are bounded in time; a partial figure is marked `partial`.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `evict_while_active` | `true` | While agents work, a prune may still evict unleased gate slots and old, unused units. `false` reports only. |
+| `active_evict_min_age_minutes` | 120 | While agents work, a unit must be untouched this long before it is evicted; 0 to 10080, 0 means no age rule. |
+
+`sccache` is given `SCCACHE_CACHE_SIZE` as the entry's own `max_size_gb`; with none, 40% of the total (at least 1 GB), so 5 GB gives 2G and 10 GB gives 4G.
+
+### Eviction units
+
+An entry over the cap is trimmed inside, one unit at a time, instead of being removed whole. A unit is a directory that holds the entry's `unit_lock` file (rust: `.cargo-lock`, which cargo locks while it builds there); the rust preset sets it with `target_dir = true`. The order is: unleased gate slots, incremental sub-units (`incremental/` inside a unit), whole units, setup keys, entries. A prune takes the unit lock without blocking, empties the unit while holding it, and keeps the lock file and directory, so a build waiting on the lock simply proceeds cold. After taking a lock the prune checks that the file it holds is still the file at that path (device and inode); a replaced lock file means a build is recreating the unit, which counts as `building`. A unit whose lock is held stays (`building`).
+
+While agents run, a unit is also kept when anything inside it changed within `active_evict_min_age_minutes` (`recently used`) or when a process runs a binary from it or has it as its working directory (`a process runs from it`, read from `/proc`). If an own-user process has its exe, cwd and command line all unreadable, the prune cannot tell what it uses and every unit counts as in use (fail safe). When idle the age and process rules do not apply, only the lock. An entry over the cap that has no units, or only a tool that trims itself (sccache), is listed with a reason (`no evictable units`, `trimmed by sccache`) and not enforced.
+
+Occupants are scratch directories the daemon knows about, such as the verify scratch worktree: they count against the cap, are listed (`held by verify`) and never removed by a prune. Occupants arrive with a later package; until then the list is empty and the periodic daemon prune records only what it skipped (`lastSkipped`).
+
+`cstan cache status --json` adds, next to the sizes: `overCapBytes` (how far over the cap, also per entry), `notEnforced` (`[{label, reason}]`), `lastSkipped` (what the last daemon prune left and why, `reasons` as above) and `occupants` (`[{label, bytes, at}]`).
 
 ## `cstan cache`
 
@@ -178,6 +195,12 @@ With `target_dir = true` a `cstan verify` run gets `CARGO_TARGET_DIR` (and, in m
 - Slots per project: `n` is the index of the verify worker, so there are `max_parallel` slots and two workers never share one. `max_parallel` is read when the daemon starts; a lower value at the next start removes this project's surplus slots that nobody holds (`verify_slot_removed`, or `verify_slot_skipped` when one is held).
 - Cold first run: the first gate in a slot builds from nothing (sccache helps when it is on), so a project with a short `[verify] timeout_seconds` may see its first gate per slot time out. Raise the timeout or warm the slot once.
 - Disk per slot: one full build tree, about 3 GB on this repository, times `max_parallel`. The slots count against the entry's `max_size_gb`.
+
+### Gate builds without debug info
+
+A gate builds without debug info by default: in a verify gate and in the Shared fallback, the rust preset adds `CARGO_PROFILE_DEV_DEBUG=0` and `CARGO_PROFILE_TEST_DEBUG=0` to the environment, after the entry's other variables (the entry's `gate_set`; an agent and a gate in Bare scope never get them, and python, node and go set none). It makes gate builds faster and smaller. `[verify].env` still wins on a clash. Tests that need debug info, such as backtrace line numbers, may differ in a gate: set `[cache.rust] gate_debug = true` (default `false`) to leave the project's own setting in force.
+
+Limits: only the global `dev` and `test` profiles are changed, which `cargo build` and `cargo test` use; `release`, `bench` and custom profiles keep the project's settings. The variables override a `debug` setting in the project's `.cargo/config.toml` for gates only, but a per-package override (`[profile.dev.package.<name>]`, `[profile.test.package.*]`) still wins. Changing the setting changes cargo's fingerprints, so the first gate per slot after an upgrade is a full rebuild (about 1.5 times the usual gate time) and old and new artifacts coexist in the slot, about 2.5 GB more, until the old ones are evicted. A gate never reuses an artifact an agent built, since agents keep debug info.
 
 ### Leases
 

@@ -69,9 +69,13 @@ pub struct ResolvedEntry {
     pub dirs: Vec<PathBuf>,
     /// `(variable, subdirectory)` a verify gate uses instead of the same variable in `env`; never enables an entry.
     pub gate_dirs: Vec<(String, String)>,
+    /// Fixed variables a gate (and the shared fallback) gets after `env`, never an agent.
+    pub gate_set: Vec<(String, String)>,
     pub prune: Vec<String>,
     pub stop: Vec<String>,
     pub max_bytes: Option<u64>,
+    /// The file a build tool locks while it builds in a directory; `None` for a disabled entry and the setup entry.
+    pub unit_lock: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -85,6 +89,10 @@ pub struct Runtime {
     pub max_bytes: u64,
     pub max_age_days: u32,
     pub setup_reuse: Option<SetupReuse>,
+    /// With `idle` false prune may still evict unleased slots and old, unused units (true); false reports only.
+    pub evict_while_active: bool,
+    /// A unit must be untouched this long before it is evicted while agents run.
+    pub active_unit_min_age: Duration,
 }
 
 fn sccache_size(bytes: u64) -> String {
@@ -238,9 +246,11 @@ impl Runtime {
                 env: Vec::new(),
                 dirs: Vec::new(),
                 gate_dirs: Vec::new(),
+                gate_set: Vec::new(),
                 prune: Vec::new(),
                 stop: Vec::new(),
                 max_bytes: None,
+                unit_lock: None,
             });
         }
         Runtime {
@@ -253,6 +263,10 @@ impl Runtime {
             max_bytes: config.max_size_bytes,
             max_age_days: config.max_age_days,
             setup_reuse: config.setup_reuse.clone(),
+            evict_while_active: config.evict_while_active,
+            active_unit_min_age: Duration::from_secs(
+                u64::from(config.active_evict_min_age_minutes) * 60,
+            ),
         }
     }
 
@@ -344,6 +358,9 @@ impl Runtime {
                     }
                 }
                 GateScope::Bare => {}
+            }
+            if matches!(scope, GateScope::Gate { .. } | GateScope::Shared) {
+                env.extend(entry.gate_set.iter().cloned());
             }
         }
         Ok(env)
@@ -500,9 +517,11 @@ fn resolve_entry(
         env: Vec::new(),
         dirs: Vec::new(),
         gate_dirs: entry.gate_dirs.clone(),
+        gate_set: entry.gate_set.clone(),
         prune: entry.prune.clone(),
         stop: entry.stop.clone(),
         max_bytes: entry.max_size_bytes,
+        unit_lock: entry.unit_lock.clone(),
     };
     if entry.dirs.is_empty() && entry.set.is_empty() {
         resolved.enabled = false;
@@ -513,6 +532,8 @@ fn resolve_entry(
         resolved.prune.clear();
         resolved.stop.clear();
         resolved.gate_dirs.clear();
+        resolved.gate_set.clear();
+        resolved.unit_lock = None;
         return resolved;
     }
     if let Some(tool) = entry.requires.as_deref().filter(|t| !on_path(t, path_env)) {
@@ -539,6 +560,8 @@ fn resolve_entry(
         resolved.prune.clear();
         resolved.stop.clear();
         resolved.gate_dirs.clear();
+        resolved.gate_set.clear();
+        resolved.unit_lock = None;
         return resolved;
     }
     for (name, subdir) in &entry.dirs {
@@ -551,7 +574,7 @@ fn resolve_entry(
     let sccache_half = entry.mode.as_deref() == Some("sccache") && entry.max_size_bytes.is_none();
     for (name, value) in &entry.set {
         let value = if sccache_half && name == "SCCACHE_CACHE_SIZE" {
-            sccache_size(total / 2)
+            sccache_size((total / 5 * 2).max(GIB))
         } else {
             value.clone()
         };

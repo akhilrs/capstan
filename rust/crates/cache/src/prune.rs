@@ -1,5 +1,7 @@
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
+use std::fs::{self, File};
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -10,8 +12,11 @@ use crate::idle::is_idle;
 use crate::lease::{
     self, slot_label, EntryGuard, GateLease, LeaseError, GUARD_FILE, IN_USE_REASON,
 };
-use crate::manifest::{read_manifest, write_locked, Manifest, StoreLock};
-use crate::measure::{entry_slots, measure, setup_keys, EntrySize, SetupKey, SlotRef, SlotSize};
+use crate::manifest::{read_manifest, write_locked, Manifest, OccupantRecord, StoreLock};
+use crate::measure::{
+    entry_slots, find_units, measure, measure_dir, setup_keys, EntrySize, SetupKey, SlotRef,
+    SlotSize, UnitSize,
+};
 use crate::runtime::{ResolvedEntry, Runtime, SETUP_ENTRY};
 
 const COMMAND_TIMEOUT_MS: u64 = 60_000;
@@ -20,6 +25,27 @@ const DAY_MS: u64 = 86_400_000;
 
 /// Why prune and clear skip an entry whose guard another process holds for the moment (a gate creating a slot).
 pub const GUARD_BUSY_REASON: &str = "busy, retried next prune";
+/// Why a prune left whole entries, expired items and setup keys while agents run.
+pub const NOT_IDLE_REASON: &str = "agents active";
+/// Why a unit stayed: its build tool holds the unit lock.
+pub const BUILDING_REASON: &str = "building";
+/// Why a unit stayed while agents run: something inside changed within `Runtime::active_unit_min_age`.
+pub const RECENT_REASON: &str = "recently used";
+/// Why a unit stayed while agents run: a process runs a binary from it or has it as its working directory.
+pub const IN_PROCESS_REASON: &str = "a process runs from it";
+/// Why an entry over the cap cannot be trimmed unit by unit.
+pub const NO_UNITS_REASON: &str = "no evictable units";
+/// Why a scratch directory the daemon knows about is listed: it counts against the cap and is never removed.
+pub const OCCUPANT_REASON: &str = "held by verify";
+/// Why bytes over the cap stay: the tool (sccache) trims its own directory, only after it restarts.
+pub const TOOL_TRIMMED_REASON: &str = "trimmed by sccache";
+
+/// Disk the daemon knows is in use outside the cache (verify scratch): counted against the cap, never removed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Occupant {
+    pub label: String,
+    pub bytes: u64,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
@@ -84,6 +110,21 @@ pub struct Skipped {
 pub struct PruneHooks<'a> {
     pub before_rename: &'a dyn Fn(&Path),
     pub after_rename: &'a dyn Fn(),
+    /// Runs with the unit lock held, before the active rule is checked again and the unit is emptied (the unit dir).
+    pub before_unit_rename: &'a dyn Fn(&Path),
+}
+
+type LockOpenHook = Box<dyn Fn(&Path)>;
+
+thread_local! {
+    static AFTER_LOCK_OPEN: std::cell::RefCell<Option<LockOpenHook>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Test hook: runs on this thread after a unit lock file is opened and before it is locked.
+#[doc(hidden)]
+pub fn set_after_lock_open_hook(hook: Option<LockOpenHook>) {
+    AFTER_LOCK_OPEN.with(|cell| *cell.borrow_mut() = hook);
 }
 
 fn no_path(_: &Path) {}
@@ -94,6 +135,7 @@ impl Default for PruneHooks<'_> {
         PruneHooks {
             before_rename: &no_path,
             after_rename: &no_op,
+            before_unit_rename: &no_path,
         }
     }
 }
@@ -108,6 +150,14 @@ pub struct ClearReport {
     pub skipped: Vec<Skipped>,
 }
 
+/// One directory of an eviction unit: what is emptied (`rel`) and the directory whose lock file guards it (`lock_rel`,
+/// the same for a unit, the unit's for its `incremental/` sub-unit); both relative to the entry directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UnitMember {
+    rel: String,
+    lock_rel: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Victim {
     Key(String),
@@ -117,11 +167,30 @@ enum Victim {
         project: String,
         slot: usize,
     },
+    /// One unit, or a pair (artifact and build directory of a split build dir) emptied together.
+    Unit {
+        entry: String,
+        members: Vec<UnitMember>,
+    },
 }
 
 impl Victim {
+    fn labels(&self) -> Vec<String> {
+        match self {
+            Self::Unit { entry, members } => members
+                .iter()
+                .map(|m| format!("{entry}/{}", m.rel))
+                .collect(),
+            other => vec![other.label()],
+        }
+    }
+
     fn label(&self) -> String {
         match self {
+            Self::Unit { entry, members } => format!(
+                "{entry}/{}",
+                members.first().map(|m| m.rel.as_str()).unwrap_or_default()
+            ),
             Self::Key(key) => format!("{SETUP_ENTRY}/{key}"),
             Self::Entry(name) => name.clone(),
             Self::Slot {
@@ -333,7 +402,18 @@ fn apply_entry(
     };
     let mut targets = Vec::new();
     let mut removed = Vec::new();
+    let mut unit_locks = Vec::new();
     if held.leased.is_empty() {
+        // A build holding a unit lock is never renamed away under its feet.
+        let lock_files = unit_lock_files(runtime, name, &dir);
+        match lock_files_nb(&lock_files)? {
+            LockFiles::Held(files) => unit_locks = files,
+            LockFiles::Busy => {
+                out.skip(name.to_string(), BUILDING_REASON);
+                return Ok(());
+            }
+            LockFiles::Gone => return Ok(()),
+        }
         (hooks.before_rename)(&dir);
         targets.extend(move_to_trash(&runtime.root, &dir, name)?);
         if targets.is_empty() {
@@ -355,10 +435,293 @@ fn apply_entry(
             out.skip(slot_label(name, project, *slot), IN_USE_REASON);
         }
     }
+    drop(unit_locks);
     drop(held);
     (hooks.after_rename)();
     delete_trashed(&targets)?;
     out.cleared.extend(removed);
+    Ok(())
+}
+
+/// The unit lock files of an entry (every unit directory that exists now), in path order.
+fn unit_lock_files(runtime: &Runtime, name: &str, dir: &Path) -> Vec<PathBuf> {
+    let Some(entry) = runtime.entry(name) else {
+        return Vec::new();
+    };
+    let lock = entry.unit_lock.as_deref().unwrap_or_default();
+    find_units(entry, dir)
+        .into_iter()
+        .map(|(_, path)| path.join(lock))
+        .collect()
+}
+
+enum LockFiles {
+    /// Every file locked; the locks are released when the files are dropped.
+    Held(Vec<File>),
+    Busy,
+    Gone,
+}
+
+/// Opens each file (without creating it) and takes `flock` LOCK_EX|LOCK_NB, in the given order.
+fn lock_files_nb(paths: &[PathBuf]) -> Result<LockFiles> {
+    let mut held = Vec::new();
+    for path in paths {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(LockFiles::Gone),
+            Err(e) => return Err(CacheError::io(format!("open {}", path.display()), e)),
+        };
+        AFTER_LOCK_OPEN.with(|cell| {
+            if let Some(hook) = cell.borrow().as_ref() {
+                hook(path);
+            }
+        });
+        // SAFETY: the descriptor stays open for the lifetime of `file`.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                Ok(LockFiles::Busy)
+            } else {
+                Err(CacheError::io(format!("lock {}", path.display()), error))
+            };
+        }
+        // The lock file may have been replaced between the open and the lock (a build recreating its target
+        // directory): the lock we hold is then on an orphaned inode and protects nothing, so the unit counts as
+        // building.
+        match same_file(&file, path) {
+            Ok(true) => {}
+            Ok(false) => return Ok(LockFiles::Busy),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(LockFiles::Gone),
+            Err(e) => return Err(CacheError::io(format!("stat {}", path.display()), e)),
+        }
+        held.push(file);
+    }
+    Ok(LockFiles::Held(held))
+}
+
+/// Whether the open `file` is still the file at `path` (same device and inode).
+fn same_file(file: &File, path: &Path) -> std::io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let held = file.metadata()?;
+    let current = fs::metadata(path)?;
+    Ok(held.dev() == current.dev() && held.ino() == current.ino())
+}
+
+/// The paths in a process command line: absolute arguments, and relative ones with a separator when the process
+/// working directory is known, each resolved through symlinks (an unresolvable one stays as written).
+#[cfg(target_os = "linux")]
+fn cmdline_paths(raw: &[u8], cwd: Option<&Path>) -> Vec<PathBuf> {
+    raw.split(|b| *b == 0)
+        .filter_map(|arg| {
+            let text = String::from_utf8_lossy(arg).into_owned();
+            let path = PathBuf::from(&text);
+            let full = if path.is_absolute() {
+                path
+            } else if text.contains('/') {
+                cwd?.join(path)
+            } else {
+                return None;
+            };
+            Some(fs::canonicalize(&full).unwrap_or(full))
+        })
+        .collect()
+}
+
+/// What processes run from: their executable and working directory, read once per prune.
+struct ProcScan {
+    paths: Vec<PathBuf>,
+    /// A link of one of our own processes could not be read: every unit counts as in use.
+    unknown: bool,
+}
+
+impl ProcScan {
+    #[cfg(target_os = "linux")]
+    fn take() -> ProcScan {
+        use std::os::unix::fs::MetadataExt;
+        let mut scan = ProcScan {
+            paths: Vec::new(),
+            unknown: false,
+        };
+        let Ok(read) = fs::read_dir("/proc") else {
+            return scan;
+        };
+        // SAFETY: geteuid has no preconditions.
+        let me = unsafe { libc::geteuid() };
+        for process in read.flatten() {
+            let name = process.file_name().to_string_lossy().into_owned();
+            if name.is_empty() || !name.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            for link in ["exe", "cwd"] {
+                match fs::read_link(process.path().join(link)) {
+                    Ok(target) => {
+                        let text = target.to_string_lossy();
+                        let text = text.strip_suffix(" (deleted)").unwrap_or(&text);
+                        scan.paths.push(PathBuf::from(text));
+                    }
+                    Err(e) => {
+                        let gone = matches!(e.raw_os_error(), Some(libc::ENOENT | libc::ESRCH));
+                        // Another user's process cannot reach the private store; ours might.
+                        let ours = fs::metadata(process.path()).is_ok_and(|m| m.uid() == me);
+                        if !gone && ours {
+                            // A process of ours whose links are hidden (a privilege-dropped daemon, an ssh session):
+                            // its command line still tells whether it was started from a path in the store. Only
+                            // a process that hides that too makes every unit count as in use.
+                            match fs::read(process.path().join("cmdline")) {
+                                Ok(raw) if !raw.is_empty() => {
+                                    let cwd = fs::read_link(process.path().join("cwd")).ok();
+                                    scan.paths.extend(cmdline_paths(&raw, cwd.as_deref()));
+                                }
+                                Ok(_) => {}
+                                Err(_) => scan.unknown = true,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        scan
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn take() -> ProcScan {
+        ProcScan {
+            paths: Vec::new(),
+            unknown: false,
+        }
+    }
+
+    fn runs_from(&self, dir: &Path) -> bool {
+        let dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        self.unknown || self.paths.iter().any(|p| p.starts_with(&dir))
+    }
+}
+
+/// The active rule of a prune that runs while agents work.
+struct Active {
+    min_age_ms: u64,
+    scan: OnceCell<ProcScan>,
+}
+
+impl Active {
+    fn new(runtime: &Runtime) -> Active {
+        Active {
+            min_age_ms: runtime.active_unit_min_age.as_millis() as u64,
+            scan: OnceCell::new(),
+        }
+    }
+
+    /// Why `dir` may not be evicted now, if it may not.
+    fn blocks(&self, dir: &Path) -> Option<&'static str> {
+        let size = measure_dir(dir, &[], Instant::now() + MEASURE_BUDGET);
+        if size.partial || now_ms().saturating_sub(size.newest_mtime_ms) < self.min_age_ms {
+            return Some(RECENT_REASON);
+        }
+        self.scan
+            .get_or_init(ProcScan::take)
+            .runs_from(dir)
+            .then_some(IN_PROCESS_REASON)
+    }
+}
+
+/// Empties one unit (or a pair) under its lock(s): the lock file and the directory keep their inodes, so a build
+/// blocked on the lock proceeds into the same, now empty, directory.
+fn apply_unit(
+    runtime: &Runtime,
+    entry_name: &str,
+    members: &[UnitMember],
+    active: Option<&Active>,
+    hooks: &PruneHooks<'_>,
+    out: &mut Outcome,
+) -> Result<()> {
+    let dir = runtime.entry_dir(entry_name);
+    let Some(lock_name) = runtime
+        .entry(entry_name)
+        .and_then(|e| e.unit_lock.as_deref())
+    else {
+        return Ok(());
+    };
+    let labels: Vec<String> = members
+        .iter()
+        .map(|m| format!("{entry_name}/{}", m.rel))
+        .collect();
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    let held = match lock_entry(&dir, true)? {
+        Locked::Held(held) => held,
+        Locked::Busy => {
+            out.skip(entry_name.to_string(), GUARD_BUSY_REASON);
+            return Ok(());
+        }
+        Locked::Gone => return Ok(()),
+    };
+    // Fixed order (artifact directory before build directory), so two prunes never wait on each other.
+    let mut order: Vec<&UnitMember> = members.iter().collect();
+    order.sort_by(|a, b| b.lock_rel.cmp(&a.lock_rel));
+    let lock_paths: Vec<PathBuf> = order
+        .iter()
+        .map(|m| dir.join(&m.lock_rel).join(lock_name))
+        .collect();
+    let locks = match lock_files_nb(&lock_paths)? {
+        LockFiles::Held(files) => files,
+        LockFiles::Busy => {
+            for label in labels {
+                out.skip(label, BUILDING_REASON);
+            }
+            return Ok(());
+        }
+        LockFiles::Gone => return Ok(()),
+    };
+    for member in &order {
+        (hooks.before_unit_rename)(&dir.join(&member.lock_rel));
+    }
+    if let Some(active) = active {
+        for member in &order {
+            if let Some(reason) = active.blocks(&dir.join(&member.rel)) {
+                for label in &labels {
+                    out.skip(label.clone(), reason);
+                }
+                return Ok(());
+            }
+        }
+    }
+    let mut targets = Vec::new();
+    let mut failure = None;
+    'members: for member in &order {
+        let label = format!("{entry_name}/{}", member.rel);
+        let evicted = dir.join(&member.rel);
+        let children: Vec<PathBuf> = if member.rel == member.lock_rel {
+            match fs::read_dir(&evicted) {
+                Ok(read) => read
+                    .flatten()
+                    .filter(|c| c.file_name() != lock_name)
+                    .map(|c| c.path())
+                    .collect(),
+                Err(_) => Vec::new(),
+            }
+        } else {
+            vec![evicted]
+        };
+        for child in children {
+            match move_to_trash(&runtime.root, &child, &label) {
+                Ok(target) => targets.extend(target),
+                Err(e) => {
+                    failure = Some(e);
+                    break 'members;
+                }
+            }
+        }
+    }
+    drop(locks);
+    drop(held);
+    (hooks.after_rename)();
+    let deleted = delete_trashed(&targets);
+    if let Some(e) = failure {
+        return Err(e);
+    }
+    deleted?;
+    out.cleared.extend(labels);
     Ok(())
 }
 
@@ -409,6 +772,7 @@ fn apply(
     base_env: &BTreeMap<String, String>,
     runner: Runner<'_>,
     hooks: &PruneHooks<'_>,
+    active: Option<&Active>,
     out: &mut Outcome,
 ) -> Result<()> {
     match victim {
@@ -429,6 +793,7 @@ fn apply(
             project,
             slot,
         } => apply_slot(runtime, entry, project, *slot, hooks, out),
+        Victim::Unit { entry, members } => apply_unit(runtime, entry, members, active, hooks, out),
     }
 }
 
@@ -438,37 +803,78 @@ fn older_first<T>(items: &mut [(T, u64, u64)]) {
 }
 
 type SlotKey = (String, String, usize);
+type UnitKey = (String, String);
+
+/// What the plan removes, and whether only an idle prune may.
+#[derive(Clone, Debug)]
+struct Planned {
+    victim: Victim,
+    idle_only: bool,
+}
+
+/// A unit (or a pair of units of a split build dir) as one candidate.
+#[derive(Clone, Debug)]
+struct Group {
+    entry: String,
+    members: Vec<UnitMember>,
+    /// Newest modification inside; `u64::MAX` when a member was only partly measured.
+    newest: u64,
+    sub: bool,
+}
+
+struct Plan {
+    victims: Vec<Planned>,
+    skipped: Vec<Skipped>,
+}
 
 struct Planner {
-    victims: Vec<Victim>,
+    victims: Vec<Planned>,
     skipped: Vec<Skipped>,
-    /// Running total of what remains, in bytes.
+    /// Running total of what remains of the store, in bytes.
     total: u64,
-    /// What remains of each entry: slot victims come off it.
+    occupants: u64,
+    cap: u64,
+    /// A prune with agents running: a unit used lately stays.
+    active: bool,
+    min_age_ms: u64,
+    now: u64,
+    /// What remains of each entry: slot and unit victims come off it.
     entry_bytes: BTreeMap<String, u64>,
+    unit_left: BTreeMap<UnitKey, u64>,
     leased: BTreeSet<SlotKey>,
     taken_slots: BTreeSet<SlotKey>,
     taken_entries: BTreeSet<String>,
+    taken_keys: BTreeSet<String>,
+    taken_units: BTreeSet<UnitKey>,
 }
 
 impl Planner {
-    fn skip_leased(&mut self, entry: &str, project: &str, slot: usize) {
+    fn skip(&mut self, label: String, reason: &str) {
         let item = Skipped {
-            label: slot_label(entry, project, slot),
-            reason: IN_USE_REASON.to_string(),
+            label,
+            reason: reason.to_string(),
         };
         if !self.skipped.contains(&item) {
             self.skipped.push(item);
         }
     }
 
+    fn over(&self) -> bool {
+        self.total + self.occupants > self.cap
+    }
+
     /// An unleased slot goes; a leased one is listed and stays.
-    fn take_slot(&mut self, entry: &str, slot: &SlotSize) {
+    fn take_slot(&mut self, entry: &str, slot: &SlotSize, idle_only: bool) {
         let key = (entry.to_string(), slot.project.clone(), slot.slot);
         if self.leased.contains(&key) {
-            self.skip_leased(entry, &slot.project, slot.slot);
+            self.skip(slot_label(entry, &slot.project, slot.slot), IN_USE_REASON);
             return;
         }
+        let victim = Victim::Slot {
+            entry: entry.to_string(),
+            project: slot.project.clone(),
+            slot: slot.slot,
+        };
         if !self.taken_slots.insert(key) {
             return;
         }
@@ -476,10 +882,67 @@ impl Planner {
         if let Some(bytes) = self.entry_bytes.get_mut(entry) {
             *bytes = bytes.saturating_sub(slot.bytes);
         }
-        self.victims.push(Victim::Slot {
-            entry: entry.to_string(),
-            project: slot.project.clone(),
-            slot: slot.slot,
+        self.victims.push(Planned { victim, idle_only });
+    }
+
+    /// A unit goes; while agents run one used lately stays and is listed.
+    fn take_group(&mut self, group: &Group, idle_only: bool) {
+        let keys: Vec<UnitKey> = group
+            .members
+            .iter()
+            .map(|m| (group.entry.clone(), m.rel.clone()))
+            .collect();
+        let victim = Victim::Unit {
+            entry: group.entry.clone(),
+            members: group.members.clone(),
+        };
+        let parent_taken = group.sub
+            && group.members.iter().any(|m| {
+                self.taken_units
+                    .contains(&(group.entry.clone(), m.lock_rel.clone()))
+            });
+        if parent_taken || keys.iter().any(|k| self.taken_units.contains(k)) {
+            return;
+        }
+        let bytes: u64 = keys
+            .iter()
+            .map(|k| self.unit_left.get(k).copied().unwrap_or(0))
+            .sum();
+        if bytes == 0 {
+            return;
+        }
+        if self.active && !idle_only && too_recent(self.now, group.newest, self.min_age_ms) {
+            for label in victim.labels() {
+                self.skip(label, RECENT_REASON);
+            }
+            return;
+        }
+        self.taken_units.extend(keys);
+        self.total = self.total.saturating_sub(bytes);
+        if let Some(rest) = self.entry_bytes.get_mut(&group.entry) {
+            *rest = rest.saturating_sub(bytes);
+        }
+        if group.sub {
+            for m in &group.members {
+                if let Some(left) = self
+                    .unit_left
+                    .get_mut(&(group.entry.clone(), m.lock_rel.clone()))
+                {
+                    *left = left.saturating_sub(bytes);
+                }
+            }
+        }
+        self.victims.push(Planned { victim, idle_only });
+    }
+
+    fn take_key(&mut self, key: &SetupKey) {
+        if !self.taken_keys.insert(key.key.clone()) {
+            return;
+        }
+        self.total = self.total.saturating_sub(key.bytes);
+        self.victims.push(Planned {
+            victim: Victim::Key(key.key.clone()),
+            idle_only: true,
         });
     }
 
@@ -491,7 +954,7 @@ impl Planner {
         });
         if blocked {
             for slot in &size.slots {
-                self.take_slot(&size.name, slot);
+                self.take_slot(&size.name, slot, true);
             }
             return;
         }
@@ -500,8 +963,66 @@ impl Planner {
         }
         let rest = self.entry_bytes.get(&size.name).copied().unwrap_or(0);
         self.total = self.total.saturating_sub(rest);
-        self.victims.push(Victim::Entry(size.name.clone()));
+        self.victims.push(Planned {
+            victim: Victim::Entry(size.name.clone()),
+            idle_only: true,
+        });
     }
+}
+
+fn too_recent(now: u64, then: u64, min_age_ms: u64) -> bool {
+    // `true` when `then` is too recent to evict.
+    then == u64::MAX || now.saturating_sub(then) < min_age_ms
+}
+
+/// The units of an entry as candidates: whole units (a pair of a split build dir as one) and sub-units.
+fn groups_of(runtime: &Runtime, size: &EntrySize) -> (Vec<Group>, Vec<Group>) {
+    let newest = |u: &UnitSize| {
+        if u.partial {
+            u64::MAX
+        } else {
+            u.newest_mtime_ms
+        }
+    };
+    let split = runtime
+        .entry(&size.name)
+        .is_some_and(|e| e.mode.as_deref() == Some("shared-build-dir"));
+    let mut whole: Vec<Group> = Vec::new();
+    let mut pairs: BTreeMap<String, Vec<&UnitSize>> = BTreeMap::new();
+    let mut subs = Vec::new();
+    for unit in &size.units {
+        if let Some(parent) = &unit.parent {
+            subs.push(Group {
+                entry: size.name.clone(),
+                members: vec![UnitMember {
+                    rel: unit.rel.clone(),
+                    lock_rel: parent.clone(),
+                }],
+                newest: newest(unit),
+                sub: true,
+            });
+        } else if split && unit.rel.contains('/') {
+            let key = unit.rel.split_once('/').map(|(_, r)| r).unwrap_or_default();
+            pairs.entry(key.to_string()).or_default().push(unit);
+        } else {
+            pairs.entry(unit.rel.clone()).or_default().push(unit);
+        }
+    }
+    for (_, members) in pairs {
+        whole.push(Group {
+            entry: size.name.clone(),
+            newest: members.iter().map(|u| newest(u)).max().unwrap_or(0),
+            members: members
+                .iter()
+                .map(|u| UnitMember {
+                    rel: u.rel.clone(),
+                    lock_rel: u.rel.clone(),
+                })
+                .collect(),
+            sub: false,
+        });
+    }
+    (whole, subs)
 }
 
 /// Chooses what to remove, in the documented order, without touching anything. Leased slots (probed now, checked
@@ -512,7 +1033,8 @@ fn plan(
     keys: &[SetupKey],
     policy: &Policy,
     now: u64,
-) -> (Vec<Victim>, Vec<Skipped>) {
+    occupant_bytes: u64,
+) -> Plan {
     let expired =
         |last_used: u64| last_used > 0 && now.saturating_sub(last_used) > policy.max_age_ms;
     let mut leased = BTreeSet::new();
@@ -528,19 +1050,46 @@ fn plan(
         victims: Vec::new(),
         skipped: Vec::new(),
         total: sizes.iter().map(|s| s.bytes).sum(),
+        occupants: occupant_bytes,
+        cap: policy.max_bytes,
+        active: !policy.idle && runtime.evict_while_active,
+        min_age_ms: runtime.active_unit_min_age.as_millis() as u64,
+        now,
         entry_bytes: sizes.iter().map(|s| (s.name.clone(), s.bytes)).collect(),
+        unit_left: sizes
+            .iter()
+            .flat_map(|s| {
+                s.units
+                    .iter()
+                    .map(move |u| ((s.name.clone(), u.rel.clone()), u.bytes))
+            })
+            .collect(),
         leased,
         taken_slots: BTreeSet::new(),
         taken_entries: BTreeSet::new(),
+        taken_keys: BTreeSet::new(),
+        taken_units: BTreeSet::new(),
     };
+    let groups: Vec<(Vec<Group>, Vec<Group>)> = sizes
+        .iter()
+        .filter(|s| s.name != SETUP_ENTRY)
+        .map(|s| groups_of(runtime, s))
+        .collect();
     for size in sizes.iter().filter(|s| s.name != SETUP_ENTRY) {
         for slot in size.slots.iter().filter(|s| expired(s.last_used_ms)) {
-            p.take_slot(&size.name, slot);
+            p.take_slot(&size.name, slot, true);
+        }
+    }
+    for (whole, _) in &groups {
+        for group in whole
+            .iter()
+            .filter(|g| g.newest != u64::MAX && expired(g.newest))
+        {
+            p.take_group(group, true);
         }
     }
     for key in keys.iter().filter(|k| expired(k.last_used_ms)) {
-        p.total = p.total.saturating_sub(key.bytes);
-        p.victims.push(Victim::Key(key.key.clone()));
+        p.take_key(key);
     }
     for size in sizes
         .iter()
@@ -560,7 +1109,7 @@ fn plan(
             p.take_entry(size);
         }
     }
-    if p.total > policy.max_bytes {
+    if p.over() {
         // Idle slots before anything else: a cold slot costs one build, a cold entry the whole tool cache.
         let mut rest: Vec<((String, &SlotSize), u64, u64)> = sizes
             .iter()
@@ -573,28 +1122,58 @@ fn plan(
             .collect();
         older_first(&mut rest);
         for ((entry, slot), _, _) in rest {
-            if p.total <= policy.max_bytes {
+            if !p.over() {
                 break;
             }
-            p.take_slot(&entry, slot);
+            p.take_slot(&entry, slot, false);
         }
     }
-    if p.total > policy.max_bytes {
-        let mut rest: Vec<(String, u64, u64)> = keys
+    // Then incremental sub-units, then whole units: each oldest first, a partly measured one last.
+    for sub in [true, false] {
+        if !p.over() {
+            break;
+        }
+        let mut rest: Vec<(&Group, u64, u64)> = groups
             .iter()
-            .filter(|k| !p.victims.contains(&Victim::Key(k.key.clone())))
-            .map(|k| (k.key.clone(), k.last_used_ms, k.bytes))
+            .flat_map(|(whole, subs)| if sub { subs } else { whole })
+            .filter(|g| !p.taken_entries.contains(&g.entry))
+            .map(|g| {
+                let bytes = g
+                    .members
+                    .iter()
+                    .map(|m| {
+                        p.unit_left
+                            .get(&(g.entry.clone(), m.rel.clone()))
+                            .copied()
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                (g, g.newest, bytes)
+            })
             .collect();
         older_first(&mut rest);
-        for (key, _, bytes) in rest {
-            if p.total <= policy.max_bytes {
+        for (group, _, _) in rest {
+            if !p.over() {
                 break;
             }
-            p.total = p.total.saturating_sub(bytes);
-            p.victims.push(Victim::Key(key));
+            p.take_group(group, false);
         }
     }
-    if p.total > policy.max_bytes {
+    if p.over() {
+        let mut rest: Vec<(&SetupKey, u64, u64)> = keys
+            .iter()
+            .filter(|k| !p.taken_keys.contains(&k.key))
+            .map(|k| (k, k.last_used_ms, k.bytes))
+            .collect();
+        older_first(&mut rest);
+        for (key, _, _) in rest {
+            if !p.over() {
+                break;
+            }
+            p.take_key(key);
+        }
+    }
+    if p.over() {
         let mut rest: Vec<(&EntrySize, u64, u64)> = sizes
             .iter()
             .filter(|s| s.name != SETUP_ENTRY && !p.taken_entries.contains(&s.name))
@@ -605,16 +1184,66 @@ fn plan(
                     p.entry_bytes.get(&s.name).copied().unwrap_or(0),
                 )
             })
+            // An entry with nothing left in it (its units went) frees nothing: its directory and locks stay.
+            .filter(|(s, _, bytes)| *bytes > 0 || s.bytes == 0)
             .collect();
         older_first(&mut rest);
         for (size, _, _) in rest {
-            if p.total <= policy.max_bytes {
+            if !p.over() {
                 break;
             }
             p.take_entry(size);
         }
     }
-    (p.victims, p.skipped)
+    Plan {
+        victims: p.victims,
+        skipped: p.skipped,
+    }
+}
+
+/// How far over the cap the store is with its occupants, and what keeps prune from bringing it under.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OverCap {
+    pub bytes: u64,
+    /// Entries whose bytes outside every slot and unit already exceed the cap on their own: prune cannot
+    /// enforce the cap there. `reason` is `TOOL_TRIMMED_REASON` for an sccache entry, else `NO_UNITS_REASON`.
+    pub not_enforced: Vec<Skipped>,
+}
+
+/// The cap overage of `sizes` plus `occupant_bytes`, from the measurement alone.
+pub fn over_cap(runtime: &Runtime, sizes: &[EntrySize], occupant_bytes: u64) -> OverCap {
+    let total: u64 = sizes.iter().map(|s| s.bytes).sum::<u64>() + occupant_bytes;
+    let bytes = total.saturating_sub(runtime.max_bytes);
+    if bytes == 0 {
+        return OverCap::default();
+    }
+    let fixed: Vec<(&EntrySize, u64)> = sizes
+        .iter()
+        .filter(|s| s.name != SETUP_ENTRY && s.fixed_bytes > 0)
+        .map(|s| (s, s.fixed_bytes))
+        .collect();
+    let floor: u64 = fixed.iter().map(|(_, b)| b).sum();
+    let mut not_enforced = Vec::new();
+    if floor > runtime.max_bytes {
+        for (size, _) in fixed {
+            let sccache = runtime
+                .entry(&size.name)
+                .is_some_and(|e| e.mode.as_deref() == Some("sccache"));
+            not_enforced.push(Skipped {
+                label: size.name.clone(),
+                reason: if sccache {
+                    TOOL_TRIMMED_REASON
+                } else {
+                    NO_UNITS_REASON
+                }
+                .to_string(),
+            });
+        }
+    }
+    OverCap {
+        bytes,
+        not_enforced,
+    }
 }
 
 /// Runs every enabled entry's tool prune commands, then (only when idle) removes expired and least-recently-used
@@ -637,6 +1266,21 @@ pub fn prune_with_hooks(
     base_env: &BTreeMap<String, String>,
     runner: Runner<'_>,
     hooks: &PruneHooks<'_>,
+) -> Result<PruneReport> {
+    prune_with_occupants(runtime, policy, base_env, runner, hooks, None)
+}
+
+/// `prune_with_hooks` that also counts `occupants` (`Some`: the daemon knows them; `None`: unknown, as in a CLI
+/// process) against the cap: the store is pruned until `total + occupants <= cap`. Occupants are never removed.
+/// `Some(list)` records them (and the skipped list) in the manifest; `None` leaves what the manifest has.
+#[doc(hidden)]
+pub fn prune_with_occupants(
+    runtime: &Runtime,
+    policy: Policy,
+    base_env: &BTreeMap<String, String>,
+    runner: Runner<'_>,
+    hooks: &PruneHooks<'_>,
+    occupants: Option<&[Occupant]>,
 ) -> Result<PruneReport> {
     let lock = StoreLock::try_acquire(&runtime.root)?;
     let mut report = PruneReport::default();
@@ -665,22 +1309,69 @@ pub fn prune_with_hooks(
     let (keys, keys_partial) = setup_keys(runtime, deadline);
     report.partial = keys_partial || sizes.iter().any(|s| s.partial);
     report.total_before = sizes.iter().map(|s| s.bytes).sum();
-    let (victims, skipped) = plan(runtime, &sizes, &keys, &policy, now_ms());
-    report.would_clear = victims.iter().map(Victim::label).collect();
-    report.skipped = skipped;
+    let occupant_bytes: u64 = occupants.map_or(0, |list| list.iter().map(|o| o.bytes).sum());
+    let planned = plan(runtime, &sizes, &keys, &policy, now_ms(), occupant_bytes);
+    report.skipped = planned.skipped;
     let mut out = Outcome::default();
+    let mut remaining: Vec<&Planned> = Vec::new();
     if policy.idle {
-        for victim in &victims {
-            if let Err(e) = apply(runtime, victim, base_env, runner, hooks, &mut out) {
-                report.errors.push(format!("{}: {e}", victim.label()));
+        for planned in &planned.victims {
+            let applied = apply(
+                runtime,
+                &planned.victim,
+                base_env,
+                runner,
+                hooks,
+                None,
+                &mut out,
+            );
+            if let Err(e) = applied {
+                report
+                    .errors
+                    .push(format!("{}: {e}", planned.victim.label()));
             }
         }
-        report.would_clear.clear();
-        report.cleared = std::mem::take(&mut out.cleared);
-        for item in std::mem::take(&mut out.skipped) {
+    } else if runtime.evict_while_active {
+        let active = Active::new(runtime);
+        for planned in &planned.victims {
+            if planned.idle_only {
+                remaining.push(planned);
+                continue;
+            }
+            let applied = apply(
+                runtime,
+                &planned.victim,
+                base_env,
+                runner,
+                hooks,
+                Some(&active),
+                &mut out,
+            );
+            if let Err(e) = applied {
+                report
+                    .errors
+                    .push(format!("{}: {e}", planned.victim.label()));
+            }
+        }
+    } else {
+        remaining.extend(planned.victims.iter());
+    }
+    if !policy.idle {
+        report.would_clear = remaining.iter().flat_map(|p| p.victim.labels()).collect();
+        for label in &report.would_clear {
+            let item = Skipped {
+                label: label.clone(),
+                reason: NOT_IDLE_REASON.to_string(),
+            };
             if !report.skipped.contains(&item) {
                 report.skipped.push(item);
             }
+        }
+    }
+    report.cleared = std::mem::take(&mut out.cleared);
+    for item in std::mem::take(&mut out.skipped) {
+        if !report.skipped.contains(&item) {
+            report.skipped.push(item);
         }
     }
     report.commands.extend(out.stops);
@@ -688,6 +1379,40 @@ pub fn prune_with_hooks(
     report.total_after = after.iter().map(|s| s.bytes).sum();
     let mut manifest = Manifest::new(runtime, after, now_ms());
     manifest.last_prune_at_ms = Some(now_ms());
+    let previous = read_manifest(&runtime.root).ok().flatten();
+    match occupants {
+        Some(list) => {
+            let at = now_ms();
+            let unmet = report.total_after + occupant_bytes > policy.max_bytes;
+            if unmet {
+                for occupant in list {
+                    let item = Skipped {
+                        label: occupant.label.clone(),
+                        reason: OCCUPANT_REASON.to_string(),
+                    };
+                    if !report.skipped.contains(&item) {
+                        report.skipped.push(item);
+                    }
+                }
+            }
+            manifest.last_occupants = list
+                .iter()
+                .map(|o| OccupantRecord {
+                    label: o.label.clone(),
+                    bytes: o.bytes,
+                    at_ms: at,
+                })
+                .collect();
+            manifest.last_skipped = report.skipped.clone();
+        }
+        None => {
+            // Occupants are unknown here and keep their last record; what this prune skipped is known.
+            if let Some(previous) = previous {
+                manifest.last_occupants = previous.last_occupants;
+            }
+            manifest.last_skipped = report.skipped.clone();
+        }
+    }
     write_locked(&runtime.root, &manifest, &|| {})?;
     drop(lock);
     Ok(report)
@@ -732,6 +1457,7 @@ pub fn clear_hooked(
         &PruneHooks {
             before_rename: &no_path,
             after_rename,
+            before_unit_rename: &no_path,
         },
     )
 }
@@ -773,7 +1499,7 @@ pub fn clear_with_hooks(
     let mut report = ClearReport::default();
     let mut out = Outcome::default();
     for victim in &victims {
-        if let Err(e) = apply(runtime, victim, base_env, runner, hooks, &mut out) {
+        if let Err(e) = apply(runtime, victim, base_env, runner, hooks, None, &mut out) {
             report.errors.push(format!("{}: {e}", victim.label()));
         }
     }
@@ -836,4 +1562,22 @@ pub fn recover(root: &Path) -> Result<Vec<String>> {
     sweep_tmp(root, &mut removed);
     sweep_tmp(&root.join(SETUP_ENTRY), &mut removed);
     Ok(removed)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod cmdline_tests {
+    use super::*;
+
+    #[test]
+    fn command_line_paths_are_resolved_through_symlinks_and_the_process_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = fs::canonicalize(dir.path()).unwrap().join("unit");
+        fs::create_dir_all(real.join("bin")).unwrap();
+        let link = real.parent().unwrap().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let raw = format!("tool\0{}/bin\0bin/../bin\0plain\0", link.display());
+        let paths = cmdline_paths(raw.as_bytes(), Some(&real));
+        assert_eq!(paths, [real.join("bin"), real.join("bin")]);
+        assert_eq!(cmdline_paths(raw.as_bytes(), None), [real.join("bin")]);
+    }
 }

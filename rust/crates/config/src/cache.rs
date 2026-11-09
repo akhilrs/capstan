@@ -19,6 +19,8 @@ pub const DEFAULT_CACHE_MAX_AGE_DAYS: i64 = 30;
 pub const MIN_CACHE_SIZE_GB: f64 = 0.1;
 pub const MAX_CACHE_SIZE_GB: f64 = 10_000.0;
 pub const MAX_CACHE_AGE_DAYS: i64 = 3650;
+pub const DEFAULT_ACTIVE_EVICT_MIN_AGE_MINUTES: i64 = 120;
+pub const MAX_ACTIVE_EVICT_MIN_AGE_MINUTES: i64 = 10080;
 const GIB: f64 = 1_073_741_824.0;
 const MAX_CACHE_ENTRIES: usize = 16;
 const MAX_ENTRY_ITEMS: usize = 8;
@@ -98,6 +100,9 @@ pub struct CacheEntry {
     /// `(env name, subdirectory)` that override a `dirs` variable of this entry for a verify gate: the gate gets its
     /// own slot directory per project instead of the shared one. Never enables an entry by itself.
     pub gate_dirs: Vec<(String, String)>,
+    /// `(env name, fixed value)` added to the environment of a verify gate (and the shared fallback), after `set`,
+    /// never to an agent. Set by presets only; not a user key.
+    pub gate_set: Vec<(String, String)>,
     /// `(env name, fixed value)`.
     pub set: Vec<(String, String)>,
     /// A tool that must be on the agent's PATH for the entry to apply.
@@ -109,6 +114,9 @@ pub struct CacheEntry {
     /// `rust` only: `sccache`, `shared-build-dir` or `off`.
     pub mode: Option<String>,
     pub max_size_bytes: Option<u64>,
+    /// A file the build tool takes an exclusive `flock` on while it builds in a directory (rust: `.cargo-lock`).
+    /// A directory holding it is an eviction unit. Set by presets only; not a user key.
+    pub unit_lock: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +132,10 @@ pub struct CacheConfig {
     pub scope: CacheScope,
     pub max_size_bytes: u64,
     pub max_age_days: u32,
+    /// Whether a prune may evict old, unused units while agents run.
+    pub evict_while_active: bool,
+    /// A unit must be untouched this many minutes before it is evicted while agents run; 0 = no age rule.
+    pub active_evict_min_age_minutes: u32,
     pub detect: bool,
     pub entries: Vec<CacheEntry>,
     /// With `detect`: every preset not in `presets`, resolved with its `[cache.<preset>]` options; empty otherwise.
@@ -149,6 +161,11 @@ impl CacheConfig {
             ("scope", text(self.scope.as_str())),
             ("maxSizeBytes", number(self.max_size_bytes as i64)),
             ("maxAgeDays", number(i64::from(self.max_age_days))),
+            ("evictWhileActive", Value::Bool(self.evict_while_active)),
+            (
+                "activeEvictMinAgeMinutes",
+                number(i64::from(self.active_evict_min_age_minutes)),
+            ),
             ("detect", Value::Bool(self.detect)),
             ("entries", entry_values(&self.entries)),
             ("detectable", entry_values(&self.detectable)),
@@ -174,6 +191,16 @@ fn entry_value(entry: &CacheEntry) -> Value {
         ("origin", text(entry.origin.as_str())),
         ("dirs", pairs_value(&entry.dirs, "subdir")),
         ("gateDirs", pairs_value(&entry.gate_dirs, "subdir")),
+        ("gateSet", pairs_value(&entry.gate_set, "value")),
+        ("unitLock", optional(&entry.unit_lock)),
+        (
+            "gateDebug",
+            if entry.name == "rust" && entry.origin != CacheOrigin::Custom {
+                Value::Bool(!entry.gate_set.iter().any(|(n, _)| n == GATE_DEBUG_VARS[0]))
+            } else {
+                Value::Null
+            },
+        ),
         ("set", pairs_value(&entry.set, "value")),
         ("requires", optional(&entry.requires)),
         ("prune", strings(&entry.prune)),
@@ -182,6 +209,9 @@ fn entry_value(entry: &CacheEntry) -> Value {
         ("maxSizeBytes", size),
     ])
 }
+
+/// The cargo variables that switch debug info off for the dev and test profiles.
+const GATE_DEBUG_VARS: [&str; 2] = ["CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG"];
 
 fn pair(env: &str, value: &str) -> (String, String) {
     (env.to_string(), value.to_string())
@@ -205,23 +235,31 @@ fn preset_entry(
     size: u64,
     own_size: Option<u64>,
     target_dir: bool,
+    gate_debug: bool,
 ) -> CacheEntry {
     let mut entry = CacheEntry {
         name: name.to_string(),
         origin: CacheOrigin::Preset,
         dirs: Vec::new(),
         gate_dirs: Vec::new(),
+        gate_set: Vec::new(),
         set: Vec::new(),
         requires: None,
         prune: Vec::new(),
         stop: Vec::new(),
         mode: None,
         max_size_bytes: own_size,
+        unit_lock: None,
     };
     match name {
         "rust" => {
             let mode = mode.unwrap_or(RUST_MODES[0]);
             entry.mode = Some(mode.to_string());
+            // Gates build without debug info (faster, smaller) unless `gate_debug` asks for it. Only the global
+            // dev and test profiles: a per-package override in the project's cargo config still wins.
+            if !gate_debug {
+                entry.gate_set = GATE_DEBUG_VARS.iter().map(|v| pair(v, "0")).collect();
+            }
             match mode {
                 "sccache" => {
                     entry.dirs = vec![pair("SCCACHE_DIR", "sccache")];
@@ -256,6 +294,7 @@ fn preset_entry(
                         .push(pair("CARGO_BUILD_BUILD_DIR", "gate-build"));
                 }
                 entry.requires.get_or_insert_with(|| "cargo".into());
+                entry.unit_lock = Some(".cargo-lock".into());
             }
         }
         "python" => {
@@ -501,6 +540,19 @@ pub fn resolve_cache(
         DEFAULT_CACHE_MAX_AGE_DAYS,
     )? as u32;
 
+    let evict_while_active = optional_boolean(
+        table.get("evict_while_active"),
+        "cache.evict_while_active",
+        true,
+    )?;
+    let active_evict_min_age_minutes = optional_integer(
+        table.get("active_evict_min_age_minutes"),
+        "cache.active_evict_min_age_minutes",
+        0,
+        MAX_ACTIVE_EVICT_MIN_AGE_MINUTES,
+        DEFAULT_ACTIVE_EVICT_MIN_AGE_MINUTES,
+    )? as u32;
+
     let mut seen_env: Vec<(String, String)> = Vec::new();
     let mut entries = Vec::new();
     let mut sized: Vec<(String, u64)> = Vec::new();
@@ -597,12 +649,14 @@ pub fn resolve_cache(
             origin: CacheOrigin::Custom,
             dirs,
             gate_dirs: Vec::new(),
+            gate_set: Vec::new(),
             set,
             requires,
             prune: commands(fields.get("prune"), &format!("{at}.prune"))?,
             stop: commands(fields.get("stop"), &format!("{at}.stop"))?,
             mode: None,
             max_size_bytes: own_size,
+            unit_lock: None,
         });
     }
 
@@ -623,6 +677,8 @@ pub fn resolve_cache(
         scope,
         max_size_bytes,
         max_age_days,
+        evict_while_active,
+        active_evict_min_age_minutes,
         detect,
         entries,
         detectable,
@@ -656,6 +712,7 @@ fn resolve_preset(
     };
     let incremental = optional_boolean(fields.get("incremental"), "cache.rust.incremental", false)?;
     let target_dir = optional_boolean(fields.get("target_dir"), "cache.rust.target_dir", false)?;
+    let gate_debug = optional_boolean(fields.get("gate_debug"), "cache.rust.gate_debug", false)?;
     let own = size_bytes(fields.get("max_size_gb"), &format!("{at}.max_size_gb"))?;
     if let Some(bytes) = own {
         sized.push((at, bytes));
@@ -667,6 +724,7 @@ fn resolve_preset(
         own.unwrap_or(total),
         own,
         target_dir,
+        gate_debug,
     );
     for (env, _) in entry.dirs.iter().chain(entry.set.iter()) {
         seen_env.push((env.clone(), entry.name.clone()));

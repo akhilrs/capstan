@@ -495,3 +495,67 @@ fn an_agent_environment_sends_prune_and_clear_to_the_daemon_and_status_stays_loc
     let text = success(&p.cstan_env(&["cache", "status"], &env));
     assert!(text.contains("python"), "{text}");
 }
+
+/// The manifest as a daemon prune that knew a verify run left it.
+fn write_manifest(p: &Project, extra: Value) {
+    let mut manifest = json!({
+        "version": 1, "projectId": "pcachecmd", "scope": "project",
+        "measuredAt": 1, "lastPruneAt": 1,
+        "entries": [],
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        manifest[key] = value.clone();
+    }
+    std::fs::write(p.store().join("manifest.json"), format!("{manifest:#}\n")).unwrap();
+}
+
+#[test]
+fn status_prints_the_over_cap_line_and_the_occupants_of_the_manifest() {
+    let p = project("overcap", Some(""));
+    p.fill("python", 3 * MB, 2);
+    let now_ms = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    write_manifest(
+        &p,
+        json!({
+            "lastSkipped": [{"label": "verify/r1", "reason": "held by verify"}],
+            "lastOccupants": [{"label": "verify/r1", "bytes": 3 * 1024 * MB, "at": now_ms - 180_000}],
+        }),
+    );
+    let text = success(&p.cstan(&["cache", "status"]));
+    assert!(
+        text.contains("over cap by 2.9 GB: verify/r1 (held by verify)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("occupants (counted, never removed): verify/r1 3 GB, 3m ago"),
+        "{text}"
+    );
+    let value: Value =
+        serde_json::from_str(&success(&p.cstan(&["cache", "status", "--json"]))).unwrap();
+    assert_eq!(value["occupants"][0]["label"], "verify/r1");
+    assert_eq!(value["lastSkipped"][0]["reason"], "held by verify");
+    assert!(value["overCapBytes"].as_u64().unwrap() > 2 * 1024 * MB);
+}
+
+#[test]
+fn status_says_not_enforced_when_the_bytes_outside_every_unit_exceed_the_cap() {
+    let p = project("fixed", Some(""));
+    p.fill("python", 120 * MB, 2);
+    let text = success(&p.cstan(&["cache", "status"]));
+    assert!(
+        text.contains("over cap by 17.6 MB, not enforced: python (no evictable units)"),
+        "{text}"
+    );
+}
+
+#[test]
+fn status_has_no_over_cap_line_when_the_cache_fits() {
+    let p = project("fits", Some(""));
+    p.fill("python", 3 * MB, 2);
+    let text = success(&p.cstan(&["cache", "status"]));
+    assert!(!text.contains("over cap"), "{text}");
+    assert!(!text.contains("occupants"), "{text}");
+}

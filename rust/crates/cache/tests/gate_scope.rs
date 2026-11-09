@@ -152,3 +152,52 @@ fn gate_dirs_alone_do_not_enable_an_entry() {
     assert!(!rt.root.join("rust").exists());
     let _ = fs::metadata(&rt.root);
 }
+
+fn debug_off() -> Vec<(String, String)> {
+    vec![
+        ("CARGO_PROFILE_DEV_DEBUG".into(), "0".into()),
+        ("CARGO_PROFILE_TEST_DEBUG".into(), "0".into()),
+    ]
+}
+
+fn debug_vars(env: &[(String, String)]) -> Vec<&str> {
+    env.iter()
+        .filter(|(n, _)| n.starts_with("CARGO_PROFILE_"))
+        .map(|(n, _)| n.as_str())
+        .collect()
+}
+
+#[test]
+fn gate_and_shared_scope_get_gate_set_after_set_and_agent_and_bare_do_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir.path().join("base"));
+    let mut e = rust_entry(false);
+    e.gate_set = debug_off();
+    cfg.entries = vec![e];
+    let rt = runtime_for(&cfg, dir.path(), "p1");
+    let gate = rt.ensure_scoped(GateScope::Gate { slot: 1 }).unwrap();
+    let shared = rt.ensure_scoped(GateScope::Shared).unwrap();
+    for env in [&gate, &shared] {
+        assert_eq!(get(env, "CARGO_PROFILE_DEV_DEBUG"), Some("0"));
+        assert_eq!(get(env, "CARGO_PROFILE_TEST_DEBUG"), Some("0"));
+        let set = env.iter().position(|(n, _)| n == "RUSTC_WRAPPER").unwrap();
+        let debug = env
+            .iter()
+            .position(|(n, _)| n == "CARGO_PROFILE_DEV_DEBUG")
+            .unwrap();
+        assert!(set < debug, "gate_set comes after set: {env:?}");
+    }
+    assert!(debug_vars(&rt.ensure_scoped(GateScope::Agent).unwrap()).is_empty());
+    assert!(rt.ensure_scoped(GateScope::Bare).unwrap().is_empty());
+}
+
+#[test]
+fn an_entry_without_gate_set_is_unchanged_in_every_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(&dir.path().join("base"));
+    cfg.entries = vec![rust_entry(false)];
+    let rt = runtime_for(&cfg, dir.path(), "p1");
+    for scope in [GateScope::Gate { slot: 1 }, GateScope::Shared] {
+        assert!(debug_vars(&rt.ensure_scoped(scope).unwrap()).is_empty());
+    }
+}

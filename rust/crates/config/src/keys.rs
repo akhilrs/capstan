@@ -184,6 +184,8 @@ pub const CACHE_KEYS: &[&str] = &[
     "scope",
     "max_size_gb",
     "max_age_days",
+    "evict_while_active",
+    "active_evict_min_age_minutes",
     "rust",
     "python",
     "node",
@@ -193,7 +195,13 @@ pub const CACHE_KEYS: &[&str] = &[
 ];
 pub const CACHE_SETUP_REUSE_KEYS: &[&str] = &["key_files", "paths"];
 pub const CACHE_ENTRY_KEYS: &[&str] = &["dirs", "set", "requires", "prune", "stop", "max_size_gb"];
-pub const CACHE_RUST_KEYS: &[&str] = &["mode", "incremental", "target_dir", "max_size_gb"];
+pub const CACHE_RUST_KEYS: &[&str] = &[
+    "mode",
+    "incremental",
+    "target_dir",
+    "max_size_gb",
+    "gate_debug",
+];
 /// The keys of `[cache.python]`, `[cache.node]` and `[cache.go]`.
 pub const CACHE_PRESET_KEYS: &[&str] = &["max_size_gb"];
 pub const VERIFY_KEYS: &[&str] = &[
