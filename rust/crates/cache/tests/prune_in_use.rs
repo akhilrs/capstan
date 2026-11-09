@@ -91,8 +91,55 @@ fn retry<T>(mut call: impl FnMut() -> Result<T, CacheError>) -> T {
     call().unwrap()
 }
 
-fn run(w: &World, p: Policy) -> PruneReport {
-    retry(|| prune(&w.rt, p, &env(&[]), &ok_runner))
+/// Poll `free` for up to 5 s. A child another test thread forked keeps a copy of a just-dropped lock descriptor
+/// until its exec, so a lock can look held for a few ms after its owner dropped it. Strict "still held" checks
+/// stay strict: only the moment right after a drop waits.
+fn wait_until(what: &str, mut free: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if free() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{what} still held 5 s after its drop");
+}
+
+fn wait_slot_free(w: &World, project: &str, slot: usize) {
+    wait_until("the slot lease", || {
+        !capstan_cache::lease::in_use(&entry_dir(w), project, slot)
+    });
+}
+
+fn wait_guard_free(w: &World) {
+    wait_until("the entry guard", || {
+        EntryGuard::try_exclusive(&entry_dir(w)).is_ok()
+    });
+}
+
+/// Retries `call` while it skips an "in use" slot that no test holds: the prune's own probe descriptor can be
+/// copied by a sibling's fork and look held for a few ms. A skip only happens before anything was changed there,
+/// so a retry is safe. The `held` slots of project `proj` must stay skipped, so those checks stay strict; a slot
+/// that is wrongly held still shows after 5 s and fails the test's own assertions.
+fn settle(
+    held: &[usize],
+    mut call: impl FnMut() -> Result<PruneReport, CacheError>,
+) -> PruneReport {
+    let expected: Vec<String> = held.iter().map(|s| label(*s)).collect();
+    for _ in 0..500 {
+        let report = retry(&mut call);
+        if skipped_labels(&report, IN_USE_REASON)
+            .iter()
+            .all(|l| expected.contains(l))
+        {
+            return report;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    retry(call)
+}
+
+fn run(w: &World, held: &[usize], p: Policy) -> PruneReport {
+    settle(held, || prune(&w.rt, p, &env(&[]), &ok_runner))
 }
 
 fn label(slot: usize) -> String {
@@ -115,10 +162,10 @@ fn a_held_lease_keeps_its_slot_and_a_released_one_goes_next_time() {
     sparse(&entry_dir(&w).join("cargo-target/blob"), 100 * MB);
     let held = hold(&w, "proj", 0);
 
-    let dry = run(&w, policy(150, false));
+    let dry = run(&w, &[0], policy(150, false));
     assert!(dry.would_clear.is_empty(), "{dry:?}");
     assert_eq!(skipped_labels(&dry, IN_USE_REASON), [label(0)]);
-    let report = run(&w, policy(150, true));
+    let report = run(&w, &[0], policy(150, true));
     assert!(report.cleared.is_empty(), "{report:?}");
     assert_eq!(skipped_labels(&report, IN_USE_REASON), [label(0)]);
     assert!(slot_dir(&w, "proj", 0).join("blob").exists());
@@ -128,7 +175,8 @@ fn a_held_lease_keeps_its_slot_and_a_released_one_goes_next_time() {
     );
 
     drop(held);
-    let report = run(&w, policy(150, true));
+    wait_slot_free(&w, "proj", 0);
+    let report = run(&w, &[], policy(150, true));
     assert_eq!(report.cleared, [label(0)], "{report:?}");
     assert!(!slot_dir(&w, "proj", 0).exists());
     assert!(!entry_dir(&w).join(".slot-proj-0.lease").exists());
@@ -144,7 +192,7 @@ fn an_unleased_slot_goes_before_the_shared_caches() {
     sparse(&entry_dir(&w).join("sccache/blob"), 100 * MB);
     sparse(&entry_dir(&w).join("cargo-target/blob"), 100 * MB);
     make_slot(&w, "proj", 0, 100 * MB, 1);
-    let report = run(&w, policy(250, true));
+    let report = run(&w, &[], policy(250, true));
     assert_eq!(report.cleared, [label(0)], "{report:?}");
     assert!(entry_dir(&w).join("sccache/blob").exists());
     assert!(entry_dir(&w).join("cargo-target/blob").exists());
@@ -159,14 +207,14 @@ fn the_cap_evicts_unleased_slots_oldest_lease_file_first() {
     make_slot(&w, "proj", 2, 100 * MB, 8);
     make_slot(&w, "other", 3, 100 * MB, 2);
     let (a, b) = (hold(&w, "proj", 0), hold(&w, "proj", 2));
-    let report = run(&w, policy(300, true));
+    let report = run(&w, &[0, 2], policy(300, true));
     assert_eq!(
         report.cleared,
         [slot_label("rust", "proj", 1)],
         "{report:?}"
     );
     assert!(slot_dir(&w, "other", 3).exists());
-    let report = run(&w, policy(150, true));
+    let report = run(&w, &[0, 2], policy(150, true));
     assert_eq!(report.cleared, [slot_label("rust", "other", 3)]);
     assert!(slot_dir(&w, "proj", 0).exists() && slot_dir(&w, "proj", 2).exists());
     let mut leased = skipped_labels(&report, IN_USE_REASON);
@@ -188,7 +236,7 @@ fn age_removes_only_unleased_expired_slots() {
         max_age_ms: 10 * DAY * 1000,
         ..policy(1000, true)
     };
-    let report = retry(|| prune(&w.rt, p, &env(&[]), &ok_runner));
+    let report = settle(&[1, 2], || prune(&w.rt, p, &env(&[]), &ok_runner));
     assert_eq!(report.cleared, [label(0)], "{report:?}");
     assert!(slot_dir(&w, "proj", 3).exists());
     assert!(slot_dir(&w, "proj", 1).exists() && slot_dir(&w, "proj", 2).exists());
@@ -207,7 +255,7 @@ fn an_expired_entry_with_a_leased_slot_loses_only_its_unleased_slots() {
         max_age_ms: 10 * DAY * 1000,
         ..policy(1000, true)
     };
-    let report = retry(|| prune(&w.rt, p, &env(&[]), &ok_runner));
+    let report = settle(&[1], || prune(&w.rt, p, &env(&[]), &ok_runner));
     assert_eq!(report.cleared, [label(0)], "{report:?}");
     assert_eq!(skipped_labels(&report, IN_USE_REASON), [label(1)]);
     assert!(entry_dir(&w).join("cargo-target/blob").exists());
@@ -235,6 +283,7 @@ fn clear_keeps_a_leased_slot_with_force_and_a_slot_of_another_project() {
             .iter()
             .any(|s| s.label == slot_label("rust", "other", 1)));
         drop(held);
+        wait_slot_free(&w, "other", 1);
         let report = retry(|| capstan_cache::clear(&w.rt, None, force, &env(&[]), &ok_runner));
         assert!(report.cleared.contains(&"rust".to_string()), "{report:?}");
         assert!(!entry_dir(&w).exists());
@@ -381,12 +430,17 @@ fn a_slot_leased_before_the_prune_is_listed_and_kept_until_released() {
         before_rename: &before,
         after_rename: &|| {},
     };
-    let report = retry(|| prune_with_hooks(&w.rt, policy(10, true), &env(&[]), &ok_runner, &hooks));
+    let report = settle(&[0], || {
+        prune_with_hooks(&w.rt, policy(10, true), &env(&[]), &ok_runner, &hooks)
+    });
     assert_eq!(skipped_labels(&report, IN_USE_REASON), [label(0)]);
     assert!(slot_dir(&w, "proj", 0).exists());
     assert_eq!(*renames.borrow(), 0, "nothing was renamed");
     drop(held);
-    let report = retry(|| prune_with_hooks(&w.rt, policy(10, true), &env(&[]), &ok_runner, &hooks));
+    wait_slot_free(&w, "proj", 0);
+    let report = settle(&[], || {
+        prune_with_hooks(&w.rt, policy(10, true), &env(&[]), &ok_runner, &hooks)
+    });
     assert_eq!(report.cleared, [label(0)]);
     assert_eq!(*renames.borrow(), 1);
 }
@@ -396,14 +450,15 @@ fn a_busy_guard_skips_the_entry_with_its_own_reason() {
     let w = world();
     make_slot(&w, "proj", 0, 100 * MB, 1);
     let guard = EntryGuard::try_shared(&entry_dir(&w)).unwrap();
-    let report = run(&w, policy(10, true));
+    let report = run(&w, &[], policy(10, true));
     assert!(report.cleared.is_empty(), "{report:?}");
     assert_eq!(skipped_labels(&report, GUARD_BUSY_REASON), ["rust"]);
     assert!(skipped_labels(&report, IN_USE_REASON).is_empty());
     assert!(slot_dir(&w, "proj", 0).exists());
     assert!(report.total_after > 10 * MB);
     drop(guard);
-    let report = run(&w, policy(10, true));
+    wait_guard_free(&w);
+    let report = run(&w, &[], policy(10, true));
     assert_eq!(report.cleared[0], label(0), "{report:?}");
 }
 
