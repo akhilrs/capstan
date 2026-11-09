@@ -4,6 +4,7 @@ import Foundation
 /// One agent as the Agents screen lists it. Host text is cleaned and cut; the health is the kit's.
 public struct AgentRow: Sendable, Equatable {
     public static let taskCap = 256
+    public static let modelCap = 100
 
     /// The agent as stored: its raw id and request id are for sending decisions, never for display.
     public let source: StoredAgent
@@ -15,11 +16,22 @@ public struct AgentRow: Sendable, Equatable {
     public let taskUnverified: Bool
     /// The branch of the agent's pane on one line; nil when there is none or the host could not vouch for it.
     public let branch: String?
+    /// The model id on one line (at most 100 bytes); nil when there is none, it is empty after cleaning or the host
+    /// could not vouch for it.
+    public let model: String?
+    /// The label of the model's source; nil exactly when `model` is nil.
+    public let modelLabel: ModelLabel?
     public let health: AgentHealth
     public let paused: Bool
 
     public var healthWord: String { health.word }
     public var healthSymbol: String { health.symbolName }
+
+    /// The row's spoken model part, ", model <id>, <source words>"; empty without a model.
+    public var modelSpoken: String {
+        guard let model, let modelLabel else { return "" }
+        return ", model " + model + ", " + modelLabel.spoken
+    }
 
     public init(agent: StoredAgent, health: AgentHealth) {
         source = agent
@@ -34,6 +46,15 @@ public struct AgentRow: Sendable, Equatable {
             branch = one.trimmingCharacters(in: .whitespaces).isEmpty ? nil : one
         } else {
             branch = nil
+        }
+        if let text = agent.model, text.verified {
+            let one = HostText.clean(text.displayPlain, maxBytes: AgentRow.modelCap)
+            let empty = one.trimmingCharacters(in: .whitespaces).isEmpty
+            model = empty ? nil : one
+            modelLabel = empty ? nil : ModelLabel.label(source: agent.modelSource)
+        } else {
+            model = nil
+            modelLabel = nil
         }
         if let text = agent.task {
             taskUnverified = !text.verified

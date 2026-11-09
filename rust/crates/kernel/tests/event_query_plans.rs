@@ -348,7 +348,7 @@ fn ledger(with_0059: bool) -> (tempfile::TempDir, Connection) {
     } else {
         let list: Vec<_> = migrations()
             .iter()
-            .filter(|m| m.version != PLANNER_STATS_MIGRATION)
+            .filter(|m| m.version < PLANNER_STATS_MIGRATION)
             .cloned()
             .collect();
         let db = Database::new(Connection::open(&file).unwrap());

@@ -14,6 +14,7 @@ pub mod links;
 pub mod message_notices;
 pub mod messages;
 pub mod messaging;
+pub mod model_overrides;
 pub mod operator_grants;
 pub mod operator_proposals;
 pub mod operator_runs;

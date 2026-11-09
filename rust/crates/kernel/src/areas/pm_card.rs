@@ -226,6 +226,16 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         "links are not read by the card",
     ),
     (
+        "model.override.clear",
+        &["model_overrides"],
+        "model overrides are not read by the card",
+    ),
+    (
+        "model.override.set",
+        &["model_overrides"],
+        "model overrides are not read by the card",
+    ),
+    (
         "message.input_clear",
         &["message_input_clears"],
         "a note on a deferred message; its state and times stay",

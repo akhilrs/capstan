@@ -50,6 +50,8 @@ code message.requeue
 code message.resolve
 code message.sent
 code message.transition
+code model.override.clear
+code model.override.set
 code operator.abandon
 code operator.cancel
 code operator.claim

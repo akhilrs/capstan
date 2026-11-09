@@ -511,6 +511,9 @@ public struct AgentItem: WireItem {
     public let task: UntrustedText?
     /// The branch of the agent's pane; nil without a pane or from a host that does not send it.
     public let branch: UntrustedText?
+    /// The model the agent runs on and the layer that chose it (`modelSource`); nil when absent or null.
+    public let model: UntrustedText?
+    public let modelSource: String?
     public let requestId: String
     public let contentHash: String
     /// What the host sees the agent doing; kept as the host's text, so a value a newer host adds is not lost. Nil when
@@ -532,6 +535,8 @@ public struct AgentItem: WireItem {
         paused = try json.bool("paused")
         task = try json.optionalString("task").map(itemText)
         branch = try json.optionalString("branch").map(itemText)
+        model = json.activityString("model").map(itemText)
+        modelSource = json.activityString("modelSource")
         requestId = try json.string("requestId")
         contentHash = try json.string("contentHash")
         activity = json.activityString("activity")

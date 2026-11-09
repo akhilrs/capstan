@@ -42,6 +42,9 @@ fn refuse(error: &KernelError) -> CommandResponse {
 }
 
 fn link(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
+    if call.args.first().map(String::as_str) == Some("model") {
+        return Some(link_model(env, call));
+    }
     let Some(requested_by) = env.worker_manager(call.identity) else {
         return Some(fail(
             ErrorCode::Forbidden,
@@ -79,6 +82,22 @@ fn link(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         result.extend(env.rename_branch(agent_id, ref_id));
         return Some(ok(Value::Object(result)));
     }
+    let mut plain: Vec<String> = Vec::new();
+    let mut model: Option<String> = None;
+    let mut index = 0;
+    while index < rest.len() {
+        if rest[index] == "--model" {
+            match rest.get(index + 1) {
+                Some(value) if model.is_none() => model = Some(value.clone()),
+                _ => return Some(link_usage()),
+            }
+            index += 2;
+        } else {
+            plain.push(rest[index].clone());
+            index += 1;
+        }
+    }
+    let rest = plain.as_slice();
     let (ref_id, external_id, synced_state) = (rest.first(), rest.get(1), rest.get(2));
     let (Some(first), Some(ref_id), Some(external_id)) = (first, ref_id, external_id) else {
         return Some(link_usage());
@@ -94,6 +113,20 @@ fn link(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
             ));
         }
     }
+    // The model is checked (value and fit) before the link is written: a refusal creates no link and no override.
+    let mut warnings: Vec<String> = Vec::new();
+    if let Some(model) = &model {
+        if first != "requirement" {
+            return Some(fail(
+                ErrorCode::InvalidRequest,
+                "--model applies to a requirement link only",
+            ));
+        }
+        match super::plans::check_fit(env, None, model) {
+            Ok(found) => warnings = found,
+            Err(refusal) => return Some(refusal),
+        }
+    }
     env.log(
         "link_requested",
         json!({"requestedBy": requested_by, "kind": first, "refId": ref_id}),
@@ -105,24 +138,64 @@ fn link(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     if let Some(state) = synced_state {
         input.insert("syncedState".into(), json!(state));
     }
+    let set_ref = ref_id.clone();
     let linked = env.deps.kernel.run(move |core| {
         let context = new_context(core, &credential)?;
-        core.link_external(&context, &Value::Object(input))
+        let link = core.link_external(&context, &Value::Object(input))?;
+        let set = match &model {
+            Some(model) => {
+                let context = new_context(core, &credential)?;
+                Some(core.set_model_override(
+                    &context,
+                    &json!({"scopeType": "requirement", "scopeId": set_ref, "roleKind": null, "model": model}),
+                )?)
+            }
+            None => None,
+        };
+        Ok((link, set, model))
     });
     Some(match linked {
-        Ok(link) => {
+        Ok((link, set, model)) => {
             let field = |key: &str| link.get(key).cloned().unwrap_or(Value::Null);
-            ok(json!({
-                "refKind": field("refKind"),
-                "refId": field("refId"),
-                "externalId": field("externalId"),
-                "syncedState": field("syncedState"),
-                "wanted": field("wanted"),
-                "drift": field("drift"),
-            }))
+            let mut result = Map::new();
+            for key in [
+                "refKind",
+                "refId",
+                "externalId",
+                "syncedState",
+                "wanted",
+                "drift",
+            ] {
+                result.insert(key.into(), field(key));
+            }
+            if let (Some(_), Some(model)) = (set, model) {
+                result.insert(
+                    "modelOverrides".into(),
+                    json!([{"roleKind": null, "model": model}]),
+                );
+            }
+            if !warnings.is_empty() {
+                result.insert("warnings".into(), json!(warnings));
+            }
+            ok(Value::Object(result))
         }
         Err(error) => refuse(&error),
     })
+}
+
+/// `link model <requirement-ref-id> [<Kind>] [<id> | --clear]`.
+fn link_model(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> CommandResponse {
+    let rest = &call.args[1..];
+    let Some(ref_id) = rest.first().filter(|id| is_safe_agent_id(id)) else {
+        return fail(
+            ErrorCode::InvalidRequest,
+            "link model needs a requirement ref id, then optionally a kind and a model id or --clear",
+        );
+    };
+    match super::plans::model_command(env, call, "requirement", ref_id, &rest[1..]) {
+        Ok(response) => response,
+        Err(error) => refuse(&error),
+    }
 }
 
 fn bind_usage() -> CommandResponse {

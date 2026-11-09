@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agents list with models — iPhone</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ios.css">
+<link rel="stylesheet" href="model.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board ios" style="width:1480px">
+<p class="cap">33 Agents list · a third line under the task: the model id in mono, cut in the middle, then the short source word; no line when there is no model</p>
+<div class="row4">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="3">
+<figure class="fig {{a.cls}}"><figcaption>{{a.label}}</figcaption>
+<div class="phone {{a.ax}}"><div class="island" aria-hidden="true"></div>
+<div class="scr" style="padding-top:64px">
+<h1 class="lt">Agents</h1>
+<div class="chips"><button class="chip on" type="button">All <span class="n">8</span></button><button class="chip" type="button">Attention <span class="n">1</span></button><button class="chip" type="button">Working <span class="n">4</span></button></div>
+<h2 class="sh">payments-api · build-host</h2>
+<ul class="sect">
+<li><div class="acell"><div class="l1"><b>dev-15</b><span class="role">Developer</span></div><span class="pill p-accent">Needs you</span><div class="l2">fix/PM-418 retry failed webhooks · fix/PM-418-webhook-retry</div><div class="l3"><span class="mono-id">claude-sonnet-5-5</span><span class="src">· task</span></div></div></li>
+<li><div class="acell"><div class="l1"><b>dev-14</b><span class="role">Developer</span></div><span class="pill p-green">Working 1 h</span><div class="l2">PM-412 record each refund in the ledger · feat/PM-412-refund-ledger</div><div class="l3"><span class="mono-id">claude-opus-5-5</span><span class="src">· plan</span></div></div></li>
+<li><div class="acell"><div class="l1"><b>dev-16</b><span class="role">Developer</span></div><span class="pill p-grey">Idle</span><div class="l2">No task</div></div></li>
+</ul>
+<h2 class="sh">docs-site · mac-mini</h2>
+<ul class="sect">
+<li><div class="acell"><div class="l1"><b>dev-3</b><span class="role">Developer</span></div><span class="pill p-green">Working 12 min</span><div class="l2">PM-436 search over the API pages · docs/PM-436-search</div><div class="l3"><span class="mono-id">claude-sonnet-5-…c39c2e1b4d[1m]</span><span class="src">· spawn</span></div></div></li>
+<li><div class="acell"><div class="l1"><b>verifier-1</b><span class="role">Verifier</span></div><span class="pill p-grey">Idle</span><div class="l2">No task</div><div class="l3"><span class="mono-id">local/qwen3-coder-32b</span><span class="src">· other</span></div></div></li>
+</ul>
+</div>
+<nav class="tabs glass" aria-label="Tabs"><a class="tab" href="#w">Waiting</a><a class="tab on" href="#a" aria-current="page">Agents</a><a class="tab" href="#p">Plans</a><a class="tab" href="#m">Messages</a><a class="tab" href="#h">Hosts</a></nav>
+</div>
+</figure>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1480,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [
+      { cls: 'light', ax: '', label: '1 Light' },
+      { cls: 'dark', ax: '', label: '2 Dark' },
+      { cls: 'light', ax: 'ax', label: '3 Light, accessibility text size (AX3): the id wraps to two lines, then cuts in the middle' }
+    ] };
+  }
+}
+</script>
+</body>
+</html>

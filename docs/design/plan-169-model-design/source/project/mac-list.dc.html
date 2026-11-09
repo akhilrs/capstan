@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>All Agents with models — Mac</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="model.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board mac" style="width:1600px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">31 All Agents · a Model column after Role: id in mono, cut in the middle, then the short source word; empty when there is no model — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="win" style="width:1440px">
+<nav inert class="side glass" aria-label="Sidebar"><div class="lights" aria-hidden="true"><span></span><span></span><span></span></div><ul class="nav"><li><a href="#inbox">Waiting for you<span class="badge">2</span></a></li><li><a class="on" href="#agents" aria-current="page">Agents<span class="badge">1</span></a></li><li><a href="#plans">Plans<span class="badge">1</span></a></li><li><a href="#messages">Messages to PM</a></li></ul><div class="sh">Hosts</div><ul class="nav"><li><a href="#h1"><span class="dot s-live" aria-hidden="true"></span>build-host<span class="sub">live · 1</span></a></li><li><a class="in" href="#p1">payments-api<span class="badge">5</span></a></li><li><a href="#h2"><span class="dot s-live" aria-hidden="true"></span>mac-mini<span class="sub">live · 1</span></a></li><li><a class="in" href="#p2">docs-site<span class="badge">3</span></a></li></ul></nav>
+<section class="mid" aria-label="Agents">
+<div class="scroll">
+<p class="note" style="padding:0 8px 8px">8 agents in 2 projects on 2 hosts</p>
+<div class="colh" aria-hidden="true"><span>Agent</span><span>Role</span><span>Model</span><span>Branch</span><span style="justify-self:end">Health</span></div>
+<div class="grow"><svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg><span class="pn">payments-api</span><span class="ct">build-host · 5 agents · 1 needs you · 2 working</span></div>
+<div class="arow sel"><span class="aid">dev-14</span><span class="role">Developer</span><span class="mdl"><span class="mono-id">claude-opus-5-5</span><span class="src">· plan</span></span><span class="br">feat/PM-412-refund-ledger</span><span class="hs"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span></span></div>
+<div class="arow"><span class="aid">dev-15</span><span class="role">Developer</span><span class="mdl"><span class="mono-id">claude-sonnet-5-5</span><span class="src">· task</span></span><span class="br">fix/PM-418-webhook-retry</span><span class="hs"><span class="pill p-accent"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="4.5"/><path d="M6 3.5v3M6 8.2v.3"/></svg>Needs you</span></span></div>
+<div class="arow"><span class="aid">rev-3</span><span class="role">Reviewer</span><span class="mdl"><span class="mono-id">claude-opus-5-5</span><span class="src">· role</span></span><span class="br">–</span><span class="hs"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span></span></div>
+<div class="arow"><span class="aid">sup-1</span><span class="role">Supervisor</span><span class="mdl"><span class="mono-id">claude-haiku-5-5</span><span class="src">· defaults</span></span><span class="br">–</span><span class="hs"><span class="pill p-grey"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="3.5"/></svg>Idle</span></span></div>
+<div class="arow foc"><span class="aid">dev-16</span><span class="role">Developer</span><span class="mdl"></span><span class="br">chore/dev-16-lint</span><span class="hs"><span class="pill p-grey"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="3.5"/></svg>Idle</span></span></div>
+<div class="grow" style="margin-top:8px"><svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg><span class="pn">docs-site</span><span class="ct">mac-mini · 3 agents · 2 working · 1 idle</span></div>
+<div class="arow"><span class="aid">dev-2</span><span class="role">Developer</span><span class="mdl"><span class="mono-id">gpt-5.1-codex</span><span class="src">· host</span></span><span class="br">docs/PM-433-api-tables</span><span class="hs"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span></span></div>
+<div class="arow hov"><span class="aid">dev-3</span><span class="role">Developer</span><span class="mdl"><span class="mono-id">claude-son…b4d[1m]</span><span class="src">· spawn</span></span><span class="br">docs/PM-436-search</span><span class="hs"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span></span><span class="tip" role="tooltip"><span class="mono-id">claude-sonnet-5-5-20261015-long-context-preview-eu-west-batch-build-7f3a9c2e1b4d-0a1b2c39c2e1b4d[1m]</span> · Chosen at spawn</span></div>
+<div class="arow" style="margin-top:64px"><span class="aid">verifier-1</span><span class="role">Verifier</span><span class="mdl"><span class="mono-id">local/qwen3-coder-32b</span><span class="src">· other</span></span><span class="br">–</span><span class="hs"><span class="pill p-grey"><svg class="ico" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="6" cy="6" r="3.5"/></svg>Idle</span></span></div>
+<p class="note" style="padding:16px 8px 0">Selected: dev-14. Hover: dev-3 (the tooltip shows the id and the long source label). Keyboard focus: dev-16, which has no model, so its Model cell is empty.</p>
+</div>
+<div class="tb"><div class="capg glass"><h1 class="title" style="margin:0">Agents</h1></div><div class="capg glass"><button class="tbtn" type="button">All projects</button></div><div class="capg glass"><button class="tbtn sel" type="button">All 8</button><button class="tbtn" type="button">Attention 1</button><button class="tbtn" type="button">Working 4</button><button class="tbtn" type="button">Paused 0</button></div><div class="capg glass search">Search</div></div>
+</section>
+<aside class="insp" aria-label="Inspector">
+<div style="display:flex;gap:8px;align-items:center"><span class="pill p-green"><svg class="ico" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="3.5" fill="currentColor"/></svg>Working</span><span class="note">payments-api</span></div>
+<h2 class="h2">dev-14 is working</h2>
+<dl class="meta"><dt>Role</dt><dd>Developer · generation 2</dd><dt>Model</dt><dd><span class="mono-id">claude-opus-5-5</span> <span class="src">· Plan override</span></dd><dt>Branch</dt><dd>feat/PM-412-refund-ledger</dd><dt>State</dt><dd>working, not paused</dd><dt>Request</dt><dd><span class="mono">ag:4f1c09d2e7b8</span></dd></dl>
+<p style="margin:0;font-size:13px">It has made progress in the last few minutes.</p>
+<div class="ut"><div class="ut-h">Task · untrusted text</div><pre class="ut-b">PM-412: record each refund in the ledger with the original charge id, and reject a second refund of the same charge.</pre></div>
+<div class="acts"><p class="note">Answering happens on the waiting item. Pausing the whole project is on the project’s own view.</p><div class="btnrow"><button class="btn" type="button">Open payments-api</button></div></div>
+</aside>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

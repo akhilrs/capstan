@@ -198,7 +198,20 @@ pub struct SpawnOptions {
     pub branch: Option<String>,
     pub record_task_ref: Option<String>,
     pub record_task_title: Option<String>,
+    /// The model of the flag (`--model`) or of a replace that keeps its predecessor's: it beats every override.
+    pub model: Option<String>,
+    /// Where `model` came from (replace only: the recorded source); `spawn` when absent.
+    pub model_source: Option<String>,
+    /// The scope recorded with `model` (replace only).
+    pub model_scope: Option<String>,
+    /// A plan whose model override applies to this spawn when it has no task.
+    pub plan: Option<String>,
 }
+
+/// A launcher refusal code: the reviewer's recorded model is not the one its next review wants.
+pub const MODEL_CHANGED: &str = "model_changed";
+/// A launcher refusal code: the chosen model belongs to another host kind than the role's host.
+pub const MODEL_HOST_MISMATCH: &str = "model_host_mismatch";
 
 /// `BranchRenameResult`.
 #[derive(Clone, Debug, PartialEq, Eq)]

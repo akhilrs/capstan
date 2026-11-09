@@ -14,6 +14,9 @@ struct AllAgentsView: View {
     let onClearSearch: () -> Void
 
     @AppStorage(ProjectPins.pinnedKey) private var pinnedRaw = ""
+    /// The Model column needs room; a list narrower than this leaves it out (the inspector still shows the model).
+    @State private var listWidth: CGFloat = 1000
+    private var showModel: Bool { listWidth >= 720 }
     /// Projects opened while showing all agents.
     @State private var expanded: Set<String> = []
     /// Projects closed by the person while a filter or a search is on (those are open by default).
@@ -79,6 +82,7 @@ struct AllAgentsView: View {
             .padding(.horizontal, Tokens.space[1])
             .padding(.vertical, Tokens.space[1])
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
     }
 
     private func summary(_ groups: [AgentGroup], all: Int, shown: Int, needle: String, shownGroups: Int) -> String {
@@ -232,6 +236,9 @@ struct AllAgentsView: View {
                     .frame(width: 132, alignment: .leading)
                 Text(verbatim: row.role).font(.system(size: 13)).foregroundStyle(Tokens.color(.label2)).lineLimit(1)
                     .frame(width: 112, alignment: .leading)
+                if showModel {
+                    modelCell(row)
+                }
                 Text(verbatim: row.branch ?? "–").font(.system(size: 12, design: .monospaced)).lineLimit(1)
                     .truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
                 StatePill(word: row.healthWord, symbol: row.healthSymbol, tone: AgentTone.tone(row.health)).fixedSize()
@@ -241,6 +248,26 @@ struct AllAgentsView: View {
             .listRow(selected: isPicked(group, row.source.agentId))
         }
         .buttonStyle(.plain)
+        .accessibilityValue(Text(verbatim: String(row.modelSpoken.dropFirst(2))))
+    }
+
+    /// The Model column: the id in mono (cut in the middle), then the short source word; empty without a model.
+    @ViewBuilder
+    private func modelCell(_ row: AgentRow) -> some View {
+        Group {
+            if let model = row.model, let label = row.modelLabel {
+                HStack(spacing: 0) {
+                    Text(verbatim: model).font(.system(size: 12, design: .monospaced)).lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: " · " + label.short).font(.system(size: 12))
+                        .foregroundStyle(Tokens.color(.label2)).lineLimit(1).fixedSize()
+                }
+                .help(model + " · " + label.long)
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: 208, alignment: .leading)
     }
 
     private func emptyState(_ empty: AgentEmptiness) -> some View {

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Model labels</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ios.css">
+<link rel="stylesheet" href="model.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board light" style="width:1100px;min-height:900px;background:var(--ground);color:var(--label);gap:24px">
+<h1 style="margin:16px 0 0;font-size:28px;line-height:1.2;font-weight:700">Which model an agent runs, and where that came from</h1>
+<p style="margin:0;font-size:17px;line-height:1.5;color:var(--label2);max-width:760px">The host sends <span class="mono-id" style="color:var(--label)">model</span> and <span class="mono-id" style="color:var(--label)">modelSource</span> for each agent. The id is untrusted text: shown in mono, as plain text, never a link. The source is never shown as sent: it maps to one of the labels below, and any value the app does not know reads “other”.</p>
+<div style="background:var(--cell);border-radius:22px;padding:8px 16px">
+<table class="ltab">
+<thead><tr><th scope="col">modelSource</th><th scope="col">In a list row</th><th scope="col">In the inspector and detail</th><th scope="col">VoiceOver says</th><th scope="col">Means</th></tr></thead>
+<tbody>
+<tr><td class="k">spawn</td><td>spawn</td><td>Chosen at spawn</td><td>“chosen at spawn”</td><td>cstan spawn --model</td></tr>
+<tr><td class="k">task</td><td>task</td><td>Task override</td><td>“task override”</td><td>an override on the agent’s task</td></tr>
+<tr><td class="k">plan</td><td>plan</td><td>Plan override</td><td>“plan override”</td><td>an override on the agent’s plan</td></tr>
+<tr><td class="k">role</td><td>role</td><td>Role setting</td><td>“role setting”</td><td>the role’s model in capstan.toml</td></tr>
+<tr><td class="k">host</td><td>host</td><td>Host setting</td><td>“host setting”</td><td>the host’s model in capstan.toml</td></tr>
+<tr><td class="k">defaults</td><td>defaults</td><td>Config defaults</td><td>“config defaults”</td><td>[defaults] in capstan.toml</td></tr>
+<tr class="oth"><td class="k">anything else, or absent</td><td>other</td><td>Other source</td><td>“other source”</td><td>a source this app version does not know</td></tr>
+</tbody>
+</table>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:16px">
+<div style="background:var(--cell);border-radius:22px;padding:16px;display:flex;flex-direction:column;gap:8px">
+<h2 style="margin:0;font-size:17px;font-weight:600">A long id (100 bytes, the most the host stores)</h2>
+<p style="margin:0;font-size:15px;color:var(--label2)">Rows cut it in the middle, so the family and the version suffix stay:</p>
+<p style="margin:0;font-size:14px;white-space:nowrap"><span class="mono-id">claude-sonnet-5-5-2026…9c2e1b4d[1m]</span> <span class="src">· spawn</span></p>
+<p style="margin:0;font-size:15px;color:var(--label2)">The inspector and detail show it whole, wrapped at any character:</p>
+<p style="margin:0;font-size:14px;overflow-wrap:anywhere"><span class="mono-id">claude-sonnet-5-5-20261015-long-context-preview-eu-west-batch-build-7f3a9c2e1b4d-0a1b2c39c2e1b4d[1m]</span></p>
+</div>
+<div style="background:var(--cell);border-radius:22px;padding:16px;display:flex;flex-direction:column;gap:8px">
+<h2 style="margin:0;font-size:17px;font-weight:600">Nothing to show</h2>
+<p style="margin:0;font-size:15px;line-height:1.45">No model (an older host, an agent started before the change, or a role with no model): <b>nothing is shown</b>. No dash, no “unknown”, no row in the inspector, no words for VoiceOver.</p>
+<p style="margin:0;font-size:15px;line-height:1.45">A source with no model: nothing. A model with no source: the id with “other”.</p>
+<p style="margin:0;font-size:15px;line-height:1.45">An id that is empty after the app cleans it (control characters removed, one line): treated as no model.</p>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

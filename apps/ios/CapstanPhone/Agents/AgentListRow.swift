@@ -25,6 +25,14 @@ struct AgentListRow: View {
                 .fixedSize()
             }
             secondLine
+            if let model = row.model, let label = row.modelLabel {
+                (Text(verbatim: model).font(.system(.subheadline, design: .monospaced))
+                    + Text(verbatim: " · " + label.short).font(TypeStyle.subheadline))
+                    .foregroundStyle(Tokens.color(.label2))
+                    .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                    .truncationMode(.middle)
+                    .accessibilityLabel(Text(verbatim: "model " + model + ", " + label.spoken))
+            }
         }
         .padding(.vertical, Tokens.space[0])
         .accessibilityElement(children: .combine)

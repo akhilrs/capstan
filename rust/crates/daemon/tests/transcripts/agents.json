@@ -98,7 +98,7 @@
 "{\"ok\":false,\"code\":\"not_configured\",\"message\":\"launching agents needs capstan.toml and Herdr\"}",
 "{\"ok\":false,\"code\":\"not_configured\",\"message\":\"restarting the PM needs capstan.toml and Herdr\"}",
 "{\"ok\":false,\"code\":\"forbidden\",\"message\":\"this command needs the operator credential\"}",
-"{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"spawn needs a role name and takes --task <plan-id>/<package-id> or <requirement-ref-id>, --type <type> and --title <text>\"}",
+"{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"spawn needs a role name and takes --task <plan-id>/<package-id> or <requirement-ref-id>, --type <type>, --title <text>, --model <id> and --plan <plan-id>\"}",
 "{\"ok\":false,\"code\":\"not_configured\",\"message\":\"spawning agents needs capstan.toml and Herdr\"}",
 "{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"the agent id is not valid\"}",
 "{\"ok\":false,\"code\":\"not_configured\",\"message\":\"releasing agents needs capstan.toml and Herdr\"}",

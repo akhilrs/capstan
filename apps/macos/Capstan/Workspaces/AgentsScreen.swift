@@ -239,6 +239,7 @@ struct AgentInspector: View {
                         .font(.system(size: 20, weight: .semibold))
                     MetaList(rows: [
                         MetaRow(label: "Role", value: plain(row.role + " · generation " + String(stored.generation))),
+                    ] + modelRows(row) + [
                         MetaRow(label: "Branch", value: plain(row.branch ?? "–")),
                         MetaRow(label: "State", value: plain(row.state + (stored.paused ? ", paused" : ", not paused"))),
                         MetaRow(label: "Request", value: plain(stored.requestId)),
@@ -308,6 +309,12 @@ struct AgentInspector: View {
                 }
             }
         }
+    }
+
+    /// The Model row of the inspector: the whole id, then the long source label; no row without a model.
+    private func modelRows(_ row: AgentRow) -> [MetaRow] {
+        guard let model = row.model, let label = row.modelLabel else { return [] }
+        return [MetaRow(label: "Model", value: plain(model + " · " + label.long))]
     }
 
     private func plain(_ s: String) -> UntrustedText {

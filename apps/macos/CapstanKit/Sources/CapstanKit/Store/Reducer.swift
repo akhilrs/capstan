@@ -375,6 +375,10 @@ public enum StoreReducer {
             var stored = StoredAgent(item)
             if let base = model.agents[key], effect.fields.optional("task") == nil { stored.task = base.task }
             if let base = model.agents[key], effect.fields.optional("branch") == nil { stored.branch = base.branch }
+            if let base = model.agents[key], effect.fields.optional("model") == nil {
+                stored.model = base.model
+                stored.modelSource = base.modelSource
+            }
             // The three activity fields move together, and only to a greater sequence than the one held.
             if let base = model.agents[key] {
                 let newer = incomingSeq.map { $0 > (base.activitySeq ?? 0) } ?? false

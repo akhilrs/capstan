@@ -268,7 +268,14 @@ pub fn request_review(
                 match launcher.retarget_review(&agent_id, &commit_sha, subject_id) {
                     Ok(_) => reused_agent = Some(agent_id),
                     Err(error) => {
-                        crate::warm::retarget_failed(deps, &error, &agent_id);
+                        if error.code == capstan_launcher::api::MODEL_CHANGED {
+                            deps.detail_log(
+                                "review_reviewer_model_changed",
+                                json!({"agentId": agent_id, "code": error.code, "message": error.message}),
+                            );
+                        } else {
+                            crate::warm::retarget_failed(deps, &error, &agent_id);
+                        }
                         crate::warm::release_row(deps, &agent_id, "retarget_failed", false);
                         if let Err(release_error) = launcher.release(&agent_id) {
                             deps.detail_log(

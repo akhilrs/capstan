@@ -8,6 +8,10 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 
 `capstan.toml` is now checked before a controller loads it. The first `cstan start` after the upgrade refuses a `capstan.toml` that has checked keys (exit 3, text naming `cstan trust`) and starts nothing: run `cstan trust`, read the list and start again. A running controller keeps the configuration it loaded; `cstan status` shows `trust: needed (<n> keys) - run cstan trust`, and `cstan restart` and the Operator restart refuse (`untrusted_config`) until then. CI and containers without a home directory: set `CAPSTAN_TRUST_DIR` to an absolute directory, then run `cstan trust` (or `cstan trust --check` to fail a job). See `docs/reference/trust.md`.
 
+### Documentation
+
+- docs: model overrides: `cstan spawn --model`/`--plan`, `cstan plan open --model`, `cstan plan model`, `cstan link requirement --model` and `cstan link model`, with the precedence, the fit table and the `model_host_mismatch` and `model_changed` refusals (`docs/reference/configuration.md`, `docs/reference/commands.md`).
+
 ## 0.21.0 (2026-11-06)
 
 ### Upgrade note

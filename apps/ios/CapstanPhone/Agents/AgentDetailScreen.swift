@@ -113,6 +113,9 @@ struct AgentDetailScreen: View {
 
     private func facts(_ row: AgentRow, _ stored: StoredAgent) -> [DetailFact] {
         var rows: [DetailFact] = []
+        if let model = row.model, let label = row.modelLabel {
+            rows.append(DetailFact(label: "Model", value: model + " · " + label.long, mono: true))
+        }
         if let branch = row.branch { rows.append(DetailFact(label: "Branch", value: branch, mono: true)) }
         rows.append(DetailFact(label: "State", value: row.state + (stored.paused ? ", paused" : "")))
         rows.append(DetailFact(label: "Generation", value: String(stored.generation)))

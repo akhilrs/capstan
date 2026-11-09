@@ -71,6 +71,35 @@ pub fn register_agent(
     if let Some(limit) = max_active {
         payload["maxActive"] = json!(limit);
     }
+    let model = match input.get("model") {
+        None | Some(Value::Null) => None,
+        Some(value) => {
+            let model = match value.as_str() {
+                Some(model) if !model.is_empty() => model,
+                _ => {
+                    return Err(KernelError::type_error(
+                        "the model must be a non-empty text",
+                    ))
+                }
+            };
+            let source = match field(input, "modelSource").as_str() {
+                Some(source) if super::model_overrides::MODEL_SOURCES.contains(&source) => source,
+                _ => {
+                    return Err(KernelError::type_error(
+                        "modelSource must be spawn, task, plan, role, host or defaults",
+                    ))
+                }
+            };
+            let scope = match input.get("modelScope") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(safe_id(value, "model scope")?),
+            };
+            payload["model"] = json!(model);
+            payload["modelSource"] = json!(source);
+            payload["modelScope"] = json!(scope);
+            Some((model, source, scope))
+        }
+    };
     kernel.mutate(
         context,
         "agent.register",
@@ -169,6 +198,13 @@ pub fn register_agent(
                 "INSERT INTO agents(project_id, agent_id, role_name, kind, seat_id, actor_id, generation, state, last_activity_at, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, 'active', ?, ?)",
                 rusqlite::params![kernel.project_id, agent_id, role_name, kind, seat_id, actor_id, now, now],
             )?;
+            if let Some((model, source, scope)) = model {
+                execute(
+                    &kernel.database,
+                    "INSERT INTO agent_models(project_id, agent_id, model, source, scope_id) VALUES (?, ?, ?, ?, ?)",
+                    rusqlite::params![kernel.project_id, agent_id, model, source, scope],
+                )?;
+            }
             let record = kernel
                 .agent_record(agent_id)?
                 .ok_or_else(|| KernelError::controller("the registered agent is missing"))?;
@@ -194,7 +230,29 @@ pub fn identify(kernel: &Kernel, credential: &str) -> KernelResult<Value> {
 /// `listAgents`.
 pub fn list_agents(kernel: &Kernel) -> KernelResult<Value> {
     kernel.assert_open()?;
-    Ok(serde_json::to_value(kernel.agent_records(false)?)?)
+    let mut agents = serde_json::to_value(kernel.agent_records(false)?)?;
+    let models = query_all(
+        &kernel.database,
+        "SELECT agent_id, model, source FROM agent_models WHERE project_id = ?",
+        [&kernel.project_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        },
+    )?;
+    for agent in agents.as_array_mut().into_iter().flatten() {
+        let found = models
+            .iter()
+            .find(|(id, _, _)| agent["agentId"] == id.as_str());
+        if let Some((_, model, source)) = found {
+            agent["model"] = json!(model);
+            agent["modelSource"] = json!(source);
+        }
+    }
+    Ok(agents)
 }
 
 /// `activeAgents`.

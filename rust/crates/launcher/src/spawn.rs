@@ -3,10 +3,12 @@
 
 use crate::api::{
     BranchRenameResult, Placement, RetargetResult, SpawnOptions, SpawnResult, ADOPT_BUDGET_MS,
+    MODEL_CHANGED, MODEL_HOST_MISMATCH,
 };
 use crate::kernel::LauncherKernel;
 use crate::shared::*;
 use crate::text::{is_task_ref, normalize_task_title, one_line};
+use capstan_config::model_fit::{check_model_value, fit_for_role};
 use capstan_config::prompts::{build_role_prompt, Kind, PromptInput};
 use capstan_config::Role;
 use capstan_herdr::api::{
@@ -338,8 +340,31 @@ impl LauncherKernel {
                 "the hub workspace could not be opened",
             ));
         };
+        let choice = self.effective_model(role, options)?;
+        if let Some(model) = &choice.model {
+            if options.model.is_some() {
+                check_model_value(model).map_err(|reason| {
+                    OpError::launcher("invalid_model", format!("{reason}; it came from the spawn"))
+                })?;
+            }
+            fit_for_role(&self.config, &role.name, model).map_err(|refusal| {
+                let scope = choice
+                    .scope
+                    .as_ref()
+                    .map(|scope| format!(" {scope}"))
+                    .unwrap_or_default();
+                OpError::launcher(
+                    MODEL_HOST_MISMATCH,
+                    format!("{refusal}; it came from {}{scope}", choice.source),
+                )
+            })?;
+        }
         budget.check("creating the agent")?;
-        let (agent_id, credential) = self.create_agent(role)?;
+        let (agent_id, credential) = self.create_agent_with(role, Some(&choice))?;
+        // The host gets the chosen model; the role keeps its own.
+        let mut chosen_role = role.clone();
+        chosen_role.model = choice.model.clone();
+        let role = &chosen_role;
         let mut info = CleanupInfo::default();
         let mut step = "worktree";
         let attempt = self.spawn_steps(
@@ -783,6 +808,36 @@ impl LauncherKernel {
                     "not_reviewer",
                     format!("{agent_id} is not a reviewer"),
                 ));
+            }
+            // The reviewer keeps running the model it started with: a review whose subject wants another one needs a
+            // fresh reviewer. Bytes are compared, never the source.
+            if let Some(role) = self.role_named(&agent.role_name) {
+                let current = match self.ledger.agent_model(agent_id)? {
+                    Some((model, _, _)) => Some(model),
+                    None => role.model.clone(),
+                };
+                let wanted = self
+                    .effective_model(
+                        role,
+                        &SpawnOptions {
+                            review_target: Some(review_target.to_string()),
+                            ..SpawnOptions::default()
+                        },
+                    )?
+                    .model;
+                if current != wanted {
+                    let name = |model: &Option<String>| {
+                        model.clone().unwrap_or_else(|| "no model".to_string())
+                    };
+                    return Err(OpError::launcher(
+                        MODEL_CHANGED,
+                        format!(
+                            "{agent_id} runs {} and the review of {review_target} wants {}; release it and spawn a new reviewer",
+                            name(&current),
+                            name(&wanted)
+                        ),
+                    ));
+                }
             }
             let row = self
                 .ledger
