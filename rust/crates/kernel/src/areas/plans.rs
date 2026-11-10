@@ -103,6 +103,7 @@ pub fn open_plan(kernel: &Kernel, context: &MutationContext, input: &Value) -> K
                 ));
             }
             if let Some(supersedes) = supersedes {
+                super::plan_archive::refuse_if_archived(kernel, supersedes)?;
                 let Some(old) = plan_row(kernel, supersedes)? else {
                     return Err(KernelError::controller(format!(
                         "plan {supersedes} does not exist"
@@ -193,6 +194,7 @@ pub fn submit_plan(
         "plan:write",
         &Value::Object(payload),
         |actor| {
+            super::plan_archive::refuse_if_archived(kernel, plan_id)?;
             let agent = match kernel.agent_by_actor(&actor.actor_id)? {
                 Some(agent) if agent.kind == "Developer" => agent,
                 _ => {
@@ -303,6 +305,7 @@ pub fn amend_plan(
         "plan:write",
         &Value::Object(payload),
         |actor| {
+            super::plan_archive::refuse_if_archived(kernel, plan_id)?;
             let refuse = |why: String| KernelError::controller(format!("amend_refused: {why}"));
             let agent = match kernel.agent_by_actor(&actor.actor_id)? {
                 Some(agent) if agent.kind == "Developer" => agent,
@@ -509,7 +512,8 @@ pub fn unannounced_plan_notices(kernel: &Kernel, credential: &str) -> KernelResu
     let mut out: Vec<Value> = Vec::new();
     let plans = query_all(
         &kernel.database,
-        "SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft') ORDER BY sequence",
+        "SELECT * FROM plans WHERE project_id = ? AND state IN ('approved', 'draft')
+         AND NOT EXISTS (SELECT 1 FROM plan_archives a WHERE a.project_id = plans.project_id AND a.plan_id = plans.plan_id) ORDER BY sequence",
         [&kernel.project_id],
         PlanRow::from_row,
     )?;
@@ -927,6 +931,7 @@ pub fn reassign_plan(
         payload["reason"] = json!(reason);
     }
     kernel.mutate(context, "plan.reassign", "plan:write", &payload, |actor| {
+        super::plan_archive::refuse_if_archived(kernel, plan_id)?;
         let refuse = |code: &str, text: String| Err(KernelError::controller(format!("{code}: {text}")));
         if actor.role != "PM" && actor.role != "operator" {
             return refuse("not_manager", "only the PM or the operator reassigns a plan".into());
@@ -1135,6 +1140,21 @@ pub fn plan_record(kernel: &Kernel, credential: &str, plan_id: &str) -> KernelRe
     if !reassignments.is_empty() {
         plan_value["reassignments"] = Value::Array(reassignments);
     }
+    let archive = query_opt(
+        &kernel.database,
+        "SELECT archived_at, archived_by, reason FROM plan_archives WHERE project_id = ? AND plan_id = ?",
+        [&kernel.project_id, plan_id],
+        |row| {
+            Ok(json!({
+                "archivedAt": row.get::<_, String>(0)?,
+                "archivedBy": row.get::<_, String>(1)?,
+                "reason": row.get::<_, String>(2)?,
+            }))
+        },
+    )?;
+    if let Some(archive) = archive {
+        plan_value["archived"] = archive;
+    }
     Ok(json!({
         "plan": plan_value,
         "revision": revision,
@@ -1245,6 +1265,7 @@ pub(crate) fn open_plans_for_summary(kernel: &Kernel) -> KernelResult<Vec<Value>
         &kernel.database,
         "SELECT p.* FROM plans p WHERE p.project_id = ? AND p.cancelled_at IS NULL
          AND p.state IN ('draft', 'in_review', 'approved')
+         AND NOT EXISTS (SELECT 1 FROM plan_archives a WHERE a.project_id = p.project_id AND a.plan_id = p.plan_id)
          AND NOT EXISTS (
            SELECT 1 FROM plan_signoffs s JOIN integrations i
              ON i.project_id = s.project_id AND i.integration_id = s.integration_id

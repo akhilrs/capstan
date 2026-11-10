@@ -187,14 +187,15 @@ fn aged_prune_with_every_backup_old_keeps_the_newest_and_zero_age_counts_only() 
 #[test]
 fn a_backup_made_by_this_opens_migration_is_kept() {
     let (dir, file) = scratch();
-    ledger_at(&file, PLANNER_STATS_MIGRATION as usize - 2);
+    let newest = capstan_ledger::max_embedded_migration();
+    ledger_at(&file, newest as usize - 2);
     let options = OpenOptions {
         maintenance: true,
         backup_max_age_days: 1,
         ..OpenOptions::default()
     };
     open_database(&file, &options).unwrap().close().unwrap();
-    let marker = format!(".pre-v{PLANNER_STATS_MIGRATION}-");
+    let marker = format!(".pre-v{newest}-");
     let kept = names(dir.path())
         .into_iter()
         .filter(|n| n.contains(&marker))

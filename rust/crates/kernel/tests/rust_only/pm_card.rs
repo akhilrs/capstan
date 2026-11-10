@@ -825,3 +825,61 @@ fn from_user_looks_through_at_most_the_newest_five_hundred_messages_to_the_pm() 
     insert(1, FROM_USER_SCAN);
     assert_eq!(card(&rig)["fromUser"], Value::Null);
 }
+
+fn set_archived(rig: &Rig, plan: &str, archived: bool) {
+    let db = rig.db();
+    if archived {
+        db.execute(
+            "INSERT INTO plan_archives(project_id, plan_id, archived_at, archived_by, reason)
+             VALUES ((SELECT project_id FROM projects), ?, '2026-01-01T00:00:00.000Z', 'operator', 'retired')",
+            [plan],
+        )
+        .unwrap();
+    } else {
+        db.execute("DELETE FROM plan_archives WHERE plan_id = ?", [plan])
+            .unwrap();
+    }
+}
+
+fn user_count(rig: &Rig) -> u64 {
+    kinds(&card(rig))
+        .into_iter()
+        .find(|(kind, _)| kind == "user")
+        .map_or(0, |(_, n)| n)
+}
+
+#[test]
+fn an_archived_plan_leaves_the_design_and_integration_counts_of_the_card() {
+    let rig = Rig::new();
+    rig.pane("dev-1", "feat/ui");
+    rig.pane("dev-2", "feat/docs");
+    let plan = rig.approved_plan();
+    rig.assign(&plan, "ui", "dev-1");
+    rig.assign(&plan, "docs", "dev-2");
+    // A design package with a report and no decision.
+    rig.report_as("dev-1", "feat/ui", COMMIT, "designed");
+    assert_eq!(user_count(&rig), 1);
+    set_archived(&rig, &plan, true);
+    assert_eq!(user_count(&rig), 0, "the design of an archived plan");
+    set_archived(&rig, &plan, false);
+    assert_eq!(user_count(&rig), 1);
+
+    // A merged integration of the plan waits too.
+    let report = rig.report_as("dev-2", "feat/docs", COMMIT, "written");
+    let id = report["record"]["reportId"].as_str().unwrap().to_string();
+    rig.review(&id, "pass", "fine");
+    rig.begin_integration("int-1", &[&id]);
+    rig.finish_integration(
+        "int-1",
+        json!({"kind": "merged", "headSha": "3".repeat(40)}),
+    );
+    assert_eq!(user_count(&rig), 2);
+    set_archived(&rig, &plan, true);
+    assert_eq!(
+        user_count(&rig),
+        0,
+        "design and integration of an archived plan"
+    );
+    set_archived(&rig, &plan, false);
+    assert_eq!(user_count(&rig), 2);
+}

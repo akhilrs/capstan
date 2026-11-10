@@ -1080,3 +1080,67 @@ fn a_plan_and_a_draft_are_cancelled_from_a_remote_client() {
         "not_waiting"
     );
 }
+
+#[test]
+fn an_archived_plan_has_no_binding_and_is_left_out_of_the_pages_and_status() {
+    use crate::fixture::OWNER;
+    use capstan_kernel::areas::snapshot_feed::plans_page;
+    let rig = Rig::new();
+    let plan = rig.approved_plan();
+    let request = format!("plan:{plan}");
+    let hash = content_hash(&rig.core, &request).unwrap().unwrap();
+    assert!(plans_page(&rig.core, None, 50)
+        .unwrap()
+        .items
+        .iter()
+        .any(|i| i.plan_id == plan));
+    let in_status = |rig: &Rig| {
+        let rows = rig.core.status_snapshot().unwrap()["plans"].to_string();
+        let tasks = rig
+            .core
+            .active_tasks(
+                OWNER,
+                &json!({"plans": 50, "packages": 50, "requirements": 50}),
+            )
+            .unwrap()["plans"]
+            .to_string();
+        (rows.contains(&plan), tasks.contains(&plan))
+    };
+    assert_eq!(in_status(&rig), (true, true));
+
+    rig.core
+        .archive_plans(
+            &rig.ctx("owner"),
+            &json!({"planIds": [plan], "reason": "retired"}),
+        )
+        .unwrap();
+    assert_eq!(content_hash(&rig.core, &request).unwrap(), None);
+    assert!(!plans_page(&rig.core, None, 50)
+        .unwrap()
+        .items
+        .iter()
+        .any(|i| i.plan_id == plan));
+    assert_eq!(in_status(&rig), (false, false));
+    assert_eq!(
+        code_of(&cancel_plan(&rig, &plan, &hash[..12], "nonce-0001").unwrap_err()),
+        "not_waiting"
+    );
+    assert_eq!(
+        rig.core.plan_record(OWNER, &plan).unwrap()["plan"]["state"],
+        "approved"
+    );
+
+    rig.core
+        .unarchive_plan(&rig.ctx("owner"), &json!({"planId": plan}))
+        .unwrap();
+    assert_eq!(
+        content_hash(&rig.core, &request).unwrap().as_deref(),
+        Some(hash.as_str())
+    );
+    assert!(plans_page(&rig.core, None, 50)
+        .unwrap()
+        .items
+        .iter()
+        .any(|i| i.plan_id == plan));
+    assert_eq!(in_status(&rig), (true, true));
+}

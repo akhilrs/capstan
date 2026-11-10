@@ -10,7 +10,7 @@ use rusqlite::types::ValueRef;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{id_prefix, pauses, plan_packages, plans};
+use super::{id_prefix, pauses, plan_archive, plan_packages, plans};
 
 struct ReadyItem {
     state: String,
@@ -281,10 +281,22 @@ fn is_ready(kernel: &Kernel, work_item_id: &str) -> KernelResult<bool> {
     Ok(readiness(kernel, work_item_id)?["ready"] == Value::Bool(true))
 }
 
+/// The archived-plan exclusion; empty on a ledger that predates `plan_archives` (a read-only open does not migrate).
+fn archived_filter(kernel: &Kernel) -> KernelResult<&'static str> {
+    Ok(if plan_archive::table_present(kernel, "plan_archives")? {
+        "AND NOT EXISTS (SELECT 1 FROM plan_archives a WHERE a.project_id = plans.project_id AND a.plan_id = plans.plan_id)"
+    } else {
+        ""
+    })
+}
+
 fn plan_status_entries(kernel: &Kernel) -> KernelResult<Vec<Value>> {
     let plans = query_all(
         &kernel.database,
-        "SELECT * FROM plans WHERE project_id = ? ORDER BY sequence",
+        &format!(
+            "SELECT * FROM plans WHERE project_id = ? {} ORDER BY sequence",
+            archived_filter(kernel)?
+        ),
         [&kernel.project_id],
         PlanRow::from_row,
     )?;
@@ -769,11 +781,13 @@ pub fn active_tasks(kernel: &Kernel, credential: &str, caps: &Value) -> KernelRe
     let (plan_cap, package_cap, requirement_cap) =
         (cap("plans"), cap("packages"), cap("requirements"));
     let mut truncated = false;
+    let archived = archived_filter(kernel)?;
     let mut plan_rows = query_all(
         &kernel.database,
-        "SELECT * FROM plans WHERE project_id = ? AND cancelled_at IS NULL AND state IN ('draft', 'in_review', 'approved')
+        &format!("SELECT * FROM plans WHERE project_id = ? AND cancelled_at IS NULL AND state IN ('draft', 'in_review', 'approved')
+           {archived}
            AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)
-         ORDER BY sequence",
+         ORDER BY sequence"),
         [&kernel.project_id],
         PlanRow::from_row,
     )?;
@@ -786,8 +800,9 @@ pub fn active_tasks(kernel: &Kernel, credential: &str, caps: &Value) -> KernelRe
     plan_rows.drain(..start);
     let active_plan_count = count_of(
         kernel,
-        "SELECT COUNT(*) AS n FROM plans WHERE project_id = ? AND cancelled_at IS NULL AND state IN ('draft', 'in_review', 'approved')
-           AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)",
+        &format!("SELECT COUNT(*) AS n FROM plans WHERE project_id = ? AND cancelled_at IS NULL AND state IN ('draft', 'in_review', 'approved')
+           {archived}
+           AND NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)"),
     )?;
     if active_plan_count > plan_rows.len() as i64 {
         truncated = true;

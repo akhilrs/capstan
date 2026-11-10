@@ -98,6 +98,7 @@ pub const PM_CARD_ACTIONS: &[&str] = &[
     "operator.finish",
     "operator.propose",
     "plan.amend",
+    "plan.archive",
     "plan.assign",
     "plan.cancel",
     "plan.open",
@@ -330,6 +331,11 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         "a controller notice about a plan",
     ),
     (
+        "plan.unarchive",
+        &["plan_archives", "messages.notice"],
+        "an archive row the card does not read and its notice",
+    ),
+    (
         "plan.landed",
         &["package_landings", "messages.notice"],
         "a landing row the card does not read and its controller notice",
@@ -552,6 +558,7 @@ fn design_sql() -> String {
                  WHERE r.project_id = pp.project_id AND {PACKAGE_REPORT}
                  ORDER BY r.sequence DESC LIMIT 1)
           WHERE pp.project_id = ?1 AND pl.state = 'approved' AND pl.cancelled_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM plan_archives ar WHERE ar.project_id = pl.project_id AND ar.plan_id = pl.plan_id)
             AND pp.cancelled_at IS NULL AND pp.assignee_agent_id IS NOT NULL
             AND EXISTS (SELECT 1 FROM plan_revisions rev, json_each(rev.body_json, '$.packages') pk
                          WHERE rev.project_id = pl.project_id AND rev.plan_id = pl.plan_id
@@ -590,6 +597,7 @@ fn integration_sql() -> String {
                   AND NOT EXISTS (SELECT 1 FROM ({mine}) m
                                     JOIN plans pl ON pl.project_id = ?1 AND pl.plan_id = m.plan_id
                                    WHERE pl.cancelled_at IS NULL
+                                   AND NOT EXISTS (SELECT 1 FROM plan_archives ar WHERE ar.project_id = pl.project_id AND ar.plan_id = pl.plan_id)
                                      AND NOT EXISTS (SELECT 1 FROM plan_signoffs s
                                                       WHERE s.project_id = ?1 AND s.plan_id = m.plan_id
                                                         AND s.integration_id <> i.integration_id))))"

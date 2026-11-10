@@ -1,10 +1,10 @@
 {
   "fixture": "config-corpus.json",
   "case": "captured-0070",
-  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's",
+  "reason": "[ledger] retention_days is a Rust-only key: the resolved config JSON gains retentionDays (default 30) and so differs from Node's; [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "453da971e4417ffae009d098c831a9d6c7ee6e5b08acd4e0bdf7a4cbca1acdb7",
-    "bytes": 4123
+    "sha256": "96facbad55913e80939ebf2139cd7a34b383cf4f27a5362a6d2e4c9824ab05b4",
+    "bytes": 4148
   }
 }

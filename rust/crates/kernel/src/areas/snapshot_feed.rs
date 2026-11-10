@@ -685,6 +685,7 @@ pub const PLAN_ROWS_BASE: &str = "SELECT plan_id, sequence, title,
                        CASE WHEN EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)
                             THEN 'signed_off' ELSE state END, approved_revision FROM plans
                  WHERE project_id = ? AND state IN ('draft', 'in_review', 'approved') AND cancelled_at IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM plan_archives a WHERE a.project_id = plans.project_id AND a.plan_id = plans.plan_id)
                    AND (NOT EXISTS (SELECT 1 FROM plan_signoffs s WHERE s.project_id = plans.project_id AND s.plan_id = plans.plan_id)
                         OR EXISTS (SELECT 1 FROM plan_signoffs s JOIN integrations i
                                      ON i.project_id = s.project_id AND i.integration_id = s.integration_id
@@ -1316,6 +1317,7 @@ fn fetch_design(core: &Core, sel: &Sel, limit: usize) -> KernelResult<Vec<Candid
                   FROM plan_packages p
                   JOIN plans pl ON pl.project_id = p.project_id AND pl.plan_id = p.plan_id
                  WHERE p.project_id = ? AND pl.state = 'approved' AND pl.cancelled_at IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM plan_archives ar WHERE ar.project_id = pl.project_id AND ar.plan_id = pl.plan_id)
                    AND p.cancelled_at IS NULL AND p.assignee_agent_id IS NOT NULL";
     let (sql, params) = match sel {
         Sel::After(None) => (
@@ -1542,6 +1544,7 @@ fn integration_superseded(core: &Core, integration_id: &str, sequence: i64) -> K
              AND NOT EXISTS (SELECT 1 FROM mine m
                                JOIN plans pl ON pl.project_id = ?1 AND pl.plan_id = m.plan_id
                               WHERE pl.cancelled_at IS NULL
+                              AND NOT EXISTS (SELECT 1 FROM plan_archives ar WHERE ar.project_id = pl.project_id AND ar.plan_id = pl.plan_id)
                                 AND NOT EXISTS (SELECT 1 FROM plan_signoffs s
                                                  WHERE s.project_id = ?1 AND s.plan_id = m.plan_id AND s.integration_id <> ?2))"
     );
@@ -2312,7 +2315,8 @@ pub fn plan_hash(core: &Core, plan_id: &str) -> KernelResult<Option<String>> {
     let kernel = core.kernel();
     let found = raw_query_opt(
         &kernel.database,
-        "SELECT state, title FROM plans WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL AND state <> 'superseded'",
+        "SELECT state, title FROM plans WHERE project_id = ? AND plan_id = ? AND cancelled_at IS NULL AND state <> 'superseded'
+           AND NOT EXISTS (SELECT 1 FROM plan_archives a WHERE a.project_id = plans.project_id AND a.plan_id = plans.plan_id)",
         [kernel.project_id.as_str(), plan_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
     )?;

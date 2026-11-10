@@ -242,7 +242,8 @@ fn wanted_state(
             "plan {plan_id} does not exist"
         )));
     };
-    let plan_cancelled = plan.cancelled_at.is_some();
+    let plan_cancelled =
+        plan.cancelled_at.is_some() || super::plan_archive::is_archived(kernel, &plan_id)?;
     let rows = plan_packages::plan_package_rows(kernel, &plan_id)?;
     if ref_kind == "plan" {
         let mut facts = Vec::new();

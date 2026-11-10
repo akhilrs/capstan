@@ -138,6 +138,7 @@ pub fn open_work(kernel: &Kernel, agent_id: &str) -> KernelResult<Vec<String>> {
         &kernel.database,
         "SELECT plan_id, state FROM plans
          WHERE project_id = ? AND architect_agent_id = ? AND cancelled_at IS NULL AND state <> 'superseded'
+           AND NOT EXISTS (SELECT 1 FROM plan_archives a WHERE a.project_id = plans.project_id AND a.plan_id = plans.plan_id)
          ORDER BY sequence",
         [pid(kernel), agent_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),

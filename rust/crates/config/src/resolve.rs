@@ -1602,6 +1602,13 @@ fn resolve_architect(table: &Table, roles: &[Role], hosts: &[Host]) -> Result<Ar
             MAX_ARCHITECT_REVIEW_ROUNDS,
             DEFAULT_ARCHITECT_MAX_REVIEW_ROUNDS,
         )?,
+        stale_plan_days: optional_integer(
+            table.get("stale_plan_days"),
+            "architect.stale_plan_days",
+            0,
+            MAX_ARCHITECT_STALE_PLAN_DAYS,
+            DEFAULT_ARCHITECT_STALE_PLAN_DAYS,
+        )?,
         plan_amend: optional_boolean(table.get("plan_amend"), "architect.plan_amend", true)?,
         count_toward_worker_limit: optional_boolean(
             table.get("count_toward_worker_limit"),

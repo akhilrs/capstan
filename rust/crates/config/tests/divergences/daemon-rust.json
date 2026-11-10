@@ -1,10 +1,10 @@
 {
   "fixture": "config-edge-cases.json",
   "case": "edge-daemon-rust",
-  "reason": "[daemon] selects nothing now: implementation = \"rust\" loads with a warning and the RoleConfig JSON has a daemon member that carries the tuning defaults",
+  "reason": "[daemon] selects nothing now: implementation = \"rust\" loads with a warning and the RoleConfig JSON has a daemon member that carries the tuning defaults; [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "b4bd72fda64940378cc8f8d585d6e5ee316e706cf62276b84de8f36e50c4eb80",
-    "bytes": 4247
+    "sha256": "dbcb9559de85242034471eb9a1072d17298d22bd574cd06365ba05386c0a024e",
+    "bytes": 4272
   }
 }

@@ -1,10 +1,10 @@
 {
   "fixture": "config-corpus.json",
   "case": "captured-0203",
-  "reason": "an omp role with deny now loads: the rule is ignored with a warning",
+  "reason": "an omp role with deny now loads: the rule is ignored with a warning; [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "0c23885db677fc6f20c17248e49001b95ff2990135ab72449620b456130461d7",
-    "bytes": 4954
+    "sha256": "ac4e6832acb77e839279dbfb891052a8fc8f0b58fc977dfc4519d481b746f05f",
+    "bytes": 4979
   }
 }

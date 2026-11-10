@@ -1,10 +1,10 @@
 {
   "fixture": "config-corpus.json",
   "case": "captured-0513",
-  "reason": "the researcher role may run in any permission mode now; Node refused everything but \"default\"",
+  "reason": "the researcher role may run in any permission mode now; Node refused everything but \"default\"; [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "04c396f59d118155c9d72605fb5134c41e6dbe53b7cb96216fb38b373b34285f",
-    "bytes": 7726
+    "sha256": "01d5f48309b9bc3dc3f2b282735ffb3e59c04bb8458d03d7d36ffff478a44321",
+    "bytes": 7751
   }
 }

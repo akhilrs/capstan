@@ -1,10 +1,10 @@
 {
   "fixture": "config-corpus.json",
   "case": "captured-0204",
-  "reason": "a codex role that writes no permission_mode now resolves to auto; Node refused it",
+  "reason": "a codex role that writes no permission_mode now resolves to auto; Node refused it; [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "606719a603cacc8e5d58ba2142f9e0f8cac45c986e176abd4f19b08f55d3384c",
-    "bytes": 4834
+    "sha256": "94966333b0df1af7f200e8b59fb770779f5ebecc04fccc5519b836139bdd8e0f",
+    "bytes": 4859
   }
 }

@@ -67,11 +67,39 @@ impl Landing {
 
 /// Every landing of the package: its accepted reports (`PACKAGE_REPORT_PREDICATE`) in a merged or confirmed integration or
 /// covered by a confirmed one, and the recorded row; by integration sequence, the recorded one last.
+///
+/// A read-only open of a ledger that predates `package_landings` does not migrate; the lookup then has no recorded landings.
+/// The missing table is learned from the failed read, so the common path costs no extra statement.
 pub(crate) fn package_landings(
     kernel: &Kernel,
     plan_id: &str,
     package_id: &str,
 ) -> KernelResult<Vec<Landing>> {
+    match landings_of(kernel, plan_id, package_id, true) {
+        Err(error)
+            if error
+                .to_string()
+                .contains("no such table: package_landings") =>
+        {
+            landings_of(kernel, plan_id, package_id, false)
+        }
+        other => other,
+    }
+}
+
+fn landings_of(
+    kernel: &Kernel,
+    plan_id: &str,
+    package_id: &str,
+    with_recorded: bool,
+) -> KernelResult<Vec<Landing>> {
+    let recorded = if with_recorded {
+        "UNION ALL
+         SELECT 'recorded', NULL, NULL, commit_sha FROM package_landings
+         WHERE project_id = ?1 AND plan_id = ?2 AND package_id = ?3"
+    } else {
+        ""
+    };
     let sql = format!(
         "SELECT i.state, i.integration_id, i.sequence, NULL AS commit_sha
          FROM plan_packages pp
@@ -88,9 +116,7 @@ pub(crate) fn package_landings(
          JOIN integrations i ON i.project_id = c.project_id AND i.integration_id = c.integration_id
          WHERE pp.project_id = ?1 AND pp.plan_id = ?2 AND pp.package_id = ?3 AND i.state = 'confirmed'
            AND {PACKAGE_REPORT_PREDICATE}
-         UNION ALL
-         SELECT 'recorded', NULL, NULL, commit_sha FROM package_landings
-         WHERE project_id = ?1 AND plan_id = ?2 AND package_id = ?3
+         {recorded}
 "
     );
     let mut landings = query_all(
@@ -181,6 +207,7 @@ pub fn record_package_landing(
     };
     let note = safe_text(field(input, "note"), "landing note", 500, false)?;
     kernel.mutate(context, "plan.landed", "plan:write", input, |actor| {
+        super::plan_archive::refuse_if_archived(kernel, plan_id)?;
         if actor.role != "operator" {
             return Err(KernelError::controller(
                 "only the operator records a landed package",
@@ -296,6 +323,7 @@ pub fn clear_package_landing(
         "plan:write",
         input,
         |actor| {
+            super::plan_archive::refuse_if_archived(kernel, plan_id)?;
             if actor.role != "operator" {
                 return Err(KernelError::controller(
                     "only the operator clears a recorded landing",

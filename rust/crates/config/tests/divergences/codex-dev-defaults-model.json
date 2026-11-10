@@ -1,10 +1,10 @@
 {
   "fixture": "config-corpus.json",
   "case": "captured-0230",
-  "reason": "a codex role with no permission_mode takes auto; Node refused it (the model comes from [defaults.Developer])",
+  "reason": "a codex role with no permission_mode takes auto; Node refused it (the model comes from [defaults.Developer]); [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "1c8c0bdf2c761103bcbe143d3dfe9a16f619f5f374df096d33db9d1171afe473",
-    "bytes": 4268
+    "sha256": "7d6d6f188d3d7dbb9cb17d913b69512fd8825f9d420f4af354b35ac938957022",
+    "bytes": 4293
   }
 }

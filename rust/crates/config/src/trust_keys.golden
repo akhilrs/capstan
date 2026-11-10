@@ -9,6 +9,7 @@ checked architect.plan_amend
 checked architect.plan_review
 checked architect.reviewer_role
 checked architect.role
+checked architect.stale_plan_days
 checked cache.active_evict_min_age_minutes
 checked cache.detect
 checked cache.entries.<name>.dirs

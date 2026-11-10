@@ -15,7 +15,9 @@ use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 
 use super::plan_landing::{self, PACKAGE_REPORT_PREDICATE};
-use super::{design_approvals, message_notices, messages, pauses, plans, warm_reviewers};
+use super::{
+    design_approvals, message_notices, messages, pauses, plan_archive, plans, warm_reviewers,
+};
 
 fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
     input.get(key).unwrap_or(&Value::Null)
@@ -240,6 +242,7 @@ pub fn assign_package(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     kernel.mutate(context, "plan.assign", "plan:write", input, |actor| {
+        plan_archive::refuse_if_archived(kernel, plan_id)?;
         pauses::assert_run_not_paused(kernel, "plan assign")?;
         if actor.role != "PM" && actor.role != "operator" {
             return Err(KernelError::controller(
@@ -487,6 +490,7 @@ pub fn record_signoff(
         "plan:write",
         &Value::Object(payload),
         |actor| {
+            plan_archive::refuse_if_archived(kernel, plan_id)?;
             let agent = kernel.agent_by_actor(&actor.actor_id)?;
             let Some(plan) = plans::plan_row(kernel, plan_id)? else {
                 return Err(KernelError::controller(format!("plan {plan_id} does not exist")));
@@ -708,6 +712,16 @@ pub fn cancel_plan(
     })
 }
 
+/// Puts a plan in review back to draft (its revisions, packages and architect are kept); shared by cancel and archive.
+pub(crate) fn reset_to_draft(kernel: &Kernel, plan_id: &str, now: &str) -> KernelResult<()> {
+    execute(
+        &kernel.database,
+        "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
+        [now, kernel.project_id.as_str(), plan_id],
+    )?;
+    Ok(())
+}
+
 /// The body of `plan.cancel`, run inside a mutation by the operator: the whole plan (any state but superseded, a plan
 /// in review back to draft first) or one package of an approved plan.
 pub fn apply_cancel_plan(
@@ -716,6 +730,7 @@ pub fn apply_cancel_plan(
     plan_id: &str,
     package_id: Option<&str>,
 ) -> KernelResult<MutationOutput> {
+    plan_archive::refuse_if_archived(kernel, plan_id)?;
     if actor.role != "operator" {
         return Err(KernelError::controller("only the operator cancels a plan"));
     }
@@ -807,11 +822,7 @@ pub fn apply_cancel_plan(
                 review_id = Some(open_review);
                 reviewer_agent_id = Some(open_reviewer);
             }
-            execute(
-                &kernel.database,
-                "UPDATE plans SET state = 'draft', updated_at = ? WHERE project_id = ? AND plan_id = ?",
-                [now.as_str(), kernel.project_id.as_str(), plan_id],
-            )?;
+            reset_to_draft(kernel, plan_id, &now)?;
         }
         let mut live = Vec::new();
         for row in plan_package_rows(kernel, plan_id)? {

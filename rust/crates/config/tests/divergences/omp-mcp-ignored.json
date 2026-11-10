@@ -1,10 +1,10 @@
 {
   "fixture": "config-corpus.json",
   "case": "captured-0533",
-  "reason": "an omp role with mcp now loads: mcp is ignored with a warning and resolves to []",
+  "reason": "an omp role with mcp now loads: mcp is ignored with a warning and resolves to []; [architect] stale_plan_days is Rust-only: the architect member gains stalePlanDays (default 14)",
   "expected": {
     "kind": "ok",
-    "sha256": "e87e280a41c26f631a23cbbfd795322e27bb8b88e7eb4f47dde535854065b211",
-    "bytes": 4970
+    "sha256": "84d112e99173cafe7a952af5bcfded90200a23ebe1fa40ce8212baad8c62a2ad",
+    "bytes": 4995
   }
 }
