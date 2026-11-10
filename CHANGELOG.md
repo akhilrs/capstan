@@ -4,8 +4,13 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 
 ## Unreleased
 
+### Fixes
+
+- fix: `plan cancel` and `plan signoff` share one landing check (covered packages no longer block sign-off).
+
 ### Features
 
+- feat: `cstan plan landed <plan-id> <package-id> <commit-sha> [--note <text>]` records a package whose content reached the project HEAD outside a Capstan integration, and `--clear` removes it before sign-off (operator only; `docs/reference/commands.md`, `docs/reference/workflow.md`).
 - feat: file handover. `cstan send <recipient> --file <path> [--summary <text>]` hands over a file committed on the sender's branch by reference (path, branch, commit, size, summary; read with `git show <commit>:<path>`), and `[messages] max_body_bytes` (default 4096, 512 to 15360) sets the longest body of a plain `cstan send`; a longer one is refused with a hint to use `--file`.
 - feat: review text is stored whole up to 16000 bytes (it was cut at 4000); a verdict notice over 4000 bytes quotes the first 3600 and points to a full-text command.
 - feat: `cstan review show <review-id>` prints the full stored review text with its subject, state, reviewer and commit, from any agent's worktree, for the PM, the operator, the reviewer, the reviewed work's author and the plan's architect; the cut verdict notice now points to it.

@@ -97,6 +97,8 @@ pub const ENTRIES: &[Entry] = &[
     e(PLANS, "plan", "plan reassign <plan-id> <architect-agent-id> [--reason <text>]", "Hand a plan whose architect ended to another active architect (PM and operator); its developers are told."),
     e(PLANS, "plan", "plan signoff <plan-id> <integration-id> <summary>", "Sign the plan off on a reviewed integration."),
     e(PLANS, "plan", "plan cancel <plan-id> [<package-id>]", "Cancel a plan, or one of its packages."),
+    e(PLANS, "plan", "plan landed <plan-id> <package-id> <commit-sha> [--note <text>]", "Record that a package's content reached the project HEAD outside a Capstan integration, so sign-off counts it; operator."),
+    e(PLANS, "plan", "plan landed <plan-id> <package-id> --clear", "Remove a recorded landing before sign-off; operator."),
     e(LINKS, "link", "link requirement|plan|package <ref-id> <nexora-id> [<state>] [--model <id>]", "Link a requirement, plan or package to a Nexora item; --model on a requirement sets its model override."),
     e(LINKS, "link", "link model <requirement-ref-id> [<Kind>] [<id> | --clear]", "Show, set or clear the model override of a linked requirement (PM and operator)."),
     e(LINKS, "link", "link bind <requirement-ref-id> <agent-id>", "Bind a requirement to the agent working on it."),

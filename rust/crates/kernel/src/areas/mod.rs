@@ -22,6 +22,7 @@ pub mod operator_runs;
 pub mod panes;
 pub mod pauses;
 pub mod plan_handover;
+pub mod plan_landing;
 pub mod plan_packages;
 pub mod plans;
 pub mod pm_card;

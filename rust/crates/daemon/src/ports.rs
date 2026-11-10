@@ -316,6 +316,14 @@ impl GitPort for ProjectGit {
         self.repo.is_in_head(sha).map_err(from_integrate)
     }
 
+    fn commit_on_head(&self, sha: &str) -> GitResult<Option<bool>> {
+        let (code, kind) = self.run(&["cat-file", "-t", sha])?;
+        if code != 0 || kind.trim() != "commit" {
+            return Ok(Some(false));
+        }
+        self.is_ancestor(sha, "HEAD").map(Some)
+    }
+
     fn delete_branch(&self, branch: &str, sha: &str) -> GitResult<bool> {
         self.repo
             .delete_branch_at(branch, sha)

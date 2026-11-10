@@ -78,6 +78,8 @@ code plan.amend
 code plan.announce
 code plan.assign
 code plan.cancel
+code plan.landed
+code plan.landing_cleared
 code plan.open
 code plan.reassign
 code plan.review_abandon

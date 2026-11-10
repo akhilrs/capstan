@@ -8,8 +8,8 @@
 use crate::areas::{
     actors, agents, approval_windows, design_approvals, findings, idle_release, integrations,
     links, message_notices, messages, model_overrides, operator_grants, operator_proposals,
-    operator_runs, panes, pauses, plan_packages, plans, pm_stuck, prompt_relay, remote_decisions,
-    reports, reviews, status, user_messages, verify_runs, warm_reviewers,
+    operator_runs, panes, pauses, plan_landing, plan_packages, plans, pm_stuck, prompt_relay,
+    remote_decisions, reports, reviews, status, user_messages, verify_runs, warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -617,6 +617,24 @@ impl Core {
     /// `ControllerCore.recordSignoff`.
     pub fn record_signoff(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
         plan_packages::record_signoff(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.recordPackageLanding`.
+    pub fn record_package_landing(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        plan_landing::record_package_landing(&self.kernel, context, input)
+    }
+
+    /// `ControllerCore.clearPackageLanding`.
+    pub fn clear_package_landing(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        plan_landing::clear_package_landing(&self.kernel, context, input)
     }
 
     /// `ControllerCore.linkExternal`.

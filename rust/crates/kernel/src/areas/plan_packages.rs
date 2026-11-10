@@ -14,18 +14,8 @@ use crate::records::{MutationEvent, MutationOutput, MAX_MESSAGE_BYTES};
 use crate::types::MutationContext;
 use serde_json::{json, Map, Value};
 
-use super::{
-    design_approvals, integrations, message_notices, messages, pauses, plans, warm_reviewers,
-};
-
-/// True for the report `r` (agent_reports) that counts for package `pp` (plan_packages): the assignee's accepted report of
-/// its current generation made since the assignment, unless a later-assigned package of the same agent claims it.
-const PACKAGE_REPORT_PREDICATE: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
-  AND EXISTS (SELECT 1 FROM agents a WHERE a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation)
-  AND NOT EXISTS (
-    SELECT 1 FROM plan_packages other
-    WHERE other.project_id = r.project_id AND other.assignee_agent_id = r.agent_id AND other.assigned_at <= r.created_at
-      AND (other.assigned_at, other.plan_id, other.package_id) > (pp.assigned_at, pp.plan_id, pp.package_id))";
+use super::plan_landing::{self, PACKAGE_REPORT_PREDICATE};
+use super::{design_approvals, message_notices, messages, pauses, plans, warm_reviewers};
 
 fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
     input.get(key).unwrap_or(&Value::Null)
@@ -141,21 +131,13 @@ fn package_progress(
     if assignee_agent_id.is_none() || assigned_at.is_none() {
         return Ok("unassigned");
     }
+    if !plan_landing::package_landings(kernel, plan_id, package_id)?.is_empty() {
+        return Ok("integrated");
+    }
     let Some(report) = package_report(kernel, plan_id, package_id, assignee_agent_id, assigned_at)?
     else {
         return Ok("assigned");
     };
-    let integrated = query_opt(
-        &kernel.database,
-        "SELECT 1 AS present FROM integration_reports ir
-         JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
-         WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('merged', 'confirmed')",
-        [&kernel.project_id, &report],
-        |_| Ok(()),
-    )?;
-    if integrated.is_some() {
-        return Ok("integrated");
-    }
     let latest = query_opt(
         &kernel.database,
         "SELECT state FROM reviews WHERE project_id = ? AND subject_report_id = ? AND state IN ('passed', 'findings')
@@ -504,17 +486,18 @@ pub fn record_signoff(
             }
             let integration = query_opt(
                 &kernel.database,
-                "SELECT state, branch, head_sha FROM integrations WHERE project_id = ? AND integration_id = ?",
+                "SELECT state, branch, head_sha, sequence FROM integrations WHERE project_id = ? AND integration_id = ?",
                 [&kernel.project_id, integration_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, Option<String>>(2)?,
+                        row.get::<_, i64>(3)?,
                     ))
                 },
             )?;
-            let Some((state, branch, head_sha)) = integration else {
+            let Some((state, branch, head_sha, target_sequence)) = integration else {
                 return Err(KernelError::controller(format!(
                     "integration {integration_id} does not exist"
                 )));
@@ -539,24 +522,18 @@ pub fn record_signoff(
                     "integration {integration_id} has no reports"
                 )));
             }
-            // Every live package must be in this integration or an earlier one that merged; reports outside the plan are allowed.
-            let not_integrated = query_all(
-                &kernel.database,
-                &format!(
-                    "SELECT pp.package_id FROM plan_packages pp
-                     WHERE pp.project_id = ? AND pp.plan_id = ? AND pp.cancelled_at IS NULL AND NOT EXISTS (
-                       SELECT 1 FROM integration_reports ir
-                       JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
-                       JOIN integrations target ON target.project_id = i.project_id AND target.integration_id = ?
-                       JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
-                       WHERE ir.project_id = pp.project_id AND i.state IN ('merged', 'confirmed')
-                         AND (i.integration_id = target.integration_id OR i.sequence < target.sequence)
-                         AND {PACKAGE_REPORT_PREDICATE})
-                     ORDER BY pp.package_id"
-                ),
-                [&kernel.project_id, plan_id, integration_id],
-                |row| row.get::<_, String>(0),
-            )?;
+            // Every live package must have landed: in this integration or an earlier one that merged, or settled.
+            let mut not_integrated = Vec::new();
+            for row in plan_package_rows(kernel, plan_id)? {
+                if row.cancelled_at.is_none()
+                    && !plan_landing::counts_for_signoff(
+                        &plan_landing::package_landings(kernel, plan_id, &row.package_id)?,
+                        target_sequence,
+                    )
+                {
+                    not_integrated.push(row.package_id);
+                }
+            }
             if !not_integrated.is_empty() {
                 let one = not_integrated.len() == 1;
                 return Err(KernelError::controller(format!(
@@ -648,17 +625,9 @@ pub(crate) fn package_facts(
     row: &PackageRow,
     plan_cancelled: bool,
 ) -> KernelResult<PackageFacts> {
-    let report = package_report(
-        kernel,
-        plan_id,
-        &row.package_id,
-        row.assignee_agent_id.as_deref(),
-        row.assigned_at.as_deref(),
-    )?;
-    let confirmed = match &report {
-        Some(report_id) => integrations::report_in_confirmed_integration(kernel, report_id)?,
-        None => false,
-    };
+    let confirmed = plan_landing::package_landings(kernel, plan_id, &row.package_id)?
+        .iter()
+        .any(plan_landing::Landing::settled);
     Ok(PackageFacts {
         progress: package_progress(
             kernel,
@@ -768,10 +737,26 @@ pub fn apply_cancel_plan(
                 "already_cancelled: package {package_id} was cancelled"
             )));
         }
-        if package_facts(kernel, plan_id, &row, false)?.confirmed {
-            return Err(KernelError::controller(format!(
-                "package_confirmed: package {package_id} is already integrated and confirmed"
-            )));
+        if let Some(settled) = plan_landing::package_landings(kernel, plan_id, package_id)?
+            .into_iter()
+            .find(plan_landing::Landing::settled)
+        {
+            return Err(KernelError::controller(
+                if settled.kind == plan_landing::LandingKind::Recorded {
+                    format!(
+                        "package_landed: package {package_id} was recorded as landed at {}",
+                        settled
+                            .commit_sha
+                            .as_deref()
+                            .unwrap_or_default()
+                            .chars()
+                            .take(12)
+                            .collect::<String>()
+                    )
+                } else {
+                    format!("package_confirmed: package {package_id} is already integrated and confirmed")
+                },
+            ));
         }
         execute(
             &kernel.database,
