@@ -19,6 +19,7 @@ pub mod jsops;
 pub mod kb;
 pub mod merge_targets;
 pub mod operator;
+pub mod plan_confirm;
 pub mod projects;
 pub mod recent;
 pub mod render;

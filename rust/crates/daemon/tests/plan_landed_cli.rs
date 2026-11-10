@@ -491,5 +491,5 @@ fn the_clear_form_is_operator_only_and_the_other_plan_forms_still_route() {
     assert!(refused.contains("plan_refused: owner_active"), "{refused}");
     w.ok("pm-1", "plan", &["model", "plan-1", "--clear"]);
     let refused = w.refused("pm-1", "plan", &["bogus"]);
-    assert!(refused.contains("cancel or landed"), "{refused}");
+    assert!(refused.contains("archive or unarchive"), "{refused}");
 }

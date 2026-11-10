@@ -57,9 +57,15 @@ fn field(value: &Value, key: &str) -> Value {
     value.get(key).cloned().unwrap_or(Value::Null)
 }
 
+const PLAN_SUBS: &str = "open, submit, amend, show, model, assign, reassign, signoff, cancel, landed, archive or unarchive";
+
 fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
-    let sub = call.args.first().map(String::as_str);
-    let rest: &[String] = call.args.get(1..).unwrap_or(&[]);
+    // A first argument that starts with `--` is the show form (`cstan plan --stale`); no argument is `plan show`.
+    let (sub, rest): (Option<&str>, &[String]) = match call.args.first().map(String::as_str) {
+        None => (Some("show"), &[]),
+        Some(first) if first.starts_with("--") => (Some("show"), call.args),
+        first => (first, call.args.get(1..).unwrap_or(&[])),
+    };
     if !matches!(
         sub,
         Some(
@@ -73,11 +79,13 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
                 | "signoff"
                 | "cancel"
                 | "landed"
+                | "archive"
+                | "unarchive"
         )
     ) {
         return Some(fail(
             ErrorCode::InvalidRequest,
-            "plan needs open, submit, show, assign, reassign, signoff, cancel or landed",
+            format!("plan needs {PLAN_SUBS}"),
         ));
     }
     let Some(config) = env.config().filter(|config| config.architect.enabled) else {
@@ -96,6 +104,8 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
         Some("signoff") => signoff(env, call, rest, &config.architect.role),
         Some("submit") => submit(env, call, rest),
         Some("amend") => amend(env, call, rest),
+        Some("unarchive") => unarchive(env, call, rest),
+        Some("archive") => archive_plans_cmd(env, call, rest),
         _ => show(env, call, rest),
     };
     Some(outcome.unwrap_or_else(caught))
@@ -1028,23 +1038,371 @@ fn gates_of(
     Ok(gates)
 }
 
+const FILTER_NAMES: &str = "--draft --in-review --approved --signed-off --cancelled --superseded --archived --stale --all --older-than --brief --archive";
+const MAX_ARCHIVE: usize = 500;
+
+/// The flags of `plan show` and `plan archive`, and the plan ids named beside them.
+#[derive(Clone, Default)]
+struct ShowFlags {
+    statuses: Vec<&'static str>,
+    stale: bool,
+    all: bool,
+    older_than: Option<i64>,
+    brief: bool,
+    archive: bool,
+    reason: Option<String>,
+    confirm: Option<String>,
+    ids: Vec<String>,
+    /// The status and stale flags as typed, for the default archive reason.
+    filter_text: Vec<String>,
+}
+
+impl ShowFlags {
+    /// Whether any flag selects plans by status or staleness (`--brief` and `--archive` do not).
+    fn has_filter(&self) -> bool {
+        !self.statuses.is_empty() || self.stale || self.all || self.older_than.is_some()
+    }
+
+    /// Whether the listing includes the row. Without a filter archived plans are left out.
+    fn shows(&self, row: &PlanRowView) -> bool {
+        if !self.has_filter() {
+            return row.status != "archived";
+        }
+        let by_status =
+            self.all || self.statuses.is_empty() || self.statuses.contains(&row.status.as_str());
+        by_status && (!self.stale || !row.stale.is_empty())
+    }
+}
+
+fn status_flag(flag: &str) -> Option<&'static str> {
+    Some(match flag {
+        "--draft" => "draft",
+        "--in-review" => "in_review",
+        "--approved" => "approved",
+        "--signed-off" => "signed_off",
+        "--cancelled" => "cancelled",
+        "--superseded" => "superseded",
+        "--archived" => "archived",
+        _ => return None,
+    })
+}
+
+fn refuse(message: impl Into<String>) -> CommandResponse {
+    fail(ErrorCode::InvalidRequest, message)
+}
+
+/// The flags of a show or archive form. Every refusal that needs no ledger read is made here.
+fn parse_show_flags(args: &[String], archive_sub: bool) -> Result<ShowFlags, CommandResponse> {
+    if args.iter().any(|a| a == "--delete") {
+        return Err(refuse(
+            "plans are never deleted; --archive hides them and keeps their history",
+        ));
+    }
+    if args.iter().any(|a| a == "--yes") {
+        return Err(refuse(
+            "--yes is a flag of the cstan client; the controller does not take it",
+        ));
+    }
+    let mut flags = ShowFlags::default();
+    let mut at = 0;
+    while at < args.len() {
+        let arg = args[at].as_str();
+        at += 1;
+        if !arg.starts_with("--") {
+            if !flags.ids.contains(&args[at - 1]) {
+                flags.ids.push(args[at - 1].clone());
+            }
+            continue;
+        }
+        let mut value = |name: &str| -> Result<String, CommandResponse> {
+            let text = args.get(at).filter(|v| !v.starts_with("--"));
+            let Some(text) = text else {
+                return Err(refuse(format!("{name} needs a value")));
+            };
+            at += 1;
+            Ok(text.clone())
+        };
+        match arg {
+            "--stale" => flags.stale = true,
+            "--all" => flags.all = true,
+            "--brief" => flags.brief = true,
+            "--archive" => flags.archive = true,
+            "--older-than" => {
+                let text = value("--older-than")?;
+                let days = text.parse::<i64>().ok().filter(|d| (0..=3650).contains(d));
+                let Some(days) = days else {
+                    return Err(refuse("--older-than must be an integer from 0 to 3650"));
+                };
+                flags.older_than = Some(days);
+                flags.filter_text.push(format!("--older-than {days}"));
+                continue;
+            }
+            "--reason" => flags.reason = Some(value("--reason")?),
+            "--confirm" => flags.confirm = Some(value("--confirm")?),
+            other => {
+                let Some(status) = status_flag(other) else {
+                    return Err(refuse(format!(
+                        "unknown filter {other}; filters: {FILTER_NAMES}"
+                    )));
+                };
+                if !flags.statuses.contains(&status) {
+                    flags.statuses.push(status);
+                }
+            }
+        }
+        if !matches!(arg, "--brief" | "--archive" | "--reason" | "--confirm") {
+            flags.filter_text.push(arg.to_string());
+        }
+    }
+    let archiving = archive_sub || flags.archive;
+    if flags.older_than.is_some() && !flags.stale {
+        return Err(refuse("--older-than needs --stale"));
+    }
+    if flags.reason.is_some() && !archiving {
+        return Err(refuse("--reason needs --archive"));
+    }
+    if flags.confirm.is_some() && !archiving {
+        return Err(refuse("--confirm needs --archive"));
+    }
+    Ok(flags)
+}
+
+/// The configured number of idle days after which a plan is stale.
+fn stale_days_of(env: &CommandEnv<'_>) -> i64 {
+    env.config()
+        .map_or(30, |config| config.architect.stale_plan_days)
+}
+
+/// A plan with its status and stale reasons, from `core.plan_statuses` and `core.list_plans`.
+struct PlanRowView {
+    plan: Value,
+    status: String,
+    stale: Vec<String>,
+}
+
+impl PlanRowView {
+    /// The `status` and `stale` members of a listed plan.
+    fn annotate(&self, map: &mut Map<String, Value>) {
+        map.insert("status".into(), json!(self.status));
+        if !self.stale.is_empty() {
+            map.insert("stale".into(), json!(self.stale));
+        }
+    }
+}
+
+/// The plans in sequence order with their statuses: `core.plan_statuses`, then `core.list_plans`, without a lock between.
+fn select_plans(
+    core: &capstan_kernel::Core,
+    credential: &str,
+    stale_after_days: i64,
+    with_stale: bool,
+) -> capstan_kernel::KernelResult<Vec<PlanRowView>> {
+    let statuses = core.plan_statuses(
+        credential,
+        &json!({"staleAfterDays": stale_after_days, "withStale": with_stale}),
+    )?;
+    let plans = core.list_plans(credential)?;
+    let mut rows = Vec::new();
+    for status in statuses.as_array().into_iter().flatten() {
+        let id = status["planId"].as_str().unwrap_or_default();
+        let Some(plan) = plans
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| p["planId"] == id)
+        else {
+            continue;
+        };
+        rows.push(PlanRowView {
+            plan: plan.clone(),
+            status: status["status"].as_str().unwrap_or_default().to_string(),
+            stale: status["stale"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.as_str().map(str::to_string))
+                .collect(),
+        });
+    }
+    Ok(rows)
+}
+
+/// First 16 hex digits of the SHA-256 of the sorted `<id>:<status>:<reasons joined by +>` entries joined by `,`.
+fn selection_token(rows: &[&PlanRowView]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut entries: Vec<String> = rows
+        .iter()
+        .map(|row| {
+            format!(
+                "{}:{}:{}",
+                row.plan["planId"].as_str().unwrap_or_default(),
+                row.status,
+                row.stale.join("+")
+            )
+        })
+        .collect();
+    entries.sort();
+    let digest = Sha256::digest(entries.join(",").as_bytes());
+    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// `plan archive (<plan-id>... | <filters>)` and `plan show <filters> --archive`: the operator's two-step archive.
+fn archive_plans_cmd(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
+    if call.identity.role != "operator" {
+        return Ok(fail(
+            ErrorCode::Forbidden,
+            "only the operator may archive plans",
+        ));
+    }
+    let flags = match parse_show_flags(rest, true) {
+        Ok(flags) => flags,
+        Err(refusal) => return Ok(refusal),
+    };
+    if flags.ids.iter().any(|id| !is_safe_agent_id(id)) {
+        return Ok(refuse("the plan id is not valid"));
+    }
+    if !flags.ids.is_empty() && flags.has_filter() {
+        return Ok(refuse("plan archive takes plan ids or filters, not both"));
+    }
+    if flags.ids.is_empty() && !flags.has_filter() {
+        return Ok(refuse(
+            "plan archive needs plan ids or filters (for example --stale)",
+        ));
+    }
+    let days = flags.older_than.unwrap_or_else(|| stale_days_of(env));
+    let credential = call.credential.to_string();
+    let rows = {
+        let credential = credential.clone();
+        env.deps
+            .kernel
+            .run(move |core| select_plans(core, &credential, days, true))?
+    };
+    let mut chosen: Vec<&PlanRowView> = Vec::new();
+    if flags.ids.is_empty() {
+        chosen.extend(
+            rows.iter()
+                .filter(|row| row.status != "archived" && flags.shows(row)),
+        );
+    } else {
+        for id in &flags.ids {
+            let Some(row) = rows.iter().find(|row| row.plan["planId"] == id.as_str()) else {
+                return Ok(fail(
+                    ErrorCode::Rejected,
+                    format!("unknown_plan: no plan {id}"),
+                ));
+            };
+            if row.status == "archived" {
+                return Ok(fail(
+                    ErrorCode::Rejected,
+                    format!("already_archived: plan {id} is archived"),
+                ));
+            }
+            chosen.push(row);
+        }
+    }
+    if chosen.len() > MAX_ARCHIVE {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            format!(
+                "too_many: {} plans match; archive at most {MAX_ARCHIVE} per call (narrow the filters or name ids)",
+                chosen.len()
+            ),
+        ));
+    }
+    let token = selection_token(&chosen);
+    let Some(confirm) = flags.confirm.as_deref() else {
+        let listed: Vec<Value> = chosen
+            .iter()
+            .map(|row| {
+                let mut map = Map::new();
+                map.insert("planId".into(), field(&row.plan, "planId"));
+                map.insert("status".into(), json!(row.status));
+                map.insert("title".into(), field(&row.plan, "title"));
+                if !row.stale.is_empty() {
+                    map.insert("stale".into(), json!(row.stale));
+                }
+                Value::Object(map)
+            })
+            .collect();
+        return Ok(ok(
+            json!({"preview": true, "plans": listed, "token": token}),
+        ));
+    };
+    if confirm != token {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            "selection_changed: the plans to archive changed since the list was shown; run the command again",
+        ));
+    }
+    if chosen.is_empty() {
+        return Ok(ok(json!({"archived": [], "note": "no plans match"})));
+    }
+    let ids: Vec<String> = chosen
+        .iter()
+        .map(|row| row.plan["planId"].as_str().unwrap_or_default().to_string())
+        .collect();
+    let reason = flags.reason.clone().unwrap_or_else(|| {
+        let how = if flags.ids.is_empty() {
+            flags.filter_text.join(" ")
+        } else {
+            "by id".to_string()
+        };
+        format!("archived by the operator: {how}")
+    });
+    env.log(
+        "plan_archive_requested",
+        json!({"count": ids.len(), "reason": reason}),
+    );
+    let input = json!({"planIds": ids, "reason": reason});
+    let archived = env.deps.kernel.run(move |core| {
+        let context = new_context(core, &credential)?;
+        core.archive_plans(&context, &input)
+    })?;
+    Ok(ok(archived))
+}
+
+/// `plan unarchive <plan-id>`.
+fn unarchive(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
+    if call.identity.role != "operator" {
+        return Ok(fail(
+            ErrorCode::Forbidden,
+            "only the operator may unarchive plans",
+        ));
+    }
+    let [plan_id] = rest else {
+        return Ok(refuse("plan unarchive needs one plan id"));
+    };
+    if !is_safe_agent_id(plan_id) {
+        return Ok(refuse("the plan id is not valid"));
+    }
+    env.log("plan_unarchive_requested", json!({"planId": plan_id}));
+    let input = json!({"planId": plan_id});
+    let credential = call.credential.to_string();
+    let restored = env.deps.kernel.run(move |core| {
+        let context = new_context(core, &credential)?;
+        core.unarchive_plan(&context, &input)
+    })?;
+    Ok(ok(restored))
+}
+
 /// One line of `plan show --brief` per plan: the plan fields and a count of its packages by progress.
 fn brief_plans(
     core: &capstan_kernel::Core,
     credential: &str,
     links: &[Value],
+    selected: &[PlanRowView],
+    annotated: bool,
 ) -> capstan_kernel::KernelResult<Vec<Value>> {
     let mut out = Vec::new();
-    for p in core
-        .list_plans(credential)?
-        .as_array()
-        .into_iter()
-        .flatten()
-    {
+    for row in selected {
+        let p = &row.plan;
         let plan_id = p["planId"].as_str().unwrap_or("");
         let mut map = Map::new();
         for key in ["planId", "tier", "state", "title"] {
             map.insert(key.into(), field(p, key));
+        }
+        if annotated {
+            row.annotate(&mut map);
         }
         let detail = core.plan_record(credential, plan_id)?;
         let mut counts = Map::new();
@@ -1138,15 +1496,27 @@ fn brief_plan(
 }
 
 fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
-    let brief = rest.iter().any(|a| a == "--brief");
-    let plain: Vec<String> = rest.iter().filter(|a| *a != "--brief").cloned().collect();
-    let rest = plain.as_slice();
-    if rest.len() > 1 || rest.first().is_some_and(|id| !is_safe_agent_id(id)) {
+    if rest.iter().any(|a| a == "--archive") {
+        return archive_plans_cmd(env, call, rest);
+    }
+    let flags = match parse_show_flags(rest, false) {
+        Ok(flags) => flags,
+        Err(refusal) => return Ok(refusal),
+    };
+    if flags.ids.len() > 1 || flags.ids.first().is_some_and(|id| !is_safe_agent_id(id)) {
         return Ok(fail(
             ErrorCode::InvalidRequest,
             "plan show takes an optional plan id",
         ));
     }
+    if !flags.ids.is_empty() && flags.has_filter() {
+        return Ok(fail(
+            ErrorCode::InvalidRequest,
+            "status filters list plans; plan show <plan-id> shows one",
+        ));
+    }
+    let (brief, annotated) = (flags.brief, flags.has_filter());
+    let rest = flags.ids.as_slice();
     let credential = call.credential.to_string();
     let links: Vec<Value> = {
         let credential = credential.clone();
@@ -1159,26 +1529,35 @@ fn show(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
             .unwrap_or_default()
     };
     let Some(plan_id) = rest.first() else {
+        let days = flags.older_than.unwrap_or_else(|| stale_days_of(env));
+        let selector = flags.clone();
+        let selected = {
+            let credential = credential.clone();
+            env.deps.kernel.run(move |core| {
+                select_plans(core, &credential, days, annotated).map(|rows| {
+                    rows.into_iter()
+                        .filter(|row| selector.shows(row))
+                        .collect::<Vec<_>>()
+                })
+            })?
+        };
         if brief {
             let brief_links = links.clone();
-            let listed = env
-                .deps
-                .kernel
-                .run(move |core| brief_plans(core, &credential, &brief_links))?;
+            let listed = env.deps.kernel.run(move |core| {
+                brief_plans(core, &credential, &brief_links, &selected, annotated)
+            })?;
             return Ok(ok(json!({ "plans": listed })));
         }
-        let plans = env
-            .deps
-            .kernel
-            .run(move |core| core.list_plans(&credential))?;
-        let shown: Vec<Value> = plans
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|p| {
+        let shown: Vec<Value> = selected
+            .iter()
+            .map(|row| {
+                let p = &row.plan;
                 let mut map = Map::new();
                 for key in ["planId", "tier", "state", "title"] {
                     map.insert(key.into(), field(p, key));
+                }
+                if annotated {
+                    row.annotate(&mut map);
                 }
                 map.extend(link_fields(
                     &links,

@@ -235,6 +235,16 @@ The flow for a normal or high-risk requirement:
 
 `cstan plan show [<plan-id>] [--brief]` (`--brief`: one line per plan, or per package of one plan; with `--json` it returns that brief shape) lists plans, packages, assignees and derived progress. The operator can cancel a plan or package with `cstan plan cancel`. The design record is [`docs/design/architect-role.md`](../design/architect-role.md).
 
+## Plan status and archive
+
+Every plan has one status: `draft`, `in_review`, `approved`, `signed_off`, `cancelled`, `superseded` or `archived` (an archived plan shows `archived` whatever its state was). `cstan plan show` with filters lists plans by status (the flags add up), `--stale` keeps the stale ones, `--all` includes archived plans; without a filter archived plans are left out. `cstan plan --stale` is `cstan plan show --stale`. Commands: [commands.md](commands.md).
+
+**Stale.** Only a `draft`, `in_review` or `approved` plan can be stale, and never while it has work in flight: a started review, a package that is assigned and neither cancelled nor landed, a running or merged integration holding an accepted report of one of its packages, or a live plan that supersedes it. The reasons are `review_exhausted` (a draft whose design rounds are used up), `idle` (no activity on the plan, its revisions, reviews, packages or their reports for `[architect] stale_plan_days` days, default 14; `0` turns this reason off; `--older-than <days>` replaces it for one call) and `done_unsigned` (every package is cancelled or landed, but the plan was never signed off). A landed package is one in a confirmed or covering integration or recorded with `cstan plan landed` (see [Landed packages](commands.md#landed-packages) and step 5 of [Planned work](#planned-work-and-the-architect)).
+
+**Archive.** `cstan plan archive <plan-id>...` or with filters (`cstan plan archive --stale`) is the operator's statement that plans are no longer followed. It first shows the list and asks; only a `y` or `yes` archives. The list is bound to the archive by a token (the first 16 hex digits of a SHA-256 of the sorted `<id>:<status>:<stale reasons>` entries): the second call recomputes the selection and is refused `selection_changed` if a plan was added, changed status or stale reason, or crossed the idle threshold in between; run the command again. The token checks consistency, it does not authorize anything: only the operator may archive, and the controller re-checks every plan as it archives. A plan that is busy (the work in flight above) refuses the whole call with `plan_busy` and nothing is archived. At most 500 plans per call. Archiving writes nothing to the plan except that a plan in review goes back to `draft` and its warm reviewer is released; its history and Nexora links are kept, it stays out of lists, and any change to it is refused with `plan_archived` until it is unarchived. The PM gets one notice naming the plans and the reason. Plans are never deleted.
+
+**Unarchive.** `cstan plan unarchive <plan-id>` (operator) restores the plan as archiving left it; the PM gets a notice.
+
 ## Prompt relay
 
 Workers sometimes stop at a permission prompt that only a person can answer. With `[prompt_relay] enabled = true` the PM can show you that prompt and type your answer:
