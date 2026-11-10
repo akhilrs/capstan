@@ -425,6 +425,56 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         &["agent_waits"],
         "waits are not read by the card",
     ),
+    (
+        "workspace.cleanup_repo",
+        &["cleanup_repos"],
+        "the repo of a cleanup is not read by the card",
+    ),
+    (
+        "workspace.set_attach",
+        &["integration_set_members"],
+        "set members are not read by the card",
+    ),
+    (
+        "workspace.set_create",
+        &["integration_sets"],
+        "integration sets are not read by the card",
+    ),
+    (
+        "workspace.set_detach",
+        &["integration_set_members"],
+        "set members are not read by the card",
+    ),
+    (
+        "workspace.set_reset",
+        &["integration_sets"],
+        "integration sets are not read by the card",
+    ),
+    (
+        "workspace.set_state",
+        &["integration_sets"],
+        "integration sets are not read by the card",
+    ),
+    (
+        "workspace.worktree_record",
+        &["agent_worktrees"],
+        "worktrees are not read by the card",
+    ),
+    (
+        "workspace.worktree_remove",
+        &["agent_worktrees"],
+        "worktrees are not read by the card",
+    ),
+    (
+        "workspace.worktrees_copy",
+        &["agent_worktrees"],
+        "worktrees are not read by the card",
+    ),
+    (
+        "workspace.worktrees_remove",
+        &["agent_worktrees"],
+        "worktrees are not read by the card",
+    ),
 ];
 
 // ---------------------------------------------------------------------------------------------------------- results

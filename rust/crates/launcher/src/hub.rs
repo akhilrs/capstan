@@ -168,6 +168,7 @@ impl LauncherKernel {
                         cwd: &self.root,
                         label: "pm",
                         role: PaneRole::Pm,
+                        record_folder: false,
                     })?
                     .pane_id
             }
@@ -264,6 +265,7 @@ impl LauncherKernel {
             cwd: &self.root,
             label: "watch",
             role: PaneRole::Worker,
+            record_folder: false,
         })?;
         let prepared = (|| -> OpResult<()> {
             let environment = self.environment(None, None)?;

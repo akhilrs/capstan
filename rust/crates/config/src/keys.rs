@@ -2,6 +2,7 @@
 //! so this registry is the parser's own list; `accepted_keys` turns it into the dotted paths the starter must document.
 use crate::cache::CACHE_PRESETS;
 use crate::types::ROLE_KINDS;
+use crate::workspace::{REPO_KEYS, REPO_VERIFY_KEYS, WORKSPACE_KEYS};
 
 /// The keys the top-level refusal prints.
 pub const TOP_LEVEL_KEYS: &[&str] = &[
@@ -31,7 +32,18 @@ pub const TOP_LEVEL_KEYS: &[&str] = &[
 ];
 /// Accepted at the top level but left out of the refusal text, which the frozen corpus pins.
 pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] = &[
-    "cleanup", "cache", "verify", "review", "design", "remote", "impact", "ntfy", "agents", "kb",
+    "cleanup",
+    "cache",
+    "verify",
+    "review",
+    "design",
+    "remote",
+    "impact",
+    "ntfy",
+    "agents",
+    "kb",
+    "repos",
+    "workspace",
 ];
 
 pub const PROJECT_KEYS: &[&str] = &["name"];
@@ -332,6 +344,10 @@ pub fn accepted_keys() -> Vec<KeyPath> {
     add("agents", AGENTS_KEYS);
     add("design", DESIGN_KEYS);
     add("kb", KB_KEYS);
+    add("repos.<name>", REPO_KEYS);
+    add("repos.<name>.verify", REPO_VERIFY_KEYS);
+    add("repos.<name>.verify.env", &["<ENV>"]);
+    add("workspace", WORKSPACE_KEYS);
     for kind in ROLE_KINDS {
         add(&format!("defaults.{kind}"), DEFAULTS_ROLE_KEYS);
     }

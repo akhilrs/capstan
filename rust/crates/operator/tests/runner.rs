@@ -360,6 +360,7 @@ fn fixture(
         config: operator_config(overrides),
         controller_credential: OWNER.into(),
         project_root: world.root.clone(),
+        repo_roots: Vec::new(),
         environment: Arc::new(|| {
             vec![
                 ("PATH".into(), PATH.into()),

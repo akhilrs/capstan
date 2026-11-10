@@ -249,3 +249,36 @@ fn a_failing_git_never_reads_as_no_worktree() {
     assert_eq!(error.code, "git_error");
     assert_eq!(error.message, "git could not list the worktrees");
 }
+
+#[test]
+fn a_workspace_over_a_non_repo_root_checks_each_repo_and_names_the_failing_one() {
+    let scratch = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(scratch.path()).unwrap();
+    for name in ["api", "web"] {
+        std::fs::create_dir(root.join(name)).unwrap();
+        git_ok(&root.join(name), &["init", "-q", "-b", "main"]);
+    }
+    git_ok(
+        &root.join("api"),
+        &["commit", "-q", "--allow-empty", "-m", "i"],
+    );
+    let config = "schema_version = 1\n[nexora]\ntrack = \"never\"\n[hosts.claude]\nkind = \"claude\"\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n[repos.api]\npath = \"api\"\nmain_branch = \"main\"\n[repos.web]\npath = \"web\"\nmain_branch = \"main\"\n";
+    let workspace = capstan_config::parse_config(config.as_bytes(), &root)
+        .unwrap()
+        .workspace
+        .expect("workspace mode");
+    // `web` has no commit: the problem names it, not the (non-repository) root.
+    let runner = DefaultGit::with_workspace(&text(&root), Some(workspace.clone()));
+    let error = runner.head_sha().unwrap_err();
+    assert_eq!(error.code, "git_requirement");
+    assert!(error.message.contains("repo web:"), "{}", error.message);
+    assert!(error.message.contains("no commit yet"), "{}", error.message);
+    git_ok(
+        &root.join("web"),
+        &["commit", "-q", "--allow-empty", "-m", "i"],
+    );
+    assert_eq!(
+        capstan_launcher::git::check_workspace_requirement(&text(&root), Some(&workspace)),
+        GitCheck::Ok { detached: false }
+    );
+}

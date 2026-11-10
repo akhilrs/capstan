@@ -10,7 +10,7 @@ use crate::areas::{
     links, message_notices, messages, model_overrides, operator_grants, operator_proposals,
     operator_runs, panes, pauses, plan_archive, plan_landing, plan_packages, plan_status, plans,
     pm_stuck, prompt_relay, remote_decisions, reports, reviews, status, user_messages, verify_runs,
-    warm_reviewers,
+    warm_reviewers, workspace,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -503,7 +503,17 @@ impl Core {
 
     /// `ControllerCore.verifyGate`.
     pub fn verify_gate(&self, commit_sha: &str, commands_sha: &str) -> KernelResult<Value> {
-        verify_runs::verify_gate(&self.kernel, commit_sha, commands_sha)
+        verify_runs::verify_gate(&self.kernel, "", commit_sha, commands_sha)
+    }
+
+    /// `ControllerCore.verifyGate` for one repo of a workspace ('' is the root repo).
+    pub fn verify_gate_in_repo(
+        &self,
+        repo: &str,
+        commit_sha: &str,
+        commands_sha: &str,
+    ) -> KernelResult<Value> {
+        verify_runs::verify_gate(&self.kernel, repo, commit_sha, commands_sha)
     }
 
     /// `ControllerCore.verifyGateForSubjects`: the gate for the commit of each report or integration id.
@@ -1680,5 +1690,141 @@ impl Core {
     /// `ControllerCore.failInterruptedPromptRelays`.
     pub fn fail_interrupted_prompt_relays(&self, context: &MutationContext) -> KernelResult<Value> {
         prompt_relay::fail_interrupted_prompt_relays(&self.kernel, context)
+    }
+
+    /// Records the worktree an agent holds in a repo (a removed one is revived; a live one is `already_added`).
+    pub fn record_agent_worktree(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::record_agent_worktree(&self.kernel, context, input)
+    }
+
+    /// Marks an agent's live worktree in a repo as removed.
+    pub fn remove_agent_worktree(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::remove_agent_worktree(&self.kernel, context, input)
+    }
+
+    /// Marks every live worktree of an agent's current generation as removed, in one transaction.
+    pub fn remove_agent_worktrees(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::remove_agent_worktrees(&self.kernel, context, input)
+    }
+
+    /// The live worktrees of an agent's current generation, by repo.
+    pub fn list_agent_worktrees(&self, agent_id: &str) -> KernelResult<Value> {
+        workspace::list_agent_worktrees(&self.kernel, agent_id)
+    }
+
+    /// On a replace, copies the live worktrees of the old generation to the new one in one transaction.
+    pub fn copy_agent_worktrees(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::copy_agent_worktrees(&self.kernel, context, input)
+    }
+
+    /// The repo an integration belongs to (it is a member of a set); `None` for the root repo.
+    pub fn repo_of_integration(&self, integration_id: &str) -> KernelResult<Option<String>> {
+        workspace::repo_of_integration(&self.kernel, integration_id)
+    }
+
+    /// The commits a report named, by repo.
+    pub fn report_commits(&self, report_id: &str) -> KernelResult<Value> {
+        workspace::report_commits(&self.kernel, report_id)
+    }
+
+    /// Creates a running integration set of the repos given.
+    pub fn create_integration_set(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::create_integration_set(&self.kernel, context, input)
+    }
+
+    /// Moves an integration set to a state.
+    pub fn set_integration_state(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::set_integration_state(&self.kernel, context, input)
+    }
+
+    /// Attaches the integration created for a repo of a set (the member's attempt grows by one).
+    pub fn attach_set_member(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::attach_set_member(&self.kernel, context, input)
+    }
+
+    /// Lets go of a member's integration.
+    pub fn detach_set_member(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::detach_set_member(&self.kernel, context, input)
+    }
+
+    /// One integration set with its members; null when there is none.
+    pub fn integration_set(&self, set_id: &str) -> KernelResult<Value> {
+        workspace::integration_set(&self.kernel, set_id)
+    }
+
+    /// The set an integration is a member of.
+    pub fn set_of_integration(&self, integration_id: &str) -> KernelResult<Option<String>> {
+        workspace::set_of_integration(&self.kernel, integration_id)
+    }
+
+    /// Records the repo a cleanup ran in.
+    pub fn record_cleanup_repo(
+        &self,
+        context: &MutationContext,
+        input: &Value,
+    ) -> KernelResult<Value> {
+        workspace::record_cleanup_repo(&self.kernel, context, input)
+    }
+
+    /// The repo of a cleanup; '' (the root) for an older cleanup.
+    pub fn cleanup_repo(&self, cleanup_id: &str) -> KernelResult<String> {
+        workspace::cleanup_repo(&self.kernel, cleanup_id)
+    }
+
+    /// The repos a package names in the approved revision of its plan; empty without repos.
+    pub fn package_repos(&self, plan_id: &str, package_id: &str) -> KernelResult<Vec<String>> {
+        plan_packages::package_repos(&self.kernel, plan_id, package_id)
+    }
+
+    /// Whether every member of a set has a merged integration.
+    pub fn set_complete(&self, set_id: &str) -> KernelResult<bool> {
+        workspace::set_complete(&self.kernel, set_id)
+    }
+
+    /// The ids of the sets that are running.
+    pub fn set_running(&self) -> KernelResult<Vec<String>> {
+        workspace::set_running(&self.kernel)
+    }
+
+    /// Resets a set's gates: runs and reviews before now stop counting.
+    pub fn reset_set(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        workspace::reset_set(&self.kernel, context, input)
+    }
+
+    /// The verify gate of a set under the commands and the review of its first member, after its reset.
+    pub fn set_gate(&self, set_id: &str, commands_sha: &str) -> KernelResult<Value> {
+        workspace::set_gate(&self.kernel, set_id, commands_sha)
     }
 }

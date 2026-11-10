@@ -446,6 +446,9 @@ impl LauncherKernel {
                 });
             }
         }
+        if self.workspace().is_some() {
+            return self.release_workspace(agent_id, info, pane_closed);
+        }
         // A branch the ledger records for another active agent (a replacement continues its predecessor's) is never
         // deleted or force-removed here.
         let held_by_other = match &info.branch {
@@ -674,6 +677,16 @@ impl LauncherKernel {
 
     /// The body of `release`, for a caller that already holds the launcher turn.
     pub(crate) fn release_in_turn(&self, agent_id: &str) -> OpResult<ReleaseResult> {
+        self.release_in_turn_with(agent_id, false)
+    }
+
+    /// `release_in_turn`; `keep_worktrees` (a replace in workspace mode) leaves every worktree and branch, and their
+    /// ledger rows, for the replacement to take over.
+    pub(crate) fn release_in_turn_with(
+        &self,
+        agent_id: &str,
+        keep_worktrees: bool,
+    ) -> OpResult<ReleaseResult> {
         {
             self.adopt_now(&self.budget(ADOPT_BUDGET_MS))?;
             let Some(agent) = self.agent_record(agent_id)? else {
@@ -704,6 +717,7 @@ impl LauncherKernel {
                 branch: row.as_ref().and_then(|r| r.branch.clone()),
                 base_sha: row.as_ref().and_then(|r| r.base_sha.clone()),
                 worktree_path: row.as_ref().and_then(|r| r.worktree_path.clone()),
+                keep_worktrees,
                 ..CleanupInfo::default()
             };
             match self.cleanup_agent(agent_id, &info, None, None)? {
@@ -815,7 +829,20 @@ impl LauncherKernel {
             }
         }
         let data = SeedData::from_value(&self.ledger.agent_seed(agent_id)?);
-        let tip = data.branch.as_ref().and_then(|b| self.git.branch_tip(b));
+        // In workspace mode the replacement takes over the predecessor's worktrees where they are.
+        let continued: Option<Vec<RepoTree>> = match self.workspace() {
+            Some(_) => {
+                Some(self.ledger.agent_worktrees(agent_id)?).filter(|trees| !trees.is_empty())
+            }
+            None => None,
+        };
+        let tip = match (self.workspace(), &data.branch) {
+            (Some(ws), Some(branch)) => ws
+                .repo(&ws.default_repo)
+                .and_then(|repo| self.git.branch_tip_in(&repo.root.to_string_lossy(), branch)),
+            (None, Some(branch)) => self.git.branch_tip(branch),
+            _ => None,
+        };
         let kept_ref = format!("refs/capstan/kept/{agent_id}");
         let mut reachable_from: Vec<String> = Vec::new();
         if tip.is_some() {
@@ -826,10 +853,15 @@ impl LauncherKernel {
         reachable_from.push(kept_ref.clone());
         reachable_from.push("HEAD".into());
         let base = match &data.last_accepted_commit {
-            Some(commit) if self.git.reachable_commit(commit, &reachable_from)? => SeedBase {
-                sha: commit.clone(),
-                source: "predecessor",
-            },
+            Some(commit)
+                if self.workspace().is_none()
+                    && self.git.reachable_commit(commit, &reachable_from)? =>
+            {
+                SeedBase {
+                    sha: commit.clone(),
+                    source: "predecessor",
+                }
+            }
             _ => SeedBase {
                 sha: self.git.head_sha()?,
                 source: "head",
@@ -861,7 +893,7 @@ impl LauncherKernel {
         };
         let mut released: Option<ReleaseResult> = None;
         if agent.active() {
-            let result = self.release_in_turn(agent_id)?;
+            let result = self.release_in_turn_with(agent_id, continued.is_some())?;
             if result.outcome.pane_closed == Some(false) {
                 return Ok(ReplaceResult::Blocked {
                     predecessor: agent_id.to_string(),
@@ -875,7 +907,7 @@ impl LauncherKernel {
         let mut rewound: Vec<(String, String)> = Vec::new();
         let started = (|| -> OpResult<SpawnResult> {
             // The successor continues the predecessor's branch at the base; commits past it are saved first.
-            if let Some(branch) = &data.branch {
+            if let Some(branch) = data.branch.as_ref().filter(|_| self.workspace().is_none()) {
                 if let Some(current) = self.git.branch_tip(branch) {
                     if self
                         .ledger
@@ -930,7 +962,13 @@ impl LauncherKernel {
                 }
             }
             let task_fields = self.spawn_checks(&options)?;
-            self.spawn_in_turn(&agent.role_name, &options, &task_fields, budget)
+            self.spawn_in_turn_with(
+                &agent.role_name,
+                &options,
+                &task_fields,
+                budget,
+                continued.as_deref(),
+            )
         })();
         let mut spawned = match started {
             Ok(spawned) => spawned,
@@ -961,6 +999,19 @@ impl LauncherKernel {
             spawned.warning = Some(format!(
                 "model {model} no longer fits host {host}; the replacement uses {chosen} ({source})"
             ));
+        }
+        // The replacement holds the worktrees now; the predecessor's rows are done.
+        if continued.is_some() {
+            if let Err(error) = self.ledger.remove_agent_worktrees(agent_id) {
+                self.log(
+                    "predecessor_worktrees_not_moved",
+                    json!({
+                        "predecessor": agent_id,
+                        "successor": spawned.agent_id,
+                        "error": OpError::from(error).js_string(),
+                    }),
+                );
+            }
         }
         let mut replacement_recorded = true;
         if let Err(error) = self.ledger.record_agent_replaced(

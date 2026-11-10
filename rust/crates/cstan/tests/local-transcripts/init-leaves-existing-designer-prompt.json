@@ -37,7 +37,7 @@
   "request": null,
   "node": {
     "stdout": "Wrote starter capstan.toml\nCreated .gitignore with the capstan block\nInitialized Capstan project <ID#1>\nOperator credential: <ROOT>/proj/.capstan/operator.key (0600)\n.capstan/, capstan.toml and capstan.local.toml are ignored through the capstan block in .gitignore.\nTrusted capstan.toml on this machine; later changes need cstan trust.\n",
-    "stderr": "warning: Capstan needs a git repository with at least one commit (workers get their own git worktree and branch from HEAD), but <ROOT>/proj is not inside a git work tree.\nFix: run in <ROOT>/proj:\n  git init\n  git add -A\n  git commit -m \"chore: initial commit\"\nor let Capstan do it: cstan init --git (it lists the files it will commit first)\n",
+    "stderr": "warning: Capstan needs a git repository with at least one commit (workers get their own git worktree and branch from HEAD), but <ROOT>/proj is not inside a git work tree.\nFix: run in <ROOT>/proj:\n  git init\n  git add -A\n  git commit -m \"chore: initial commit\"\nor let Capstan do it: cstan init --git (it lists the files it will commit first)\nor, when this folder holds several repositories: cstan init --workspace (the folder itself need not be a repository)\n",
     "exit": 0,
     "signal": null
   },

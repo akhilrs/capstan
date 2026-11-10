@@ -150,6 +150,13 @@ checked project.name
 checked prompt_relay.capture_ttl_seconds
 checked prompt_relay.enabled
 checked remote.messages_per_hour
+checked repos.<name>.cache
+checked repos.<name>.main_branch
+checked repos.<name>.path
+checked repos.<name>.setup
+checked repos.<name>.verify.commands
+checked repos.<name>.verify.env.<ENV>
+checked repos.<name>.verify.timeout_seconds
 checked researcher.enabled
 checked researcher.output_dir
 checked researcher.role
@@ -195,6 +202,9 @@ checked verify.require
 checked verify.scratch_dir
 checked verify.timeout_seconds
 checked verify.worktree_hooks
+checked workspace.default_repo
+checked workspace.merge_order
+checked workspace.worktree_dir
 checked worktree.setup
 checked worktree.setup_timeout_seconds
 checked worktree.teardown

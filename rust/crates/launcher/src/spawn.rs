@@ -8,6 +8,7 @@ use crate::api::{
 use crate::kernel::LauncherKernel;
 use crate::shared::*;
 use crate::text::{is_task_ref, normalize_task_title, one_line};
+use crate::workspace::WorkspaceRepo;
 use capstan_config::model_fit::{check_model_value, fit_for_role};
 use capstan_config::prompts::{build_role_prompt, Kind, PromptInput};
 use capstan_config::Role;
@@ -152,7 +153,7 @@ pub struct TaskFields {
 }
 
 impl TaskFields {
-    fn add_to(&self, row: &mut Value) {
+    pub(crate) fn add_to(&self, row: &mut Value) {
         if let Some(task_ref) = &self.task_ref {
             row["taskRef"] = json!(task_ref);
         }
@@ -238,6 +239,19 @@ impl LauncherKernel {
         options: &SpawnOptions,
         task_fields: &TaskFields,
         budget: &Budget,
+    ) -> OpResult<SpawnResult> {
+        self.spawn_in_turn_with(role_name, options, task_fields, budget, None)
+    }
+
+    /// `spawn_in_turn`; `continued` (a replace in workspace mode) is the predecessor's worktrees, which the new agent
+    /// takes over in their change folder instead of making new ones.
+    pub(crate) fn spawn_in_turn_with(
+        &self,
+        role_name: &str,
+        options: &SpawnOptions,
+        task_fields: &TaskFields,
+        budget: &Budget,
+        continued: Option<&[RepoTree]>,
     ) -> OpResult<SpawnResult> {
         self.adopt_now(&self.budget(ADOPT_BUDGET_MS))?;
         let Some(role) = self.role_named(role_name) else {
@@ -340,6 +354,11 @@ impl LauncherKernel {
                 "the hub workspace could not be opened",
             ));
         };
+        // The repos of a workspace worker are checked before anything is made.
+        let ws_repos = match (self.workspace(), continued) {
+            (Some(_), None) => Some(self.workspace_repos(options)?),
+            _ => None,
+        };
         let choice = self.effective_model(role, options)?;
         if let Some(model) = &choice.model {
             if options.model.is_some() {
@@ -378,6 +397,8 @@ impl LauncherKernel {
             pm_pane.pane_id.as_deref(),
             &mut info,
             &mut step,
+            ws_repos.as_deref(),
+            continued,
         );
         match attempt {
             Ok(result) => Ok(result),
@@ -410,7 +431,24 @@ impl LauncherKernel {
         pm_pane_id: Option<&str>,
         info: &mut CleanupInfo,
         step: &mut &'static str,
+        ws_repos: Option<&[WorkspaceRepo]>,
+        continued: Option<&[RepoTree]>,
     ) -> OpResult<SpawnResult> {
+        if self.workspace().is_some() {
+            return self.spawn_workspace_steps(
+                role,
+                agent_id,
+                credential,
+                options,
+                task_fields,
+                budget,
+                hub_workspace,
+                info,
+                step,
+                ws_repos,
+                continued,
+            );
+        }
         let branch = self.spawn_branch(agent_id, role, options)?;
         info.branch = Some(branch.clone());
         if !self.git.branch_name_valid(&branch) {
@@ -508,13 +546,8 @@ impl LauncherKernel {
         let prompt_text = self.worker_prompt(role, agent_id, options)?;
         let prompt_file = self.adapter.write_prompt_file(&prompt_text)?;
         let args = self.arguments(role, &prompt_text, &prompt_file, Some(&tree.path))?;
-        let environment = self.environment(Some(credential), None)?;
-        let kind = self.host_kind(role)?;
-        let started = self.start_with_retry(agent_id, &kind, &pane_id, &args, &environment)?;
-        self.agents_started.fetch_add(1, AtomicOrdering::SeqCst);
-        // The worker's workspace is gone once its pane is placed, and the PM's and the watch workspace already carry the
-        // project token.
-        self.describe(&pane_id, None, agent_id, &role.name, None);
+        let (state, hint) =
+            self.start_worker_pane(role, agent_id, credential, &pane_id, &args, step)?;
         let result = |state: &str, hint: Option<String>| SpawnResult {
             state: state.to_string(),
             agent_id: agent_id.to_string(),
@@ -527,8 +560,28 @@ impl LauncherKernel {
             missing_env: None,
             warning: None,
         };
+        Ok(result(&state, hint))
+    }
+
+    /// Starts the agent in `pane_id` and answers its trust dialog when it opens one: ("started", None) or ("blocked", the
+    /// hint). The worker's workspace is gone once its pane is placed, and the PM's and the watch workspace already carry
+    /// the project token.
+    pub(crate) fn start_worker_pane(
+        &self,
+        role: &Role,
+        agent_id: &str,
+        credential: &str,
+        pane_id: &str,
+        args: &[String],
+        step: &mut &'static str,
+    ) -> OpResult<(String, Option<String>)> {
+        let environment = self.environment(Some(credential), None)?;
+        let kind = self.host_kind(role)?;
+        let started = self.start_with_retry(agent_id, &kind, pane_id, args, &environment)?;
+        self.agents_started.fetch_add(1, AtomicOrdering::SeqCst);
+        self.describe(pane_id, None, agent_id, &role.name, None);
         if started == StartStatus::Started {
-            return Ok(result("started", None));
+            return Ok(("started".to_string(), None));
         }
         *step = "trust";
         let log = |entry: &capstan_herdr::api::KeyLogEntry| {
@@ -538,14 +591,14 @@ impl LauncherKernel {
             )
         };
         let answered = self.adapter.answer_trust_dialog(TrustDialogInput {
-            pane_id: &pane_id,
+            pane_id,
             log: &log,
             timeout_ms: Some(DIALOG_TIMEOUT_MS),
         })?;
         Ok(match answered {
-            DialogOutcome::Handled { .. } => result("started", None),
-            DialogOutcome::Unhandled { reason } => result(
-                "blocked",
+            DialogOutcome::Handled { .. } => ("started".to_string(), None),
+            DialogOutcome::Unhandled { reason } => (
+                "blocked".to_string(),
                 Some(format!(
                     "the trust dialog was left alone ({reason}); answer it in the worker pane"
                 )),
@@ -553,7 +606,7 @@ impl LauncherKernel {
         })
     }
 
-    fn worker_prompt(
+    pub(crate) fn worker_prompt(
         &self,
         role: &Role,
         agent_id: &str,
@@ -631,7 +684,18 @@ impl LauncherKernel {
             }
             return Ok(branch.clone());
         }
-        let wanted = if let Some(target) = &options.review_target {
+        let wanted = self.wanted_branch(agent_id, role, options)?;
+        self.free_branch(&wanted, agent_id)
+    }
+
+    /// The name a new worker's branch asks for, before a taken name gets its suffix.
+    pub(crate) fn wanted_branch(
+        &self,
+        agent_id: &str,
+        role: &Role,
+        options: &SpawnOptions,
+    ) -> OpResult<String> {
+        Ok(if let Some(target) = &options.review_target {
             review_branch_name(agent_id, target)
         } else if let Some(task) = &options.task {
             self.task_branch(
@@ -646,8 +710,7 @@ impl LauncherKernel {
                 agent_id,
                 &slugify(options.title.as_deref().unwrap_or(&role.name), 40),
             )
-        };
-        self.free_branch(&wanted, agent_id)
+        })
     }
 
     pub fn task_branch(
@@ -753,6 +816,13 @@ impl LauncherKernel {
             }
             if self.ledger.agent_has_reports(agent_id)? {
                 return Ok(kept("the agent has reported"));
+            }
+            if self.workspace().is_some() {
+                let trees = self.ledger.agent_worktrees(agent_id)?;
+                if trees.is_empty() {
+                    return Ok(kept("it has no worktree"));
+                }
+                return self.rename_workspace_branch(agent_id, &current, &wanted, &trees);
             }
             let tip = self.git.branch_tip(&current);
             match (&tip, &row.base_sha) {

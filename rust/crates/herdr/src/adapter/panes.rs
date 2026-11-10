@@ -380,7 +380,10 @@ impl Adapter {
                 phase: PanePhase::Fresh,
                 kind: "shell".into(),
                 agent: None,
-                worktree_path: None,
+                // A worker tab opens at its change folder, which is the directory its trust dialog names, so the
+                // dialog may be answered for it as for a worktree pane. A PM tab never has its dialog answered.
+                worktree_path: (input.role == PaneRole::Worker && input.record_folder)
+                    .then(|| input.cwd.to_string()),
                 workspace_id: Some(input.workspace_id.to_string()),
             },
         );

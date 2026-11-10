@@ -651,6 +651,8 @@ pub struct RoleConfig {
     pub agents: crate::agents::Agents,
     /// The `[kb]` section; `None` when it is absent.
     pub kb: Option<crate::kb::KbConfig>,
+    /// The `[repos]` and `[workspace]` sections; `None` without a `[repos.<name>]`. Never printed by the key lists.
+    pub workspace: Option<crate::workspace::Workspace>,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,

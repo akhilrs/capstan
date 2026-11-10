@@ -14,3 +14,4 @@ pub mod setup;
 pub mod shared;
 pub mod spawn;
 pub mod text;
+pub mod workspace;

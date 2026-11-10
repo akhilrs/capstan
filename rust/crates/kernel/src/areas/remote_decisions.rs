@@ -1933,7 +1933,12 @@ pub fn merge_gates(
                     "the integration head has no passed verify run under the current commands",
                 ));
             }
-            let summary = verify_runs::summary_at(kernel, &head_sha, commands_sha)?;
+            let summary = verify_runs::summary_at(
+                kernel,
+                &verify_runs::repo_of_subject(kernel, &input.target)?,
+                &head_sha,
+                commands_sha,
+            )?;
             VerifyState::Passed {
                 run_id: summary.run_id,
             }

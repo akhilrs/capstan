@@ -178,6 +178,30 @@ fn git_at(root: &str, args: &[&str]) -> GitOutput {
 
 /// `checkGitRequirement`: checks `root` against the git requirement; never changes anything.
 pub fn check_git_requirement(root: &str) -> GitCheck {
+    check_single_git_requirement(root)
+}
+
+/// The requirement in workspace mode (the resolved configuration has `[repos]`): each listed repository is checked
+/// instead of the root, which may not be a repository; the first problem names its repository.
+pub fn check_workspace_requirement(
+    root: &str,
+    workspace: Option<&capstan_config::Workspace>,
+) -> GitCheck {
+    let Some(workspace) = workspace else {
+        return check_single_git_requirement(root);
+    };
+    match capstan_config::first_repo_problem(workspace, |repo_root| {
+        match check_single_git_requirement(&repo_root.to_string_lossy()) {
+            GitCheck::Ok { .. } => None,
+            GitCheck::Problem { problem, message } => Some((problem, message)),
+        }
+    }) {
+        Some((problem, message)) => GitCheck::Problem { problem, message },
+        None => GitCheck::Ok { detached: false },
+    }
+}
+
+fn check_single_git_requirement(root: &str) -> GitCheck {
     let inside = git_at(root, &["rev-parse", "--is-inside-work-tree"]);
     if inside.missing {
         return problem(root, GitProblem::GitMissing, "git could not be run");
@@ -253,17 +277,34 @@ fn is_capstan_worktree(
 /// `defaultGit`.
 pub struct DefaultGit {
     project_root: String,
+    workspace: Option<capstan_config::Workspace>,
 }
 
 impl DefaultGit {
     pub fn new(project_root: &str) -> Self {
         Self {
             project_root: project_root.to_string(),
+            workspace: None,
+        }
+    }
+
+    /// A runner whose requirement check is the per-repository one of the already resolved workspace configuration.
+    pub fn with_workspace(
+        project_root: &str,
+        workspace: Option<capstan_config::Workspace>,
+    ) -> Self {
+        Self {
+            project_root: project_root.to_string(),
+            workspace,
         }
     }
 
     fn run(&self, args: &[&str]) -> GitOutput {
         run_git(args, Some(Path::new(&self.project_root)))
+    }
+
+    fn run_in(&self, repo_root: &str, args: &[&str]) -> GitOutput {
+        run_git(args, Some(Path::new(repo_root)))
     }
 }
 
@@ -272,10 +313,20 @@ static VERSION: LazyLock<regex::Regex> =
 
 impl GitRunner for DefaultGit {
     fn head_sha(&self) -> Result<String, LauncherError> {
-        if let GitCheck::Problem { message, .. } = check_git_requirement(&self.project_root) {
+        if let GitCheck::Problem { message, .. } =
+            check_workspace_requirement(&self.project_root, self.workspace.as_ref())
+        {
             return Err(LauncherError::new("git_requirement", message));
         }
-        let result = self.run(&["rev-parse", "HEAD"]);
+        // In workspace mode the root need not be a repository: the answer is the default repository's.
+        let result = match self
+            .workspace
+            .as_ref()
+            .and_then(|w| w.repo(&w.default_repo))
+        {
+            Some(repo) => self.run_in(&repo.root.to_string_lossy(), &["rev-parse", "HEAD"]),
+            None => self.run(&["rev-parse", "HEAD"]),
+        };
         let sha = result.stdout.trim();
         if is_hex(sha, 64) {
             return Err(LauncherError::new(
@@ -458,6 +509,121 @@ impl GitRunner for DefaultGit {
             ));
         }
         Ok(())
+    }
+
+    fn branch_tip_in(&self, repo_root: &str, branch: &str) -> Option<String> {
+        let result = self.run_in(
+            repo_root,
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{branch}^{{commit}}"),
+            ],
+        );
+        let sha = result.stdout.trim();
+        (result.ok() && is_hex(sha, 40)).then(|| sha.to_string())
+    }
+
+    fn branch_taken_in(&self, repo_root: &str, branch: &str) -> Result<bool, LauncherError> {
+        if self.branch_tip_in(repo_root, branch).is_some() {
+            return Ok(true);
+        }
+        if self.worktree_by_branch_in(repo_root, branch)?.is_some() {
+            return Ok(true);
+        }
+        let refs = self.run_in(
+            repo_root,
+            &["for-each-ref", "--format=%(refname)", "refs/remotes"],
+        );
+        if !refs.ok() {
+            return Err(LauncherError::new(
+                "git_error",
+                "git could not list the remote branches",
+            ));
+        }
+        Ok(refs.stdout.lines().any(|line| {
+            line.strip_prefix("refs/remotes/")
+                .and_then(|rest| rest.split_once('/'))
+                .is_some_and(|(_, name)| name == branch)
+        }))
+    }
+
+    fn worktree_add_in(
+        &self,
+        repo_root: &str,
+        path: &str,
+        branch: &str,
+        base: &str,
+    ) -> Result<(), LauncherError> {
+        let result = self.run_in(
+            repo_root,
+            &["worktree", "add", "-q", "-b", branch, path, base],
+        );
+        if result.ok() {
+            Ok(())
+        } else {
+            Err(LauncherError::new(
+                "git_error",
+                format!(
+                    "git worktree add failed: {}",
+                    one_line(&result.stderr, MAX_NOTE_LENGTH)
+                ),
+            ))
+        }
+    }
+
+    fn worktree_remove_in(&self, repo_root: &str, worktree_path: &str) -> WorktreeRemoval {
+        let result = self.run_in(repo_root, &["worktree", "remove", "--force", worktree_path]);
+        WorktreeRemoval {
+            removed: result.ok(),
+            stderr: one_line(&result.stderr, MAX_NOTE_LENGTH),
+        }
+    }
+
+    fn prune_worktrees_in(&self, repo_root: &str) {
+        self.run_in(repo_root, &["worktree", "prune"]);
+    }
+
+    fn delete_branch_if_in(&self, repo_root: &str, branch: &str, sha: &str) -> bool {
+        self.run_in(
+            repo_root,
+            &["update-ref", "-d", &format!("refs/heads/{branch}"), sha],
+        )
+        .ok()
+    }
+
+    fn rename_branch_in(&self, repo_root: &str, from: &str, to: &str) -> WorktreeRemoval {
+        let result = self.run_in(repo_root, &["branch", "-m", from, to]);
+        WorktreeRemoval {
+            removed: result.ok(),
+            stderr: one_line(&result.stderr, MAX_NOTE_LENGTH),
+        }
+    }
+
+    fn worktree_by_branch_in(
+        &self,
+        repo_root: &str,
+        branch: &str,
+    ) -> Result<Option<String>, LauncherError> {
+        let result = self.run_in(repo_root, &["worktree", "list", "--porcelain", "-z"]);
+        if !result.ok() {
+            return Err(LauncherError::new(
+                "git_error",
+                "git could not list the worktrees",
+            ));
+        }
+        let wanted = format!("branch refs/heads/{branch}");
+        let mut current: Option<&str> = None;
+        for line in result.stdout.split('\0') {
+            if let Some(path) = line.strip_prefix("worktree ") {
+                current = Some(path);
+            }
+            if line == wanted {
+                return Ok(current.map(str::to_string));
+            }
+        }
+        Ok(None)
     }
 
     fn reachable_commit(&self, sha: &str, from: &[String]) -> Result<bool, LauncherError> {

@@ -640,6 +640,11 @@ pub fn wiring(options: &DaemonOptions, input: WiringInput) -> Result<Wiring, Run
             config: operator.clone(),
             controller_credential: deps.credential().to_string(),
             project_root: workspace.clone(),
+            repo_roots: config
+                .workspace
+                .as_ref()
+                .map(|ws| ws.repos.iter().map(|repo| repo.root.clone()).collect())
+                .unwrap_or_default(),
             environment: {
                 let launcher = Arc::clone(&launcher);
                 Arc::new(move || launcher.operator_environment().into_iter().collect())

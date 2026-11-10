@@ -7,7 +7,8 @@ use super::{guarded, spawn, StopFlag};
 use crate::deps::Deps;
 use crate::handlers::cache::{process_env, retrying, run_command, runtime_of_deps, CacheFailure};
 use capstan_cache::{
-    is_idle, prune_with_occupants, read_manifest, recover, Occupant, Policy, PruneHooks, Runtime,
+    idle_roots_of, is_idle_roots, prune_with_occupants, read_manifest, recover, Occupant, Policy,
+    PruneHooks, Runtime,
 };
 use capstan_ledger::now_millis;
 use serde_json::json;
@@ -225,7 +226,7 @@ fn cycle_inner(
     log: &DriverLog,
     occupants: Option<&[Occupant]>,
 ) -> Result<u64, CacheFailure> {
-    let idle = is_idle(&runtime.project_root)?;
+    let idle = is_idle_roots(&idle_roots_of(runtime))?;
     let policy = Policy::for_runtime(runtime, idle);
     let env = process_env();
     let report = retrying(|| {

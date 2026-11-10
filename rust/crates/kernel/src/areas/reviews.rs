@@ -415,6 +415,14 @@ pub fn begin_review(
             verify: match field(input, "verifyCommandsSha").as_str() {
                 Some(commands_sha) => Some(verify_runs::summary_at(
                     kernel,
+                    &match row
+                        .subject_integration_id
+                        .as_deref()
+                        .or(row.subject_report_id.as_deref())
+                    {
+                        Some(id) => verify_runs::repo_of_subject(kernel, id)?,
+                        None => String::new(),
+                    },
                     &row.commit_sha,
                     commands_sha,
                 )?),

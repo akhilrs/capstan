@@ -241,6 +241,7 @@ fn perform(
                 cwd: text("cwd"),
                 label: text("label"),
                 role: role_of(&args["role"]),
+                record_folder: false,
             })?;
             json!({"tabId": created.tab_id, "paneId": created.pane_id})
         }

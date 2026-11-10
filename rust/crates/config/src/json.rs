@@ -461,6 +461,10 @@ impl RoleConfig {
         if let Some(kb) = &self.kb {
             members.push(("kb", kb.to_value()));
         }
+        if let Some(workspace) = &self.workspace {
+            members.push(("repos", workspace.repos_value()));
+            members.push(("workspace", workspace.workspace_value()));
+        }
         members.push(("env", object(vec![("pass", strings(&self.env_pass))])));
         members.push(("hosts", Value::Array(self.hosts.iter().map(host).collect())));
         members.push(("roles", Value::Array(self.roles.iter().map(role).collect())));

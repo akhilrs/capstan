@@ -139,6 +139,25 @@ fn env_name_problem(name: &str) -> Option<String> {
     None
 }
 
+/// An `env` table of `NAME = "value"` entries (`[verify]` and `[repos.<name>.verify]` share it).
+pub(crate) fn resolve_env(value: Option<&Item>, path: &str) -> Result<Vec<(String, String)>> {
+    let env_table = optional_table(value, path)?;
+    if env_table.len() > MAX_ENV_ENTRIES {
+        return invalid(format!("{path} exceeds {MAX_ENV_ENTRIES} entries"));
+    }
+    let mut env = Vec::new();
+    for (name, item) in env_table.entries() {
+        let at = format!("{path}.{name}");
+        if let Some(problem) = env_name_problem(name) {
+            return invalid(format!("{at} {problem}"));
+        }
+        let value = required_string(Some(item), &at, MAX_ENV_VALUE_CHARS, false)?;
+        guard_credential_shape(value, &at)?;
+        env.push((name.to_string(), value.to_string()));
+    }
+    Ok(env)
+}
+
 fn scratch_dir(value: Option<&Item>) -> Result<Option<String>> {
     let Some(path) = optional_string(value, "verify.scratch_dir", 1024)? else {
         return Ok(None);
@@ -270,20 +289,7 @@ pub fn resolve_verify(value: Option<&Item>) -> Result<Option<Verify>> {
         }
     }
 
-    let env_table = optional_table(table.get("env"), "verify.env")?;
-    if env_table.len() > MAX_ENV_ENTRIES {
-        return invalid(format!("verify.env exceeds {MAX_ENV_ENTRIES} entries"));
-    }
-    let mut env = Vec::new();
-    for (name, item) in env_table.entries() {
-        let at = format!("verify.env.{name}");
-        if let Some(problem) = env_name_problem(name) {
-            return invalid(format!("{at} {problem}"));
-        }
-        let value = required_string(Some(item), &at, MAX_ENV_VALUE_CHARS, false)?;
-        guard_credential_shape(value, &at)?;
-        env.push((name.to_string(), value.to_string()));
-    }
+    let env = resolve_env(table.get("env"), "verify.env")?;
 
     let auto = choice_set(table.get("auto"), "verify.auto", &["report", "integration"])?;
     let require = choice_set(

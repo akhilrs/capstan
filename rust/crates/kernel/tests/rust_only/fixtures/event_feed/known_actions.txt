@@ -124,5 +124,15 @@ code verify.queue
 code wait.begin
 code wait.end
 code wait.end_controller
+code workspace.cleanup_repo
+code workspace.set_attach
+code workspace.set_create
+code workspace.set_detach
+code workspace.set_reset
+code workspace.set_state
+code workspace.worktree_record
+code workspace.worktree_remove
+code workspace.worktrees_copy
+code workspace.worktrees_remove
 history prompt_relay.begin
 history prompt_relay.capture

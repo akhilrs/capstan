@@ -26,6 +26,16 @@ const MIN_RAW_WINDOW_BYTES: usize = 16384;
 const MIN_SECRET_VALUE_CHARS: usize = 8;
 const REDACTED: &str = "[redacted]";
 
+/// The repo a workspace worktree setup runs for.
+#[derive(Clone, Debug, Default)]
+pub struct RepoSetup {
+    pub name: String,
+    /// The repo's own setup command; `None`: the `[worktree]` one.
+    pub command: Option<String>,
+    /// The `[cache]` entry names of the repo; `None`: all.
+    pub cache: Option<Vec<String>>,
+}
+
 struct ReusePlan {
     key: String,
     paths: Vec<String>,
@@ -321,7 +331,23 @@ impl LauncherKernel {
         worktree_path: &str,
         budget: &Budget,
     ) -> OpResult<()> {
-        let Some(setup) = &config.setup else {
+        self.setup_worktree_for(config, agent_id, worktree_path, budget, None)
+    }
+
+    /// `setup_worktree` for one repo of a workspace: the repo's own setup command replaces the `[worktree]` one, the
+    /// command gets `CAPSTAN_REPO=<name>` and the cache entries of that repo.
+    pub fn setup_worktree_for(
+        &self,
+        config: &Worktree,
+        agent_id: &str,
+        worktree_path: &str,
+        budget: &Budget,
+        repo: Option<&RepoSetup>,
+    ) -> OpResult<()> {
+        let Some(setup) = repo
+            .and_then(|repo| repo.command.as_ref())
+            .or(config.setup.as_ref())
+        else {
             return Ok(());
         };
         budget.check("running the worktree setup")?;
@@ -332,10 +358,11 @@ impl LauncherKernel {
             }
         }
         let started = self.now_ms();
-        let outcome = self.run_setup(
+        let outcome = self.run_setup_in(
             setup,
             worktree_path,
             (config.setup_timeout_seconds * 1000) as u64,
+            repo,
         );
         budget.extend((self.now_ms() - started).max(0));
         let outcome = outcome?;
