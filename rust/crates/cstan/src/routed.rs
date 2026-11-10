@@ -168,6 +168,18 @@ impl Cli<'_> {
         if command == "notify" && args != ["test"] {
             return Err(Fail::Usage);
         }
+        // `plan archive` asks first: with nobody to ask and no --yes it ends here, before the controller is called.
+        let archive_flow = command == "plan" && crate::plan_confirm::is_archive(args);
+        let mut confirm = crate::plan_confirm::stdio();
+        if archive_flow
+            && !args.iter().any(|a| a == "--yes")
+            && !crate::plan_confirm::Confirm::is_terminal(&confirm)
+        {
+            return Err(Fail::Error(JsError {
+                exit: crate::EXIT_USAGE,
+                message: crate::plan_confirm::NEEDS_TERMINAL.into(),
+            }));
+        }
         let access = access_of(command);
         let agent = if access == Access::Operator {
             None
@@ -194,6 +206,19 @@ impl Cli<'_> {
         {
             let until = parse_until(args)?;
             return self.wait_until(&socket, &credential, until, json);
+        }
+        if archive_flow {
+            let mut io = crate::Io::default();
+            let mut caller = WireCaller {
+                cli: self,
+                socket: &socket,
+                credential: &credential,
+                agent: agent.is_some(),
+            };
+            let result = crate::plan_confirm::run(args, json, &mut confirm, &mut caller, &mut io);
+            self.io.out.extend_from_slice(&io.out);
+            self.io.err.extend_from_slice(&io.err);
+            return Ok(Flow::Code(result?));
         }
         // An agent's inbox and wait ask for the digest: info mail apart and acknowledged. Without it the daemon answers
         // as it always did.
@@ -232,9 +257,7 @@ impl Cli<'_> {
         let now_ms = self.ctx.now_ms;
         let view = View {
             all: self.status_all,
-            brief: command == "plan"
-                && args.first().is_some_and(|a| a == "show")
-                && args.iter().any(|a| a == "--brief"),
+            brief: is_plan_brief(command, args),
             verify_sub: match args.first().map(String::as_str) {
                 Some("show") => "show",
                 Some("list") => "list",
@@ -392,6 +415,50 @@ impl Cli<'_> {
                 Err(failed.error),
                 retry_note(failed.lost_retries, failed.restarted),
             ),
+        }
+    }
+}
+
+/// The `plan` calls of the archive flow: each one is a standard routed call whose accepted result is handed back.
+struct WireCaller<'c, 'a> {
+    cli: &'c Cli<'a>,
+    socket: &'c std::path::Path,
+    credential: &'c str,
+    agent: bool,
+}
+
+impl crate::plan_confirm::PlanCall for WireCaller<'_, '_> {
+    fn call(&mut self, args: &[String]) -> Result<Option<Value>, Fail> {
+        frame(self.credential, "plan", args)
+            .map_err(|_| invalid("command request is too large"))?;
+        let timeout = Timeout::Idle(Duration::from_millis(client_timeout_ms("plan")));
+        let (reply, note) =
+            self.cli
+                .call_standard(self.socket, self.credential, "plan", args, timeout);
+        if let Err(WireError::NotSent { code, .. }) = &reply {
+            if capstan_wire::nothing_listens(code) {
+                return Err(blocked(if self.agent {
+                    "the controller is not running; ask the operator to run cstan start"
+                } else {
+                    "the controller stopped answering; run the command again to restart it"
+                }));
+            }
+        }
+        match reply {
+            Ok(line) => match response(&line) {
+                Response::Malformed => Err(JsError::runtime("malformed reply").into()),
+                Response::Refused { .. } => Err(refusal(&line).into()),
+                Response::Ok { result } => Ok(result),
+            },
+            Err(WireError::AfterSend(error)) => {
+                Err(JsError::runtime(format!("{}{note}", after_send_message(&error))).into())
+            }
+            Err(WireError::NotSent { code, .. }) => Err(JsError::runtime(if code.is_empty() {
+                "connect failed".to_string()
+            } else {
+                format!("connect {code} {}", self.socket.display())
+            })
+            .into()),
         }
     }
 }
@@ -563,6 +630,48 @@ fn is_window_request(command: &str, args: &[String]) -> bool {
         && args
             .iter()
             .any(|a| a.starts_with("auto=") || a.starts_with("--session=auto="))
+}
+
+/// Whether the reply of this call is printed as the brief form: `plan show ... --brief`, and the same through the bare
+/// form `plan --brief` or `plan --stale --brief` (a first argument that starts with `--` is `plan show`).
+fn is_plan_brief(command: &str, args: &[String]) -> bool {
+    command == "plan"
+        && args
+            .first()
+            .is_some_and(|a| a == "show" || a.starts_with("--"))
+        && args.iter().any(|a| a == "--brief")
+}
+
+#[cfg(test)]
+mod plan_brief_tests {
+    use super::is_plan_brief;
+
+    fn words(text: &str) -> Vec<String> {
+        text.split_whitespace().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn the_brief_form_is_chosen_for_show_and_for_the_bare_form() {
+        for args in [
+            "show --brief",
+            "show plan-1 --brief",
+            "--brief",
+            "--stale --brief",
+            "--draft --approved --brief",
+        ] {
+            assert!(is_plan_brief("plan", &words(args)), "{args}");
+        }
+        for args in [
+            "show",
+            "--stale",
+            "open normal T --brief",
+            "archive --stale --brief",
+            "",
+        ] {
+            assert!(!is_plan_brief("plan", &words(args)), "{args}");
+        }
+        assert!(!is_plan_brief("status", &words("--brief")));
+    }
 }
 
 /// What the text output of a reply is trimmed to.

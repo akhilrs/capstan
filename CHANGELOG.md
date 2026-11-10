@@ -10,6 +10,7 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 
 ### Features
 
+- feat: plan status filters. `cstan plan show` and `cstan plan` take `--draft`, `--in-review`, `--approved`, `--signed-off`, `--cancelled`, `--superseded`, `--archived`, `--stale`, `--all` and `--older-than <days>`; each row shows its status and why it is stale. `cstan plan archive` (plan ids or the same filters, operator only) lists the plans, asks for confirmation and hides them while keeping their history; `cstan plan unarchive <plan-id>` restores one. `[architect] stale_plan_days` (default 14) sets the idle limit.
 - feat: `cstan plan landed <plan-id> <package-id> <commit-sha> [--note <text>]` records a package whose content reached the project HEAD outside a Capstan integration, and `--clear` removes it before sign-off (operator only; `docs/reference/commands.md`, `docs/reference/workflow.md`).
 - feat: file handover. `cstan send <recipient> --file <path> [--summary <text>]` hands over a file committed on the sender's branch by reference (path, branch, commit, size, summary; read with `git show <commit>:<path>`), and `[messages] max_body_bytes` (default 4096, 512 to 15360) sets the longest body of a plain `cstan send`; a longer one is refused with a hint to use `--file`.
 - feat: review text is stored whole up to 16000 bytes (it was cut at 4000); a verdict notice over 4000 bytes quotes the first 3600 and points to a full-text command.
@@ -20,6 +21,7 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 
 ### Documentation
 
+- docs: plan status, stale reasons, archive and unarchive (`docs/reference/workflow.md`, `docs/reference/commands.md`).
 - docs: file handover, the message size limit and write folders (`docs/reference/commands.md`, `docs/reference/configuration.md`, `docs/reference/researcher.md`).
 - docs: idle release (`docs/reference/workflow.md`, `docs/reference/commands.md`, `docs/reference/configuration.md`).
 - docs: the knowledge base (`docs/reference/knowledge-base.md`, `docs/reference/configuration.md`, `docs/reference/commands.md`).

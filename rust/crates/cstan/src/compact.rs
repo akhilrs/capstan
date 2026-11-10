@@ -194,6 +194,21 @@ fn reassigned(plan: &Value) -> String {
     }
 }
 
+/// ` stale: <reasons>` for a plan the controller reported as stale.
+fn stale_suffix(plan: &Value) -> String {
+    match plan.get("stale") {
+        Some(Value::Array(reasons)) if !reasons.is_empty() => format!(
+            " stale: {}",
+            reasons
+                .iter()
+                .map(|r| text(Some(r)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => String::new(),
+    }
+}
+
 fn nexora(entry: &Value) -> String {
     match entry.get("externalId") {
         Some(Value::String(id)) => format!(
@@ -217,14 +232,16 @@ pub fn plan_brief(result: &Value) -> Option<Vec<String>> {
                 .iter()
                 .map(|p| {
                     format!(
-                        "{} {} {} {} [{}]{}{}",
+                        "{} {} {} {} [{}]{}{}{}",
                         text(p.get("planId")),
                         text(p.get("tier")),
-                        text(p.get("state")),
+                        // A filtered list carries the status, which says more than the state.
+                        text(p.get("status").or(p.get("state"))),
                         text(p.get("title")),
                         counts(p.get("packages")),
                         reassigned(p),
                         nexora(p),
+                        stale_suffix(p),
                     )
                 })
                 .collect(),
@@ -352,5 +369,21 @@ mod tests {
             now,
         );
         assert!(rendered(&kept).ends_with("kept until 2026-10-13T09:00:00.000Z"));
+    }
+
+    #[test]
+    fn a_filtered_brief_shows_the_status_and_ends_with_the_stale_reasons() {
+        let result = capstan_wire::js::parse(
+            r#"{"plans":[{"planId":"plan-1","tier":"normal","state":"draft","status":"draft","title":"One","packages":{},"stale":["idle","review_exhausted"]},{"planId":"plan-2","tier":"high_risk","state":"approved","status":"signed_off","title":"Two","packages":{"merged":1}},{"planId":"plan-3","tier":"normal","state":"draft","title":"Three","packages":{}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            plan_brief(&result).unwrap(),
+            [
+                "plan-1 normal draft One [no packages] stale: idle, review_exhausted",
+                "plan-2 high_risk signed_off Two [1 merged]",
+                "plan-3 normal draft Three [no packages]",
+            ]
+        );
     }
 }
