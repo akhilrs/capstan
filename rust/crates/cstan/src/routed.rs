@@ -61,6 +61,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("notify", Access::Operator),
     ("review-show", Access::Any),
     ("kb", Access::Any),
+    ("repo", Access::Agent),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -88,9 +89,8 @@ fn client_timeout_ms(command: &str) -> u64 {
         // The daemon's own limit for a test send (70 s) is behind this; the longest send is 60 s plus its kill grace.
         "notify" => 65_000,
         "replace" => 1_800_000,
-        "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" | "verify" => {
-            600_000
-        }
+        "spawn" | "request-review" | "plan" | "integrate" | "release" | "pm-restart" | "verify"
+        | "repo" => 600_000,
         _ => capstan_wire::DEFAULT_TIMEOUT.as_millis() as u64,
     }
 }

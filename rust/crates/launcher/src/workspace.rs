@@ -6,7 +6,8 @@
 //! package that adds a repo to a running worker.
 
 use crate::api::{
-    BranchRenameResult, Placement, ReleaseOutcome, SpawnOptions, SpawnResult, CLEANUP_BUDGET_MS,
+    BranchRenameResult, Placement, ReleaseOutcome, RepoAddResult, SpawnOptions, SpawnResult,
+    CLEANUP_BUDGET_MS,
 };
 use crate::kernel::LauncherKernel;
 use crate::setup::RepoSetup;
@@ -733,6 +734,141 @@ impl LauncherKernel {
             } else {
                 Some(any_branch_kept)
             },
+        })
+    }
+
+    /// `cstan repo add`: one more worktree for a running workspace worker, on its branch, at the tip of the repo's
+    /// main branch. The launcher turn is the only lock: a live row is checked before any git, so a second add waits
+    /// and answers `already_added` without touching the disk. All or nothing: a failure removes what was made.
+    pub fn repo_add(&self, agent_id: &str, repo_name: &str) -> OpResult<RepoAddResult> {
+        self.run(|budget| self.repo_add_in_turn(agent_id, repo_name, budget))
+    }
+
+    fn repo_add_in_turn(
+        &self,
+        agent_id: &str,
+        repo_name: &str,
+        budget: &Budget,
+    ) -> OpResult<RepoAddResult> {
+        let ws = self.workspace().cloned().ok_or_else(|| {
+            OpError::launcher("not_workspace", "the configuration has no [repos]")
+        })?;
+        let not_a_worker = || {
+            OpError::launcher(
+                "not_a_worker",
+                format!("{agent_id} has no worktree to add to; only a running worker adds a repo"),
+            )
+        };
+        let agent = self
+            .agent_record(agent_id)?
+            .filter(|agent| agent.active())
+            .ok_or_else(not_a_worker)?;
+        let live = self.ledger.agent_worktrees(agent_id)?;
+        let Some(first) = live.first() else {
+            return Err(not_a_worker());
+        };
+        let Some(config) = ws.repo(repo_name) else {
+            return Err(OpError::launcher(
+                "unknown_repo",
+                format!("repo {repo_name} is not in [repos]"),
+            ));
+        };
+        let task = self
+            .ledger
+            .agent_panes()?
+            .into_iter()
+            .find(|row| row.agent_id == agent_id)
+            .and_then(|row| row.task_ref);
+        if let Some((plan, package)) = task.as_deref().and_then(|task| task.split_once('/')) {
+            let mut allowed = self.ledger.package_repos(plan, package)?;
+            if allowed.is_empty() {
+                allowed.push(ws.default_repo.clone());
+            }
+            if !allowed.iter().any(|name| name == repo_name) {
+                return Err(OpError::launcher(
+                    "not_in_package",
+                    format!("repo {repo_name} is not in package {plan}/{package}"),
+                ));
+            }
+        }
+        if live.iter().any(|tree| tree.repo == repo_name) {
+            return Err(OpError::launcher(
+                "already_added",
+                format!("{agent_id} already has a worktree in repo {repo_name}"),
+            ));
+        }
+        let branch = first.branch.clone();
+        let folder = Path::new(&first.path)
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| {
+                OpError::launcher(
+                    "repo_unusable",
+                    "the change folder of the worker is unknown",
+                )
+            })?;
+        let root = path_text(&config.root);
+        let unusable =
+            |why: String| OpError::launcher("repo_unusable", format!("repo {repo_name}: {why}"));
+        if self.git.branch_tip_in(&root, &config.main_branch).is_none() {
+            return Err(unusable(format!(
+                "it has no branch {} to start from",
+                config.main_branch
+            )));
+        }
+        let taken = self
+            .git
+            .branch_taken_in(&root, &branch)
+            .map_err(|error| unusable(error.message))?;
+        if taken {
+            return Err(OpError::launcher(
+                "branch_taken",
+                format!(
+                    "branch {branch} is taken in repo {repo_name}; rename your branch in every repo (links rename without repos) or ask the PM"
+                ),
+            ));
+        }
+        let tree = self
+            .add_repo_worktree(config, &folder, &branch, None)
+            .map_err(|error| unusable(error.message()))?;
+        let undo = |error: OpError| {
+            let failed = self.rollback_added(std::slice::from_ref(&tree), &folder);
+            match (failed.first(), error) {
+                (Some((_, why)), OpError::Launcher(inner)) => OpError::launcher(
+                    inner.code,
+                    format!(
+                        "{}; the worktree {} could not be removed: {why}",
+                        inner.message, tree.path
+                    ),
+                ),
+                (_, error) => error,
+            }
+        };
+        if let Err(error) = self.run_repo_setup(config, agent_id, &tree, budget) {
+            return Err(undo(OpError::launcher("setup_failed", error.message())));
+        }
+        if let Err(error) = self
+            .ledger
+            .record_agent_worktree(agent_id, agent.generation, &tree)
+        {
+            let error = OpError::from(error);
+            let code = if error.message().contains("already_added") {
+                "already_added"
+            } else {
+                "repo_unusable"
+            };
+            return Err(undo(OpError::launcher(code, error.message())));
+        }
+        self.log(
+            "repo_added",
+            json!({"agentId": agent_id, "repo": repo_name, "worktreePath": tree.path, "branch": branch}),
+        );
+        Ok(RepoAddResult {
+            agent_id: agent_id.to_string(),
+            repo: tree.repo,
+            worktree_path: tree.path,
+            branch: tree.branch,
+            base_sha: tree.base_sha,
         })
     }
 

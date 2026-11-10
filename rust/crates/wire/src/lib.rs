@@ -35,7 +35,7 @@ pub const KEPT_COMMANDS: [&str; 7] = [
 ];
 /// Commands that take more than one step, with the launcher, git or a pane between kernel calls: a first attempt that
 /// failed after an earlier step committed is not stored, so a repeat could do that step again.
-const MULTI_STEP_COMMANDS: [&str; 7] = [
+const MULTI_STEP_COMMANDS: [&str; 8] = [
     "plan",
     "request-review",
     "prompt",
@@ -43,12 +43,13 @@ const MULTI_STEP_COMMANDS: [&str; 7] = [
     "integrate",
     "cleanup",
     "cache",
+    "repo",
 ];
 /// Commands whose lost reply the client never retries: [`KEPT_COMMANDS`] (no replayable answer), `wait` and `notify`
 /// (a long wait) and [`MULTI_STEP_COMMANDS`] (at-least-once). Built from the lists, so a command added there is never
 /// retried either.
-pub const NO_LOST_REPLY_RETRY: [&str; 16] = {
-    let mut all = [""; 16];
+pub const NO_LOST_REPLY_RETRY: [&str; 17] = {
+    let mut all = [""; 17];
     let mut i = 0;
     while i < KEPT_COMMANDS.len() {
         all[i] = KEPT_COMMANDS[i];

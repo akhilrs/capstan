@@ -41,6 +41,7 @@ pub fn register(map: &mut HandlerMap) {
     map.insert("spawn", spawn);
     map.insert("replace", replace);
     map.insert("release", release);
+    map.insert("repo", repo);
     map.insert("pm-restart", pm_restart);
     map.insert("observe", observe);
     map.insert("peek", peek);
@@ -366,6 +367,40 @@ fn release(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespon
         json!({"requestedBy": requested_by, "agentId": agent_id}),
     );
     Some(match launcher.release(&agent_id) {
+        Ok(result) => ok(result.to_value()),
+        Err(error) => map_error(&HandlerError::from(error)),
+    })
+}
+
+/// `cstan repo add <repo>`: a worker's worktree in one more repo; the launcher refuses with the codes of its turn.
+fn repo(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
+    let Some(caller) = call.identity.agent.as_ref() else {
+        return Some(fail(
+            ErrorCode::Forbidden,
+            "only a worker adds a repo to its change",
+        ));
+    };
+    if call.args.len() != 2 || call.args[0] != "add" {
+        return Some(fail(ErrorCode::InvalidRequest, "usage: repo add <repo>"));
+    }
+    let name = call.args[1].clone();
+    if !NAME.is_match(&name) {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            "the repo name is not valid",
+        ));
+    }
+    let Some(launcher) = &env.deps.launcher else {
+        return Some(fail(
+            ErrorCode::NotConfigured,
+            "adding a repo needs capstan.toml and Herdr",
+        ));
+    };
+    env.log(
+        "repo_add_requested",
+        json!({"agentId": caller.agent_id, "repo": name}),
+    );
+    Some(match launcher.repo_add(&caller.agent_id, &name) {
         Ok(result) => ok(result.to_value()),
         Err(error) => map_error(&HandlerError::from(error)),
     })

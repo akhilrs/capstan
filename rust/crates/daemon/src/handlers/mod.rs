@@ -108,7 +108,7 @@ const fn stub_route(name: &'static str, access: Access, owner: &'static str) -> 
 
 /// `ROUTES` in the order of src/daemon.ts, each with the module that serves it (a test checks names, access and stubs
 /// against src/daemon.ts).
-pub const ROUTES: [Route; 41] = [
+pub const ROUTES: [Route; 42] = [
     route("status", Access::Read, "status"),
     route("ping", Access::Read, "status"),
     route("inbox", Access::Any, "messages"),
@@ -150,10 +150,11 @@ pub const ROUTES: [Route; 41] = [
     route("keep", Access::Any, "keep"),
     route("review-show", Access::Any, "findings"),
     route("kb", Access::Any, "kb"),
+    route("repo", Access::Agent, "agents"),
 ];
 
 /// The routes that exist only in Rust: the frozen daemon.ts does not have them.
-pub const RUST_ONLY_ROUTES: [&str; 12] = [
+pub const RUST_ONLY_ROUTES: [&str; 13] = [
     "cleanup",
     "cache",
     "verify",
@@ -166,6 +167,7 @@ pub const RUST_ONLY_ROUTES: [&str; 12] = [
     "keep",
     "review-show",
     "kb",
+    "repo",
 ];
 
 /// The route named `command` (exact match, like `Object.hasOwn`).
@@ -932,7 +934,8 @@ mod tests {
                 "notify",
                 "keep",
                 "review-show",
-                "kb"
+                "kb",
+                "repo"
             ]
         );
         let merge = route_of("decide-merge").expect("the merge route");
