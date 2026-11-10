@@ -235,7 +235,7 @@ pub fn run_prune(
 }
 
 /// `run_prune` that also counts `occupants` (`Some`: the live verify scratch the caller knows; `None`: unknown) against
-/// the cap. A dry run never records or removes anything, so it ignores them.
+/// the cap, in a dry run too: the answer lists what would go with them counted.
 pub fn run_prune_with(
     runtime: &Runtime,
     names: &[String],
@@ -265,7 +265,6 @@ pub fn run_prune_with(
         target.evict_while_active = false;
     }
     let policy = Policy::for_runtime(&target, idle && !dry_run);
-    let occupants = if dry_run { None } else { occupants };
     let report = retrying(|| {
         prune_with_occupants(
             &target,
@@ -520,7 +519,10 @@ fn cache_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Command
     };
     let base_env = process_env();
     let result = match request {
-        CacheRequest::Prune { names, dry_run } => run_prune(&runtime, &names, dry_run, &base_env),
+        CacheRequest::Prune { names, dry_run } => {
+            let occupants = env.deps.verify.as_ref().map(|v| v.scratch_occupants());
+            run_prune_with(&runtime, &names, dry_run, &base_env, occupants.as_deref())
+        }
         CacheRequest::Clear { selection, force } => {
             run_clear(&runtime, selection.as_deref(), force, &base_env)
         }

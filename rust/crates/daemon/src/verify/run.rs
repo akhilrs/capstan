@@ -675,8 +675,16 @@ impl VerifyService {
 
     /// Runs a claimed run to its end; a panic in the run ends it as an error (with its slot released) instead of leaving
     /// it recorded as running.
-    pub(crate) fn execute_guarded(&self, run: &Value, abort: Arc<AtomicBool>, slot: usize) {
+    pub(crate) fn execute_guarded(
+        self: &Arc<Self>,
+        run: &Value,
+        abort: Arc<AtomicBool>,
+        slot: usize,
+    ) {
         let started = Instant::now();
+        if let Some(run_id) = run["runId"].as_str() {
+            self.run_started(run_id);
+        }
         // Owned here so what the run started is still known when it panics.
         let mut left = Left::default();
         // The slot lease is held here, outside the unwind guard: it outlives the cleanup on every path and is

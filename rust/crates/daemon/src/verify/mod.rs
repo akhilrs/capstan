@@ -15,17 +15,19 @@ mod run;
 pub mod scratch;
 
 use crate::deps::{new_context, Deps, KernelHandle, LogEntry, Logger};
+use crate::loops::cache::CacheTrigger;
+use capstan_cache::Occupant;
 use capstan_config::{Verify, Worktree};
 use capstan_kernel::types::MutationContext;
 use capstan_kernel::{Core, KernelResult};
 use capstan_operator::service::{RealProcesses, RunResult};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// What `run_step` hands the step runner: the arguments `run_command` takes, as one value.
 pub struct StepRequest {
@@ -88,6 +90,39 @@ pub struct VerifyService {
     pub(crate) lease_fault: Mutex<LeaseFault>,
     /// The start-up self test said leases are unreliable here: every gate runs `Shared`.
     pub(crate) leases_unreliable: AtomicBool,
+    /// Where a run end and the measurer ask the cache loop for a cycle; unset without a `[cache]` section.
+    cache_trigger: OnceLock<Arc<CacheTrigger>>,
+    /// The scratch bytes of the running runs, as the measurer last measured them (no file system access to read).
+    occupants: Arc<Mutex<Vec<Occupant>>>,
+    /// The running runs and whether a measurer thread exists.
+    scratch_state: Mutex<ScratchState>,
+    measurer: Mutex<Option<JoinHandle<()>>>,
+    measurers: Arc<AtomicUsize>,
+}
+
+/// How long after a run starts its scratch is measured the first time, and how often after that.
+const FIRST_MEASURE_MS: u64 = 2 * 60 * 1000;
+const MEASURE_EVERY_MS: u64 = 5 * 60 * 1000;
+/// The longest one directory walk of the measurer takes.
+const MEASURE_BUDGET: Duration = Duration::from_secs(60);
+
+struct RunScratch {
+    next_ms: u64,
+    bytes: Option<u64>,
+}
+
+#[derive(Default)]
+struct ScratchState {
+    running: BTreeMap<String, RunScratch>,
+    measuring: bool,
+}
+
+struct MeasurerCount(Arc<AtomicUsize>);
+
+impl Drop for MeasurerCount {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// The bytes of the regular files under `path`; unreadable entries count nothing.
@@ -189,6 +224,11 @@ impl VerifyService {
             self_test_override: Mutex::new(None),
             lease_fault: Mutex::new(LeaseFault::None),
             leases_unreliable: AtomicBool::new(false),
+            cache_trigger: OnceLock::new(),
+            occupants: Arc::default(),
+            scratch_state: Mutex::new(ScratchState::default()),
+            measurer: Mutex::new(None),
+            measurers: Arc::default(),
         })
     }
 
@@ -217,6 +257,169 @@ impl VerifyService {
     #[doc(hidden)]
     pub fn set_lease_fault(&self, fault: LeaseFault) {
         *self.lease_fault.lock().unwrap_or_else(|p| p.into_inner()) = fault;
+    }
+
+    /// Links the cache loop's trigger: a run end asks for a cycle, and the measurer starts counting running runs.
+    /// Set once; a second call is ignored.
+    pub fn set_cache_trigger(&self, trigger: Arc<CacheTrigger>) {
+        trigger.set_occupant_source(self.occupants.clone());
+        let _ = self.cache_trigger.set(trigger);
+    }
+
+    /// The running runs' scratch directories as last measured (`verify/<run id>`, logs excluded). Reads a stored
+    /// list; empty while no trigger is set.
+    pub fn scratch_occupants(&self) -> Vec<Occupant> {
+        self.occupants
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// How many measurer threads are alive (a test seam).
+    #[doc(hidden)]
+    pub fn measurer_threads(&self) -> usize {
+        self.measurers.load(Ordering::SeqCst)
+    }
+
+    fn publish_occupants(&self, state: &ScratchState) {
+        let list = state
+            .running
+            .iter()
+            .filter_map(|(id, run)| {
+                run.bytes.map(|bytes| Occupant {
+                    label: format!("verify/{id}"),
+                    bytes,
+                })
+            })
+            .collect();
+        *self.occupants.lock().unwrap_or_else(|p| p.into_inner()) = list;
+    }
+
+    /// A run's scratch exists from now on: it counts, and the measurer runs while any run does.
+    pub(crate) fn run_started(self: &Arc<Self>, run_id: &str) {
+        let Some(trigger) = self.cache_trigger.get() else {
+            return;
+        };
+        let now = trigger.now_ms();
+        let mut state = self.scratch_state.lock().unwrap_or_else(|p| p.into_inner());
+        state.running.insert(
+            run_id.to_string(),
+            RunScratch {
+                next_ms: now + FIRST_MEASURE_MS,
+                bytes: None,
+            },
+        );
+        if state.measuring {
+            return;
+        }
+        state.measuring = true;
+        let service = Arc::clone(self);
+        self.measurers.fetch_add(1, Ordering::SeqCst);
+        let count = MeasurerCount(self.measurers.clone());
+        let spawned = std::thread::Builder::new()
+            .name("verify-measure".into())
+            .spawn(move || {
+                let _count = count;
+                service.measure_loop();
+            });
+        match spawned {
+            Ok(handle) => {
+                let mut slot = self.measurer.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(old) = slot.replace(handle) {
+                    let _ = old.join();
+                }
+            }
+            Err(error) => {
+                state.measuring = false;
+                self.measurers.fetch_sub(1, Ordering::SeqCst);
+                self.detail_log("verify_start_failed", json!({"error": error.to_string()}));
+            }
+        }
+    }
+
+    /// A run's scratch is gone: it no longer counts, and the cache loop is asked for a cycle.
+    pub(crate) fn run_ended(&self, run_id: &str) {
+        let was_running = {
+            let mut state = self.scratch_state.lock().unwrap_or_else(|p| p.into_inner());
+            let was = state.running.remove(run_id).is_some();
+            self.publish_occupants(&state);
+            was
+        };
+        if was_running {
+            if let Some(trigger) = self.cache_trigger.get() {
+                trigger.fire();
+            }
+        }
+    }
+
+    /// The measurer thread: while a run is active, measures each run dir at start plus 2 min and every 5 min after,
+    /// and fires the trigger when the store and the occupants together exceed the cap.
+    fn measure_loop(&self) {
+        let Some(trigger) = self.cache_trigger.get().cloned() else {
+            return;
+        };
+        loop {
+            {
+                let mut state = self.scratch_state.lock().unwrap_or_else(|p| p.into_inner());
+                if state.running.is_empty() || self.stopping() {
+                    state.measuring = false;
+                    return;
+                }
+            }
+            let now = trigger.now_ms();
+            let due: Vec<String> = {
+                let state = self.scratch_state.lock().unwrap_or_else(|p| p.into_inner());
+                state
+                    .running
+                    .iter()
+                    .filter(|(_, run)| run.next_ms <= now)
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            };
+            let mut refreshed = false;
+            for id in due {
+                let dir = self.scratch_root.join(&id);
+                let bytes = if dir.is_dir() {
+                    Some(
+                        capstan_cache::measure_dir(
+                            &dir,
+                            &["logs"],
+                            Instant::now() + MEASURE_BUDGET,
+                        )
+                        .bytes,
+                    )
+                } else {
+                    None // removed meanwhile: not an error
+                };
+                let mut state = self.scratch_state.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(run) = state.running.get_mut(&id) {
+                    run.next_ms = trigger.now_ms() + MEASURE_EVERY_MS;
+                    if bytes.is_some() {
+                        run.bytes = bytes;
+                        refreshed = true;
+                    }
+                }
+                self.publish_occupants(&state);
+            }
+            if refreshed {
+                self.check_cap(&trigger);
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    fn check_cap(&self, trigger: &CacheTrigger) {
+        let Some(runtime) = &self.cache else {
+            return;
+        };
+        let occupants: u64 = self.scratch_occupants().iter().map(|o| o.bytes).sum();
+        let store = match trigger.last_store_total.load(Ordering::SeqCst) {
+            u64::MAX => 0,
+            total => total,
+        };
+        if store.saturating_add(occupants) > runtime.max_bytes {
+            trigger.fire();
+        }
     }
 
     pub fn config(&self) -> &Verify {
@@ -348,6 +551,14 @@ impl VerifyService {
             .drain(..)
             .collect();
         for thread in threads {
+            let _ = thread.join();
+        }
+        let measurer = self
+            .measurer
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        if let Some(thread) = measurer {
             let _ = thread.join();
         }
         if let Err(error) = self.step(|core, context| core.interrupt_active_verify_runs(context)) {
@@ -498,6 +709,7 @@ impl VerifyService {
     }
 
     fn unregister(&self, run_id: &str) -> bool {
+        self.run_ended(run_id);
         self.aborts
             .lock()
             .unwrap_or_else(|p| p.into_inner())

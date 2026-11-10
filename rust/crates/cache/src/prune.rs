@@ -508,23 +508,32 @@ fn same_file(file: &File, path: &Path) -> std::io::Result<bool> {
 }
 
 /// The paths in a process command line: absolute arguments, and relative ones with a separator when the process
-/// working directory is known, each resolved through symlinks (an unresolvable one stays as written).
+/// working directory is known, each resolved through symlinks (an unresolvable one stays as written). The flag is set
+/// when a relative argument with a separator cannot be resolved because the working directory is unknown: the
+/// process is then unknown, not assumed to run from elsewhere.
 #[cfg(target_os = "linux")]
-fn cmdline_paths(raw: &[u8], cwd: Option<&Path>) -> Vec<PathBuf> {
-    raw.split(|b| *b == 0)
-        .filter_map(|arg| {
-            let text = String::from_utf8_lossy(arg).into_owned();
-            let path = PathBuf::from(&text);
-            let full = if path.is_absolute() {
-                path
-            } else if text.contains('/') {
-                cwd?.join(path)
-            } else {
-                return None;
-            };
-            Some(fs::canonicalize(&full).unwrap_or(full))
-        })
-        .collect()
+fn cmdline_paths(raw: &[u8], cwd: Option<&Path>) -> (Vec<PathBuf>, bool) {
+    let mut paths = Vec::new();
+    let mut unknown = false;
+    for arg in raw.split(|b| *b == 0) {
+        let text = String::from_utf8_lossy(arg).into_owned();
+        let path = PathBuf::from(&text);
+        let full = if path.is_absolute() {
+            path
+        } else if text.contains('/') {
+            match cwd {
+                Some(cwd) => cwd.join(path),
+                None => {
+                    unknown = true;
+                    continue;
+                }
+            }
+        } else {
+            continue;
+        };
+        paths.push(fs::canonicalize(&full).unwrap_or(full));
+    }
+    (paths, unknown)
 }
 
 /// What processes run from: their executable and working directory, read once per prune.
@@ -570,7 +579,9 @@ impl ProcScan {
                             match fs::read(process.path().join("cmdline")) {
                                 Ok(raw) if !raw.is_empty() => {
                                     let cwd = fs::read_link(process.path().join("cwd")).ok();
-                                    scan.paths.extend(cmdline_paths(&raw, cwd.as_deref()));
+                                    let (paths, unknown) = cmdline_paths(&raw, cwd.as_deref());
+                                    scan.paths.extend(paths);
+                                    scan.unknown |= unknown;
                                 }
                                 Ok(_) => {}
                                 Err(_) => scan.unknown = true,
@@ -1576,8 +1587,12 @@ mod cmdline_tests {
         let link = real.parent().unwrap().join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let raw = format!("tool\0{}/bin\0bin/../bin\0plain\0", link.display());
-        let paths = cmdline_paths(raw.as_bytes(), Some(&real));
+        let (paths, unknown) = cmdline_paths(raw.as_bytes(), Some(&real));
         assert_eq!(paths, [real.join("bin"), real.join("bin")]);
-        assert_eq!(cmdline_paths(raw.as_bytes(), None), [real.join("bin")]);
+        assert!(!unknown);
+        // Without the working directory the relative argument cannot be resolved: the process is unknown.
+        let (paths, unknown) = cmdline_paths(raw.as_bytes(), None);
+        assert_eq!(paths, [real.join("bin")]);
+        assert!(unknown);
     }
 }
