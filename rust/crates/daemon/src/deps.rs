@@ -480,6 +480,11 @@ pub trait GitPort: Send + Sync {
     fn merge(&self, input: &Value) -> GitResult<Value>;
     fn branch_tip(&self, branch: &str) -> GitResult<Option<String>>;
     fn is_in_head(&self, sha: &str) -> GitResult<bool>;
+    /// Whether `sha` is a commit in the history of the project HEAD; None for a port that cannot check.
+    fn commit_on_head(&self, sha: &str) -> GitResult<Option<bool>> {
+        let _ = sha;
+        Ok(None)
+    }
     fn delete_branch(&self, branch: &str, sha: &str) -> GitResult<bool>;
     /// `coveredReports`: the covered reports as JSON.
     fn covered_reports(&self, head: &str, reports: &Value, options: &Value) -> GitResult<Value>;

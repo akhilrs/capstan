@@ -184,6 +184,9 @@ pub fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> KernelResult<Value
     if let Some(result) = areas::plan_packages::dispatch(kernel, op, args) {
         return result;
     }
+    if let Some(result) = areas::plan_landing::dispatch(kernel, op, args) {
+        return result;
+    }
     if let Some(result) = areas::links::dispatch(kernel, op, args) {
         return result;
     }

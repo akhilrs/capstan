@@ -330,6 +330,16 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         "a controller notice about a plan",
     ),
     (
+        "plan.landed",
+        &["package_landings", "messages.notice"],
+        "a landing row the card does not read and its controller notice",
+    ),
+    (
+        "plan.landing_cleared",
+        &["package_landings", "messages.notice"],
+        "a landing row the card does not read and its controller notice",
+    ),
+    (
         "pm.attention",
         &["pm_notices", "messages.notice"],
         "a controller notice",

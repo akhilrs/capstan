@@ -1513,7 +1513,7 @@ fn build(
     ))
 }
 
-/// The packages of `pp` whose accepted report `r` is in an integration, as in `plan_packages` (`PACKAGE_REPORT_PREDICATE`).
+/// The packages of `pp` whose accepted report `r` is in an integration, as in `plan_landing` (`PACKAGE_REPORT_PREDICATE`).
 pub(crate) const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r.state = 'accepted' AND pp.assigned_at <= r.created_at
   AND EXISTS (SELECT 1 FROM agents a WHERE a.project_id = r.project_id AND a.agent_id = r.agent_id AND a.generation = r.generation)
   AND NOT EXISTS (

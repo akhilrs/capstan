@@ -480,7 +480,7 @@ pub const MAPPING: &[Rule] = &[
     rule("plan", "plan.signoff", "*", "*", ev("plan.signed_off")),
     rule(
         "plan",
-        "plan.assign|plan.reassign|plan.cancel|plan.review_abandon",
+        "plan.assign|plan.reassign|plan.cancel|plan.review_abandon|plan.landed|plan.landing_cleared",
         "*",
         "*",
         ev("plan.changed"),

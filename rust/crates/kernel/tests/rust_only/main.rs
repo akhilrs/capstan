@@ -13,6 +13,7 @@ mod id_prefix;
 mod integration_settle;
 mod message_classes;
 mod plan_amend;
+mod plan_landing;
 mod plan_reassign;
 mod plan_show_cost;
 mod pm_card;

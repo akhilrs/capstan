@@ -72,11 +72,12 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
                 | "reassign"
                 | "signoff"
                 | "cancel"
+                | "landed"
         )
     ) {
         return Some(fail(
             ErrorCode::InvalidRequest,
-            "plan needs open, submit, show, assign, reassign, signoff or cancel",
+            "plan needs open, submit, show, assign, reassign, signoff, cancel or landed",
         ));
     }
     let Some(config) = env.config().filter(|config| config.architect.enabled) else {
@@ -88,6 +89,7 @@ fn plan(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse>
     let outcome = match sub {
         Some("open") => open(env, call, rest),
         Some("cancel") => cancel(env, call, rest),
+        Some("landed") => landed(env, call, rest),
         Some("model") => plan_model(env, call, rest),
         Some("assign") => assign(env, call, rest),
         Some("reassign") => reassign(env, call, rest, &config.architect.role),
@@ -178,6 +180,88 @@ fn open_usage() -> CommandResponse {
         ErrorCode::InvalidRequest,
         "plan open needs normal|high-risk, a title and optionally a superseded plan id",
     )
+}
+
+fn landed_usage() -> CommandResponse {
+    fail(
+        ErrorCode::InvalidRequest,
+        "plan landed needs a plan id, a package id and a 40-character commit id (optionally --note <text>), or --clear",
+    )
+}
+
+/// `plan landed <plan> <package> <sha> [--note <text>]` and `plan landed <plan> <package> --clear`.
+fn landed(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
+    if call.identity.role != "operator" {
+        return Ok(fail(
+            ErrorCode::Forbidden,
+            "only the operator may record a landed package",
+        ));
+    }
+    let (Some(plan_id), Some(package_id)) = (rest.first(), rest.get(1)) else {
+        return Ok(landed_usage());
+    };
+    if !is_safe_agent_id(plan_id) || !is_safe_agent_id(package_id) {
+        return Ok(landed_usage());
+    }
+    let tail = &rest[2..];
+    if tail.len() == 1 && tail[0] == "--clear" {
+        let mut input = Map::new();
+        input.insert("planId".into(), json!(plan_id));
+        input.insert("packageId".into(), json!(package_id));
+        env.log("plan_landing_clear_requested", Value::Object(input.clone()));
+        let credential = call.credential.to_string();
+        let cleared = env.deps.kernel.run(move |core| {
+            let context = new_context(core, &credential)?;
+            core.clear_package_landing(&context, &Value::Object(input))
+        })?;
+        return Ok(ok(cleared));
+    }
+    let Some(sha) = tail.first() else {
+        return Ok(landed_usage());
+    };
+    let note = match &tail[1..] {
+        [] => "recorded by the operator".to_string(),
+        [flag, text] if flag == "--note" => text.clone(),
+        _ => return Ok(landed_usage()),
+    };
+    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Ok(fail(
+            ErrorCode::InvalidRequest,
+            "the commit id must be 40 hexadecimal characters",
+        ));
+    }
+    let sha = sha.to_ascii_lowercase();
+    let unavailable = || {
+        fail(
+            ErrorCode::Error,
+            "git_unavailable: the controller could not check the commit",
+        )
+    };
+    match env.deps.git.commit_on_head(&sha) {
+        Ok(Some(true)) => {}
+        Ok(Some(false)) => {
+            return Ok(fail(
+                ErrorCode::Rejected,
+                format!(
+                    "not_on_head: commit {} is not in the history of the project HEAD",
+                    &sha[..12]
+                ),
+            ))
+        }
+        Ok(None) | Err(_) => return Ok(unavailable()),
+    }
+    let mut input = Map::new();
+    input.insert("planId".into(), json!(plan_id));
+    input.insert("packageId".into(), json!(package_id));
+    input.insert("commitSha".into(), json!(sha));
+    input.insert("note".into(), json!(note));
+    env.log("plan_landing_requested", Value::Object(input.clone()));
+    let credential = call.credential.to_string();
+    let recorded = env.deps.kernel.run(move |core| {
+        let context = new_context(core, &credential)?;
+        core.record_package_landing(&context, &Value::Object(input))
+    })?;
+    Ok(ok(recorded))
 }
 
 fn cancel(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcome {
