@@ -25,7 +25,17 @@ use project::{write_project, Identity};
 const FRONT: &str = env!("CARGO_BIN_EXE_cstan");
 const BUSY: &str = r#"{"ok":false,"code":"controller_busy","message":"controller busy: all connection slots are in use","retryAfterMs":100}"#;
 const OK: &str = r#"{"ok":true,"result":{"state":"fine"}}"#;
-const RETRIED_TEXT: &str = "connection closed; retried 2 times, the request may have been applied: check with cstan inbox or cstan status before running it again";
+const RETRIED_GUIDANCE: &str = "retried 2 times, the request may have been applied: check with cstan inbox or cstan status before running it again";
+
+/// Asserts the ending of a request whose every reply was dropped. The client sees either the closed connection
+/// or, when the machine is loaded and its timeout fires first, a timeout; both end with the same retry guidance,
+/// so the test must not depend on which one wins the race.
+fn assert_retried_ending(stderr: &str) {
+    let ok = ["connection closed", "timed out"]
+        .iter()
+        .any(|first| stderr.trim_end() == format!("cstan: {first}; {RETRIED_GUIDANCE}"));
+    assert!(ok, "{stderr}");
+}
 
 struct Fake {
     dir: PathBuf,
@@ -230,7 +240,7 @@ fn a_reply_that_is_always_lost_ends_with_the_retried_text() {
     let f = fake("always", Some("boot-1"), behavior);
     let o = run(&f, &["send", "pm", "hello"]);
     assert_eq!(o.status.code(), Some(5), "{}", stderr(&o));
-    assert_eq!(stderr(&o).trim_end(), format!("cstan: {RETRIED_TEXT}"));
+    assert_retried_ending(&stderr(&o));
     assert_eq!(f.connections.load(Ordering::SeqCst), 3);
 }
 
@@ -490,7 +500,7 @@ fn seam_send_whose_reply_is_always_lost_ends_with_the_retried_text() {
     let o = seam.cstan_with("pm-1", &["send", "dev-1", "once only"], false);
     assert_eq!(o.status.code(), Some(5), "{}", stderr(&o));
     let err = stderr(&o);
-    assert_eq!(err.trim_end(), format!("cstan: {RETRIED_TEXT}"));
+    assert_retried_ending(&err);
     assert_eq!(seam.attempts(), 3);
     // The send ran once: the repeats were answered from the reply cache.
     seam.set(Mode::Pass);
