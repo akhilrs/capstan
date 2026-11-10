@@ -697,6 +697,7 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
     let verify = crate::verify::resolve_verify(root.get("verify"))?;
     let review = crate::review::resolve_review(root.get("review"))?;
     let agents = crate::agents::resolve_agents(root.get("agents"))?;
+    let kb = crate::kb::resolve_kb(root.get("kb"), &roles, design.configured)?;
 
     Ok(RoleConfig {
         project_name: project_name.map(str::to_string),
@@ -726,6 +727,7 @@ fn resolve_document(root: &Table, project_root: &Path, home: Option<&str>) -> Re
         design,
         review,
         agents,
+        kb,
         env_pass,
         hosts,
         roles,

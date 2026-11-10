@@ -270,11 +270,14 @@ fn the_constants_are_node_s() {
 
 /// The by-file handover sentences (plan-175) are Rust-only: Node's frozen text lacks them, so a case without an overlay is
 /// compared without them.
-const RUST_ONLY_HANDOVER: [&str; 4] = [
+const RUST_ONLY_HANDOVER: [&str; 6] = [
     "- `cstan send @pm --file <path> --summary \"<text>\"` hands over a file you committed on your branch; the PM reads it with git show only if it needs to.\n",
     "A message is at most 4 KB by default ([messages] max_body_bytes). Write anything longer (research, design notes, analyses, logs) to a file in your worktree, commit it on your branch and send its path with --file and a one-line summary; never paste a long document into a message.\n",
-    "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan inspect <review-id>. ",
+    "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan review show <review-id>. ",
     " Also send the PM `cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit and next to the report command; the report text never goes in a message.",
+    // Knowledge base sentences (plan-177), Rust-only.
+    "\nBefore you write a new helper, function or component, read the Reuse section of your work package (if any), run `cstan kb search <words>` and search the code for an existing one; extend what exists when it fits. When you add something others should reuse, add an entry with `cstan kb add` and commit it with your change. Your report summary ends with Reused: <names> and New: <names> (why nothing existing fit).",
+    "\nFlag as a finding any new helper, function or component that duplicates an entry of the work package's Reuse section or of `cstan kb search`, naming both; flag a new reusable item with no kb entry when the project has a knowledge base.",
 ];
 
 fn strip_handover(prompt: &str) -> String {

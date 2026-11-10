@@ -35,3 +35,9 @@ Node's recorded line (the replay turns that line into the current help), so it d
 command table, so `cstan help`, `cstan help notify` and `cstan help --man` list it; `tests/support/node-usage.txt` stays
 Node's recorded line. `cstan status` gains an `ntfy:` line only when `[ntfy]` is enabled and the controller reports one, so
 no recorded transcript changes. `tests/usage_table.rs` and `tests/notify.rs` check the entry, the output and the guide.
+
+## `cstan kb`
+
+`kb` is a Rust-only command (the daemon route is in `RUST_ONLY_ROUTES`), so no Node transcript holds it. It is in the command
+table, so `cstan help`, `cstan help kb` and `cstan help --man` list it; `tests/support/node-usage.txt` stays Node's recorded
+line. `tests/kb_cmd.rs` and the daemon's `tests/kb_route.rs` check the forms and their output.

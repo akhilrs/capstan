@@ -75,6 +75,17 @@ checked hosts.<name>.wait_timeout_seconds
 checked impact.areas
 checked impact.migrations
 checked impact.next_steps
+checked kb.design_role
+checked kb.design_stale_commits
+checked kb.enabled
+checked kb.max_entries
+checked kb.max_entry_bytes
+checked kb.path
+checked kb.reuse_max_bytes
+checked kb.role
+checked kb.search_limit
+checked kb.stale_warn
+checked kb.ui_paths
 checked layout.min_pane_columns
 checked layout.min_pane_rows
 checked layout.pm_width_percent

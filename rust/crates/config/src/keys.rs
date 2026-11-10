@@ -31,7 +31,7 @@ pub const TOP_LEVEL_KEYS: &[&str] = &[
 ];
 /// Accepted at the top level but left out of the refusal text, which the frozen corpus pins.
 pub const UNPRINTED_TOP_LEVEL_KEYS: &[&str] = &[
-    "cleanup", "cache", "verify", "review", "design", "remote", "impact", "ntfy", "agents",
+    "cleanup", "cache", "verify", "review", "design", "remote", "impact", "ntfy", "agents", "kb",
 ];
 
 pub const PROJECT_KEYS: &[&str] = &["name"];
@@ -219,6 +219,19 @@ pub const VERIFY_KEYS: &[&str] = &[
     "scratch_dir",
 ];
 pub const AGENTS_KEYS: &[&str] = &["idle_release_minutes", "idle_release_warn_minutes"];
+pub const KB_KEYS: &[&str] = &[
+    "enabled",
+    "path",
+    "max_entry_bytes",
+    "max_entries",
+    "search_limit",
+    "reuse_max_bytes",
+    "stale_warn",
+    "ui_paths",
+    "design_stale_commits",
+    "role",
+    "design_role",
+];
 pub const REVIEW_KEYS: &[&str] = &[
     "warm_reviewer",
     "idle_minutes",
@@ -317,6 +330,7 @@ pub fn accepted_keys() -> Vec<KeyPath> {
     add("review", REVIEW_KEYS);
     add("agents", AGENTS_KEYS);
     add("design", DESIGN_KEYS);
+    add("kb", KB_KEYS);
     for kind in ROLE_KINDS {
         add(&format!("defaults.{kind}"), DEFAULTS_ROLE_KEYS);
     }

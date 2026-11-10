@@ -597,9 +597,30 @@ pub fn build_role_prompt(input: &PromptInput) -> Result<String, PromptTooLarge> 
 #[cfg(test)]
 mod tests {
     use super::{
-        fill, ARCHITECT_FINISH_RULES, ARCHITECT_REFERENCE, PM_OPERATOR_SECTION, PM_REFERENCE,
-        PM_RESEARCH_SECTION, RESEARCHER_REFERENCE, VERIFIER_REFERENCE, WORKER_REFERENCE,
+        fill, ARCHITECT_FINISH_RULES, ARCHITECT_REFERENCE, DEVELOPER_FINISH_RULES,
+        PM_OPERATOR_SECTION, PM_REFERENCE, PM_RESEARCH_SECTION, RESEARCHER_REFERENCE,
+        VERIFIER_REFERENCE, WORKER_REFERENCE,
     };
+
+    #[test]
+    fn prompts_send_roles_to_the_knowledge_base() {
+        for needle in [
+            "read the Reuse section of your work package (if any), run `cstan kb search <words>` and search the code for an existing one; extend what exists when it fits",
+            "add an entry with `cstan kb add` and commit it with your change",
+            "Your report summary ends with Reused: <names> and New: <names> (why nothing existing fit).",
+        ] {
+            assert!(DEVELOPER_FINISH_RULES.contains(needle), "developer: {needle}");
+        }
+        assert!(ARCHITECT_REFERENCE.contains(
+            "run `cstan kb for <owned paths>` and `cstan kb search` for each package and name in its interfaces what it must reuse; the controller attaches the package's own entries as a Reuse section."
+        ));
+        assert!(VERIFIER_REFERENCE.contains(
+            "Flag as a finding any new helper, function or component that duplicates an entry of the work package's Reuse section or of `cstan kb search`, naming both; flag a new reusable item with no kb entry when the project has a knowledge base."
+        ));
+        assert!(PM_REFERENCE.contains(
+            "A warning that starts with `kb:` or `design record:` is advice, not a refusal: run the next step it names (`cstan kb build` or `refresh`, spawn the named role and send it the brief), or go on when the work does not need it."
+        ));
+    }
 
     #[test]
     fn verifier_reference_asks_for_an_exhaustive_plan_review() {
@@ -716,7 +737,7 @@ mod tests {
         assert!(ARCHITECT_FINISH_RULES.contains("You commit only files in your write folders"));
         assert!(!ARCHITECT_FINISH_RULES.contains("You make no commits"));
         assert!(VERIFIER_REFERENCE.contains(
-            "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan inspect <review-id>."
+            "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan review show <review-id>."
         ));
         assert!(RESEARCHER_REFERENCE.contains(
             "cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit"

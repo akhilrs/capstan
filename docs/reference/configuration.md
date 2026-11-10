@@ -162,6 +162,17 @@ Defaults and ranges of keys the starter does not show:
 | `[timers] pm_wake_interval_seconds` | 120 | 10 to 3600. |
 | `[agents] idle_release_minutes` | 120 | `0`, or 15 to 10080. Minutes an agent may sit idle before it is released; `0` turns automatic release off. See [Agents](#agents) and [Idle release](workflow.md#idle-release). |
 | `[agents] idle_release_warn_minutes` | 10 | 1 to 60, and less than `idle_release_minutes`. Minutes before the release at which the PM is warned. |
+| `[kb] enabled` | true | Turns the knowledge base off with `false`. The `[kb]` table is opt-in; without it nothing changes. |
+| `[kb] path` | `docs/capstan/kb.jsonl` | `path`: a repo-relative entries file: no leading `/`, no `..`, at most 200 bytes. |
+| `[kb] max_entry_bytes` | 1200 | `max_entry_bytes`: 256 to 4000. The most bytes one entry line may have. |
+| `[kb] max_entries` | 2000 | `max_entries`: 1 to 10000. The most entries the file may hold. |
+| `[kb] search_limit` | 5 | `search_limit`: 1 to 20. The most entries one search returns. |
+| `[kb] reuse_max_bytes` | 1500 | `reuse_max_bytes`: 0 to 4000. The most bytes of entries attached to a task; `0` attaches nothing. |
+| `[kb] stale_warn` | 1 | `stale_warn`: 1 to 10000. Warn when stale plus missing entries reach this number. |
+| `[kb] ui_paths` | none | `ui_paths`: 0 to 32 path globs (the `[verify]` glob syntax) that mark interface files. |
+| `[kb] design_stale_commits` | 20 | `design_stale_commits`: 1 to 10000. Commits after which a design entry counts as stale. |
+| `[kb] role` | `docs-keeper` | A configured Developer role; checked only when written. |
+| `[kb] design_role` | `designer` | `design_role`: a configured Developer role; checked only when written and `[design]` is configured. |
 | `[supervision] enabled`, `check_seconds` | true, 300 | The controller keeps one Supervisor running while workers are active; a Supervisor is a Claude session and uses usage. |
 | `[roles.<name>] hooks` | none | `off` or `inherit`: whether the role runs your own Claude Code hooks (claude hosts only). |
 | `[roles.<name>] memory` | `true` on a PM (claude host) | PM only: the PM may create and edit files in its own Claude Code memory folder, `<claude config dir>/projects/<slug>/memory/` (`MEMORY.md` included; `<slug>` is the project's real path with every character that is not a letter or digit turned into `-`; the config dir is `$CLAUDE_CONFIG_DIR` or `~/.claude`). Set `false` for the full `Write`/`Edit` deny. |
@@ -265,7 +276,7 @@ Sizes in bytes. A text over its limit is refused with the limit in the message, 
 | Message to `@user` | 4096 | Refused. |
 | `cstan send --file` summary | 1000 | Refused. |
 | Review text (a verdict's findings) | 16000 | Refused with the length and "Keep each finding to one line that says what is wrong and where". Under the limit the text is stored whole, never cut. |
-| Review text quoted in a verdict notice | 4000 whole | Over 4000 the notice shows the first 3600 bytes and `[cut: showing <n> of <total> bytes; full text: cstan inspect <review-id>]`. |
+| Review text quoted in a verdict notice | 4000 whole | Over 4000 the notice shows the first 3600 bytes and `[cut: showing <n> of <total> bytes; full text: cstan review show <review-id>]`. |
 | One request or reply frame on the control socket | 65536 | Refused. |
 | Event feed text | 4096 | Cut. |
 
@@ -986,7 +997,7 @@ integration = false
 | `max_reviews` | 1 to 20. How many requests one reviewer answers before it is replaced by a fresh one. Default `6`: a long-lived reviewer's context fills with earlier verdicts, so a bound keeps its judgement of each commit independent. |
 | `integration` | `true` or `false`. Whether integration reviews may also reuse the plan's reviewer. Default `false`: an integration review should look at the merged result without the bias of the package reviews. |
 
-A reviewer's verdict text (the text of `cstan review pass|findings <text>`) is stored whole up to 16000 bytes, so a long review is not shortened; over that `cstan review` is refused and the reviewer shortens it. The verdict notice that reaches the architect quotes up to 4000 bytes and otherwise the first 3600 bytes with the full text's size and `cstan inspect <review-id>` to read it. See [Message and text limits](#message-and-text-limits).
+A reviewer's verdict text (the text of `cstan review pass|findings <text>`) is stored whole up to 16000 bytes, so a long review is not shortened; over that `cstan review` is refused and the reviewer shortens it. The verdict notice that reaches the architect quotes up to 4000 bytes and otherwise the first 3600 bytes with the full text's size and `cstan review show <review-id>` to read it. See [Message and text limits](#message-and-text-limits).
 
 Each request is its own task: the reviewer judges the commit it names, treats earlier verdicts as context only, and waits for the next request until the controller ends the session.
 
@@ -1004,6 +1015,32 @@ idle_release_warn_minutes = 10
 | --- | --- |
 | `idle_release_minutes` | `0`, or 15 to 10080. Minutes an agent may sit idle before it is released. Default `120`. `0` turns automatic release off. |
 | `idle_release_warn_minutes` | 1 to 60. Minutes before the release at which the PM is warned about the agent. Default `10`. Must be less than `idle_release_minutes` (not checked when release is off). |
+
+## Knowledge base (`[kb]`)
+
+The `[kb]` table turns on the project knowledge base: a committed file of short facts about your code that agents search before they write, with warnings when it is missing or old. See [Knowledge base](knowledge-base.md) for what it is and [Commands](commands.md#knowledge-base) for `cstan kb`. **Without a `[kb]` table nothing changes:** there is no index, no warning, no Reuse section, and `cstan kb` answers `kb: not configured; add a [kb] table to capstan.toml`. `enabled = false` does the same with the table kept. The starter file does not show it.
+
+```toml
+[kb]
+path = "docs/capstan/kb.jsonl"
+ui_paths = ["src/ui/**"]
+```
+
+| Key | Default | Range and meaning |
+| --- | --- | --- |
+| `enabled` | `true` | `false` turns the knowledge base off. |
+| `path` | `docs/capstan/kb.jsonl` | The entries file: repo-relative, no leading `/`, no `..` or empty segment, no backslash, at most 200 bytes, not a directory. |
+| `max_entry_bytes` | `1200` | 256 to 4000. The most bytes one entry line may have. |
+| `max_entries` | `2000` | 1 to 10000. The most entries the file may hold; `cstan kb add` refuses past it. |
+| `search_limit` | `5` | 1 to 20. The most entries one `cstan kb search` returns when `--limit` is not given. |
+| `reuse_max_bytes` | `1500` | 0 to 4000. The most bytes of entries appended as the Reuse section of a package assignment; `0` attaches nothing. |
+| `stale_warn` | `1` | 1 to 10000. The stale-entries warning is shown when stale plus missing entries reach this number. |
+| `ui_paths` | none | 0 to 32 path globs (the `[verify]` glob syntax), relative to the project root with `/` separators, each at most 200 bytes, no `..`, none repeated. They mark interface files; with none, there are no design-record warnings. |
+| `design_stale_commits` | `20` | 1 to 10000. Interface commits after which the design record counts as behind. |
+| `role` | `docs-keeper` | The Developer role `cstan kb build` and `refresh` name. Checked against your roles only when the key is written. |
+| `design_role` | `designer` | The Developer role `cstan kb build --design` and `refresh --design` name. Checked only when written and `[design]` is configured. |
+
+Unknown keys, values of the wrong type and out-of-range values are refused when the file is read. Every `[kb]` key is a checked key for [Trust](#trust): changing one after a pull asks you to run `cstan trust`.
 
 ## Write folders
 

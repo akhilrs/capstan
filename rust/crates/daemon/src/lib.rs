@@ -7,6 +7,7 @@ pub mod cli;
 pub mod deps;
 pub mod file_handoff;
 pub mod handlers;
+pub mod kb;
 pub mod loops;
 pub mod ntfy;
 pub mod ports;

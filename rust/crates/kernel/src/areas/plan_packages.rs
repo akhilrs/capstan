@@ -225,6 +225,21 @@ pub(crate) fn plan_packages(kernel: &Kernel, plan_id: &str) -> KernelResult<Vec<
     Ok(out)
 }
 
+/// The Reuse section the daemon asks to append: `reuse` (the lines) and `reuseAt` (the commit the index was built at).
+fn reuse_section(input: &Value) -> Option<String> {
+    let lines = input.get("reuse").and_then(Value::as_str)?;
+    if lines.is_empty() {
+        return None;
+    }
+    let at = match input.get("reuseAt").and_then(Value::as_str) {
+        Some(sha) if !sha.is_empty() => format!(" at {sha}"),
+        _ => String::new(),
+    };
+    Some(format!(
+        "\n\nReuse (knowledge base{at}; check these, cstan kb search and a symbol search before writing a new helper or component; report Reused and New):\n{lines}"
+    ))
+}
+
 /// `assignPackage`.
 pub fn assign_package(
     kernel: &Kernel,
@@ -389,7 +404,13 @@ pub fn assign_package(
                 }
             }
         }
-        let task = work_package_message(plan_id, package_id, architect, &view, &unmet);
+        let mut task = work_package_message(plan_id, package_id, architect, &view, &unmet);
+        if let Some(section) = reuse_section(input) {
+            // The section is dropped, never the assignment, when it would not fit.
+            if task.len() + section.len() <= MAX_MESSAGE_BYTES {
+                task.push_str(&section);
+            }
+        }
         if task.len() > MAX_MESSAGE_BYTES {
             return Err(KernelError::controller(format!(
                 "package {package_id} is too large to send as one message"

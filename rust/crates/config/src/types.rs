@@ -646,6 +646,8 @@ pub struct RoleConfig {
     pub review: crate::review::Review,
     /// The `[agents]` section; `Agents::default()` when it is absent. Never printed.
     pub agents: crate::agents::Agents,
+    /// The `[kb]` section; `None` when it is absent.
+    pub kb: Option<crate::kb::KbConfig>,
     pub env_pass: Vec<String>,
     pub hosts: Vec<Host>,
     pub roles: Vec<Role>,

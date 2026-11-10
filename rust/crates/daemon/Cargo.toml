@@ -37,9 +37,9 @@ getrandom = "=0.4.3"
 base64 = "=0.22.1"
 unicode-segmentation = "=1.13.3"
 unicode-normalization = { version = "=0.1.25", default-features = false }
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
 
 [dev-dependencies]
 capstan-testkit = { path = "../testkit" }
 tempfile = "=3.27.0"
 capstan-client = { path = "../client" }
-rusqlite = "=0.40.2"
