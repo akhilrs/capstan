@@ -287,6 +287,28 @@ impl ReleaseResult {
     }
 }
 
+/// `repo_add`: the worktree a worker got in one more repo.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoAddResult {
+    pub agent_id: String,
+    pub repo: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub base_sha: String,
+}
+
+impl RepoAddResult {
+    pub fn to_value(&self) -> Value {
+        json!({
+            "agentId": self.agent_id,
+            "repo": self.repo,
+            "worktreePath": self.worktree_path,
+            "branch": self.branch,
+            "baseSha": self.base_sha,
+        })
+    }
+}
+
 /// `RetargetResult`: where an active reviewer's worktree was moved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetargetResult {
@@ -461,6 +483,16 @@ pub trait LauncherService: Send + Sync {
     ) -> LauncherResult<BranchRenameResult>;
     /// Ends a worker and frees its pane, worktree and, without commits, its branch.
     fn release(&self, agent_id: &str) -> LauncherResult<ReleaseResult>;
+    /// Adds a worktree for `agent_id` in the repo `repo` on its branch, records it and runs the repo's setup; all or
+    /// nothing. Refuses with `not_workspace`, `not_a_worker`, `unknown_repo`, `not_in_package`, `already_added`,
+    /// `branch_taken`, `repo_unusable` or `setup_failed`.
+    fn repo_add(&self, agent_id: &str, repo: &str) -> LauncherResult<RepoAddResult> {
+        let _ = repo;
+        Err(LauncherError::new(
+            "not_supported",
+            format!("this launcher cannot add a repo for {agent_id}"),
+        ))
+    }
     /// Moves an idle reviewer's worktree to `commit_sha` (its branch follows, its pane and session stay), so the next
     /// review reuses the agent instead of spawning a fresh one. Refuses with `unknown_agent`, `not_reviewer`, `no_worktree`,
     /// `worktree_dirty` (a staged or unstaged change to a tracked file; untracked files never block) or `commit_missing`,

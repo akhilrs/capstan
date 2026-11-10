@@ -80,6 +80,7 @@ pub const ENTRIES: &[Entry] = &[
     e(MESSAGING, "resolve", "resolve <message-id> retry|skip|cancel [<note>]", "Settle a blocked message."),
     e(WORKERS, "spawn", "spawn <role> [--task <plan-id>/<package-id> | --task <requirement-ref-id>] [--type <type>] [--title <text>] [--model <id>] [--plan <plan-id>]", "Start a worker of a role; --task names its branch after the task, --model picks its model, --plan applies that plan's model override (not with --task)."),
     e(WORKERS, "release", "release <agent-id>", "End a worker and free its pane and worktree."),
+    e(WORKERS, "repo", "repo add <repo>", "Add a worktree in one more repo to your change, on your branch (workers only)."),
     e(WORKERS, "replace", "replace <agent-id>", "Replace a lost or stuck worker with a new one."),
     e(REVIEW, "request-review", "request-review <report-or-integration-id> [role]", "Start an independent review of a report or an integration."),
     e(REVIEW, "review", "review pass|findings <text>", "Reviewer: answer the review request once."),

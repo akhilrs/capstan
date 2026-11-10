@@ -8,8 +8,8 @@
 
 use crate::api::{
     AnswerPromptRequest, BranchRenameResult, LaunchResult, LauncherResult, LauncherService,
-    LauncherStatus, ObserveResult, ReleaseResult, ReplaceResult, RetargetResult, SetupOutcome,
-    SpawnOptions, SpawnResult, CLEANUP_BUDGET_MS,
+    LauncherStatus, ObserveResult, ReleaseResult, ReplaceResult, RepoAddResult, RetargetResult,
+    SetupOutcome, SpawnOptions, SpawnResult, CLEANUP_BUDGET_MS,
 };
 use crate::kernel::LauncherKernel;
 use crate::shared::LauncherOptions;
@@ -56,6 +56,10 @@ impl LauncherService for Launcher {
 
     fn release(&self, agent_id: &str) -> LauncherResult<ReleaseResult> {
         Ok(self.kernel.release(agent_id)?)
+    }
+
+    fn repo_add(&self, agent_id: &str, repo: &str) -> LauncherResult<RepoAddResult> {
+        Ok(self.kernel.repo_add(agent_id, repo)?)
     }
 
     fn retarget_review(
