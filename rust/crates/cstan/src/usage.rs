@@ -81,6 +81,7 @@ pub const ENTRIES: &[Entry] = &[
     e(WORKERS, "replace", "replace <agent-id>", "Replace a lost or stuck worker with a new one."),
     e(REVIEW, "request-review", "request-review <report-or-integration-id> [role]", "Start an independent review of a report or an integration."),
     e(REVIEW, "review", "review pass|findings <text>", "Reviewer: answer the review request once."),
+    e(REVIEW, "review", "review show <review-id> [--json]", "Print the full stored verdict text of a review, with its subject, state, reviewer and commit (PM, operator, the reviewer, the author of the reviewed work and the architect of its plan)."),
     e(REVIEW, "integrate", "integrate <report-id>...", "Squash reviewed reports onto an integration branch."),
     e(REVIEW, "integrate", "integrate confirm|discard <integration-id>", "Keep a reviewed integration, or throw it away."),
     e(PLANS, "plan", "plan open normal|high-risk <title> [<superseded-plan-id>] [--model <id>] [--model <Kind>=<id>]...", "Open a plan, optionally superseding an earlier one, with a model override for all kinds or for Developer, Verifier or Supervisor."),

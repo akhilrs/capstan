@@ -323,7 +323,7 @@ fn an_over_long_text_is_refused_and_the_review_stays_open_for_a_shorter_answer()
     let id = done["reviewId"].as_str().unwrap();
     let notice = w.drain("pm-1").join("\n");
     assert!(
-        notice.contains(&format!("full text: cstan inspect {id}]")),
+        notice.contains(&format!("full text: cstan review show {id}]")),
         "{notice}"
     );
     assert!(notice.contains("showing 3600 of 5000 bytes"), "{notice}");
@@ -355,4 +355,39 @@ fn plan_findings_over_the_notice_limit_are_read_in_full() {
         )
         .unwrap();
     assert_eq!(class, "design");
+}
+
+#[test]
+fn review_show_gives_the_full_text_to_allowed_callers_and_refuses_the_rest() {
+    let w = World::new("", false);
+    w.plan();
+    let (report, sha) = w.report("dev-1");
+    w.script_spawn("rev-1");
+    w.ok("pm-1", "request-review", &[&report]);
+    w.drain("pm-1");
+    let text = format!("{}\n{}", "a".repeat(4499), "b".repeat(4500));
+    assert_eq!(text.len(), 9000);
+    let done = w.ok("rev-1", "review", &["findings", &text]);
+    let id = done["reviewId"].as_str().unwrap().to_string();
+
+    for who in ["pm-1", "operator", "rev-1", "dev-1", "arch-1"] {
+        let shown = w.ok(who, "review-show", &[&id]);
+        assert_eq!(shown["text"], text, "{who}");
+        assert_eq!(shown["reviewId"], id.as_str(), "{who}");
+        assert_eq!(shown["subjectId"], report.as_str(), "{who}");
+        assert_eq!(shown["state"], "findings", "{who}");
+        assert_eq!(shown["reviewerAgentId"], "rev-1", "{who}");
+        assert_eq!(shown["commitSha"], sha.as_str(), "{who}");
+    }
+    // A unique prefix of the id works as everywhere else.
+    let shown = w.ok("dev-1", "review-show", &[&id[..8]]);
+    assert_eq!(shown["text"], text);
+
+    let refusal = w.refused("dev-2", "review-show", &[&id]);
+    assert!(
+        refusal.contains("only the PM, the operator, the reviewer"),
+        "{refusal}"
+    );
+    let missing = w.refused("pm-1", "review-show", &["rev-nope-0000"]);
+    assert!(missing.contains("there is no review"), "{missing}");
 }

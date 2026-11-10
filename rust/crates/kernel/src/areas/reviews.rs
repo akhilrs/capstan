@@ -784,14 +784,9 @@ fn review_author_ids(kernel: &Kernel, row: &ReviewRow) -> KernelResult<Vec<Strin
     }
 }
 
-/// The active architect that now owns the plan a review belongs to, when exactly one plan (not superseded, not cancelled)
-/// is found and its architect is active and is not the requester. A plan review finds its plan directly; a package report
-/// or an integration finds it through the reports' authors and their package assignments.
-fn current_architect_of(
-    kernel: &Kernel,
-    row: &ReviewRow,
-    requester_id: &str,
-) -> KernelResult<Option<AgentRow>> {
+/// The architects of the plans a review belongs to (plans not superseded, not cancelled): a plan review finds its plan
+/// directly; a package report or an integration finds it through the reports' authors and their package assignments.
+fn owning_architect_ids(kernel: &Kernel, row: &ReviewRow) -> KernelResult<Vec<String>> {
     let mut architects: Vec<String> = Vec::new();
     let mut collect = |found: Vec<String>| {
         for id in found {
@@ -830,6 +825,17 @@ fn current_architect_of(
             )?);
         }
     }
+    Ok(architects)
+}
+
+/// The active architect that now owns the plan a review belongs to, when exactly one plan (not superseded, not cancelled)
+/// is found and its architect is active and is not the requester.
+fn current_architect_of(
+    kernel: &Kernel,
+    row: &ReviewRow,
+    requester_id: &str,
+) -> KernelResult<Option<AgentRow>> {
+    let architects = owning_architect_ids(kernel, row)?;
     let [architect_id] = architects.as_slice() else {
         return Ok(None);
     };
@@ -953,6 +959,47 @@ pub fn announce_review(
     )
 }
 
+/// `reviewShow`: the stored review for a caller the daemon has identified. The PM and the operator (`privileged`), the
+/// review's reviewer, the author of the reviewed report and the architect owning the plan may read it; anyone else is
+/// refused. The verdict text comes back whole.
+pub fn review_show(
+    kernel: &Kernel,
+    review_id: &str,
+    caller_agent_id: Option<&str>,
+    privileged: bool,
+) -> KernelResult<Value> {
+    let Some(row) = review_by_id(kernel, review_id)? else {
+        return Err(KernelError::controller(format!(
+            "there is no review {review_id}"
+        )));
+    };
+    let allowed = privileged
+        || caller_agent_id.is_some_and(|caller| {
+            row.reviewer_agent_id == caller
+                || review_author_ids(kernel, &row)
+                    .is_ok_and(|authors| authors.iter().any(|a| a == caller))
+                || owning_architect_ids(kernel, &row).is_ok_and(|a| a.iter().any(|a| a == caller))
+        });
+    if !allowed {
+        return Err(KernelError::controller(
+            "only the PM, the operator, the reviewer, the author of the reviewed work or the architect of its plan may read a review",
+        ));
+    }
+    let subject = row
+        .subject_report_id
+        .as_deref()
+        .or(row.subject_integration_id.as_deref())
+        .or(row.subject_plan_id.as_deref());
+    Ok(json!({
+        "reviewId": row.review_id,
+        "subjectId": subject,
+        "state": row.state,
+        "reviewerAgentId": row.reviewer_agent_id,
+        "commitSha": row.commit_sha,
+        "text": row.verdict_text,
+    }))
+}
+
 /// `reviews`.
 pub fn reviews(kernel: &Kernel, credential: &str, limit: Option<i64>) -> KernelResult<Value> {
     kernel.authorize(credential, "controller:reconcile")?;
@@ -1017,6 +1064,12 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
             let credential = arg!(a.str(0, "credential"));
             let limit = arg!(a.opt_i64(1, "limit"));
             Some(call(reviews(kernel, credential, limit)))
+        }
+        "reviewShow" => {
+            let review_id = arg!(a.str(0, "reviewId"));
+            let caller = arg!(a.opt_str(1, "callerAgentId"));
+            let privileged = a.value(2).as_bool().unwrap_or(false);
+            Some(call(review_show(kernel, review_id, caller, privileged)))
         }
         "reviewsToRelease" => {
             let credential = arg!(a.str(0, "credential"));

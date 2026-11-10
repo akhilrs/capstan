@@ -59,6 +59,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("verify", Access::Any),
     ("design", Access::Any),
     ("notify", Access::Operator),
+    ("review-show", Access::Any),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -629,6 +630,12 @@ fn handle_wire(
         }
     } else if !json && command == "verify" {
         for line in render::verify_lines(view.verify_sub, result, now_ms) {
+            text(stdout, &JsStr::from(line.as_str()));
+        }
+    } else if let (false, "review-show", Some(lines)) =
+        (json, command, render::review_show_lines(result))
+    {
+        for line in lines {
             text(stdout, &JsStr::from(line.as_str()));
         }
     } else if !json && command == "cache" {

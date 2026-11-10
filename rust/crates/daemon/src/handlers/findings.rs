@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 pub fn register(map: &mut HandlerMap) {
     map.insert("finding", finding);
     map.insert("review", review);
+    map.insert("review-show", review_show);
 }
 
 fn field(value: &Value, key: &str) -> Value {
@@ -189,6 +190,41 @@ fn review(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
                 "announced": !field(&review, "notifiedMessageId").is_null(),
             }))
         }
+        Err(error) if error.is_controller_error() => fail(
+            ErrorCode::Rejected,
+            format!("review_refused: {}", error.message()),
+        ),
+        Err(error) => map_kernel_error(&error),
+    })
+}
+
+/// `review-show <review-id>`: the stored review whole, for the PM, the operator, its reviewer, the author of the reviewed
+/// work and the architect of its plan (the kernel decides who).
+fn review_show(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
+    let [review_id] = call.args else {
+        return Some(fail(
+            ErrorCode::InvalidRequest,
+            "review show needs a review id",
+        ));
+    };
+    let privileged = env.worker_manager(call.identity).is_some();
+    let caller = env
+        .agent_of(call.identity)
+        .filter(|agent| agent.state == "active")
+        .map(|agent| agent.agent_id.clone());
+    if !privileged && caller.is_none() {
+        return Some(fail(
+            ErrorCode::Forbidden,
+            "only the PM, the operator, the reviewer, the author of the reviewed work or the architect of its plan may read a review",
+        ));
+    }
+    let review_id = review_id.clone();
+    let shown = env
+        .deps
+        .kernel
+        .run(move |core| core.review_show(&review_id, caller.as_deref(), privileged));
+    Some(match shown {
+        Ok(review) => ok(review),
         Err(error) if error.is_controller_error() => fail(
             ErrorCode::Rejected,
             format!("review_refused: {}", error.message()),

@@ -368,6 +368,16 @@ impl Core {
         reviews::reviews(&self.kernel, credential, limit)
     }
 
+    /// `reviewShow`: a stored review for an identified caller.
+    pub fn review_show(
+        &self,
+        review_id: &str,
+        caller_agent_id: Option<&str>,
+        privileged: bool,
+    ) -> KernelResult<Value> {
+        reviews::review_show(&self.kernel, review_id, caller_agent_id, privileged)
+    }
+
     /// `ControllerCore.reviewsToRelease`.
     pub fn reviews_to_release(&self, credential: &str) -> KernelResult<Value> {
         reviews::reviews_to_release(&self.kernel, credential)

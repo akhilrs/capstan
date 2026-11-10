@@ -19,12 +19,14 @@ const RELAYS: &[IdColumn] = &[("prompt_relays", "relay_id")];
 const PROPOSALS: &[IdColumn] = &[("operator_proposals", "proposal_id")];
 const GRANTS: &[IdColumn] = &[("operator_grants", "grant_id")];
 const CLEANUPS: &[IdColumn] = &[("cleanups", "cleanup_id")];
+const REVIEWS: &[IdColumn] = &[("reviews", "review_id")];
 const RUNS: &[IdColumn] = &[("verify_runs", "run_id")];
 
 /// The arguments of `command` that hold record ids, with the tables each may name.
 fn id_arguments(command: &str, args: &[String]) -> Vec<(usize, &'static [IdColumn])> {
     let sub = args.first().map(String::as_str);
     match (command, sub) {
+        ("review-show", _) => vec![(0, REVIEWS)],
         ("ack", _) => (0..args.len()).map(|i| (i, MESSAGES)).collect(),
         ("resolve" | "cancel", _) => vec![(0, MESSAGES)],
         ("request-review", _) => vec![(0, REPORT_OR_INTEGRATION)],

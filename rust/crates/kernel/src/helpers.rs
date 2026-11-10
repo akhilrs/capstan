@@ -1061,7 +1061,7 @@ fn review_text_notice(review_id: &str, text: &str) -> String {
     }
     let shown = text[..end].trim_end_matches(is_js_space);
     format!(
-        "{} [cut: showing {} of {} bytes; full text: cstan inspect {review_id}]",
+        "{} [cut: showing {} of {} bytes; full text: cstan review show {review_id}]",
         quoted(shown),
         shown.len(),
         text.len()

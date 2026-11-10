@@ -1,5 +1,5 @@
 //! A reviewer's text is stored whole (up to MAX_REVIEW_TEXT_BYTES); the verdict notice quotes a long one cut, with a
-//! pointer to `cstan inspect <review-id>`.
+//! pointer to `cstan review show <review-id>`.
 
 mod common;
 #[path = "rust_only/fixture.rs"]
@@ -112,7 +112,7 @@ fn a_long_text_is_stored_whole_and_the_notice_points_at_it() {
 
     let body = notice(&r.f, id);
     let shown = json!(&text[..3600]).to_string();
-    let marker = format!(" [cut: showing 3600 of 9000 bytes; full text: cstan inspect {id}]");
+    let marker = format!(" [cut: showing 3600 of 9000 bytes; full text: cstan review show {id}]");
     assert!(
         body.ends_with(&format!("{shown}{marker}")),
         "{}",

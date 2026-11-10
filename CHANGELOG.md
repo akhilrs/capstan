@@ -7,7 +7,8 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 ### Features
 
 - feat: file handover. `cstan send <recipient> --file <path> [--summary <text>]` hands over a file committed on the sender's branch by reference (path, branch, commit, size, summary; read with `git show <commit>:<path>`), and `[messages] max_body_bytes` (default 4096, 512 to 15360) sets the longest body of a plain `cstan send`; a longer one is refused with a hint to use `--file`.
-- feat: review text is stored whole up to 16000 bytes (it was cut at 4000); a verdict notice over 4000 bytes quotes the first 3600 and points to `cstan inspect <review-id>`.
+- feat: review text is stored whole up to 16000 bytes (it was cut at 4000); a verdict notice over 4000 bytes quotes the first 3600 and points to a full-text command.
+- feat: `cstan review show <review-id>` prints the full stored review text with its subject, state, reviewer and commit, from any agent's worktree, for the PM, the operator, the reviewer, the reviewed work's author and the plan's architect; the cut verdict notice now points to it.
 - feat: write folders. `[roles.<name>] write_dirs` lets a Developer role on a claude host write in listed folders although `Write` and `Edit` are denied, enforced by a fail-closed `cstan guard-write --dirs` hook. No role has it unless the file lists it; the starter architect gets `docs/architecture` and `docs/research`.
 - feat: automatic release of idle workers. `[agents] idle_release_minutes` (default 120, `0` = off, 15 to 10080) and `idle_release_warn_minutes` (default 10, 1 to 60) set when an idle Developer or Verifier with no open work is released after a warning to the PM; builds and other tool processes count as activity. `cstan keep <agent-id> [<hours>]` (PM or operator; default 24, 1 to 168, `0` clears) keeps a worker, and `cstan status` shows `idleSince`, `warnedAt`, `autoReleaseAt`, `keptUntil` and `openWork`.
 

@@ -368,6 +368,26 @@ fn cleanup_group(lines: &mut Vec<String>, title: &str, entries: &[Value]) {
     }
 }
 
+/// What `cstan review show` prints (without `--json`): a short header, a blank line and the verdict text whole.
+pub fn review_show_lines(result: Option<&Value>) -> Option<Vec<String>> {
+    let result = result?;
+    result.get("reviewId")?;
+    let field = |key: &str| text_of(result.get(key)).unwrap_or_default();
+    let mut lines = vec![
+        format!("Review: {}", field("reviewId")),
+        format!("Subject: {}", field("subjectId")),
+        format!("State: {}", field("state")),
+        format!("Reviewer: {}", field("reviewerAgentId")),
+        format!("Commit: {}", field("commitSha")),
+        String::new(),
+    ];
+    match text_of(result.get("text")) {
+        Some(body) => lines.extend(body.split('\n').map(str::to_string)),
+        None => lines.push("(no verdict text yet)".to_string()),
+    }
+    Some(lines)
+}
+
 /// What `cstan cleanup` prints (without `--json`) for the daemon's answer: the dry-run groups, an offer, what an apply
 /// deleted and skipped with the commands that bring the branches back, or the decline.
 pub fn cleanup_lines(result: Option<&Value>) -> Vec<String> {

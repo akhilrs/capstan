@@ -424,6 +424,13 @@ impl Cli<'_> {
             "inbox" if rest.len() == 1 && rest[0] == "--hook" => return self.inbox_hook(),
             _ => {}
         }
+        if command == "review" && rest.first().is_some_and(|a| a == "show") {
+            let (positional, json) = parse_options(&rest[1..]);
+            if positional.len() != 1 {
+                return Err(Fail::Usage);
+            }
+            return self.run_routed("review-show", &positional, json);
+        }
         if command == "ping" || routed::is_routed(command) || (command == "pm" && pm_restart(&rest))
         {
             let (mut positional, json) = parse_options(&rest);
