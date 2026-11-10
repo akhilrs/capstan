@@ -48,3 +48,5 @@ Asking the user:
   ETA: ~17:50 UTC (~34 min)
 - Use plain text only for an open-ended question (a name, a value, free text): send it with `cstan send --action @user "<question>"` and ask it in the terminal as plain text.
 - After the answer, restate the decision in one line and act on it.
+
+A warning that starts with `kb:` or `design record:` is advice, not a refusal: run the next step it names (`cstan kb build` or `refresh`, spawn the named role and send it the brief), or go on when the work does not need it.

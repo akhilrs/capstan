@@ -260,9 +260,44 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
         plan: get(&named, "plan"),
         ..SpawnOptions::default()
     };
+    // The warnings of the knowledge base; a task naming a package also checks the UI paths it owns.
+    let (task_plan, task_package) = match get(&named, "task")
+        .as_deref()
+        .and_then(|t| t.split_once('/'))
+    {
+        Some((plan, package)) => (Some(plan.to_string()), Some(package.to_string())),
+        None => (None, None),
+    };
+    let ui_owns =
+        match (&task_plan, &task_package) {
+            (Some(plan), Some(package)) => {
+                super::plans::package_owns(env, call.credential, plan, package)
+                    .map(|(owns, design)| if design { vec!["*".to_string()] } else { owns })
+            }
+            _ => None,
+        };
+    let kb = super::plans::kb_warnings(
+        env,
+        ui_owns.as_deref(),
+        task_plan.as_deref(),
+        task_package.as_deref(),
+    );
     Some(
         match crate::warm::spawn_with_eviction(env.deps, launcher, role_name, &options) {
-            Ok(result) => ok(result.to_value()),
+            Ok(result) => {
+                let mut value = result.to_value();
+                if !kb.is_empty() {
+                    if let Some(map) = value.as_object_mut() {
+                        let mut texts: Vec<String> = Vec::new();
+                        if let Some(existing) = map.get("warning").and_then(Value::as_str) {
+                            texts.push(existing.to_string());
+                        }
+                        texts.extend(kb);
+                        map.insert("warning".into(), json!(texts.join("; ")));
+                    }
+                }
+                ok(value)
+            }
             Err(error) => map_error(&HandlerError::from(error)),
         },
     )

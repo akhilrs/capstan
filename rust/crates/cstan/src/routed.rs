@@ -60,6 +60,7 @@ const ROUTED: &[(&str, Access)] = &[
     ("design", Access::Any),
     ("notify", Access::Operator),
     ("review-show", Access::Any),
+    ("kb", Access::Any),
 ];
 
 pub fn is_routed(command: &str) -> bool {
@@ -83,6 +84,7 @@ fn client_timeout_ms(command: &str) -> u64 {
         "wait" => WAIT_SECONDS * 1000,
         "cleanup" => 120_000,
         "cache" => 600_000,
+        "kb" => 60_000,
         // The daemon's own limit for a test send (70 s) is behind this; the longest send is 60 s plus its kill grace.
         "notify" => 65_000,
         "replace" => 1_800_000,
@@ -638,6 +640,8 @@ fn handle_wire(
         for line in lines {
             text(stdout, &JsStr::from(line.as_str()));
         }
+    } else if command == "kb" && crate::kb::printable(result) {
+        code = crate::kb::print(result, json, stdout, stderr);
     } else if !json && command == "cache" {
         for line in render::cache_lines(result, now_ms) {
             text(stdout, &JsStr::from(line.as_str()));

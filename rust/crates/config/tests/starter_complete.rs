@@ -311,6 +311,7 @@ fn the_registry_equals_the_lists_the_parser_prints() {
         ("", "[review]", REVIEW_KEYS.join(", ")),
         ("", "[agents]", AGENTS_KEYS.join(", ")),
         ("", "[design]", DESIGN_KEYS.join(", ")),
+        ("", "[kb]", KB_KEYS.join(", ")),
     ];
     for (before, header, expected) in cases {
         assert_eq!(allowed(before, header), expected, "{header}");
@@ -429,6 +430,7 @@ fn slices() -> Vec<(&'static str, &'static [&'static str], Vec<String>)> {
         ("REVIEW_KEYS", REVIEW_KEYS, s("review")),
         ("AGENTS_KEYS", AGENTS_KEYS, s("agents")),
         ("DESIGN_KEYS", DESIGN_KEYS, s("design")),
+        ("KB_KEYS", KB_KEYS, s("kb")),
     ]
 }
 

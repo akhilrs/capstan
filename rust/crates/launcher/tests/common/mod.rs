@@ -104,11 +104,13 @@ fn is_pm_prompt(text: &str) -> bool {
 
 const RUST_ONLY_OPERATOR_SENTENCE: &str = "To restart the controller always use the restart form: a command that runs `cstan stop` or `cstan restart` is refused, because the controller that runs the command would stop itself and the rest of the command would never run. ";
 
-const RUST_ONLY_HANDOVER: [&str; 4] = [
+const RUST_ONLY_HANDOVER: [&str; 5] = [
     "- `cstan send @pm --file <path> --summary \"<text>\"` hands over a file you committed on your branch; the PM reads it with git show only if it needs to.\n",
     "A message is at most 4 KB by default ([messages] max_body_bytes). Write anything longer (research, design notes, analyses, logs) to a file in your worktree, commit it on your branch and send its path with --file and a one-line summary; never paste a long document into a message.\n",
-    "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan inspect <review-id>. ",
+    "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan review show <review-id>. ",
     " Also send the PM `cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit and next to the report command; the report text never goes in a message.",
+    // The plan-177 kb sentence of the developer prompt (the line break before it goes with it).
+    "\nBefore you write a new helper, function or component, read the Reuse section of your work package (if any), run `cstan kb search <words>` and search the code for an existing one; extend what exists when it fits. When you add something others should reuse, add an entry with `cstan kb add` and commit it with your change. Your report summary ends with Reused: <names> and New: <names> (why nothing existing fit).",
 ];
 
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and
@@ -490,6 +492,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             ..capstan_config::Review::default()
         },
         agents: Default::default(),
+        kb: None,
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

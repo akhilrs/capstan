@@ -40,6 +40,7 @@ const RELAY: &str = "Prompt relay";
 const OPERATOR: &str = "Operator";
 const CACHE: &str = "Tool caches";
 const PUSH: &str = "Push notifications";
+const KB: &str = "Knowledge base";
 
 /// Every command, in the order `cstan help` lists them. The groups run together.
 pub const ENTRIES: &[Entry] = &[
@@ -132,6 +133,15 @@ pub const ENTRIES: &[Entry] = &[
     e(CACHE, "cache", "cache prune [<entry>...] [--dry-run]", "Run the tools' prune commands and the age and size limits; entries are removed only while no agent worktree exists. --dry-run lists what would happen and changes nothing (PM and operator)."),
     e(CACHE, "cache", "cache clear <entry>...|--all [--force]", "Remove cache entries (setup/<key> names one setup snapshot). Refused while agents have worktrees, and for scope user, unless --force (PM and operator)."),
     e(PUSH, "notify", "notify test [--json]", "Send one test notification through the [ntfy] section and print how it went; exit 1 when it failed. Needs the controller (operator only)."),
+    e(KB, "kb", "kb search <words...> [--limit <n>] [--json]", "Search the knowledge base for entries that match any word, best first; prints id, kind, title and path per hit with the start of the body. Needs [kb] in capstan.toml."),
+    e(KB, "kb", "kb for <path>... [--json]", "List the entries that cover a path, a directory of it or a file under it, then the entries that name it in related."),
+    e(KB, "kb", "kb uses <id-or-path> [--json]", "List the entries that depend on an entry or a path through related, up to three links deep."),
+    e(KB, "kb", "kb status [--json]", "Show the entry count, stale and missing entries, invalid lines and the search counts of the last 30 days."),
+    e(KB, "kb", "kb build [--design]", "Print the brief for the agent that builds the knowledge base (--design: the design record) and the spawn command to run it."),
+    e(KB, "kb", "kb refresh [--design]", "Print the brief that lists the stale and missing entries for an agent to re-check, update or remove."),
+    e(KB, "kb", "kb add --id <id> --kind <kind> --title <t> --body <b> [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--force]", "Add an entry to the entries file of this working tree, in id order, stamped with its HEAD. Refused for an id in the file or at HEAD, an entry that breaks a field rule and a similar entry unless --force. Does not commit."),
+    e(KB, "kb", "kb update <id> [--kind <kind>] [--title <t>] [--body <b>] [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--verified]", "Change the named fields of an entry in this working tree and stamp it with HEAD; --verified only re-stamps it. Does not commit."),
+    e(KB, "kb", "kb remove <id>", "Remove an entry from the entries file of this working tree. Does not commit."),
 ];
 
 /// What `cstan herdr-config` prints.

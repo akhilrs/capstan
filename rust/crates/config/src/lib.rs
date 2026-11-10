@@ -15,6 +15,7 @@ mod error;
 mod git_track;
 pub mod impact;
 mod json;
+pub mod kb;
 pub mod keys;
 pub mod model_fit;
 pub mod ntfy;
@@ -49,6 +50,7 @@ pub use git_track::local_file_tracking_with;
 pub use git_track::Tracking as LocalTracking;
 pub use impact::{ImpactConfig, NextStep};
 pub use json::{digest_json, sha256};
+pub use kb::{Entry as KbEntry, KbConfig, Kind as KbKind};
 pub use keys::{accepted_keys, KeyPath};
 pub use model_fit::{
     check_model_value, fit_for_role, model_fits_host, MODEL_FAMILIES, MULTI_PROVIDER_HOSTS,

@@ -172,7 +172,71 @@ fn open(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outcom
     if !warnings.is_empty() {
         result.insert("warnings".into(), json!(warnings));
     }
+    let kb = kb_warnings(env, None, Some(&plan_id_of(&plan)), None);
+    if !kb.is_empty() {
+        result.insert("warning".into(), json!(kb.join("; ")));
+    }
     Ok(ok(Value::Object(result)))
+}
+
+fn plan_id_of(plan: &Value) -> String {
+    plan["planId"].as_str().unwrap_or_default().to_string()
+}
+
+/// The knowledge base warnings of a plan open or a spawn, each logged as `kb_warning`. Warnings only: nothing here refuses,
+/// and without an enabled `[kb]` there are none.
+pub(super) fn kb_warnings(
+    env: &CommandEnv<'_>,
+    ui_owns: Option<&[String]>,
+    plan: Option<&str>,
+    package: Option<&str>,
+) -> Vec<String> {
+    let Some(config) = env.config() else {
+        return Vec::new();
+    };
+    let Some(kb) = config.kb.as_ref().filter(|kb| kb.enabled) else {
+        return Vec::new();
+    };
+    let texts = crate::kb::warnings(
+        &env.deps.options.state_directory,
+        &env.deps.options.workspace_root,
+        kb,
+        ui_owns,
+        &config.design,
+    );
+    for text in &texts {
+        env.log(
+            "kb_warning",
+            json!({"plan": plan, "package": package, "text": text}),
+        );
+    }
+    texts
+}
+
+/// The owns and the design flag of a package in the approved revision of its plan; None when either is unknown.
+pub(super) fn package_owns(
+    env: &CommandEnv<'_>,
+    credential: &str,
+    plan_id: &str,
+    package_id: &str,
+) -> Option<(Vec<String>, bool)> {
+    let credential = credential.to_string();
+    let id = plan_id.to_string();
+    let detail = env
+        .deps
+        .kernel
+        .run(move |core| core.plan_record(&credential, &id))
+        .ok()?;
+    let plan = &detail["plan"];
+    if plan["approvedRevision"].is_null() {
+        return None;
+    }
+    let body = detail["revision"]["bodyJson"].as_str()?;
+    let view = capstan_kernel::plan_body::package_of_body(body, package_id)?;
+    Some((
+        view.owns,
+        capstan_kernel::plan_body::package_is_design(body, package_id),
+    ))
 }
 
 fn open_usage() -> CommandResponse {
@@ -381,6 +445,13 @@ fn assign(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
     if let Some(early) = early {
         input.insert("early".into(), json!(early));
     }
+    // The package's own knowledge base entries; a kb failure assigns without them.
+    if let Some(reuse) = reuse_input(env, call.credential, plan_id, package_id) {
+        input.insert("reuse".into(), json!(reuse.0));
+        if let Some(at) = reuse.1 {
+            input.insert("reuseAt".into(), json!(at));
+        }
+    }
     let credential = call.credential.to_string();
     let design_plan_id = plan_id.clone();
     let assigned = env.deps.kernel.run(move |core| {
@@ -408,6 +479,33 @@ fn assign(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
     result.insert("unmet".into(), Value::Array(unmet));
     result.extend(named);
     Ok(ok(Value::Object(result)))
+}
+
+/// The Reuse lines for a package and the 12-character commit the index was built at.
+fn reuse_input(
+    env: &CommandEnv<'_>,
+    credential: &str,
+    plan_id: &str,
+    package_id: &str,
+) -> Option<(String, Option<String>)> {
+    let kb = env.config()?.kb.as_ref().filter(|kb| kb.enabled)?;
+    let (owns, _) = package_owns(env, credential, plan_id, package_id)?;
+    let index = match crate::kb::ensure(
+        &env.deps.options.state_directory,
+        &env.deps.options.workspace_root,
+        kb,
+    ) {
+        Ok(index) => index,
+        Err(error) => {
+            eprintln!("kb_check_failed: {error}");
+            return None;
+        }
+    };
+    let lines = crate::kb::reuse_lines(&index, &owns, kb.reuse_max_bytes.max(0) as usize)?;
+    let at = index
+        .head()
+        .map(|head| head.chars().take(12).collect::<String>());
+    Some((lines, at))
 }
 
 fn reassign(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String], role: &str) -> Outcome {

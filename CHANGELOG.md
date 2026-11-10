@@ -16,11 +16,13 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 - feat: `cstan review show <review-id>` prints the full stored review text with its subject, state, reviewer and commit, from any agent's worktree, for the PM, the operator, the reviewer, the reviewed work's author and the plan's architect; the cut verdict notice now points to it.
 - feat: write folders. `[roles.<name>] write_dirs` lets a Developer role on a claude host write in listed folders although `Write` and `Edit` are denied, enforced by a fail-closed `cstan guard-write --dirs` hook. No role has it unless the file lists it; the starter architect gets `docs/architecture` and `docs/research`.
 - feat: automatic release of idle workers. `[agents] idle_release_minutes` (default 120, `0` = off, 15 to 10080) and `idle_release_warn_minutes` (default 10, 1 to 60) set when an idle Developer or Verifier with no open work is released after a warning to the PM; builds and other tool processes count as activity. `cstan keep <agent-id> [<hours>]` (PM or operator; default 24, 1 to 168, `0` clears) keeps a worker, and `cstan status` shows `idleSince`, `warnedAt`, `autoReleaseAt`, `keptUntil` and `openWork`.
+- feat: project knowledge base. A `[kb]` table turns on a committed entries file (`docs/capstan/kb.jsonl`, JSON Lines) of facts about helpers, components, conventions, design rules and decisions, searched through a rebuildable SQLite FTS5 index with snake_case and CamelCase aliases, path lookup and links. `cstan kb search|for|uses|status|build|refresh|add|update|remove` read and change it; stale and missing entries, invalid lines and an out-of-date design record (found through `[kb] ui_paths`) give warnings at plan open and spawn, never a refusal; an assigned package gets a Reuse section of the entries that cover its paths, capped by `reuse_max_bytes`. Without `[kb]` nothing changes.
 
 ### Documentation
 
 - docs: file handover, the message size limit and write folders (`docs/reference/commands.md`, `docs/reference/configuration.md`, `docs/reference/researcher.md`).
 - docs: idle release (`docs/reference/workflow.md`, `docs/reference/commands.md`, `docs/reference/configuration.md`).
+- docs: the knowledge base (`docs/reference/knowledge-base.md`, `docs/reference/configuration.md`, `docs/reference/commands.md`).
 
 ## 0.22.0 (2026-11-09)
 

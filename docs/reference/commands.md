@@ -110,6 +110,33 @@ Prune and stop commands run through `sh -c` in the entry's directory with a time
 
 The daemon also keeps the caches in shape on its own. When it starts it removes what a killed prune or clear left behind (the `.trash` directory and leftover temporary files). Then, off the controller's main thread, it measures and prunes every 6 hours (the first run comes at the latest 6 hours after the last measurement in the manifest, and soon after start when that measurement was over the cap), and writes the manifest. The operator's `cstan status` gains a `cache` member read from that manifest (status never walks the disk): `{ root, scope, entries: [{ name, enabled, reason, bytes, lastUsedAt }], totalBytes, maxBytes, measuredAt, warnings }`, with `bytes`, `totalBytes` and `measuredAt` null before the first measurement. The text status prints one line, for example `cache: rust off (sccache is not on the agent PATH), python 1.2 GB; total 1.2 of 20 GB, measured 4m ago`. Without `[cache]` there is no member and no line.
 
+### Knowledge base
+
+Needs a `[kb]` table in `capstan.toml` (see [Configuration](configuration.md#knowledge-base-kb) and [Knowledge base](knowledge-base.md)); without it every form below exits 1 with `kb: not configured; add a [kb] table to capstan.toml`. The lookups read the entries file as committed at HEAD of the project root, through the controller's index; `add`, `update` and `remove` change the file in your own working tree and never commit. A refused command prints its reason on standard error and exits 1.
+
+| Command | Purpose |
+| --- | --- |
+| `cstan kb search <words...> [--limit <n>] [--json]` | Entries that match any word, best first (aliases match: `retry_backoff`, `RetryBackoff` and `backoff` are the same). `--limit` is at least 1 and defaults to `[kb] search_limit`. Every search is logged for `status`. |
+| `cstan kb for <path>... [--json]` | Entries whose path is a path given, a directory above it or a file under it, then the entries that name it in `related`. |
+| `cstan kb uses <id-or-path> [--json]` | Entries that depend on an entry or a path through `related`, up to three links deep, nearest first. |
+| `cstan kb status [--json]` | The state of the index, entry, stale and missing counts, invalid lines with their reasons, and the searches of the last 30 days. |
+| `cstan kb build [--design]` | The brief for the kb role (`--design`: the design role and the design record), and the spawn command to run. |
+| `cstan kb refresh [--design]` | The brief that lists up to 50 stale and missing entries (`--design`: the design record) for an agent to re-check. |
+| `cstan kb add --id <id> --kind <kind> --title <t> --body <b> [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--force]` | Add an entry in id order, stamped with this working tree's HEAD. Refused for an id already in the file or at HEAD, for a field that breaks a rule, past `max_entries`, and for a similar entry unless `--force`. |
+| `cstan kb update <id> [--kind <kind>] [--title <t>] [--body <b>] [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--verified]` | Change the named fields and stamp the entry with HEAD; a repeated flag list replaces the old list. `--verified` alone only re-stamps it. |
+| `cstan kb remove <id>` | Remove an entry from the file. |
+
+Output. A hit prints `<id>  <kind>  <title>  <path or ->` (with `  stale` or `  missing` added where it applies), then the start of its body indented below; no hit prints `kb: no entries`. `--json` prints the hits as an array with `id`, `kind`, `title`, `path`, `area`, `state`, `reason`, `uses` and `body`. `status` prints:
+
+```
+kb: ok  head 3f2c9a7d41e8  entries 42  stale 1  missing 0
+searches in 30 days: 17 (2 without a hit)
+vector search: not needed
+invalid line 7: kb entry: key body is out of order
+```
+
+`kb: missing` replaces `ok` when the file is not at HEAD. `status --json` prints `{ state, head, entries, invalid: [{ line, reason }], stale, missing, searches30d, misses30d, vectorsHint }`. `build` and `refresh` print the brief on standard output and `next: cstan spawn <role> --title "knowledge base" then cstan send <agent-id> with this brief` on standard error. `add`, `update` and `remove` print `kb: added|updated <id> to|in <path>; commit it on your branch` or `kb: removed <id> from <path>; commit it on your branch`.
+
 ### Supervision
 
 | Command                                                                         | Who        | Purpose          |

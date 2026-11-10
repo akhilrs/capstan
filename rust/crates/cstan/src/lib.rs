@@ -16,6 +16,7 @@ pub mod gitignore;
 pub mod guard;
 pub mod init;
 pub mod jsops;
+pub mod kb;
 pub mod merge_targets;
 pub mod operator;
 pub mod projects;
@@ -368,6 +369,7 @@ impl Cli<'_> {
             "config" => return self.config(&rest),
             "trust" => return self.trust(&rest),
             "cache" => return self.cache(&rest),
+            "kb" => return self.kb(&rest),
             "guard-write" => {
                 // A hook: exit 2 refuses the tool call, so every failure, a bad argument included, is 2.
                 if rest.first().map(String::as_str) == Some("--dirs") {
