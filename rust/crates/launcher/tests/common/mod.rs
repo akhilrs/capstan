@@ -380,6 +380,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
             reviewer_role: None,
             max_packages: 8,
             max_review_rounds: 5,
+            stale_plan_days: 14,
             plan_amend: true,
             count_toward_worker_limit: flag(architect_spec, "counts"),
             high_risk_triggers: vec!["schema or migrations".into()],

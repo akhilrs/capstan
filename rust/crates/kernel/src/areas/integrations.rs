@@ -219,6 +219,22 @@ pub fn begin_integration(
                     }));
                 }
             }
+            for id in &ids {
+                let archived = query_opt(
+                    &kernel.database,
+                    &format!(
+                        "SELECT pp.plan_id FROM plan_packages pp JOIN agent_reports r ON r.project_id = pp.project_id
+                         JOIN plan_archives a ON a.project_id = pp.project_id AND a.plan_id = pp.plan_id
+                         WHERE pp.project_id = ? AND r.report_id = ? AND {} LIMIT 1",
+                        super::plan_landing::PACKAGE_REPORT_PREDICATE
+                    ),
+                    [&kernel.project_id, *id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                if let Some(plan_id) = archived {
+                    super::plan_archive::refuse_if_archived(kernel, &plan_id)?;
+                }
+            }
             check_integration_order(kernel, &ids)?;
             let now = kernel.now();
             let sequence = query_opt(

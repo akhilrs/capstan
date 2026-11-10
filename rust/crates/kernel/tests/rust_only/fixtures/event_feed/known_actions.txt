@@ -76,6 +76,7 @@ code orphan_pane.clear
 code orphan_pane.record
 code plan.amend
 code plan.announce
+code plan.archive
 code plan.assign
 code plan.cancel
 code plan.landed
@@ -85,6 +86,7 @@ code plan.reassign
 code plan.review_abandon
 code plan.signoff
 code plan.submit
+code plan.unarchive
 code pm.attention
 code pm.delivery_notices
 code pm.floor_hit

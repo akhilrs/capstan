@@ -235,7 +235,7 @@ Effects: every event has `body.effects`, a list of `{section, op, key, fields}` 
 
 The `run` item is invalidated by the events of the ledger rows that change what `pm` shows. The effect is the last of the
 event's effects, on the first event of the row, or the only effect of an invalidation event of the item `run` when the
-row has no event of its own. The actions of those rows are `agent.end`, `agent.lost`, `agent.pause`, `agent.register`, `agent.replace`, `agent.replaced`, `agent.restart`, `agent.resume`, `design.decide`, `integration.begin`, `integration.finish`, `integration.settle`, `message.ack`, `message.advance`, `message.defer`, `message.enqueue`, `message.fail`, `message.pull`, `message.requeue`, `message.resolve`, `message.sent`, `message.transition`, `operator.abandon`, `operator.cancel`, `operator.claim`, `operator.decide`, `operator.expire`, `operator.finish`, `operator.propose`, `plan.amend`, `plan.assign`, `plan.cancel`, `plan.open`, `plan.reassign`, `plan.review_abandon`, `plan.signoff`, `plan.submit`, `pm.input_blocked`, `pm.recovered`, `pm.stuck`, `prompt_relay.begin`, `prompt_relay.capture`, `prompt_relay.expire`, `prompt_relay.finish`, `prompt_relay.interrupted`, `prompt_relay.refuse`, `remote.decide`, `report.record`, `review.begin`, `review.complete`, `user_message.close`, `user_message.send`, `verify.cancel`, `verify.claim`, `verify.finish`, `verify.interrupt`, `verify.orphan`, `verify.queue`. Not every row of them counts: a message row only when the person sent the
+row has no event of its own. The actions of those rows are `agent.end`, `agent.lost`, `agent.pause`, `agent.register`, `agent.replace`, `agent.replaced`, `agent.restart`, `agent.resume`, `design.decide`, `integration.begin`, `integration.finish`, `integration.settle`, `message.ack`, `message.advance`, `message.defer`, `message.enqueue`, `message.fail`, `message.pull`, `message.requeue`, `message.resolve`, `message.sent`, `message.transition`, `operator.abandon`, `operator.cancel`, `operator.claim`, `operator.decide`, `operator.expire`, `operator.finish`, `operator.propose`, `plan.amend`, `plan.archive`, `plan.assign`, `plan.cancel`, `plan.open`, `plan.reassign`, `plan.review_abandon`, `plan.signoff`, `plan.submit`, `pm.input_blocked`, `pm.recovered`, `pm.stuck`, `prompt_relay.begin`, `prompt_relay.capture`, `prompt_relay.expire`, `prompt_relay.finish`, `prompt_relay.interrupted`, `prompt_relay.refuse`, `remote.decide`, `report.record`, `review.begin`, `review.complete`, `user_message.close`, `user_message.send`, `verify.cancel`, `verify.claim`, `verify.finish`, `verify.interrupt`, `verify.orphan`, `verify.queue`. Not every row of them counts: a message row only when the person sent the
 message to the active PM, and a verify or prompt row only when it opens or closes what `waitingOn` counts (a claim or a
 process of a verify run does not).
 
@@ -738,7 +738,7 @@ The merge also confirms the integration and tells the PM. A merge may take minut
 
 `plan cancel` cancels a plan (`plan:<planId>`, a draft, one in review, approved or signed off), as `cstan plan cancel`
 does, at once (`applied`): its open packages stop and their developers and the PM are told, and an open review of it
-ends. A plan that is cancelled, superseded or does not exist has no binding and is refused with `not_waiting`. It is
+ends. A plan that is cancelled, superseded, archived or does not exist has no binding and is refused with `not_waiting`. It is
 never offered as a swipe.
 
 ### Message to the PM

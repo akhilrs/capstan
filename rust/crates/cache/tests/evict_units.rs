@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant, SystemTime};
 
 use capstan_cache::{
@@ -17,6 +18,20 @@ use capstan_cache::{
 };
 use capstan_config::{CacheEntry, CacheOrigin, SetupReuse};
 use common::*;
+
+/// A child inherits every descriptor open in the process until it executes, and an `flock` lasts as long as any copy
+/// of its descriptor is open. A test that spawns a process while another test holds a store lock would therefore
+/// leave that lock held in the child for a moment, and the other test's prune would see a busy entry. Tests that
+/// spawn run alone (write side); every other test shares the read side.
+static SPAWN: RwLock<()> = RwLock::new(());
+
+fn shared() -> RwLockReadGuard<'static, ()> {
+    SPAWN.read().unwrap_or_else(|e| e.into_inner())
+}
+
+fn exclusive() -> RwLockWriteGuard<'static, ()> {
+    SPAWN.write().unwrap_or_else(|e| e.into_inner())
+}
 
 const LOCK: &str = ".cargo-lock";
 const HOURS: u64 = 3600;
@@ -147,6 +162,7 @@ fn names(dir: &Path) -> Vec<String> {
 
 #[test]
 fn incremental_goes_first_then_the_oldest_unit_and_the_total_is_exact() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(
         dir.path(),
@@ -177,6 +193,7 @@ fn incremental_goes_first_then_the_oldest_unit_and_the_total_is_exact() {
 
 #[test]
 fn a_unit_whose_lock_is_held_is_skipped_as_building_and_never_renamed() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     let debug = unit(&rt, "cargo-target/debug", &[("deps/lib", 3 * GB)]);
@@ -195,6 +212,7 @@ fn a_unit_whose_lock_is_held_is_skipped_as_building_and_never_renamed() {
 
 #[test]
 fn while_agents_run_old_units_and_unleased_slots_go_and_the_rest_is_listed() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(
         dir.path(),
@@ -233,6 +251,7 @@ fn while_agents_run_old_units_and_unleased_slots_go_and_the_rest_is_listed() {
 
 #[test]
 fn a_prune_without_occupants_records_what_it_skipped() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     unit(&rt, "cargo-target/release", &[("deps/lib", 2 * GB)]);
@@ -244,6 +263,7 @@ fn a_prune_without_occupants_records_what_it_skipped() {
 
 #[test]
 fn an_entry_without_a_unit_lock_has_no_unit_eviction() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let mut plain = rust_entry(None, false);
     plain.unit_lock = None;
@@ -264,6 +284,7 @@ fn an_entry_without_a_unit_lock_has_no_unit_eviction() {
 
 #[test]
 fn occupants_count_against_the_cap_and_are_never_removed() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     for (name, age) in [("a", 5), ("b", 4), ("c", 3)] {
@@ -297,6 +318,7 @@ fn occupants_count_against_the_cap_and_are_never_removed() {
 
 #[test]
 fn a_gate_blocked_on_the_lock_gets_the_same_inode_and_an_empty_unit() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     let debug = unit(&rt, "cargo-target/debug", &[("deps/lib", 3 * GB)]);
@@ -343,6 +365,7 @@ fn a_gate_blocked_on_the_lock_gets_the_same_inode_and_an_empty_unit() {
 
 #[test]
 fn the_active_rule_is_checked_again_under_the_lock() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     let debug = unit(&rt, "cargo-target/debug", &[("deps/lib", 3 * GB)]);
@@ -369,6 +392,7 @@ fn the_active_rule_is_checked_again_under_the_lock() {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_process_running_from_a_unit_keeps_it_until_it_exits() {
+    let _serial = exclusive();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     let debug = unit(&rt, "cargo-target/debug", &[("deps/lib", 3 * GB)]);
@@ -404,6 +428,7 @@ fn a_process_running_from_a_unit_keeps_it_until_it_exits() {
 
 #[test]
 fn the_measured_case_evicts_the_slot_and_the_stale_debug_unit() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(Some("sccache"), true)]);
     let big = GB * 5 / 2;
@@ -426,6 +451,7 @@ fn the_measured_case_evicts_the_slot_and_the_stale_debug_unit() {
 
 #[test]
 fn without_evict_while_active_nothing_is_removed_and_everything_is_listed() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let mut rt = store(dir.path(), vec![rust_entry(None, false)]);
     rt.evict_while_active = false;
@@ -439,6 +465,7 @@ fn without_evict_while_active_nothing_is_removed_and_everything_is_listed() {
 
 #[test]
 fn a_cross_compile_unit_is_evicted_and_an_empty_unit_entry_is_left_alone() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     let triple = "cargo-target/x86_64-unknown-linux-gnu/debug";
@@ -452,6 +479,7 @@ fn a_cross_compile_unit_is_evicted_and_an_empty_unit_entry_is_left_alone() {
 
 #[test]
 fn the_order_is_expired_then_slots_and_units_then_keys_then_entries() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let mut cfg = config(&dir.path().join("base"));
     cfg.entries = vec![rust_entry(None, true), custom("plain", "P_DIR", "d")];
@@ -484,6 +512,7 @@ fn the_order_is_expired_then_slots_and_units_then_keys_then_entries() {
 
 #[test]
 fn an_unleased_slot_with_two_generations_goes_whole_and_a_leased_one_stays() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, true)]);
     let slot0 = rust_dir(&rt).join("gate-target/proj/slot-0");
@@ -509,6 +538,7 @@ fn an_unleased_slot_with_two_generations_goes_whole_and_a_leased_one_stays() {
 
 #[test]
 fn recover_removes_a_leftover_trash() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     sparse(
@@ -522,6 +552,7 @@ fn recover_removes_a_leftover_trash() {
 
 #[test]
 fn sccache_bytes_are_fixed_and_units_give_way_to_fit_the_rest() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let mut rt = store(dir.path(), vec![rust_entry(Some("sccache"), false)]);
     rt.max_bytes = 2 * GB;
@@ -550,6 +581,7 @@ fn sccache_bytes_are_fixed_and_units_give_way_to_fit_the_rest() {
 
 #[test]
 fn a_split_build_dir_pair_is_emptied_together_or_not_at_all() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(
         dir.path(),
@@ -675,6 +707,7 @@ fn cargo_store(dir: &Path) -> (Runtime, PathBuf) {
 
 #[test]
 fn real_cargo_holds_the_lock_where_prune_looks_and_is_never_evicted_under() {
+    let _serial = exclusive();
     let Some(cargo) = cargo_or_skip() else { return };
     let dir = tempfile::tempdir().unwrap();
     let (rt, target) = cargo_store(dir.path());
@@ -720,6 +753,7 @@ fn waiting_on(inode: u64, pid: u32) -> bool {
 #[cfg(target_os = "linux")]
 #[test]
 fn a_cargo_blocked_on_the_lock_proceeds_cold_after_the_eviction() {
+    let _serial = exclusive();
     let Some(cargo) = cargo_or_skip() else { return };
     let dir = tempfile::tempdir().unwrap();
     let (rt, target) = cargo_store(dir.path());
@@ -772,6 +806,7 @@ fn a_cargo_blocked_on_the_lock_proceeds_cold_after_the_eviction() {
 
 #[test]
 fn a_lock_file_replaced_between_open_and_lock_counts_as_building() {
+    let _serial = shared();
     let dir = tempfile::tempdir().unwrap();
     let rt = store(dir.path(), vec![rust_entry(None, false)]);
     let debug = unit(&rt, "cargo-target/debug", &[("deps/lib", 3 * GB)]);

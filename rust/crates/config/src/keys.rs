@@ -147,6 +147,7 @@ pub const ARCHITECT_KEYS: &[&str] = &[
     "reviewer_role",
     "max_packages",
     "max_review_rounds",
+    "stale_plan_days",
     "plan_amend",
     "count_toward_worker_limit",
     "high_risk_triggers",

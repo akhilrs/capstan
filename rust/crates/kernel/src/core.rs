@@ -8,8 +8,9 @@
 use crate::areas::{
     actors, agents, approval_windows, design_approvals, findings, idle_release, integrations,
     links, message_notices, messages, model_overrides, operator_grants, operator_proposals,
-    operator_runs, panes, pauses, plan_landing, plan_packages, plans, pm_stuck, prompt_relay,
-    remote_decisions, reports, reviews, status, user_messages, verify_runs, warm_reviewers,
+    operator_runs, panes, pauses, plan_archive, plan_landing, plan_packages, plan_status, plans,
+    pm_stuck, prompt_relay, remote_decisions, reports, reviews, status, user_messages, verify_runs,
+    warm_reviewers,
 };
 use crate::dispatch::{ErrorHandler, RestartFilter};
 use crate::env::Env;
@@ -637,6 +638,11 @@ impl Core {
         plan_landing::clear_package_landing(&self.kernel, context, input)
     }
 
+    /// `ControllerCore.planStatuses`: the status of every plan, with the reasons a plan is stale when `withStale`.
+    pub fn plan_statuses(&self, credential: &str, input: &Value) -> KernelResult<Value> {
+        plan_status::plan_statuses(&self.kernel, credential, input)
+    }
+
     /// `ControllerCore.linkExternal`.
     pub fn link_external(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
         links::link_external(&self.kernel, context, input)
@@ -757,6 +763,16 @@ impl Core {
     /// `ControllerCore.cancelPlan`.
     pub fn cancel_plan(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
         plan_packages::cancel_plan(&self.kernel, context, input)
+    }
+
+    /// Archives plans (all or nothing); operator only.
+    pub fn archive_plans(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        plan_archive::archive_plans(&self.kernel, context, input)
+    }
+
+    /// Unarchives one plan; operator only.
+    pub fn unarchive_plan(&self, context: &MutationContext, input: &Value) -> KernelResult<Value> {
+        plan_archive::unarchive_plan(&self.kernel, context, input)
     }
 
     /// `ControllerCore.reassignPlan`.

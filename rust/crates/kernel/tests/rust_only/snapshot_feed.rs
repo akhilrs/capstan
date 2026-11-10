@@ -3284,3 +3284,46 @@ fn design_link_of_takes_the_first_whole_http_url_of_a_report() {
     let long = format!("https://x.test/{}", "a".repeat(2000));
     assert_eq!(design_link_of(&long), None);
 }
+
+fn set_archived(rig: &Rig, plan: &str, archived: bool) {
+    let db = rig.db();
+    if archived {
+        db.execute(
+            "INSERT INTO plan_archives(project_id, plan_id, archived_at, archived_by, reason)
+             VALUES ((SELECT project_id FROM projects), ?, '2026-01-01T00:00:00.000Z', 'operator', 'retired')",
+            [plan],
+        )
+        .unwrap();
+    } else {
+        db.execute("DELETE FROM plan_archives WHERE plan_id = ?", [plan])
+            .unwrap();
+    }
+}
+
+#[test]
+fn the_design_of_an_archived_plan_does_not_wait() {
+    let rig = Rig::new();
+    rig.pane("dev-1", "feat/ui");
+    let plan = rig.approved_plan();
+    rig.assign(&plan, "ui", "dev-1");
+    rig.report_as("dev-1", "feat/ui", COMMIT, "designed");
+    assert_eq!(one(&rig.core, "design").len(), 1);
+    set_archived(&rig, &plan, true);
+    assert!(one(&rig.core, "design").is_empty());
+    set_archived(&rig, &plan, false);
+    assert_eq!(one(&rig.core, "design").len(), 1);
+}
+
+#[test]
+fn the_integration_of_an_archived_plan_does_not_wait() {
+    let rig = Rig::new();
+    let plan = plan_of_a(&rig, "dev-1");
+    let report = passed_report(&rig, "dev-1", COMMIT);
+    merge(&rig, "int-1", &[&report]);
+    rig.review("int-1", "pass", "fine");
+    assert_eq!(waiting_integrations(&rig).len(), 1);
+    set_archived(&rig, &plan, true);
+    assert!(waiting_integrations(&rig).is_empty());
+    set_archived(&rig, &plan, false);
+    assert_eq!(waiting_integrations(&rig).len(), 1);
+}

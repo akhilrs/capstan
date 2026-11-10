@@ -480,7 +480,7 @@ pub const MAPPING: &[Rule] = &[
     rule("plan", "plan.signoff", "*", "*", ev("plan.signed_off")),
     rule(
         "plan",
-        "plan.assign|plan.reassign|plan.cancel|plan.review_abandon|plan.landed|plan.landing_cleared",
+        "plan.assign|plan.reassign|plan.cancel|plan.archive|plan.unarchive|plan.review_abandon|plan.landed|plan.landing_cleared",
         "*",
         "*",
         ev("plan.changed"),
@@ -1601,7 +1601,7 @@ fn build_inner(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built
             }
             if matches!(
                 row.action.as_str(),
-                "plan.assign" | "plan.reassign" | "plan.cancel"
+                "plan.assign" | "plan.reassign" | "plan.cancel" | "plan.archive"
             ) {
                 // A package that changes hands or is cancelled no longer waits on the report it had (an ended agent's package is
                 // handed over by a new assign).
@@ -1623,7 +1623,10 @@ fn build_inner(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built
                     list.extend(integration_item_effect(ctx, &integration_id)?);
                 }
             }
-            if draft.ty == "plan.signed_off" || row.action == "plan.cancel" {
+            if draft.ty == "plan.signed_off"
+                || row.action == "plan.cancel"
+                || row.action == "plan.archive"
+            {
                 // A sign-off or a cancelled plan supersedes the integrations of that plan that wait.
                 list.push(effect(
                     "waiting",

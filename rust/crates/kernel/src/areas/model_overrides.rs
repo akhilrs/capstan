@@ -116,6 +116,7 @@ pub fn write_plan_overrides(
 
 fn check_scope(kernel: &Kernel, scope_type: &str, scope_id: &str) -> KernelResult<()> {
     if scope_type == "plan" {
+        super::plan_archive::refuse_if_archived(kernel, scope_id)?;
         match plans::plan_row(kernel, scope_id)? {
             None => Err(KernelError::controller(format!(
                 "plan {scope_id} does not exist"
@@ -189,6 +190,9 @@ pub fn clear_model_override(
         json!({"scopeType": scope_type, "scopeId": scope_id, "roleKind": kind_value(role_kind)});
     kernel.mutate(context, "model.override.clear", "plan:write", &payload, |actor| {
         require_setter(&actor.role)?;
+        if scope_type == "plan" {
+            super::plan_archive::refuse_if_archived(kernel, scope_id)?;
+        }
         let previous = stored(kernel, scope_type, scope_id, role_kind)?;
         if previous.is_some() {
             execute(

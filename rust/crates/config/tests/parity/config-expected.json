@@ -1695,7 +1695,7 @@
   "name": "captured-0235",
   "outcome": {
    "kind": "error",
-   "message": "architect has 1 unknown key(s); allowed: enabled, role, plan_review, reviewer_role, max_packages, max_review_rounds, plan_amend, count_toward_worker_limit, high_risk_triggers"
+   "message": "architect has 1 unknown key(s); allowed: enabled, role, plan_review, reviewer_role, max_packages, max_review_rounds, stale_plan_days, plan_amend, count_toward_worker_limit, high_risk_triggers"
   }
  },
  {
