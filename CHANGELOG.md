@@ -2,9 +2,16 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
-## Unreleased
+## 0.23.0 (2026-11-10)
+
+### Upgrade note
+
+The new migrations 0061 (package landings) and 0062 (plan archives) apply on the first start after the upgrade. The `[kb]` table is opt-in; without it nothing changes. An older `cstan` refuses a `capstan.toml` that has a `[kb]` table, so upgrade every machine before adding it.
 
 ### Fixes
+
+- fix(wire): no silently dropped requests. `cstan` sends a request id, backs off on a busy answer and retries a lost reply only when that is safe (`feat(wire): call_retrying with request id, busy backoff and safe lost-reply retry`, `feat(cstan): send a request id, back off on busy and retry a lost reply only when safe`, `fix(cstan): count only lost-reply retries, widen the no-retry list, test through the daemon seam`).
+- fix(cache): cache size cap is enforced (`fix(cache): Cache cap enforcement`, `fix(verify): Cache cap enforcement`).
 
 - fix: `plan cancel` and `plan signoff` share one landing check (covered packages no longer block sign-off).
 
@@ -18,6 +25,11 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 - feat: write folders. `[roles.<name>] write_dirs` lets a Developer role on a claude host write in listed folders although `Write` and `Edit` are denied, enforced by a fail-closed `cstan guard-write --dirs` hook. No role has it unless the file lists it; the starter architect gets `docs/architecture` and `docs/research`.
 - feat: automatic release of idle workers. `[agents] idle_release_minutes` (default 120, `0` = off, 15 to 10080) and `idle_release_warn_minutes` (default 10, 1 to 60) set when an idle Developer or Verifier with no open work is released after a warning to the PM; builds and other tool processes count as activity. `cstan keep <agent-id> [<hours>]` (PM or operator; default 24, 1 to 168, `0` clears) keeps a worker, and `cstan status` shows `idleSince`, `warnedAt`, `autoReleaseAt`, `keptUntil` and `openWork`.
 - feat: project knowledge base. A `[kb]` table turns on a committed entries file (`docs/capstan/kb.jsonl`, JSON Lines) of facts about helpers, components, conventions, design rules and decisions, searched through a rebuildable SQLite FTS5 index with snake_case and CamelCase aliases, path lookup and links. `cstan kb search|for|uses|status|build|refresh|add|update|remove` read and change it; stale and missing entries, invalid lines and an out-of-date design record (found through `[kb] ui_paths`) give warnings at plan open and spawn, never a refusal; an assigned package gets a Reuse section of the entries that cover its paths, capped by `reuse_max_bytes`. Without `[kb]` nothing changes.
+
+### Tests
+
+- test(cstan): fix the `retry_e2e` flake (`test(cstan): accept either ending when every reply is dropped`, `test(cstan): merge retry_e2e flake fix`).
+- test(daemon): update the review-verdicts transcript for `cstan review show`.
 
 ### Documentation
 
