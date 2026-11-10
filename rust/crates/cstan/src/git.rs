@@ -201,6 +201,20 @@ pub fn check_git_requirement(env: Env, root: &Path) -> Check {
     Check::Ok
 }
 
+/// The git requirement of a workspace: each listed repository is the top of a work tree with a commit. The first problem
+/// names its repository.
+pub fn check_workspace_repos(env: Env, workspace: &capstan_config::Workspace) -> Check {
+    match capstan_config::first_repo_problem(workspace, |root| {
+        match check_git_requirement(env, root) {
+            Check::Ok => None,
+            Check::Problem { problem, message } => Some((problem, message)),
+        }
+    }) {
+        Some((problem, message)) => Check::Problem { problem, message },
+        None => Check::Ok,
+    }
+}
+
 /// `text.replace(/\r?\n$/, "")`.
 fn chomp(text: &str) -> &str {
     match text.strip_suffix('\n') {

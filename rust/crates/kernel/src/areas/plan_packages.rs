@@ -931,3 +931,22 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         _ => None,
     }
 }
+
+/// The repos package `package_id` of plan `plan_id` names in the approved revision's stored body; empty for a package
+/// without repos, a plan that is not approved or an unknown package.
+pub(crate) fn package_repos(
+    kernel: &Kernel,
+    plan_id: &str,
+    package_id: &str,
+) -> KernelResult<Vec<String>> {
+    let body = query_opt(
+        &kernel.database,
+        "SELECT r.body_json FROM plan_revisions r JOIN plans p ON p.project_id = r.project_id AND p.plan_id = r.plan_id AND p.approved_revision = r.revision
+         WHERE r.project_id = ? AND r.plan_id = ?",
+        [&kernel.project_id, plan_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    Ok(body.map_or_else(Vec::new, |b| {
+        crate::plan_body::package_repos_of_body(&b, package_id)
+    }))
+}

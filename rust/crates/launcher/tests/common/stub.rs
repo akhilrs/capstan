@@ -46,6 +46,7 @@ impl Failure {
             "phase" => AdapterError::Phase(message),
             "prompt_unrecognized" => AdapterError::PromptUnrecognized(message),
             "shell_not_ready" => AdapterError::ShellNotReady(message),
+            "unsupported_host" => AdapterError::UnsupportedHost(message),
             other => panic!("unknown failure kind {other}"),
         }
     }

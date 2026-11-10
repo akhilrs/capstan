@@ -598,6 +598,9 @@ pub struct CreateTabInput<'a> {
     pub cwd: &'a str,
     pub label: &'a str,
     pub role: PaneRole,
+    /// Whether the tab's folder is recorded as the directory its trust dialog may be answered for: true only for the
+    /// tab of a workspace worker, never for a shell (the watch tab) that merely has a worker's role.
+    pub record_folder: bool,
 }
 
 pub struct PrepareShellInput<'a> {

@@ -443,6 +443,84 @@ impl Ledger {
         ))
     }
 
+    /// The live worktrees of the agent's current generation, by repo.
+    pub fn agent_worktrees(&self, agent_id: &str) -> KernelResult<Vec<crate::shared::RepoTree>> {
+        let agent = agent_id.to_string();
+        let value = self.call(move |core| core.list_agent_worktrees(&agent))?;
+        Ok(objects(value)
+            .iter()
+            .filter_map(|row| {
+                Some(crate::shared::RepoTree {
+                    repo: text(row, "repo")?,
+                    path: text(row, "worktreePath")?,
+                    branch: text(row, "branch")?,
+                    base_sha: text(row, "baseSha")?,
+                })
+            })
+            .collect())
+    }
+
+    pub fn record_agent_worktree(
+        &self,
+        agent_id: &str,
+        generation: i64,
+        tree: &crate::shared::RepoTree,
+    ) -> KernelResult<()> {
+        let input = json!({
+            "agentId": agent_id,
+            "generation": generation,
+            "repo": tree.repo,
+            "worktreePath": tree.path,
+            "branch": tree.branch,
+            "baseSha": tree.base_sha,
+        });
+        self.mutate(move |core, context| core.record_agent_worktree(context, &input))
+            .map(drop)
+    }
+
+    pub fn remove_agent_worktree(&self, agent_id: &str, repo: &str) -> KernelResult<()> {
+        let input = json!({"agentId": agent_id, "repo": repo});
+        self.mutate(move |core, context| core.remove_agent_worktree(context, &input))
+            .map(drop)
+    }
+
+    /// Removes every live worktree row of the agent in one transaction.
+    pub fn remove_agent_worktrees(&self, agent_id: &str) -> KernelResult<()> {
+        let input = json!({"agentId": agent_id});
+        self.mutate(move |core, context| core.remove_agent_worktrees(context, &input))
+            .map(drop)
+    }
+
+    /// Whether an agent other than `agent_id`, still active, holds a worktree row at `path`.
+    pub fn worktree_held_by_other(&self, agent_id: &str, path: &str) -> KernelResult<bool> {
+        let (agent, path) = (agent_id.to_string(), path.to_string());
+        self.call(move |core| {
+            if let Value::Array(agents) = core.active_agents()? {
+                for other in agents {
+                    let Some(id) = other["agentId"].as_str().filter(|id| *id != agent) else {
+                        continue;
+                    };
+                    if let Value::Array(rows) = core.list_agent_worktrees(id)? {
+                        if rows
+                            .iter()
+                            .any(|row| row["worktreePath"].as_str() == Some(path.as_str()))
+                        {
+                            return Ok(Value::Bool(true));
+                        }
+                    }
+                }
+            }
+            Ok(Value::Bool(false))
+        })
+        .map(|value| value.as_bool().unwrap_or(false))
+    }
+
+    /// The repos a package of an approved plan names; empty when it names none.
+    pub fn package_repos(&self, plan_id: &str, package_id: &str) -> KernelResult<Vec<String>> {
+        let (plan, package) = (plan_id.to_string(), package_id.to_string());
+        self.call(move |core| core.package_repos(&plan, &package))
+    }
+
     pub fn agent_has_reports(&self, agent_id: &str) -> KernelResult<bool> {
         let agent = agent_id.to_string();
         let value = self.call(move |core| core.agent_has_reports(&agent))?;
@@ -602,9 +680,12 @@ impl LauncherKernel {
             options.config.project_name.as_deref(),
             &options.project_root,
         );
-        let git: Arc<dyn GitRunner> = options
-            .git
-            .unwrap_or_else(|| Arc::new(DefaultGit::new(&options.project_root)));
+        let git: Arc<dyn GitRunner> = options.git.unwrap_or_else(|| {
+            Arc::new(DefaultGit::with_workspace(
+                &options.project_root,
+                options.config.workspace.clone(),
+            ))
+        });
         let log_fn: LogFn = options.log.unwrap_or_else(|| Arc::new(|_, _| {}));
         let cache = crate::cache_env::build_runtime(
             &options.config,
@@ -1108,6 +1189,28 @@ impl LauncherKernel {
         token: Option<&str>,
         include_pass: Option<bool>,
     ) -> OpResult<BTreeMap<String, String>> {
+        self.environment_with(token, include_pass, None)
+    }
+
+    /// `environment`, with the `[cache]` entries limited to `cache_names` (`None`: all) and without the preview switch of
+    /// the unfinished workspace mode, which no pane gets whatever `[env] pass` lists.
+    pub fn environment_with(
+        &self,
+        token: Option<&str>,
+        include_pass: Option<bool>,
+        cache_names: Option<&[String]>,
+    ) -> OpResult<BTreeMap<String, String>> {
+        let mut environment = self.environment_inner(token, include_pass, cache_names)?;
+        environment.remove(capstan_config::WORKSPACE_PREVIEW_ENV);
+        Ok(environment)
+    }
+
+    fn environment_inner(
+        &self,
+        token: Option<&str>,
+        include_pass: Option<bool>,
+        cache_names: Option<&[String]>,
+    ) -> OpResult<BTreeMap<String, String>> {
         if self.root.contains(':') {
             return Err(OpError::launcher(
                 "unsupported_root",
@@ -1126,7 +1229,11 @@ impl LauncherKernel {
             extras.push(("CAPSTAN_SOCKET".into(), self.socket_path.clone()));
         }
         if let Some(runtime) = &self.cache {
-            match crate::cache_env::cache_extras(runtime, capstan_cache::GateScope::Agent) {
+            match crate::cache_env::cache_extras_for(
+                runtime,
+                capstan_cache::GateScope::Agent,
+                cache_names,
+            ) {
                 Ok(cache) => extras.extend(cache),
                 Err(message) => {
                     if !self.cache_unavailable_logged.swap(true, Ordering::SeqCst) {
@@ -1243,6 +1350,37 @@ impl LauncherKernel {
         (deny, dirs)
     }
 
+    /// `write_dirs` for a workspace worker: each folder joined onto every repo worktree's real path. Any path that cannot
+    /// be resolved or used keeps the full deny and passes no folder (fail closed).
+    fn write_dirs_in(&self, role: &Role, trees: &[String]) -> (Vec<String>, Vec<String>) {
+        let keep = (role.deny.clone(), Vec::new());
+        if role.write_dirs.is_empty() || role.kind != "Developer" {
+            return keep;
+        }
+        let mut dirs = Vec::new();
+        for tree in trees {
+            let Ok(real) = std::fs::canonicalize(tree) else {
+                return keep;
+            };
+            for folder in &role.write_dirs {
+                let Some(dir) = real.join(folder).to_str().map(str::to_string) else {
+                    return keep;
+                };
+                if !capstan_herdr::claude_args::guard_path_is_usable(&dir) {
+                    return keep;
+                }
+                dirs.push(dir);
+            }
+        }
+        let deny = role
+            .deny
+            .iter()
+            .filter(|rule| !PM_GUARDED_DENY.contains(&rule.as_str()))
+            .cloned()
+            .collect();
+        (deny, dirs)
+    }
+
     /// The command-line arguments of the agent's host.
     pub fn arguments(
         &self,
@@ -1250,6 +1388,19 @@ impl LauncherKernel {
         prompt_text: &str,
         prompt_file: &str,
         worktree_path: Option<&str>,
+    ) -> OpResult<Vec<String>> {
+        self.arguments_for(role, prompt_text, prompt_file, worktree_path, &[])
+    }
+
+    /// `arguments` for a workspace worker: `worktree_path` is its change folder and `repo_trees` the worktree paths it
+    /// holds, each of which gets `--add-dir` and every `write_dirs` folder.
+    pub fn arguments_for(
+        &self,
+        role: &Role,
+        prompt_text: &str,
+        prompt_file: &str,
+        worktree_path: Option<&str>,
+        repo_trees: &[String],
     ) -> OpResult<Vec<String>> {
         let kind = self.host_kind(role)?;
         let host = HostRoleSettings {
@@ -1263,14 +1414,16 @@ impl LauncherKernel {
                 let (deny, write_guard) = self.memory_guard(role);
                 let (deny, write_dirs) = if write_guard.is_some() {
                     (deny, Vec::new())
-                } else {
+                } else if repo_trees.is_empty() {
                     self.write_dirs(role, worktree_path)
+                } else {
+                    self.write_dirs_in(role, repo_trees)
                 };
                 let mut allow = role.allow.clone();
                 if !allow.iter().any(|rule| rule == CSTAN_ALLOW_RULE) {
                     allow.push(CSTAN_ALLOW_RULE.to_string());
                 }
-                claude_arguments(
+                let mut arguments = claude_arguments(
                     &ClaudeRoleSettings {
                         model: role.model.clone(),
                         permission_mode: role.permission_mode.clone(),
@@ -1290,7 +1443,12 @@ impl LauncherKernel {
                         write_dirs,
                     },
                     Some(prompt_file),
-                )?
+                )?;
+                for tree in repo_trees {
+                    arguments.push("--add-dir".to_string());
+                    arguments.push(tree.clone());
+                }
+                arguments
             }
         })
     }
@@ -1438,10 +1596,25 @@ impl LauncherKernel {
         cwd: &str,
         timeout_ms: u64,
     ) -> OpResult<crate::api::SetupOutcome> {
+        self.run_setup_in(command, cwd, timeout_ms, None)
+    }
+
+    /// `run_setup` for one repo of a workspace: the environment names the repo and holds its cache entries.
+    pub fn run_setup_in(
+        &self,
+        command: &str,
+        cwd: &str,
+        timeout_ms: u64,
+        repo: Option<&crate::setup::RepoSetup>,
+    ) -> OpResult<crate::api::SetupOutcome> {
         if let Some(runner) = &self.run_setup_override {
             return Ok(runner(command, cwd, timeout_ms));
         }
-        let environment = self.environment(None, Some(true))?;
+        let mut environment =
+            self.environment_with(None, Some(true), repo.and_then(|r| r.cache.as_deref()))?;
+        if let Some(repo) = repo {
+            environment.insert("CAPSTAN_REPO".into(), repo.name.clone());
+        }
         Ok(run_setup_command(command, cwd, timeout_ms, &environment))
     }
 

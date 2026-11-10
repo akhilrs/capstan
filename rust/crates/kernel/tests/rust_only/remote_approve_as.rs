@@ -264,7 +264,10 @@ fn a_ledger_with_proposals_migrates_and_reads_not_checked() {
              ALTER TABLE operator_proposals DROP COLUMN floor_check;
              DROP INDEX mutation_requests_by_created;
              DROP INDEX messages_by_body_head;
-             DELETE FROM schema_migrations WHERE name LIKE '%ledger_planner_stats%' OR name LIKE '%operator_proposal_floor_check%' OR name LIKE '%model_overrides%' OR name LIKE '%package_landings%' OR name LIKE '%plan_archives%';",
+             DROP TRIGGER immutable_verify_runs_identity;
+             DROP INDEX one_active_verify_run;
+             ALTER TABLE verify_runs DROP COLUMN repo;
+             DELETE FROM schema_migrations WHERE name LIKE '%ledger_planner_stats%' OR name LIKE '%operator_proposal_floor_check%' OR name LIKE '%model_overrides%' OR name LIKE '%package_landings%' OR name LIKE '%plan_archives%' OR name LIKE '%workspace_repos%';",
         )
         .unwrap();
     }

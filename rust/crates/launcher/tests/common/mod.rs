@@ -494,6 +494,7 @@ pub fn test_config(spec: &Value) -> RoleConfig {
         },
         agents: Default::default(),
         kb: None,
+        workspace: None,
         env_pass: spec["pass"]
             .as_array()
             .map(|a| {

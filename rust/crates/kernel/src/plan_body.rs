@@ -19,7 +19,7 @@ pub const COMMIT_TYPES: [&str; 11] = [
 ];
 
 const PLAN_KEYS: [&str; 4] = ["summary", "packages", "risks", "integration_order"];
-const PACKAGE_KEYS: [&str; 13] = [
+const PACKAGE_KEYS: [&str; 14] = [
     "id",
     "title",
     "role",
@@ -33,6 +33,7 @@ const PACKAGE_KEYS: [&str; 13] = [
     "scope",
     "breaking",
     "design",
+    "repos",
 ];
 const PACKAGE_ID_PATTERN_SOURCE: &str = "^[a-z][a-z0-9-]{0,31}$";
 const SCOPE_PATTERN_SOURCE: &str = "^[a-z0-9][a-z0-9._/-]{0,29}$";
@@ -400,6 +401,85 @@ pub struct PlanPackage {
     /// A design package: its dependents wait for the user's approval of its report. Omitted from the body when false.
     #[serde(skip_serializing_if = "is_false")]
     pub design: bool,
+    /// The repositories of a workspace project the package works in (1..32, unique); empty for a single-repo package.
+    /// With repos every `owns` entry reads `<repo>:<path>`. Omitted from the body when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub repos: Vec<String>,
+}
+
+/// The most repos one package may name.
+pub const MAX_PACKAGE_REPOS: usize = 32;
+const REPO_NAME_PATTERN_SOURCE: &str = "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
+
+/// Whether `name` is acceptable as the name of a repo of a workspace project.
+pub fn is_repo_name(name: &str) -> bool {
+    pattern_repo(name)
+}
+
+fn pattern_repo(name: &str) -> bool {
+    let mut chars = name.chars();
+    name.len() <= 64
+        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// The `repos` of a package record: absent is none; present is 1..32 unique repo names.
+fn parse_repos(value: Option<&Json>, location: &str) -> PlanResult<Vec<String>> {
+    let Some(declared) = value else {
+        return Ok(Vec::new());
+    };
+    let Json::Array(items) = declared else {
+        return shape_error(format!("{location}.repos must be an array"));
+    };
+    if items.is_empty() || items.len() > MAX_PACKAGE_REPOS {
+        return shape_error(format!(
+            "{location}.repos must list 1-{MAX_PACKAGE_REPOS} repos"
+        ));
+    }
+    let mut repos: Vec<String> = Vec::new();
+    for (i, item) in items.iter().enumerate() {
+        match item.as_str() {
+            Some(name) if pattern_repo(name) => {
+                if repos.iter().any(|r| r == name) {
+                    return shape_error(format!(
+                        "{location}.repos lists \"{name}\" more than once"
+                    ));
+                }
+                repos.push(name.to_string());
+            }
+            _ => {
+                return shape_error(format!(
+                    "{location}.repos[{i}] must be a repo name matching {REPO_NAME_PATTERN_SOURCE}"
+                ))
+            }
+        }
+    }
+    Ok(repos)
+}
+
+/// An owns entry of a package with repos: `<repo>:<path>` of one of its repos, the path normalized.
+fn repo_owned_path(raw: &str, repos: &[String], location: &str) -> PlanResult<String> {
+    let Some((repo, path)) = raw.split_once(':') else {
+        return shape_error(format!(
+            "{location} must start with <repo>: of one of the package's repos ({})",
+            repos.join(", ")
+        ));
+    };
+    if !repos.iter().any(|r| r == repo) {
+        return shape_error(format!(
+            "{location} names repo \"{repo}\", which is not one of the package's repos ({})",
+            repos.join(", ")
+        ));
+    }
+    Ok(format!("{repo}:{}", owned_path(path, location)?))
+}
+
+/// What an owns entry of a package covers: its repo ('' without repos) and its path.
+fn owned_key<'a>(package: &PlanPackage, entry: &'a str) -> (&'a str, &'a str) {
+    if package.repos.is_empty() {
+        return ("", entry);
+    }
+    entry.split_once(':').unwrap_or(("", entry))
 }
 
 fn is_false(value: &bool) -> bool {
@@ -620,10 +700,18 @@ fn parse_package(value: &Json, index: usize) -> PlanResult<PlanPackage> {
         None => "developer".to_string(),
         Some(r) => text(Some(r), &format!("{location}.role"))?,
     };
+    let repos = parse_repos(field(record, "repos"), &location)?;
     let owns = text_list(field(record, "owns"), &format!("{location}.owns"), true)?
         .iter()
         .enumerate()
-        .map(|(i, p)| owned_path(p, &format!("{location}.owns[{i}]")))
+        .map(|(i, p)| {
+            let at = format!("{location}.owns[{i}]");
+            if repos.is_empty() {
+                owned_path(p, &at)
+            } else {
+                repo_owned_path(p, &repos, &at)
+            }
+        })
         .collect::<PlanResult<Vec<_>>>()?;
     let interfaces = text_list(
         field(record, "interfaces"),
@@ -655,6 +743,7 @@ fn parse_package(value: &Json, index: usize) -> PlanResult<PlanPackage> {
         scope,
         breaking: matches!(field(record, "breaking"), Some(Json::Bool(true))),
         design: matches!(field(record, "design"), Some(Json::Bool(true))),
+        repos,
     })
 }
 
@@ -727,7 +816,11 @@ fn check_overlaps(
                 continue;
             }
             for pa in &a.owns {
-                if let Some(pb) = b.owns.iter().find(|candidate| paths_overlap(pa, candidate)) {
+                let (repo_a, path_a) = owned_key(a, pa);
+                if let Some(pb) = b.owns.iter().find(|candidate| {
+                    let (repo_b, path_b) = owned_key(b, candidate);
+                    repo_a == repo_b && paths_overlap(path_a, path_b)
+                }) {
                     return plan_error(
                         PlanErrorCode::Overlap,
                         format!(
@@ -885,6 +978,17 @@ pub struct PlanAmendment {
     pub integration_order: Option<Vec<String>>,
 }
 
+/// The repos of a package are fixed when the plan is submitted: an amendment never names them.
+fn refuse_repos_key(entries: &[(String, Json)], location: &str) -> PlanResult<()> {
+    if entries.iter().any(|(key, _)| key == "repos") {
+        return plan_error(
+            PlanErrorCode::AmendNotAllowed,
+            format!("{location}: repos cannot be amended"),
+        );
+    }
+    Ok(())
+}
+
 fn refuse_unknown_keys(
     entries: &[(String, Json)],
     location: &str,
@@ -919,6 +1023,7 @@ pub fn parse_plan_amendment(text_in: &str) -> Result<PlanAmendment, PlanError> {
     let Json::Object(record) = &raw else {
         return shape_error("amendment must be an object");
     };
+    refuse_repos_key(record, "amendment")?;
     refuse_unknown_keys(record, "amendment", &AMENDMENT_KEYS)?;
     let reason = text(field(record, "reason"), "reason")?;
     let items = match field(record, "packages") {
@@ -931,6 +1036,7 @@ pub fn parse_plan_amendment(text_in: &str) -> Result<PlanAmendment, PlanError> {
         let Json::Object(entry) = item else {
             return shape_error(format!("{location} must be an object"));
         };
+        refuse_repos_key(entry, &location)?;
         refuse_unknown_keys(entry, &location, &AMENDMENT_PACKAGE_KEYS)?;
         let id = text(field(entry, "id"), &format!("{location}.id"))?;
         let add_owns = text_list(
@@ -980,7 +1086,16 @@ pub fn apply_plan_amendment(
         let Some(index) = next.packages.iter().position(|p| p.id == change.id) else {
             return shape_error(format!("amendment names unknown package \"{}\"", change.id));
         };
-        for path in &change.add_owns {
+        for added in &change.add_owns {
+            let path = &if next.packages[index].repos.is_empty() {
+                added.clone()
+            } else {
+                repo_owned_path(
+                    added,
+                    &next.packages[index].repos,
+                    &format!("package {} add_owns \"{added}\"", change.id),
+                )?
+            };
             if next.packages[index].owns.contains(path) {
                 return shape_error(format!("package {} already owns \"{path}\"", change.id));
             }
@@ -1215,6 +1330,14 @@ pub fn package_of_body(body_json: &str, package_id: &str) -> Option<PackageView>
         acceptance: string_items(found.get("acceptance")),
         risks: string_items(found.get("risks")),
     })
+}
+
+/// The repos of the package `package_id` in a stored body; empty for a package without repos or an unknown package.
+pub fn package_repos_of_body(body_json: &str, package_id: &str) -> Vec<String> {
+    parse_json(body_json)
+        .ok()
+        .and_then(|body| find_package(&body, package_id).map(|p| string_items(p.get("repos"))))
+        .unwrap_or_default()
 }
 
 /// True when the package `package_id` of a stored body is a design package (`design: true`).
@@ -1645,5 +1768,86 @@ mod amendment_tests {
         assert!(parse_plan_findings("- [a] huge owns: x").is_err());
         assert!(parse_plan_findings("- [a] major style: x").is_err());
         assert!(parse_plan_findings("- [a] major owns").is_err());
+    }
+
+    // ---- workspace repos
+
+    fn with_repos(pkg_a: &str, pkg_b: &str) -> String {
+        format!(
+            r#"{{"summary":"s","packages":[{pkg_a},{pkg_b}],"risks":[],"integration_order":["a","b"]}}"#
+        )
+    }
+
+    const A: &str = r#"{"id":"a","title":"A","repos":["core","web"],"owns":["core:src/x","web:src/x"],"acceptance":["x"],"estimate_hours":1}"#;
+
+    #[test]
+    fn repos_prefix_the_owns_and_the_overlap_compares_repo_and_path() {
+        // Same path in another repo is not an overlap; the same repo and path is.
+        let b_other = r#"{"id":"b","title":"B","repos":["docs"],"owns":["docs:src/x"],"acceptance":["y"],"estimate_hours":1}"#;
+        let ok = parse_plan_body(&with_repos(A, b_other), 8).unwrap();
+        assert_eq!(ok.packages[0].repos, ["core", "web"]);
+        assert_eq!(ok.packages[0].owns, ["core:src/x", "web:src/x"]);
+        let b_same = r#"{"id":"b","title":"B","repos":["web"],"owns":["web:src/x/deep"],"acceptance":["y"],"estimate_hours":1}"#;
+        assert_eq!(code(parse_plan_body(&with_repos(A, b_same), 8)), "overlap");
+        // A package without repos is the root repo: its "web:src/x" path is not the web repo's.
+        let b_plain =
+            r#"{"id":"b","title":"B","owns":["src/x"],"acceptance":["y"],"estimate_hours":1}"#;
+        assert!(parse_plan_body(&with_repos(A, b_plain), 8).is_ok());
+    }
+
+    #[test]
+    fn repos_are_checked_and_owns_must_start_with_one_of_them() {
+        let one = |extra: &str, owns: &str| {
+            format!(
+                r#"{{"summary":"s","packages":[{{"id":"a","title":"A",{extra}"owns":[{owns}],"acceptance":["x"],"estimate_hours":1}}],"risks":[],"integration_order":["a"]}}"#
+            )
+        };
+        for (extra, owns) in [
+            (r#""repos":[],"#, r#""core:a""#),
+            (r#""repos":"core","#, r#""core:a""#),
+            (r#""repos":["core","core"],"#, r#""core:a""#),
+            (r#""repos":["a/b"],"#, r#""a/b:a""#),
+            (r#""repos":["core"],"#, r#""src/a""#),
+            (r#""repos":["core"],"#, r#""web:a""#),
+            (r#""repos":["core"],"#, r#""core:../a""#),
+        ] {
+            let result = parse_plan_body(&one(extra, owns), 8);
+            assert_eq!(
+                result.err().map(|e| e.code.as_str()),
+                Some("invalid_shape"),
+                "{extra} {owns}"
+            );
+        }
+        let many: Vec<String> = (0..33).map(|i| format!("\"r{i}\"")).collect();
+        let extra = format!("\"repos\":[{}],", many.join(","));
+        assert!(parse_plan_body(&one(&extra, r#""r0:a""#), 8).is_err());
+    }
+
+    #[test]
+    fn a_body_without_repos_serializes_without_the_key() {
+        let json = serde_json::to_string(&body()).unwrap();
+        assert!(!json.contains("repos"), "{json}");
+        let b_docs = r#"{"id":"b","title":"B","repos":["docs"],"owns":["docs:src/y"],"acceptance":["y"],"estimate_hours":1}"#;
+        let with =
+            serde_json::to_string(&parse_plan_body(&with_repos(A, b_docs), 8).unwrap()).unwrap();
+        assert!(with.contains("\"repos\":[\"core\",\"web\"]"), "{with}");
+        assert_eq!(package_repos_of_body(&with, "a"), ["core", "web"]);
+        assert!(package_repos_of_body(&json, "a").is_empty());
+    }
+
+    #[test]
+    fn an_amendment_never_names_repos() {
+        for text in [
+            r#"{"reason":"r","repos":["x"],"packages":[]}"#,
+            r#"{"reason":"r","packages":[{"id":"a","add_owns":["x"],"repos":["x"]}]}"#,
+        ] {
+            let error = parse_plan_amendment(text).unwrap_err();
+            assert_eq!(error.code.as_str(), "amend_not_allowed");
+            assert!(
+                error.reason.contains("repos cannot be amended"),
+                "{}",
+                error.reason
+            );
+        }
     }
 }

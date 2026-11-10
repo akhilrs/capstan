@@ -17,7 +17,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 use std::sync::LazyLock;
 
-use super::messages;
+use super::{messages, workspace};
 
 static SHA1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").expect("the pattern is valid"));
@@ -127,11 +127,22 @@ pub fn record_agent_report(
         ));
     }
     let evidence_generation = field(evidence, "generation").as_i64().unwrap_or(0);
+    let commits = workspace::parse_report_commits(input, commit_sha)?;
+    let mut payload =
+        json!({"commitSha": commit_sha, "summaryHash": sha256(summary), "evidence": evidence});
+    if let Some(commits) = &commits {
+        payload["commits"] = Value::Array(
+            commits
+                .iter()
+                .map(|c| json!({"repo": c.repo, "commitSha": c.commit_sha, "branch": c.branch, "baseSha": c.base_sha}))
+                .collect(),
+        );
+    }
     kernel.mutate(
         context,
         "report.record",
         "report:submit",
-        &json!({"commitSha": commit_sha, "summaryHash": sha256(summary), "evidence": evidence}),
+        &payload,
         |actor| {
             let Some(agent) = kernel.agent_by_actor(&actor.actor_id)? else {
                 return Err(KernelError::controller("only an active agent can report"));
@@ -149,17 +160,27 @@ pub fn record_agent_report(
                         .with_details(json!({"duplicate": true})),
                 ));
             }
-            let pane = query_opt(
-                &kernel.database,
-                "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
-                [&kernel.project_id, &agent.agent_id],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                    ))
-                },
-            )?;
+            // With commits the base check reads the worktree of the first commit's repo; without, the pane as before.
+            let pane = match &commits {
+                Some(commits) => workspace::live_worktree(kernel, &agent.agent_id, agent.generation, &commits[0].repo)?
+                    .map(|wt| {
+                        (
+                            wt["branch"].as_str().map(str::to_string),
+                            wt["baseSha"].as_str().map(str::to_string),
+                        )
+                    }),
+                None => query_opt(
+                    &kernel.database,
+                    "SELECT branch, base_sha FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+                    [&kernel.project_id, &agent.agent_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                        ))
+                    },
+                )?,
+            };
             let pane_branch = pane.as_ref().and_then(|(branch, _)| branch.clone());
             let base_sha = pane
                 .as_ref()
@@ -167,7 +188,7 @@ pub fn record_agent_report(
                 .map(|base| base.to_lowercase());
             let evidence_branch = field(evidence, "branch").as_str();
             let evidence_base = field(evidence, "baseSha").as_str();
-            let reason: Option<&str> = match (&pane_branch, &base_sha) {
+            let mut reason: Option<&str> = match (&pane_branch, &base_sha) {
                 (None, _) => Some("no_branch"),
                 (_, None) => Some("no_base"),
                 (Some(branch), Some(base)) => {
@@ -191,6 +212,20 @@ pub fn record_agent_report(
                     }
                 }
             };
+            if let (None, Some(commits)) = (reason, &commits) {
+                // Every named commit was made on the worktree the agent holds in its repo, from its base.
+                for commit in commits {
+                    let held = workspace::live_worktree(kernel, &agent.agent_id, agent.generation, &commit.repo)?;
+                    let matches = held.is_some_and(|wt| {
+                        wt["branch"].as_str() == Some(commit.branch.as_str())
+                            && wt["baseSha"].as_str() == Some(commit.base_sha.as_str())
+                    });
+                    if !matches {
+                        reason = Some("agent_changed");
+                        break;
+                    }
+                }
+            }
             if reason.is_some() {
                 let rejected = query_opt(
                     &kernel.database,
@@ -235,6 +270,9 @@ pub fn record_agent_report(
                     now
                 ],
             )?;
+            if let Some(commits) = &commits {
+                workspace::insert_report_commits(kernel, &report_id, commits)?;
+            }
             kernel.touch_agent(&agent.agent_id, &now)?;
             if reason.is_none() {
                 announce(kernel, &report_id, &agent.role_name, &now)?;

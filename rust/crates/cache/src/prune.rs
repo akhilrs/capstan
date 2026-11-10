@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::{CacheError, Result};
 use crate::fsutil::{nanos, now_ms, pid_alive, remove_tree};
-use crate::idle::is_idle;
+use crate::idle::{idle_roots_of, is_idle_roots};
 use crate::lease::{
     self, slot_label, EntryGuard, GateLease, LeaseError, GUARD_FILE, IN_USE_REASON,
 };
@@ -1503,7 +1503,7 @@ pub fn clear_with_hooks(
             })
             .collect::<Result<_>>()?,
     };
-    if !force && !is_idle(&runtime.project_root)? {
+    if !force && !is_idle_roots(&idle_roots_of(runtime))? {
         return Err(CacheError::NotIdle);
     }
     let lock = StoreLock::try_acquire(&runtime.root)?;

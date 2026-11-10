@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::Path;
 
-use capstan_config::starter::STARTER_CONFIG;
+use capstan_config::starter::{STARTER_CONFIG, WORKSPACE_STARTER_CONFIG};
 use capstan_config::CONFIG_FILE_NAME;
 use capstan_kernel::{Env, SystemEnv};
 use capstan_wire::js;
@@ -18,6 +18,8 @@ use crate::{invalid, runtime, take_flag, Cli, Fail, Flow};
 
 const CONFIG_NAME: &str = ".capstan/project.json";
 const KEY_NAME: &str = ".capstan/operator.key";
+const WORKSPACE_FLAG_HINT: &str =
+    "or, when this folder holds several repositories: cstan init --workspace (the folder itself need not be a repository)";
 const TRACK_CONFIG_LINE: &str = "capstan.toml is not ignored; commit it to share the configuration";
 
 /// The message of a Node `fs` error: `CODE: description, syscall 'path'`.
@@ -98,10 +100,20 @@ impl Cli<'_> {
         let with_git = take_flag(&mut flags, "--git");
         let track_config = take_flag(&mut flags, "--track-config");
         let gitignore_only = take_flag(&mut flags, "--gitignore");
-        if !flags.is_empty() || (gitignore_only && with_git) {
+        let workspace = take_flag(&mut flags, "--workspace");
+        if !flags.is_empty()
+            || (gitignore_only && with_git)
+            || (workspace && (with_git || gitignore_only || track_config))
+        {
             return Err(Fail::Usage);
         }
         let cwd = self.ctx.cwd.clone();
+        // The gate comes before any git or file work; a configuration already in the folder is validated before init
+        // adds to it.
+        if workspace {
+            self.workspace_init_checks(&cwd)?;
+        }
+        let root_is_repo = !workspace || capstan_config::is_work_tree_root(&cwd);
         if gitignore_only {
             let outcome = write_block(&cwd, track_config)?;
             self.io.out_line(outcome_line(outcome));
@@ -137,7 +149,12 @@ impl Cli<'_> {
                 "Capstan project directory already exists; refusing to modify existing contents",
             ));
         }
-        let block_outcome = write_block(&cwd, track_config)?;
+        // A workspace root that is not a repository has no .gitignore to protect.
+        let block_outcome = if root_is_repo {
+            Some(write_block(&cwd, track_config)?)
+        } else {
+            None
+        };
         if let Err(error) = std::fs::DirBuilder::new().mode(0o700).create(&directory) {
             return Err(if already_exists(&error) {
                 invalid("Capstan project directory already exists; refusing to modify existing contents")
@@ -166,8 +183,10 @@ impl Cli<'_> {
         } else {
             false
         };
-        let credential_ignored = git::exclude_capstan_state(&self.ctx.env, &cwd)
-            .map_err(|e| runtime(fs_error(&e, "open", &cwd)))?;
+        // Only a root that is a repository has a local exclude file to protect `.capstan`.
+        let credential_ignored = root_is_repo
+            && git::exclude_capstan_state(&self.ctx.env, &cwd)
+                .map_err(|e| runtime(fs_error(&e, "open", &cwd)))?;
         let credential = base64url(&env.random_bytes(32));
         let key_path = cwd.join(KEY_NAME);
         write_new(&key_path, &format!("{credential}\n"), 0o600)
@@ -181,7 +200,12 @@ impl Cli<'_> {
             .create(&state_directory)
             .map_err(|e| runtime(fs_error(&e, "mkdir", &state_directory)))?;
         let starter_path = cwd.join(CONFIG_FILE_NAME);
-        let starter_written = match write_new(&starter_path, STARTER_CONFIG, 0o600) {
+        let starter_text = if workspace {
+            WORKSPACE_STARTER_CONFIG
+        } else {
+            STARTER_CONFIG
+        };
+        let starter_written = match write_new(&starter_path, starter_text, 0o600) {
             Ok(()) => true,
             Err(error) if already_exists(&error) => false,
             Err(error) => return Err(runtime(fs_error(&error, "open", &starter_path))),
@@ -191,8 +215,13 @@ impl Cli<'_> {
         } else {
             format!("Kept existing {CONFIG_FILE_NAME}\n")
         };
-        let block_line = outcome_line(block_outcome);
-        let protect = if track_config {
+        let block_line = block_outcome.map_or(
+            "Not a git repository: no .gitignore block written",
+            outcome_line,
+        );
+        let protect = if !root_is_repo {
+            "A workspace root that is not a repository needs no ignore rules; list its repositories in capstan.toml."
+        } else if track_config {
             ".capstan/ and capstan.local.toml are ignored through the capstan block in .gitignore."
         } else {
             ".capstan/, capstan.toml and capstan.local.toml are ignored through the capstan block in .gitignore."
@@ -220,12 +249,34 @@ impl Cli<'_> {
         self.io.out_line(&trust_line);
         if with_git {
             self.setup_git(git_created)?;
-        } else if let Check::Problem { message, .. } =
+        } else if workspace {
+            // Each repository is checked when the workspace starts, not here.
+        } else if let Check::Problem { problem, message } =
             git::check_git_requirement(&self.ctx.env, &cwd)
         {
-            self.io.err_line(&format!("warning: {message}"));
+            let next = if problem == Problem::NotARepository {
+                format!("\n{WORKSPACE_FLAG_HINT}")
+            } else {
+                String::new()
+            };
+            self.io.err_line(&format!("warning: {message}{next}"));
         }
         Ok(Flow::Code(0))
+    }
+
+    /// The refusals of `init --workspace` that need no write: the unfinished-mode gate, then the validation of a
+    /// workspace configuration the folder already holds (read through the trust gate, since git runs in its paths).
+    fn workspace_init_checks(&self, cwd: &Path) -> Result<(), Fail> {
+        let preview = crate::agent::var(&self.ctx.env, capstan_config::WORKSPACE_PREVIEW_ENV)
+            .and_then(|value| value.to_str());
+        capstan_config::workspace_gate(preview).map_err(invalid)?;
+        let store = self.ctx.trust.store(&self.ctx.env);
+        if let Ok(config) = capstan_config::load_role_config_with(cwd, &store) {
+            if let Some(workspace) = &config.workspace {
+                capstan_config::validate_workspace(workspace).map_err(invalid)?;
+            }
+        }
+        Ok(())
     }
 
     /// Records the starter `capstan.toml` this run just wrote as trusted on this machine, and says so. A store that is
@@ -284,6 +335,18 @@ impl Cli<'_> {
 
     /// `requireGit`: refuses `cstan start` outside a usable git repository.
     pub fn require_git(&self) -> Result<(), Fail> {
+        // A workspace project names its repositories; the root itself may not be a repository.
+        let store = self.ctx.trust.store(&self.ctx.env);
+        if let Ok(capstan_config::RoleConfig {
+            workspace: Some(workspace),
+            ..
+        }) = capstan_config::load_role_config_with(&self.ctx.cwd, &store)
+        {
+            return match git::check_workspace_repos(&self.ctx.env, &workspace) {
+                Check::Ok => Ok(()),
+                Check::Problem { message, .. } => Err(invalid(message)),
+            };
+        }
         match git::check_git_requirement(&self.ctx.env, &self.ctx.cwd) {
             Check::Ok => Ok(()),
             Check::Problem { message, .. } => Err(invalid(message)),

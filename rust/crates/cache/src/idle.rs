@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::error::Result;
@@ -24,4 +24,24 @@ pub fn is_idle(project_root: &Path) -> Result<bool> {
         .skip(1)
         .any(|path| Path::new(path).exists());
     Ok(!linked)
+}
+
+/// `is_idle` over every repository of a workspace: true only when no repository has a linked worktree. An empty list
+/// is idle (nothing to hold a worktree).
+pub fn is_idle_roots(roots: &[PathBuf]) -> Result<bool> {
+    for root in roots {
+        if !is_idle(root)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// The roots the idle check looks at for a runtime: its `idle_roots`, or the project root alone when there are none.
+pub fn idle_roots_of(runtime: &crate::Runtime) -> Vec<PathBuf> {
+    if runtime.idle_roots.is_empty() {
+        vec![runtime.project_root.clone()]
+    } else {
+        runtime.idle_roots.clone()
+    }
 }

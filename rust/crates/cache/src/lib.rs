@@ -12,7 +12,7 @@ mod runtime;
 mod setup;
 
 pub use error::{CacheError, Result};
-pub use idle::is_idle;
+pub use idle::{idle_roots_of, is_idle, is_idle_roots};
 pub use lease::{GateLease, GateLeases, LeaseError};
 pub use manifest::{
     read_manifest, write_manifest, write_manifest_hooked, Manifest, OccupantRecord, StoreLock,

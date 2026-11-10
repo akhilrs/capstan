@@ -619,7 +619,9 @@ fn the_brief_summary_follows_the_latest_run_at_the_commit() {
     let core = f.core();
     let report = report(&f, COMMIT);
     assert_eq!(
-        summary_at(core.kernel(), COMMIT, COMMANDS).unwrap().state,
+        summary_at(core.kernel(), "", COMMIT, COMMANDS)
+            .unwrap()
+            .state,
         "missing"
     );
     let id = queue(&f, &report, COMMANDS)["runId"]
@@ -627,12 +629,14 @@ fn the_brief_summary_follows_the_latest_run_at_the_commit() {
         .unwrap()
         .to_string();
     assert_eq!(
-        summary_at(core.kernel(), COMMIT, COMMANDS).unwrap().state,
+        summary_at(core.kernel(), "", COMMIT, COMMANDS)
+            .unwrap()
+            .state,
         "queued"
     );
     assert!(claim(core, &id, 4));
     finish(core, &id, json!({"state": "failed", "exitCode": 2, "failedStep": 1, "durationMs": 9, "outputTail": "a\nb\nboom"})).unwrap();
-    let failed = summary_at(core.kernel(), COMMIT, COMMANDS).unwrap();
+    let failed = summary_at(core.kernel(), "", COMMIT, COMMANDS).unwrap();
     assert_eq!(
         (failed.state.as_str(), failed.failed_step, failed.exit_code),
         ("failed", Some(1), Some(2))
@@ -640,7 +644,9 @@ fn the_brief_summary_follows_the_latest_run_at_the_commit() {
     assert!(failed.tail_excerpt.ends_with("boom"));
     // Other commands: the latest run at the commit is shown, not a pass.
     assert_eq!(
-        summary_at(core.kernel(), COMMIT, "other").unwrap().state,
+        summary_at(core.kernel(), "", COMMIT, "other")
+            .unwrap()
+            .state,
         "failed"
     );
 }

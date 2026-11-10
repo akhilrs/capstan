@@ -138,6 +138,7 @@ fn spawn_options(options: &Value) -> SpawnOptions {
         model_source: opt(options, "modelSource"),
         model_scope: opt(options, "modelScope"),
         plan: opt(options, "plan"),
+        repo_bases: None,
     }
 }
 

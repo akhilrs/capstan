@@ -37,6 +37,7 @@ mod trust_display;
 mod types;
 mod value;
 pub mod verify;
+pub mod workspace;
 
 pub use agents::Agents;
 pub use cache::{
@@ -78,6 +79,11 @@ pub use trust::{
 };
 pub use types::*;
 pub use verify::{path_matches, step_runs, Verify};
+pub use workspace::{
+    first_repo_problem, is_work_tree_root, validate_workspace, workspace_gate, RepoConfig,
+    RepoVerify, Workspace, WORKSPACE_MODE_READY, WORKSPACE_NOT_COMPLETE, WORKSPACE_PREVIEW_ENV,
+    WORKSPACE_ROOT_NOT_REPO,
+};
 
 /// `loadCapstanConfig` / `loadRoleConfig`: reads `capstan.toml` in `cwd`, lays `capstan.local.toml` over it when that
 /// file exists, and resolves the result. Every reader of the project configuration comes through here.
@@ -93,6 +99,14 @@ pub fn load_role_config_with(cwd: &Path, store: &TrustStore) -> Result<RoleConfi
     let config = parse_pair(&pair, cwd)?;
     check_trusted(cwd, &pair, store)?;
     Ok(config)
+}
+
+/// The configuration of `cwd` read and resolved without judging its trust: for a refusal that reads the file only to
+/// name what it asks for (the workspace gate) and acts on nothing the file says. Anything that runs a program or reads a
+/// path the file names must come through `load_role_config_with`.
+pub fn parse_role_config_untrusted(cwd: &Path) -> Result<RoleConfig> {
+    let pair = pair_of(cwd)?;
+    parse_pair(&pair, cwd)
 }
 
 fn pair_of(cwd: &Path) -> Result<ConfigPair> {

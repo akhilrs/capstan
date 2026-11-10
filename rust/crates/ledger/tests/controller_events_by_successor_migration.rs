@@ -45,7 +45,7 @@ fn has_index(conn: &Connection) -> bool {
 /// Name and SQL of every schema object except the new index.
 fn schema(conn: &Connection) -> BTreeSet<(String, String)> {
     let mut stmt = conn
-        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name NOT LIKE '%integration_details%' AND name NOT LIKE '%user_messages%' AND name NOT LIKE 'pm_stuck_episodes%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration', 'verify_runs', 'operator_proposals', 'operator_proposals_approval_needs_a_pm', 'sqlite_stat1', 'sqlite_stat4', 'mutation_requests_by_created', 'messages_by_body_head', 'model_overrides', 'agent_models', 'package_landings', 'package_landings_immutable', 'plan_archives')")
+        .prepare("SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE name <> ? AND name NOT LIKE '%integration_details%' AND name NOT LIKE '%user_messages%' AND name NOT LIKE 'pm_stuck_episodes%' AND name NOT IN ('plan_signoffs_by_integration', 'verify_runs_by_integration', 'verify_runs', 'operator_proposals', 'operator_proposals_approval_needs_a_pm', 'sqlite_stat1', 'sqlite_stat4', 'mutation_requests_by_created', 'messages_by_body_head', 'model_overrides', 'agent_models', 'package_landings', 'package_landings_immutable', 'plan_archives', 'agent_worktrees', 'report_commits', 'immutable_report_commits_update', 'immutable_report_commits_delete', 'integration_sets', 'integration_set_members', 'integration_set_members_by_integration', 'cleanup_repos', 'one_active_verify_run', 'immutable_verify_runs_identity') AND name NOT LIKE 'sqlite_autoindex_integration_sets%'")
         .unwrap();
     let rows = stmt
         .query_map([INDEX], |r| Ok((r.get(0)?, r.get(1)?)))

@@ -598,6 +598,32 @@ pub fn rename_agent_branch(
     }
     let from = field(input, "from").as_str().unwrap_or_default();
     let to = field(input, "to").as_str().unwrap_or_default();
+    let repos: Option<Vec<&str>> = match input.get("repos") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(items)) => {
+            let mut names: Vec<&str> = Vec::new();
+            for item in items {
+                match item.as_str() {
+                    Some(name)
+                        if crate::plan_body::is_repo_name(name) && !names.contains(&name) =>
+                    {
+                        names.push(name)
+                    }
+                    _ => {
+                        return Err(KernelError::type_error(
+                            "repos must be a list of distinct repo names",
+                        ))
+                    }
+                }
+            }
+            Some(names)
+        }
+        Some(_) => {
+            return Err(KernelError::type_error(
+                "repos must be a list of distinct repo names",
+            ))
+        }
+    };
     kernel.mutate(
         context,
         "agent_pane.rename_branch",
@@ -621,6 +647,37 @@ pub fn rename_agent_branch(
                 return Err(KernelError::controller(format!(
                     "{agent_id} does not have the recorded branch {from}"
                 )));
+            }
+            // The agent's live worktrees on the old branch follow, all or the listed repos, in this transaction.
+            let targets: Vec<String> = match &repos {
+                Some(names) => {
+                    for name in names {
+                        let held = exists(
+                            &kernel.database,
+                            "SELECT 1 FROM agent_worktrees WHERE project_id = ? AND agent_id = ? AND generation = ? AND repo = ? AND branch = ? AND removed_at IS NULL",
+                            rusqlite::params![kernel.project_id, agent_id, agent.generation, name, from],
+                        )?;
+                        if !held {
+                            return Err(KernelError::controller(format!(
+                                "repo {name} has no worktree on branch {from}"
+                            )));
+                        }
+                    }
+                    names.iter().map(|n| n.to_string()).collect()
+                }
+                None => query_all(
+                    &kernel.database,
+                    "SELECT repo FROM agent_worktrees WHERE project_id = ? AND agent_id = ? AND generation = ? AND branch = ? AND removed_at IS NULL",
+                    rusqlite::params![kernel.project_id, agent_id, agent.generation, from],
+                    |row| row.get::<_, String>(0),
+                )?,
+            };
+            for repo in &targets {
+                execute(
+                    &kernel.database,
+                    "UPDATE agent_worktrees SET branch = ? WHERE project_id = ? AND agent_id = ? AND generation = ? AND repo = ? AND branch = ? AND removed_at IS NULL",
+                    rusqlite::params![to, kernel.project_id, agent_id, agent.generation, repo, from],
+                )?;
             }
             execute(
                 &kernel.database,

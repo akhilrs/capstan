@@ -239,6 +239,22 @@ pub struct CleanupInfo {
     pub terminal_id: Option<Option<String>>,
     /// True only when this operation made the pane, so its id cannot have been given to another pane yet.
     pub pane_created_here: bool,
+    /// Workspace mode: the repo worktrees this operation made and has not recorded yet (a failed spawn); the recorded
+    /// rows of the agent are read from the ledger.
+    pub worktrees: Vec<RepoTree>,
+    /// Workspace mode: the change folder of the agent.
+    pub folder: Option<String>,
+    /// Workspace mode: keep every worktree and branch (a replace continues in them).
+    pub keep_worktrees: bool,
+}
+
+/// One repo's worktree of a workspace worker.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoTree {
+    pub repo: String,
+    pub path: String,
+    pub branch: String,
+    pub base_sha: String,
 }
 
 /// `cleanupFailed` entry.
@@ -300,6 +316,72 @@ pub trait GitRunner: Send + Sync {
         Err(LauncherError::new(
             "not_supported",
             "this git runner cannot reset a worktree",
+        ))
+    }
+    // ---- repo-rooted operations (workspace mode): `repo_root` is the repository's top-level folder.
+
+    /// The commit a branch of the repository points at.
+    fn branch_tip_in(&self, repo_root: &str, branch: &str) -> Option<String> {
+        let _ = (repo_root, branch);
+        None
+    }
+    /// Whether the name is taken in the repository: a local branch, a branch checked out in a worktree, or a remote
+    /// branch `refs/remotes/<remote>/<name>`. A git failure is an error, never "free".
+    fn branch_taken_in(&self, repo_root: &str, branch: &str) -> Result<bool, LauncherError> {
+        let _ = (repo_root, branch);
+        Err(LauncherError::new(
+            "not_supported",
+            "this git runner cannot work in a repository",
+        ))
+    }
+    /// `git -C <repo_root> worktree add -b <branch> <path> <base>`.
+    fn worktree_add_in(
+        &self,
+        repo_root: &str,
+        path: &str,
+        branch: &str,
+        base: &str,
+    ) -> Result<(), LauncherError> {
+        let _ = (repo_root, path, branch, base);
+        Err(LauncherError::new(
+            "not_supported",
+            "this git runner cannot work in a repository",
+        ))
+    }
+    /// Removes a worktree of the repository (forced: it may hold untracked setup output).
+    fn worktree_remove_in(&self, repo_root: &str, worktree_path: &str) -> WorktreeRemoval {
+        let _ = (repo_root, worktree_path);
+        WorktreeRemoval {
+            removed: false,
+            stderr: "this git runner cannot work in a repository".into(),
+        }
+    }
+    fn prune_worktrees_in(&self, repo_root: &str) {
+        let _ = repo_root;
+    }
+    /// Atomic compare-and-delete of a branch of the repository.
+    fn delete_branch_if_in(&self, repo_root: &str, branch: &str, sha: &str) -> bool {
+        let _ = (repo_root, branch, sha);
+        false
+    }
+    /// `git branch -m` in the repository.
+    fn rename_branch_in(&self, repo_root: &str, from: &str, to: &str) -> WorktreeRemoval {
+        let _ = (repo_root, from, to);
+        WorktreeRemoval {
+            removed: false,
+            stderr: "this git runner cannot work in a repository".into(),
+        }
+    }
+    /// The path of the worktree that has `branch` checked out in the repository.
+    fn worktree_by_branch_in(
+        &self,
+        repo_root: &str,
+        branch: &str,
+    ) -> Result<Option<String>, LauncherError> {
+        let _ = (repo_root, branch);
+        Err(LauncherError::new(
+            "not_supported",
+            "this git runner cannot work in a repository",
         ))
     }
     /// Whether `sha` (40 lowercase hex characters) resolves as a commit and is an ancestor of one of the refs.

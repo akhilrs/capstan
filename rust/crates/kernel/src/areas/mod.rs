@@ -41,6 +41,7 @@ pub mod status;
 pub mod user_messages;
 pub mod verify_runs;
 pub mod warm_reviewers;
+pub mod workspace;
 pub mod write_once;
 
 // The hot statements, held as constants so the query plan test reads the same text the code runs.

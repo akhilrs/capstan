@@ -19,7 +19,7 @@ use crate::types::MutationContext;
 use serde_json::{json, Value};
 
 use super::messaging::MessageClass;
-use super::{integrations, message_notices, messages};
+use super::{integrations, message_notices, messages, workspace};
 
 /// The capability to queue and cancel a run: the one every role that reports its work holds (a migration that added a
 /// capability would have to grant it to every existing actor).
@@ -37,7 +37,7 @@ const ACTIVE: &str = "('queued', 'running')";
 
 const COLUMNS: &str = "run_id, sequence, subject_report_id, subject_integration_id, commit_sha, commands_json, commands_sha, trigger,
   requested_by_actor_id, state, queued_at, started_at, finished_at, exit_code, failed_step, duration_ms, output_tail, output_truncated,
-  log_path, scratch_path, pgid, leader_start, skipped_json";
+  log_path, scratch_path, pgid, leader_start, skipped_json, repo";
 
 fn field<'a>(input: &'a Value, key: &str) -> &'a Value {
     input.get(key).unwrap_or(&Value::Null)
@@ -89,6 +89,8 @@ struct RunRow {
     pgid: Option<i64>,
     leader_start: Option<String>,
     skipped_json: String,
+    /// The repo of the run; '' for the root repo of a project without `[repos]`.
+    repo: String,
 }
 
 impl RunRow {
@@ -117,6 +119,7 @@ impl RunRow {
             pgid: row.get("pgid")?,
             leader_start: row.get("leader_start")?,
             skipped_json: row.get("skipped_json")?,
+            repo: row.get("repo")?,
         })
     }
 
@@ -140,7 +143,7 @@ impl RunRow {
         let requested_by = kernel
             .agent_by_actor(&self.requested_by_actor_id)?
             .map_or_else(|| self.requested_by_actor_id.clone(), |a| a.agent_id);
-        Ok(json!({
+        let mut record = json!({
             "runId": self.run_id,
             "sequence": self.sequence,
             "subjectKind": self.subject_kind(),
@@ -161,7 +164,12 @@ impl RunRow {
             "outputTruncated": self.output_truncated,
             "logPath": self.log_path,
             "skippedSteps": serde_json::from_str::<Value>(&self.skipped_json).unwrap_or_else(|_| json!([])),
-        }))
+        });
+        // Only a run of a named repo says so: the record of a single-repo project is what it always was.
+        if !self.repo.is_empty() {
+            record["repo"] = Value::String(self.repo.clone());
+        }
+        Ok(record)
     }
 }
 
@@ -214,6 +222,27 @@ struct Subject {
     integration_id: Option<String>,
     /// `None` for an integration that has no merged commit yet.
     commit_sha: Option<String>,
+}
+
+/// The repo the runs of a subject carry: a set member's repo for an integration; for a report, the repo of
+/// the one `report_commits` row whose commit is the report's commit; else '' (the root repo).
+pub(crate) fn repo_of_subject(kernel: &Kernel, subject_id: &str) -> KernelResult<String> {
+    if let Some(repo) = workspace::repo_of_integration(kernel, subject_id)? {
+        return Ok(repo);
+    }
+    let repos = query_all(
+        &kernel.database,
+        "SELECT c.repo FROM report_commits c JOIN agent_reports r
+           ON r.project_id = c.project_id AND r.report_id = c.report_id AND r.commit_sha = c.commit_sha
+         WHERE c.project_id = ? AND c.report_id = ? ORDER BY c.repo",
+        [&kernel.project_id, subject_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    // Two repos at one commit name no single repo: the caller must say which.
+    Ok(match repos.as_slice() {
+        [only] => only.clone(),
+        _ => String::new(),
+    })
 }
 
 fn subject_of(kernel: &Kernel, subject_id: &str) -> KernelResult<Subject> {
@@ -285,10 +314,42 @@ pub fn queue_verify_run(
                 "the integration has no merged commit to verify",
             ));
         };
+        // The repo is the input's; an integration that is a member of a set has its member's repo.
+        let repo = match input.get("repo") {
+            None | Some(Value::Null) => repo_of_subject(kernel, subject_id)?,
+            Some(Value::String(name)) if name.is_empty() || crate::plan_body::is_repo_name(name) => name.clone(),
+            Some(_) => return Err(KernelError::type_error("repo must be a repo name")),
+        };
+        let listed: Vec<String> = match &subject.integration_id {
+            Some(id) => workspace::repo_of_integration(kernel, id)?.into_iter().collect(),
+            None => query_all(
+                &kernel.database,
+                "SELECT repo FROM report_commits WHERE project_id = ? AND report_id = ? ORDER BY repo",
+                [&kernel.project_id, subject_id],
+                |row| row.get::<_, String>(0),
+            )?,
+        };
+        let allowed = if listed.is_empty() { repo.is_empty() } else { listed.contains(&repo) };
+        if !allowed {
+            return Err(KernelError::controller(format!(
+                "repo {repo:?} is not a repo of the subject (listed: {listed:?})"
+            )));
+        }
+        // A report's run for a listed repo tests that repo's commit, not the report's own commit_sha.
+        let commit_sha = match (&subject.integration_id, repo.is_empty()) {
+            (None, false) => query_opt(
+                &kernel.database,
+                "SELECT commit_sha FROM report_commits WHERE project_id = ? AND report_id = ? AND repo = ?",
+                [&kernel.project_id, subject_id, &repo],
+                |row| row.get::<_, String>(0),
+            )?
+            .unwrap_or(commit_sha),
+            _ => commit_sha,
+        };
         let active = runs_where(
             kernel,
-            &format!("commit_sha = ? AND commands_sha = ? AND state IN {ACTIVE}"),
-            &[&commit_sha, &commands_sha],
+            &format!("repo = ? AND commit_sha = ? AND commands_sha = ? AND state IN {ACTIVE}"),
+            &[&repo, &commit_sha, &commands_sha],
             "sequence",
         )?;
         if let Some(run) = active.first() {
@@ -309,8 +370,8 @@ pub fn queue_verify_run(
         execute(
             &kernel.database,
             "INSERT INTO verify_runs(project_id, run_id, sequence, subject_report_id, subject_integration_id, commit_sha,
-               commands_json, commands_sha, trigger, requested_by_actor_id, state, queued_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)",
+               commands_json, commands_sha, trigger, requested_by_actor_id, state, queued_at, repo)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
             rusqlite::params![
                 kernel.project_id,
                 run_id,
@@ -322,7 +383,8 @@ pub fn queue_verify_run(
                 commands_sha,
                 trigger,
                 actor.actor_id,
-                kernel.now()
+                kernel.now(),
+                repo
             ],
         )?;
         let mut event = MutationEvent::new("verify_run", &run_id, 0).with_details(json!({
@@ -767,10 +829,16 @@ pub fn next_queued_verify_runs(kernel: &Kernel, limit: i64) -> KernelResult<Valu
 /// latest that did not pass; a passed run under other commands only is stale.
 fn gate(
     kernel: &Kernel,
+    repo: &str,
     commit_sha: &str,
     commands_sha: &str,
 ) -> KernelResult<(&'static str, Option<RunRow>)> {
-    let runs = runs_where(kernel, "commit_sha = ?", &[&commit_sha], "sequence DESC")?;
+    let runs = runs_where(
+        kernel,
+        "repo = ? AND commit_sha = ?",
+        &[&repo, &commit_sha],
+        "sequence DESC",
+    )?;
     let same: Vec<&RunRow> = runs
         .iter()
         .filter(|r| r.commands_sha == commands_sha)
@@ -797,16 +865,17 @@ fn gate(
 /// (`missing` when there is none).
 pub fn summary_at(
     kernel: &Kernel,
+    repo: &str,
     commit_sha: &str,
     commands_sha: &str,
 ) -> KernelResult<VerifySummary> {
-    let (_, run) = gate(kernel, commit_sha, commands_sha)?;
+    let (_, run) = gate(kernel, repo, commit_sha, commands_sha)?;
     let run = match run {
         Some(run) => Some(run),
         None => runs_where(
             kernel,
-            "commit_sha = ?",
-            &[&commit_sha],
+            "repo = ? AND commit_sha = ?",
+            &[&repo, &commit_sha],
             "sequence DESC LIMIT 1",
         )?
         .into_iter()
@@ -835,9 +904,14 @@ pub fn summary_at(
 }
 
 /// `verifyGate`: whether the commit passed the commands, with the run that decides it.
-pub fn verify_gate(kernel: &Kernel, commit_sha: &str, commands_sha: &str) -> KernelResult<Value> {
+pub fn verify_gate(
+    kernel: &Kernel,
+    repo: &str,
+    commit_sha: &str,
+    commands_sha: &str,
+) -> KernelResult<Value> {
     kernel.assert_open()?;
-    let (code, run) = gate(kernel, commit_sha, commands_sha)?;
+    let (code, run) = gate(kernel, repo, commit_sha, commands_sha)?;
     Ok(json!({
         "ok": code == "passed",
         "code": code,
@@ -857,7 +931,10 @@ pub fn verify_gate_for_subjects(
     for subject_id in subject_ids {
         let subject = subject_of(kernel, subject_id)?;
         let (code, run) = match &subject.commit_sha {
-            Some(commit_sha) => gate(kernel, commit_sha, commands_sha)?,
+            Some(commit_sha) => {
+                let repo = repo_of_subject(kernel, subject_id)?;
+                gate(kernel, &repo, commit_sha, commands_sha)?
+            }
             None => ("verify_missing", None),
         };
         if code == "passed" {
@@ -939,7 +1016,8 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         "verifyGate" => {
             let commit_sha = arg!(a.str(0, "commitSha"));
             let commands_sha = arg!(a.str(1, "commandsSha"));
-            Some(call(verify_gate(kernel, commit_sha, commands_sha)))
+            let repo = arg!(a.opt_str(2, "repo")).unwrap_or("");
+            Some(call(verify_gate(kernel, repo, commit_sha, commands_sha)))
         }
         "verifyGateForSubjects" => {
             let ids = arg!(a.opt_str_list(0)).unwrap_or_default();

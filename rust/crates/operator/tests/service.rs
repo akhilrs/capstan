@@ -51,6 +51,7 @@ fn setup_with(
         config: operator_config(overrides),
         controller_credential: OWNER.into(),
         project_root: world.root.clone(),
+        repo_roots: Vec::new(),
         // A caller that forgot to remove the agent variables: the service must still keep them from the command.
         environment: Arc::new(|| {
             vec![
@@ -499,6 +500,26 @@ fn the_floor_holds_back_what_a_grant_or_the_window_would_approve() {
     assert!(messages(&s, "pm-1")
         .iter()
         .any(|m| m.contains("Approved without the floor check")));
+    s.service.stop();
+}
+
+#[test]
+fn a_ledger_that_cannot_list_worktrees_makes_the_window_approve_nothing() {
+    let s = setup(|_| {});
+    open_window(&s, 30);
+    let clear = s.propose("rm -rf target");
+    assert_eq!(clear["state"], "approved");
+    s.wait_ended(&clear);
+    let runs = s.runs.load(Ordering::SeqCst);
+    let db = rusqlite::Connection::open(s.world.state.join("controller.sqlite")).unwrap();
+    db.execute("DROP TABLE agent_worktrees", []).unwrap();
+    drop(db);
+    for command in ["rm -rf target", "git worktree prune"] {
+        let proposal = s.propose(command);
+        assert_eq!(proposal["state"], "proposed", "{command}");
+        assert_eq!(proposal["autoRule"], Value::Null, "{command}");
+    }
+    assert_eq!(s.runs.load(Ordering::SeqCst), runs, "nothing ran");
     s.service.stop();
 }
 

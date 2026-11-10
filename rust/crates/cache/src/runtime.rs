@@ -93,6 +93,8 @@ pub struct Runtime {
     pub evict_while_active: bool,
     /// A unit must be untouched this long before it is evicted while agents run.
     pub active_unit_min_age: Duration,
+    /// Every repository root of a workspace project; empty (the single-repo case) means `[project_root]`.
+    pub idle_roots: Vec<PathBuf>,
 }
 
 fn sccache_size(bytes: u64) -> String {
@@ -267,6 +269,7 @@ impl Runtime {
             active_unit_min_age: Duration::from_secs(
                 u64::from(config.active_evict_min_age_minutes) * 60,
             ),
+            idle_roots: Vec::new(),
         }
     }
 

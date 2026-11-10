@@ -206,6 +206,16 @@ pub struct SpawnOptions {
     pub model_scope: Option<String>,
     /// A plan whose model override applies to this spawn when it has no task.
     pub plan: Option<String>,
+    /// Workspace mode: the commit of each repo a reviewer's worktree starts at; `None` spawns at the repos' main
+    /// branch tips.
+    pub repo_bases: Option<Vec<RepoBase>>,
+}
+
+/// The commit one repo's worktree of a reviewer starts at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepoBase {
+    pub repo: String,
+    pub commit: String,
 }
 
 /// A launcher refusal code: the reviewer's recorded model is not the one its next review wants.

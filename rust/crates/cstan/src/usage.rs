@@ -46,6 +46,7 @@ const KB: &str = "Knowledge base";
 pub const ENTRIES: &[Entry] = &[
     e(SETUP, "init", "init [--git] [--track-config]", "Create .capstan/, a starter capstan.toml and the capstan block of .gitignore."),
     e(SETUP, "init", "init --gitignore [--track-config]", "Only add or update the capstan block of .gitignore (also in an initialized project)."),
+    e(SETUP, "init", "init --workspace", "Create .capstan/ and a starter capstan.toml with a commented [repos] example in a folder that need not be a git repository."),
     e(SETUP, "start", "start", "Start the controller daemon and launch the PM."),
     e(SETUP, "stop", "stop", "Stop the controller daemon."),
     e(SETUP, "restart", "restart", "Restart the controller daemon only: stop it, start it again from the installed binary and print the old and new pid and version. Does not launch the PM or touch agent panes; starts the daemon when none runs."),

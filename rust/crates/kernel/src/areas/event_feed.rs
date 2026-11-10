@@ -654,6 +654,16 @@ pub const SKIPPED_ACTIONS: &[&str] = &[
     "wait.begin",
     "wait.end",
     "wait.end_controller",
+    "workspace.cleanup_repo",
+    "workspace.set_attach",
+    "workspace.set_create",
+    "workspace.set_detach",
+    "workspace.set_reset",
+    "workspace.set_state",
+    "workspace.worktree_record",
+    "workspace.worktree_remove",
+    "workspace.worktrees_copy",
+    "workspace.worktrees_remove",
 ];
 
 /// Spellings of actions an older kernel or the Node controller wrote that the current code no longer does; rows with them

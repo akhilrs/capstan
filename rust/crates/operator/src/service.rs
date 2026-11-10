@@ -446,6 +446,9 @@ pub struct OperatorServiceOptions {
     pub controller_credential: String,
     /// The directory every command runs in: the project root, never configurable.
     pub project_root: PathBuf,
+    /// The root of every repository of a workspace project; empty for a single-repo project. Git lists the Capstan
+    /// worktrees of each, so a tree kept for its commits stays protected after its ledger row is gone.
+    pub repo_roots: Vec<PathBuf>,
     /// The environment a command runs in; the launcher builds it without any agent token.
     pub environment: Environment,
     pub run_command: Option<Runner>,
@@ -666,14 +669,69 @@ impl Inner {
         }
     }
 
+    /// The project root with its git worktrees, and the worktree of every repo of every active workspace worker (the
+    /// project root of a workspace may not be a repository, so git lists nothing for it).
+    fn all_protected_roots(&self) -> Result<Vec<String>, String> {
+        let mut roots = protected_roots(&self.options.project_root);
+        let mut add = |path: &str| {
+            if !roots.iter().any(|known| known == path) {
+                roots.push(path.to_string());
+            }
+        };
+        for repo in &self.options.repo_roots {
+            for path in protected_roots(repo) {
+                add(&path);
+            }
+        }
+        // The ledger rows come second; a ledger that cannot be read fails closed: the caller treats every path as protected.
+        let listed = self.read(|core| {
+            let mut paths: Vec<Value> = Vec::new();
+            if let Value::Array(agents) = core.active_agents()? {
+                for agent in agents {
+                    let Some(id) = agent["agentId"].as_str() else {
+                        continue;
+                    };
+                    if let Value::Array(rows) = core.list_agent_worktrees(id)? {
+                        paths.extend(rows.iter().map(|row| row["worktreePath"].clone()));
+                    }
+                }
+            }
+            Ok(Value::Array(paths))
+        });
+        match listed {
+            Ok(Value::Array(paths)) => {
+                for path in paths.iter().filter_map(Value::as_str) {
+                    add(path);
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let why = error.message().to_string();
+                self.log("operator_protected_roots_failed", json!({"error": &why}));
+                return Err(why);
+            }
+        }
+        Ok(roots)
+    }
+
     /// What the floor says about a proposal. Proposals carry no directory: the Operator runs every command in the
     /// project root, so that is where a relative path and a `cd` start.
     fn check_window_floor(&self, kind: ProposalKind, command: &str) -> FloorVerdict {
         let root = self.options.project_root.to_string_lossy().into_owned();
+        let protected_roots = match self.all_protected_roots() {
+            Ok(roots) => roots,
+            // Fail closed: without the worktree rows nothing is known to be safe, so the window approves nothing.
+            Err(why) => {
+                return FloorVerdict::Floor {
+                    entry: "protected_roots_failed".to_string(),
+                    detail: format!("protected_roots_failed: {why}"),
+                }
+            }
+        };
         let ctx = FloorContext {
             entries: self.config().approval_floor.clone(),
             own_root: root.clone(),
-            protected_roots: protected_roots(&self.options.project_root),
+            protected_roots,
         };
         let action = match kind {
             ProposalKind::Restart => FloorAction::Restart,

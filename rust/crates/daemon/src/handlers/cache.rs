@@ -7,9 +7,9 @@
 use super::shared::{fail, ok, CommandCall, CommandEnv, CommandResponse, ErrorCode};
 use super::HandlerMap;
 use capstan_cache::{
-    clear, is_idle, measure, over_cap, prune_with_occupants, read_manifest, setup_keys,
-    write_manifest, CacheError, CommandOutcome, Manifest, Occupant, Policy, PruneHooks, Runtime,
-    SETUP_ENTRY,
+    clear, idle_roots_of, is_idle_roots, measure, over_cap, prune_with_occupants, read_manifest,
+    setup_keys, write_manifest, CacheError, CommandOutcome, Manifest, Occupant, Policy, PruneHooks,
+    Runtime, SETUP_ENTRY,
 };
 use capstan_config::{CacheScope, RoleConfig};
 use capstan_launcher::api::SetupOutcome;
@@ -130,13 +130,15 @@ pub fn runtime_of(
 ) -> Option<Runtime> {
     let cache = config.cache.as_ref()?;
     let path = env.get("PATH").map(String::as_str).unwrap_or_default();
-    Some(Runtime::from_config(
-        cache,
-        project_root,
-        project_id,
-        env,
-        path,
-    ))
+    let mut runtime = Runtime::from_config(cache, project_root, project_id, env, path);
+    if let Some(workspace) = &config.workspace {
+        runtime.idle_roots = workspace
+            .repos
+            .iter()
+            .map(|repo| repo.root.clone())
+            .collect();
+    }
+    Some(runtime)
 }
 
 /// The process environment as the map the runtime reads.
@@ -244,7 +246,7 @@ pub fn run_prune_with(
     occupants: Option<&[Occupant]>,
 ) -> Result<Value, CacheFailure> {
     let mut target = scoped(runtime, names)?;
-    let idle = is_idle(&runtime.project_root)?;
+    let idle = is_idle_roots(&idle_roots_of(runtime))?;
     let before = last_prune_of(runtime);
     let mut would_run = Vec::new();
     if dry_run {

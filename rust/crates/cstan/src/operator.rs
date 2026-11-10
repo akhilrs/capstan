@@ -157,6 +157,35 @@ impl Cli<'_> {
         Ok(operator)
     }
 
+    /// The unfinished-mode gate: a project with `[repos]` is refused before any git runs unless
+    /// `CAPSTAN_WORKSPACE_PREVIEW=1`. The file is read without judging trust, since the gate only refuses. Returns
+    /// whether the project is a workspace project.
+    fn workspace_gate(&self) -> Result<bool, Fail> {
+        let Ok(config) = capstan_config::parse_role_config_untrusted(&self.ctx.cwd) else {
+            return Ok(false);
+        };
+        if config.workspace.is_none() {
+            return Ok(false);
+        }
+        let preview = crate::agent::var(&self.ctx.env, capstan_config::WORKSPACE_PREVIEW_ENV)
+            .and_then(|value| value.to_str());
+        capstan_config::workspace_gate(preview).map_err(invalid)?;
+        Ok(true)
+    }
+
+    /// The git half of the workspace checks (a repository without a commit, a missing branch, two names for one
+    /// repository, nesting, a worktree folder in the wrong place), applied to a trusted configuration.
+    fn validate_workspace_config(&self) -> Result<(), Fail> {
+        let store = self.ctx.trust.store(&self.ctx.env);
+        match capstan_config::load_role_config_with(&self.ctx.cwd, &store) {
+            Ok(capstan_config::RoleConfig {
+                workspace: Some(workspace),
+                ..
+            }) => capstan_config::validate_workspace(&workspace).map_err(invalid),
+            _ => Ok(()),
+        }
+    }
+
     /// `cstan start`.
     pub fn start(&mut self, rest: &[String]) -> Result<Flow, Fail> {
         let (positional, json) = parse_options(rest);
@@ -165,6 +194,11 @@ impl Cli<'_> {
         }
         self.check_daemon_variable()?;
         let operator = self.load_operator()?;
+        if self.workspace_gate()? {
+            // Git runs in the paths the file names, so the trust check comes first.
+            self.trust_preflight()?;
+            self.validate_workspace_config()?;
+        }
         self.require_git()?;
         self.trust_preflight()?;
         let started = capstan_client::ensure_daemon(&self.ensure_options(&operator))

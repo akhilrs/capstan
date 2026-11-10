@@ -36,7 +36,7 @@
   "request": null,
   "node": {
     "stdout": "",
-    "stderr": "usage: cstan init [--git] [--track-config]\n       cstan init --gitignore [--track-config]\nrun `cstan help init` for details, or `cstan help` for all commands\n",
+    "stderr": "usage: cstan init [--git] [--track-config]\n       cstan init --gitignore [--track-config]\n       cstan init --workspace\nrun `cstan help init` for details, or `cstan help` for all commands\n",
     "exit": 2,
     "signal": null
   },

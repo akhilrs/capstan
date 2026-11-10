@@ -33,7 +33,7 @@ fn version() -> usize {
 
 fn triggers(conn: &Connection) -> Vec<(String, String)> {
     let mut statement = conn
-        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name NOT LIKE '%integration_details%' AND name <> 'operator_proposals_approval_needs_a_pm' AND name <> 'package_landings_immutable' ORDER BY name")
+        .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name NOT LIKE '%integration_details%' AND name <> 'operator_proposals_approval_needs_a_pm' AND name <> 'package_landings_immutable' AND name NOT LIKE 'immutable_report_commits_%' AND name <> 'immutable_verify_runs_identity' ORDER BY name")
         .unwrap();
     let rows = statement
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
