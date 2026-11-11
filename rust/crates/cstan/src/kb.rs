@@ -16,6 +16,16 @@ const BODY_PREVIEW: usize = 160;
 /// A refusal is printed as `kb: ...` and ends the command with exit 1.
 const REFUSED: i32 = 1;
 
+/// The most entry text one `kb import` call carries; the frame limit is 64 KiB.
+const IMPORT_CHUNK: usize = 48 * 1024;
+
+/// Where the entries live, as `kb check path` answers.
+struct Place {
+    path: String,
+    max: usize,
+    local: bool,
+}
+
 fn to_json(value: &capstan_wire::js::Value) -> Option<Value> {
     serde_json::from_str(&capstan_wire::js::stringify(value, 0).to_utf8_lossy()).ok()
 }
@@ -102,7 +112,7 @@ fn status_lines(status: &Value) -> Vec<String> {
 /// Whether the answer of the `kb` route is one `print` shows (the answer of `kb check` is not).
 pub fn printable(result: Option<&capstan_wire::js::Value>) -> bool {
     result.is_some_and(|r| {
-        ["refused", "hits", "status", "brief"]
+        ["refused", "hits", "status", "brief", "changes", "text"]
             .iter()
             .any(|key| r.get(key).is_some())
     })
@@ -149,6 +159,43 @@ pub fn print(
                 line(out, &text);
             }
         }
+    } else if let Some(changes) = value.get("changes").and_then(Value::as_array) {
+        if json {
+            line(
+                out,
+                &serde_json::to_string_pretty(changes).unwrap_or_default(),
+            );
+        } else {
+            for change in changes {
+                let text = |key: &str| change.get(key).and_then(Value::as_str).unwrap_or("");
+                let id = if text("id").is_empty() {
+                    "-"
+                } else {
+                    text("id")
+                };
+                let title = if text("title").is_empty() {
+                    format!(
+                        "{} entries",
+                        change.get("count").and_then(Value::as_u64).unwrap_or(0)
+                    )
+                } else {
+                    text("title").to_string()
+                };
+                line(
+                    out,
+                    &format!(
+                        "{}  {}  {}  {}  {}",
+                        text("at"),
+                        text("agent"),
+                        text("verb"),
+                        id,
+                        title
+                    ),
+                );
+            }
+        }
+    } else if let Some(text) = value.get("text").and_then(Value::as_str) {
+        out.extend_from_slice(text.as_bytes());
     } else if let Some(brief) = value.get("brief").and_then(Value::as_str) {
         let role = value
             .get("role")
@@ -220,6 +267,18 @@ fn kind_of(text: &str) -> Result<KbKind, Fail> {
     })
 }
 
+/// A random 16 lowercase hex characters naming one staged import.
+fn import_token() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut text = String::new();
+    for _ in 0..2 {
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u32(std::process::id());
+        text.push_str(&format!("{:08x}", hasher.finish() as u32));
+    }
+    text
+}
+
 fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -241,9 +300,10 @@ impl Cli<'_> {
             return Err(Fail::Usage);
         };
         match verb {
-            "search" | "for" | "uses" | "status" | "build" | "refresh" => {
+            "search" | "for" | "uses" | "status" | "build" | "refresh" | "log" | "export" => {
                 self.run_routed("kb", &positional, json)
             }
+            "import" => self.kb_import(&positional),
             "add" | "update" | "remove" => self.kb_write(&positional),
             _ => Err(Fail::Usage),
         }
@@ -267,29 +327,114 @@ impl Cli<'_> {
         Ok((PathBuf::from(top), head))
     }
 
-    /// Asks the daemon's `kb check`; `Ok(Err(code))` when it refused (the message is already printed).
-    fn kb_check(&mut self, args: Vec<String>) -> Result<Result<(String, usize), i32>, Fail> {
+    /// Sends one `kb` call and returns its answer; `Ok(Err(code))` when it was refused (the message is printed).
+    fn kb_call(&mut self, args: Vec<String>) -> Result<Result<Value, i32>, Fail> {
         let before = self.io.out.len();
         let flow = self.run_routed("kb", &args, true)?;
         let shown = self.io.out.split_off(before);
         match flow {
-            Flow::Code(0) => {
-                let answer: Value = serde_json::from_slice(&shown)
-                    .map_err(|_| invalid("kb: the controller's check answer could not be read"))?;
-                let path = answer
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let max = answer
-                    .get("maxEntries")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as usize;
-                Ok(Ok((path, max)))
-            }
+            Flow::Code(0) => serde_json::from_slice(&shown)
+                .map(Ok)
+                .map_err(|_| invalid("kb: the controller's answer could not be read")),
             Flow::Code(code) => Ok(Err(code)),
             _ => Ok(Err(REFUSED)),
         }
+    }
+
+    /// Asks the daemon's `kb check path`: the configured file, the cap, the storage and where the entries live.
+    fn kb_check(&mut self, args: Vec<String>) -> Result<Result<Place, i32>, Fail> {
+        Ok(self.kb_call(args)?.map(|answer| {
+            let text = |key: &str| {
+                answer
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            };
+            Place {
+                path: text("path"),
+                max: answer
+                    .get("maxEntries")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as usize,
+                local: text("storage") == "local",
+            }
+        }))
+    }
+
+    /// `cstan kb import <file> [--replace]`: whole lines in chunks the frame limit allows.
+    fn kb_import(&mut self, positional: &[String]) -> Result<Flow, Fail> {
+        let mut replace = false;
+        let mut file = None;
+        for arg in &positional[1..] {
+            match arg.as_str() {
+                "--replace" if !replace => replace = true,
+                other if !other.starts_with("--") && file.is_none() => file = Some(other),
+                _ => return Err(Fail::Usage),
+            }
+        }
+        let Some(file) = file else {
+            return Err(Fail::Usage);
+        };
+        let path = if Path::new(file).is_absolute() {
+            PathBuf::from(file)
+        } else {
+            self.ctx.cwd.join(file)
+        };
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| invalid(format!("kb: could not read {file}: {e}")))?;
+        let token = import_token();
+        let mut chunk = String::new();
+        let mut chunks: Vec<String> = Vec::new();
+        for line in text.split_inclusive('\n') {
+            if !chunk.is_empty() && chunk.len() + line.len() > IMPORT_CHUNK {
+                chunks.push(std::mem::take(&mut chunk));
+            }
+            chunk.push_str(line);
+        }
+        // An empty file still stages once (a newline: arguments may not be empty), so the import answers with zero counts.
+        if chunk.is_empty() && chunks.is_empty() {
+            chunk.push('\n');
+        }
+        if !chunk.is_empty() {
+            chunks.push(chunk);
+        }
+        // The daemon stages the chunks and applies them in one write: all or nothing.
+        for chunk in chunks {
+            if let Err(code) = self.kb_call(vec!["import-part".into(), token.clone(), chunk])? {
+                return Ok(Flow::Code(code));
+            }
+        }
+        let mut args = vec!["import".to_string(), token];
+        if replace {
+            args.push("--replace".into());
+        }
+        let answer = match self.kb_call(args)? {
+            Ok(answer) => answer,
+            Err(code) => return Ok(Flow::Code(code)),
+        };
+        let number = |key: &str| answer.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let invalid_lines = answer
+            .get("invalid")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.io.out_line(&format!(
+            "kb: imported {} entries ({} replaced, {} skipped as existing, {} invalid) into {}",
+            number("added"),
+            number("replaced"),
+            number("skipped"),
+            invalid_lines.len(),
+            answer.get("saved").and_then(Value::as_str).unwrap_or("")
+        ));
+        for item in &invalid_lines {
+            self.io.out_line(&format!(
+                "invalid line {}: {}",
+                item.get("line").and_then(Value::as_u64).unwrap_or(0),
+                item.get("reason").and_then(Value::as_str).unwrap_or("")
+            ));
+        }
+        Ok(Flow::Code(0))
     }
 
     fn kb_write(&mut self, positional: &[String]) -> Result<Flow, Fail> {
@@ -317,10 +462,14 @@ impl Cli<'_> {
         };
         let (top, head) = self.kb_tree()?;
         // The configured file and cap come from the controller, which also refuses a missing [kb].
-        let (path, max) = match self.kb_check(vec!["check".into(), "path".into()])? {
+        let place = match self.kb_check(vec!["check".into(), "path".into()])? {
             Ok(answer) => answer,
             Err(code) => return Ok(Flow::Code(code)),
         };
+        if place.local {
+            return self.kb_write_local(positional, &id, &fields, &head);
+        }
+        let (path, max) = (place.path, place.max);
         let file = top.join(&path);
         let current = std::fs::read_to_string(&file).unwrap_or_default();
         let found = parse_file(&current, usize::MAX)
@@ -393,7 +542,7 @@ impl Cli<'_> {
         if verb == "add" && fields.force {
             check.push("--force".into());
         }
-        if let Err(code) = self.kb_check(check)? {
+        if let Err(code) = self.kb_call(check)? {
             return Ok(Flow::Code(code));
         }
         if verb == "add" {
@@ -417,6 +566,113 @@ impl Cli<'_> {
         };
         self.io.out_line(&format!(
             "kb: {done} {id} {to} {path}; commit it on your branch"
+        ));
+        Ok(Flow::Code(0))
+    }
+
+    /// `add`, `update` and `remove` in `[kb] storage = local`: the controller holds the entries; nothing in the working
+    /// tree is touched.
+    fn kb_write_local(
+        &mut self,
+        positional: &[String],
+        id: &str,
+        fields: &Fields,
+        head: &str,
+    ) -> Result<Flow, Fail> {
+        let verb = positional[0].as_str();
+        let args = if verb == "remove" {
+            let got = match self.kb_call(vec!["get".into(), id.to_string()])? {
+                Ok(answer) => answer,
+                Err(code) => return Ok(Flow::Code(code)),
+            };
+            let mut args = vec!["write".to_string(), "remove".into(), id.to_string()];
+            if let Some(sha) = got.get("sha").and_then(Value::as_str) {
+                args.push("--expect".into());
+                args.push(sha.to_string());
+            }
+            args
+        } else {
+            let mut expect = None;
+            let mut entry = if verb == "add" {
+                let (Some(kind), Some(title), Some(body)) =
+                    (&fields.kind, &fields.title, &fields.body)
+                else {
+                    return Err(invalid("kb add needs --id, --kind, --title and --body"));
+                };
+                KbEntry {
+                    id: id.to_string(),
+                    kind: kind_of(kind)?,
+                    title: title.clone(),
+                    body: body.clone(),
+                    path: None,
+                    area: None,
+                    tags: vec![],
+                    aliases: vec![],
+                    related: vec![],
+                    verified_commit: head.to_string(),
+                }
+            } else {
+                if positional.len() <= 2 {
+                    return Err(invalid("kb update needs a field to change or --verified"));
+                }
+                let got = match self.kb_call(vec!["get".into(), id.to_string()])? {
+                    Ok(answer) => answer,
+                    Err(code) => return Ok(Flow::Code(code)),
+                };
+                expect = got.get("sha").and_then(Value::as_str).map(str::to_string);
+                let line = got.get("entry").and_then(Value::as_str).unwrap_or("");
+                match parse_file(line, usize::MAX).entries.into_iter().next() {
+                    Some(entry) => entry,
+                    None => return self.refuse(format!("kb: no entry {id}")),
+                }
+            };
+            if let Some(kind) = &fields.kind {
+                entry.kind = kind_of(kind)?;
+            }
+            if let Some(title) = &fields.title {
+                entry.title = title.clone();
+            }
+            if let Some(body) = &fields.body {
+                entry.body = body.clone();
+            }
+            if fields.path.is_some() {
+                entry.path = fields.path.clone();
+            }
+            if fields.area.is_some() {
+                entry.area = fields.area.clone();
+            }
+            if let Some(tags) = &fields.tags {
+                entry.tags = tags.clone();
+            }
+            if let Some(aliases) = &fields.aliases {
+                entry.aliases = aliases.clone();
+            }
+            if let Some(related) = &fields.related {
+                entry.related = related.clone();
+            }
+            entry.verified_commit = head.to_string();
+            let mut args = vec!["write".to_string(), verb.to_string(), to_line(&entry)];
+            if verb == "add" && fields.force {
+                args.push("--force".into());
+            }
+            if let Some(sha) = expect {
+                args.push("--expect".into());
+                args.push(sha);
+            }
+            args
+        };
+        let answer = match self.kb_call(args)? {
+            Ok(answer) => answer,
+            Err(code) => return Ok(Flow::Code(code)),
+        };
+        let (done, to) = match verb {
+            "add" => ("added", "to"),
+            "update" => ("updated", "in"),
+            _ => ("removed", "from"),
+        };
+        let _ = answer;
+        self.io.out_line(&format!(
+            "kb: {done} {id} {to} the local knowledge base; nothing to commit"
         ));
         Ok(Flow::Code(0))
     }

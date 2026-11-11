@@ -188,7 +188,7 @@ fn the_starter_is_short() {
         .lines()
         .filter(|line| line.starts_with('#'))
         .count();
-    assert!(comments < 48, "{comments} comment lines");
+    assert!(comments < 49, "{comments} comment lines");
 }
 
 #[test]

@@ -606,7 +606,7 @@ mod tests {
     fn prompts_send_roles_to_the_knowledge_base() {
         for needle in [
             "read the Reuse section of your work package (if any), run `cstan kb search <words>` and search the code for an existing one; extend what exists when it fits",
-            "add an entry with `cstan kb add` and commit it with your change",
+            "add an entry with `cstan kb add` and do what it prints: commit the entries file only when it names one to commit, and never commit a knowledge base file otherwise.",
             "Your report summary ends with Reused: <names> and New: <names> (why nothing existing fit).",
         ] {
             assert!(DEVELOPER_FINISH_RULES.contains(needle), "developer: {needle}");

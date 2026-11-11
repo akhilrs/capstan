@@ -57,6 +57,8 @@ pub struct Status {
 
 pub struct KbIndex {
     conn: Connection,
+    state_dir: std::path::PathBuf,
+    root: std::path::PathBuf,
 }
 
 fn now() -> i64 {
@@ -98,7 +100,7 @@ fn terms(words: &[String]) -> Vec<String> {
 }
 
 impl KbIndex {
-    pub(super) fn open(state_dir: &Path, _root: &Path) -> Result<KbIndex, KbError> {
+    pub(super) fn open(state_dir: &Path, root: &Path) -> Result<KbIndex, KbError> {
         let dir = state_dir.join("kb");
         std::fs::create_dir_all(&dir).map_err(|e| KbError::Store(e.to_string()))?;
         #[cfg(unix)]
@@ -110,7 +112,19 @@ impl KbIndex {
         let conn = Connection::open(dir.join("index.sqlite"))?;
         conn.busy_timeout(std::time::Duration::from_secs(10))?;
         conn.execute_batch(SCHEMA)?;
-        Ok(KbIndex { conn })
+        Ok(KbIndex {
+            conn,
+            state_dir: state_dir.to_path_buf(),
+            root: root.to_path_buf(),
+        })
+    }
+
+    pub(super) fn state_dir(&self) -> &Path {
+        &self.state_dir
+    }
+
+    pub(super) fn root(&self) -> &Path {
+        &self.root
     }
 
     /// The commit the index was built at.

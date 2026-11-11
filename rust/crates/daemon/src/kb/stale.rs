@@ -5,7 +5,7 @@ use std::path::Path;
 use capstan_config::{Design, KbConfig, KbEntry};
 
 use super::text::owned_paths;
-use super::{ensure, git};
+use super::{ensure, git, location};
 
 const MAX_COMMITS_CHECKED: usize = 300;
 const MAX_LOG_COMMITS: usize = 2000;
@@ -219,6 +219,7 @@ pub fn warnings(
         return out;
     }
     let failed = |why: &str| eprintln!("kb_check_failed: {why}");
+    let place = location(state_dir, root, cfg);
     match ensure(state_dir, root, cfg) {
         Err(e) => {
             failed(&e.to_string());
@@ -231,25 +232,34 @@ pub fn warnings(
             }
             Ok(status) if status.state == "missing" => out.push(format!(
                 "kb: no knowledge base at {}; next: cstan kb build and send its brief to a {} agent",
-                cfg.path, cfg.role
+                place, cfg.role
             )),
             Ok(status) => {
                 if let Some((line, _)) = status.invalid.first() {
                     out.push(format!(
                         "kb: {} invalid lines in {} (first at line {line}); next: cstan kb status",
                         status.invalid.len(),
-                        cfg.path
+                        place
                     ));
                 }
                 let flagged = (status.stale + status.missing) as i64;
                 if flagged > 0 && flagged >= cfg.stale_warn {
                     out.push(format!(
                         "kb: {} stale and {} missing entries in {}; next: cstan kb refresh",
-                        status.stale, status.missing, cfg.path
+                        status.stale, status.missing, place
                     ));
                 }
             }
         },
+    }
+    if cfg.storage == capstan_config::kb::KbStorage::Local {
+        let spec = format!("HEAD:{}", cfg.path);
+        if matches!(git(root, &["rev-parse", "--verify", &spec]), Ok((0, _))) {
+            out.push(format!(
+                "kb: {path} is in the repository but [kb] storage is local; next: cstan kb import {path}, then remove the file from the repository",
+                path = cfg.path
+            ));
+        }
     }
     match design_warning(root, cfg, ui_owns, design) {
         Ok(Some(w)) => out.push(w),

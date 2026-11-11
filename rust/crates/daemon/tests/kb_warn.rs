@@ -67,6 +67,7 @@ struct World {
     credentials: HashMap<String, String>,
     heads: BTreeMap<String, String>,
     launcher: Arc<StubLauncher>,
+    state: std::path::PathBuf,
 }
 
 impl World {
@@ -131,7 +132,7 @@ impl World {
             .expect("the kernel opens")
         };
         let sink: Logger = Arc::new(|_: &LogEntry| {});
-        let mut options = DaemonOptions::new(state, project, dir.path().to_path_buf());
+        let mut options = DaemonOptions::new(state.clone(), project, dir.path().to_path_buf());
         options.trust_store = trust.clone();
         let role_config = capstan_config::load_role_config_with(dir.path(), &trust).unwrap();
         let verify = role_config.verify.clone();
@@ -154,6 +155,7 @@ impl World {
             credentials: HashMap::new(),
             heads,
             launcher,
+            state,
         };
         world
             .credentials
@@ -521,4 +523,44 @@ fn assign_attaches_the_reuse_lines_of_an_owned_path_and_none_without_a_match() {
     w.ok("pm-1", "plan", &["assign", "plan-1", "web", "dev-2"]);
     let none = w.drain("dev-2").join("\n");
     assert!(!none.contains("Reuse (knowledge base"), "{none}");
+}
+
+const KB_LOCAL: &str = "\n[kb]\nstorage = \"local\"\n";
+
+#[test]
+fn local_mode_names_the_local_location_and_warns_about_a_leftover_repo_file() {
+    let w = World::new(KB_LOCAL, false);
+    let missing = w.open_warning().expect("a warning");
+    assert!(
+        missing.starts_with("kb: no knowledge base at ") && missing.contains("kb/entries.jsonl"),
+        "{missing}"
+    );
+    assert!(!missing.contains("docs/capstan/kb.jsonl"), "{missing}");
+    w.commit_kb("a.txt");
+    let left = w.open_warning().expect("a warning");
+    assert!(
+        left.contains(
+            "kb: docs/capstan/kb.jsonl is in the repository but [kb] storage is local; next: cstan kb import docs/capstan/kb.jsonl, then remove the file from the repository"
+        ),
+        "{left}"
+    );
+}
+
+#[test]
+fn repo_mode_has_no_leftover_file_warning() {
+    let w = World::new(KB, false);
+    w.commit_kb("a.txt");
+    assert_eq!(w.open_warning(), None);
+}
+
+#[test]
+fn an_empty_local_entries_file_counts_as_missing() {
+    let w = World::new(KB_LOCAL, false);
+    std::fs::create_dir_all(w.state.join("kb")).unwrap();
+    std::fs::write(w.state.join("kb/entries.jsonl"), "\n").unwrap();
+    let warning = w.open_warning().expect("a warning");
+    assert!(
+        warning.starts_with("kb: no knowledge base at ") && warning.contains("kb/entries.jsonl"),
+        "{warning}"
+    );
 }

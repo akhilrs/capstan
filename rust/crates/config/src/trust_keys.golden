@@ -79,13 +79,16 @@ checked impact.next_steps
 checked kb.design_role
 checked kb.design_stale_commits
 checked kb.enabled
+checked kb.log_max_entries
 checked kb.max_entries
 checked kb.max_entry_bytes
 checked kb.path
+checked kb.pm_note_minutes
 checked kb.reuse_max_bytes
 checked kb.role
 checked kb.search_limit
 checked kb.stale_warn
+checked kb.storage
 checked kb.ui_paths
 checked layout.min_pane_columns
 checked layout.min_pane_rows

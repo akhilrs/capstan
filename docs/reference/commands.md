@@ -114,7 +114,7 @@ The daemon also keeps the caches in shape on its own. When it starts it removes 
 
 ### Knowledge base
 
-Needs a `[kb]` table in `capstan.toml` (see [Configuration](configuration.md#knowledge-base-kb) and [Knowledge base](knowledge-base.md)); without it every form below exits 1 with `kb: not configured; add a [kb] table to capstan.toml`. The lookups read the entries file as committed at HEAD of the project root, through the controller's index; `add`, `update` and `remove` change the file in your own working tree and never commit. A refused command prints its reason on standard error and exits 1.
+Needs a `[kb]` table in `capstan.toml` (see [Configuration](configuration.md#knowledge-base-kb) and [Knowledge base](knowledge-base.md)); without it every form below exits 1 with `kb: not configured; add a [kb] table to capstan.toml`. The lookups read the entries through the controller's index: the file as committed at HEAD of the project root (`[kb] storage = "repo"`) or the local file (`"local"`). In repo storage `add`, `update` and `remove` change the file in your own working tree and never commit; in local storage they change the local file through the controller and there is nothing to commit. A refused command prints its reason on standard error and exits 1.
 
 | Command | Purpose |
 | --- | --- |
@@ -127,6 +127,9 @@ Needs a `[kb]` table in `capstan.toml` (see [Configuration](configuration.md#kno
 | `cstan kb add --id <id> --kind <kind> --title <t> --body <b> [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--force]` | Add an entry in id order, stamped with this working tree's HEAD. Refused for an id already in the file or at HEAD, for a field that breaks a rule, past `max_entries`, and for a similar entry unless `--force`. |
 | `cstan kb update <id> [--kind <kind>] [--title <t>] [--body <b>] [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--verified]` | Change the named fields and stamp the entry with HEAD; a repeated flag list replaces the old list. `--verified` alone only re-stamps it. |
 | `cstan kb remove <id>` | Remove an entry from the file. |
+| `cstan kb import <file> [--replace]` | Local storage; PM or operator only. Add the entries of a JSON Lines file. Existing ids are skipped unless `--replace`. All or nothing: the file is staged in parts and applied in one write with one change line. Refused with nothing imported when it is over the limit (`kb: the import is over the limit of <N> entries of <M> bytes; nothing was imported`) or the staged parts are gone (`kb: no staged import for that token; run cstan kb import again`). An empty file prints `kb: imported 0 entries ...` and exits 0. |
+| `cstan kb log [--limit <n>] [--json]` | Local storage only; refused in repo storage. The change log, newest first: 20 lines by default, at most `[kb] log_max_entries`. |
+| `cstan kb export` | Print the entries file to standard output: the local file, or the repo file at HEAD. Use it as a backup. |
 
 Output. A hit prints `<id>  <kind>  <title>  <path or ->` (with `  stale` or `  missing` added where it applies), then the start of its body indented below; no hit prints `kb: no entries`. `--json` prints the hits as an array with `id`, `kind`, `title`, `path`, `area`, `state`, `reason`, `uses` and `body`. `status` prints:
 
@@ -137,7 +140,9 @@ vector search: not needed
 invalid line 7: kb entry: key body is out of order
 ```
 
-`kb: missing` replaces `ok` when the file is not at HEAD. `status --json` prints `{ state, head, entries, invalid: [{ line, reason }], stale, missing, searches30d, misses30d, vectorsHint }`. `build` and `refresh` print the brief on standard output and `next: cstan spawn <role> --title "knowledge base" then cstan send <agent-id> with this brief` on standard error. `add`, `update` and `remove` print `kb: added|updated <id> to|in <path>; commit it on your branch` or `kb: removed <id> from <path>; commit it on your branch`.
+`kb: missing` replaces `ok` when the file is not at HEAD. `status --json` prints `{ state, head, entries, invalid: [{ line, reason }], stale, missing, searches30d, misses30d, vectorsHint }`. `build` and `refresh` print the brief on standard output and `next: cstan spawn <role> --title "knowledge base" then cstan send <agent-id> with this brief` on standard error. `add`, `update` and `remove` print, in repo storage, `kb: added|updated <id> to|in <path>; commit it on your branch` or `kb: removed <id> from <path>; commit it on your branch`, and in local storage `kb: added <id> to the local knowledge base; nothing to commit`, `kb: updated <id> in the local knowledge base; nothing to commit` or `kb: removed <id> from the local knowledge base; nothing to commit`. Local refusals: `kb: verified commit <sha12> is not in the project repository`, `kb: <location> already has <n> entries, the limit of <max>; remove one first`, `kb: no entry <id> in <location>` and `kb: id <id> exists; use cstan kb update <id>`. In repo storage, `import` and `log` answer `kb: [kb] storage is repo; edit the entries file with cstan kb add in your working tree and commit it`; `import` by anyone else answers `kb: import is for the PM or the operator`.
+
+`import` prints `kb: imported <a> entries (<r> replaced, <s> skipped as existing, <i> invalid) into <location>`, then one line per invalid line with its number and reason. `log` prints one line per change, `<iso>  <agent>  <verb>  <id>  <title>`, with the verbs `add`, `update`, `remove` and `import` (an import has an empty id and a count).
 
 ### Supervision
 
