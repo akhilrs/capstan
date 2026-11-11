@@ -972,6 +972,21 @@ pub fn verify_lines(sub: &str, result: Option<&Value>, now_ms: f64) -> Vec<Strin
             }
         }
         "show" => verify_show_lines(result),
+        _ if !items(result.get("runs")).is_empty() => items(result.get("runs"))
+            .iter()
+            .map(|run| {
+                let id = text_of(run.get("runId")).unwrap_or_default();
+                let state = text_of(run.get("state")).unwrap_or_default();
+                let repo = text_of(run.get("repo")).unwrap_or_default();
+                if matches!(run.get("existing"), Some(Value::Bool(true))) {
+                    format!(
+                        "verify run {id} for repo {repo} already {state}; cstan verify show {id}"
+                    )
+                } else {
+                    format!("verify run {id} for repo {repo} queued; cstan verify show {id}")
+                }
+            })
+            .collect(),
         _ => {
             let id = text_of(result.get("runId")).unwrap_or_default();
             let state = text_of(result.get("state")).unwrap_or_default();

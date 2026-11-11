@@ -17,7 +17,7 @@ pub mod scratch;
 use crate::deps::{new_context, Deps, KernelHandle, LogEntry, Logger};
 use crate::loops::cache::CacheTrigger;
 use capstan_cache::Occupant;
-use capstan_config::{Verify, Worktree};
+use capstan_config::{RepoVerify, Verify, Worktree};
 use capstan_kernel::types::MutationContext;
 use capstan_kernel::{Core, KernelResult};
 use capstan_operator::service::{RealProcesses, RunResult};
@@ -57,6 +57,13 @@ pub enum LeaseFault {
 /// How long a worker sleeps without a wake-up before it looks at the queue again.
 const IDLE_CHECK: Duration = Duration::from_secs(5);
 
+/// What the service knows of one repo of a workspace.
+pub(crate) struct RepoSpec {
+    pub root: PathBuf,
+    pub verify: Option<RepoVerify>,
+    pub cache: Option<Vec<String>>,
+}
+
 pub struct VerifyService {
     pub(crate) kernel: KernelHandle,
     credential: String,
@@ -65,6 +72,8 @@ pub struct VerifyService {
     pub(crate) env_pass: Vec<String>,
     pub(crate) cache: Option<capstan_cache::Runtime>,
     pub(crate) project_root: PathBuf,
+    /// The repos of a workspace project: root folder, own `[repos.<name>.verify]` and cache entry names.
+    pub(crate) repos: HashMap<String, RepoSpec>,
     pub(crate) scratch_root: PathBuf,
     pub(crate) project_id: String,
     log: Logger,
@@ -193,6 +202,24 @@ impl VerifyService {
             env_pass: config.map(|c| c.env_pass.clone()).unwrap_or_default(),
             cache: crate::handlers::cache::runtime_of_deps(deps),
             project_root: deps.options.workspace_root.clone(),
+            repos: config
+                .and_then(|c| c.workspace.as_ref())
+                .map(|w| {
+                    w.repos
+                        .iter()
+                        .map(|r| {
+                            (
+                                r.name.clone(),
+                                RepoSpec {
+                                    root: deps.repo_root(&r.name),
+                                    verify: r.verify.clone(),
+                                    cache: r.cache.clone(),
+                                },
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             scratch_root,
             project_id: deps.options.project.project_id.clone(),
             log: deps.log.clone(),
@@ -436,6 +463,32 @@ impl VerifyService {
 
     pub fn commands_sha(&self) -> String {
         self.verify.commands_sha()
+    }
+
+    /// The gate of `repo`: the top-level `[verify]` with the repo's own commands, env and timeout when it has them.
+    pub fn verify_for(&self, repo: &str) -> Verify {
+        let mut verify = self.verify.clone();
+        if let Some(own) = self.repos.get(repo).and_then(|r| r.verify.as_ref()) {
+            verify.commands = own.commands.clone();
+            verify.path_filters = vec![None; own.commands.len()];
+            verify.env = own.env.clone();
+            if let Some(timeout) = own.timeout_seconds {
+                verify.timeout_seconds = timeout;
+            }
+        }
+        verify
+    }
+
+    /// The commands sha a run of `repo` is keyed by.
+    pub fn commands_sha_for(&self, repo: &str) -> String {
+        self.verify_for(repo).commands_sha()
+    }
+
+    /// The root folder of `repo` ('' and an unknown name give the project root).
+    pub(crate) fn root_of(&self, repo: &str) -> &std::path::Path {
+        self.repos
+            .get(repo)
+            .map_or(self.project_root.as_path(), |r| r.root.as_path())
     }
 
     pub(crate) fn detail_log(&self, event: &str, detail: Value) {

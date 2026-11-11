@@ -614,13 +614,17 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// The one file outside the tests directories that may call the seam setters: the decide-merge route's repository builder.
-const SEAM_CALLER: &str = "daemon/src/handlers/decide_merge_seams.rs";
+/// The files outside the tests directories that may call the seam setters: the repository builders of the decide-merge
+/// route and of the integration-set route. Seams reach them only through `CommandState`, which tests fill.
+const SEAM_CALLERS: [&str; 2] = [
+    "daemon/src/handlers/decide_merge_seams.rs",
+    "daemon/src/handlers/integrate_seams.rs",
+];
 
-/// The 1-based lines of `text` in `file` that call a seam setter; the definitions do not count, and neither does the
-/// one allowed file.
+/// The 1-based lines of `text` in `file` that call a seam setter; the definitions do not count, and neither do the
+/// allowed files.
 fn setter_call_lines(file: &Path, text: &str) -> Vec<usize> {
-    if file.ends_with(SEAM_CALLER) {
+    if SEAM_CALLERS.iter().any(|allowed| file.ends_with(allowed)) {
         return Vec::new();
     }
     text.lines()
@@ -634,11 +638,13 @@ fn setter_call_lines(file: &Path, text: &str) -> Vec<usize> {
 }
 
 #[test]
-fn the_setter_matcher_allows_one_file_and_no_other() {
+fn the_setter_matcher_allows_the_seam_files_and_no_other() {
     let call = "let r = repo.with_seams(seams);\n";
     let allowed = Path::new("/x/rust/crates/daemon/src/handlers/decide_merge_seams.rs");
     let other = Path::new("/x/rust/crates/daemon/src/handlers/decide_merge.rs");
     assert!(setter_call_lines(allowed, call).is_empty());
+    let sets = Path::new("/x/rust/crates/daemon/src/handlers/integrate_seams.rs");
+    assert!(setter_call_lines(sets, call).is_empty());
     assert_eq!(setter_call_lines(other, call), vec![1]);
     assert_eq!(
         setter_call_lines(other, "x\n.with_merge_seams(s)\n"),

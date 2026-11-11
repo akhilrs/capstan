@@ -29,7 +29,7 @@ pub fn register(map: &mut HandlerMap) {
 fn usage() -> CommandResponse {
     fail(
         ErrorCode::InvalidRequest,
-        "verify takes a report or integration id, or show <run-id>, list [<id>] or cancel <run-id>",
+        "verify takes a report or integration id (<id> [--repo <repo>]), or show <run-id>, list [<id>] or cancel <run-id>",
     )
 }
 
@@ -59,7 +59,15 @@ fn verify_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comman
     let Some(first) = args.first() else {
         return Some(usage());
     };
-    if args.iter().any(|a| !is_safe_agent_id(a)) {
+    // `<id> --repo <repo>` reruns one repo of a workspace report.
+    let (args, repo) = match args.iter().position(|a| a == "--repo") {
+        None => (args, None),
+        Some(1) if args.len() == 3 && !matches!(first.as_str(), "show" | "list" | "cancel") => {
+            (&args[..1], Some(args[2].as_str()))
+        }
+        Some(_) => return Some(usage()),
+    };
+    if args.iter().any(|a| !is_safe_agent_id(a)) || repo.is_some_and(|r| !is_safe_agent_id(r)) {
         return Some(fail(ErrorCode::InvalidRequest, "an id is not valid"));
     }
     Some(match (first.as_str(), args.len()) {
@@ -67,8 +75,60 @@ fn verify_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comman
         ("list", 1 | 2) => list(env, args.get(1).cloned()),
         ("cancel", 2) => cancel(env, call, &service, &args[1]),
         ("show" | "list" | "cancel", _) => usage(),
-        (_, 1) => queue(env, call, &service, first),
+        (_, 1) => queue(env, call, &service, first, repo),
         _ => usage(),
+    })
+}
+
+/// Whether the project is a workspace (it has `[repos]`).
+pub(crate) fn is_workspace(deps: &Deps) -> bool {
+    deps.options
+        .capstan
+        .as_ref()
+        .is_some_and(|config| config.workspace.is_some())
+}
+
+/// The refusal for a set or a member of one: set verify and review come with set redo.
+pub(crate) fn set_refusal(core: &Core, subject: &str) -> KernelResult<Option<String>> {
+    if let Some(set) = core.set_of_integration(subject)? {
+        return Ok(Some(format!(
+            "integration {subject} belongs to set {set}; set verify and review come with set redo"
+        )));
+    }
+    if !core.integration_set(subject)?.is_null() {
+        return Ok(Some(format!(
+            "set {subject} cannot be verified yet; set verify and review come with set redo"
+        )));
+    }
+    Ok(None)
+}
+
+/// One run queued for `subject` in `repo` (`None`: the subject's own repo) with that repo's commands.
+fn queue_one(
+    deps: &Deps,
+    service: &VerifyService,
+    credential: &str,
+    subject: &str,
+    repo: Option<&str>,
+    trigger: &str,
+) -> Result<Value, KernelError> {
+    let (verify, sha) = match repo {
+        Some(repo) => (service.verify_for(repo), service.commands_sha_for(repo)),
+        None => (service.config().clone(), service.commands_sha()),
+    };
+    let mut input = json!({
+        "subjectId": subject,
+        "commands": verify.commands,
+        "commandsSha": sha,
+        "trigger": trigger,
+    });
+    if let Some(repo) = repo {
+        input["repo"] = json!(repo);
+    }
+    let credential = credential.to_string();
+    deps.kernel.run(move |core| {
+        let context = new_context(core, &credential)?;
+        core.queue_verify_run(&context, &input)
     })
 }
 
@@ -77,6 +137,7 @@ fn queue(
     call: &CommandCall<'_>,
     service: &Arc<VerifyService>,
     subject: &str,
+    repo: Option<&str>,
 ) -> CommandResponse {
     if let Some(problem) = service.problem() {
         return fail(
@@ -84,24 +145,112 @@ fn queue(
             format!("verify_scratch_refused: {problem}"),
         );
     }
-    let input = json!({
-        "subjectId": subject,
-        "commands": service.config().commands,
-        "commandsSha": service.commands_sha(),
-        "trigger": "manual",
-    });
-    let credential = call.credential.to_string();
-    let queued = env.deps.kernel.run(move |core| {
-        let context = new_context(core, &credential)?;
-        core.queue_verify_run(&context, &input)
-    });
-    match queued {
-        Ok(run) => {
-            service.notify();
-            ok(run)
-        }
-        Err(error) => refused(&error),
+    let workspace = is_workspace(env.deps);
+    if repo.is_some() && !workspace {
+        return fail(
+            ErrorCode::Rejected,
+            "verify_refused: --repo is only for workspace projects",
+        );
     }
+    let credential = call.credential.to_string();
+    if !workspace {
+        return match queue_one(env.deps, service, &credential, subject, None, "manual") {
+            Ok(run) => {
+                service.notify();
+                ok(run)
+            }
+            Err(error) => refused(&error),
+        };
+    }
+    let id = subject.to_string();
+    let looked = env.deps.kernel.run(move |core| {
+        if let Some(why) = set_refusal(core, &id)? {
+            return Ok(Err(why));
+        }
+        let rows = core.report_commits(&id)?;
+        Ok(Ok(rows
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row["repo"].as_str().map(str::to_string))
+            .collect::<Vec<_>>()))
+    });
+    let repos = match looked {
+        Ok(Ok(repos)) => repos,
+        Ok(Err(why)) => return fail(ErrorCode::Rejected, format!("verify_refused: {why}")),
+        Err(error) => return map_kernel_error(&error),
+    };
+    if repos.is_empty() {
+        return fail(
+            ErrorCode::Rejected,
+            format!("verify_refused: {subject} names no commit per repo (a report from before workspace mode, or not a report); report again to verify it"),
+        );
+    }
+    let targets: Vec<String> = match repo {
+        Some(repo) if !repos.iter().any(|r| r == repo) => {
+            return fail(
+                ErrorCode::Rejected,
+                format!("verify_refused: repo {repo} is not in report {subject}"),
+            )
+        }
+        // `report_commits` never holds the root repo ('') in workspace mode, so --repo cannot name it.
+        Some(repo) => vec![repo.to_string()],
+        None => repos,
+    };
+    let mut runs = Vec::new();
+    for target in &targets {
+        match queue_one(
+            env.deps,
+            service,
+            &credential,
+            subject,
+            Some(target),
+            "manual",
+        ) {
+            Ok(run) => runs.push(run),
+            Err(error) => {
+                // What was queued before the refusal runs now, not at the next idle poll.
+                service.notify();
+                let ids: Vec<String> = runs
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "{} ({})",
+                            r["runId"].as_str().unwrap_or(""),
+                            r["repo"].as_str().unwrap_or("")
+                        )
+                    })
+                    .collect();
+                let mut answer = refused(&error);
+                if !ids.is_empty() {
+                    answer = fail(
+                        ErrorCode::Rejected,
+                        format!(
+                            "verify_refused: repo {target}: {}. Queued before that: {}",
+                            error.message(),
+                            ids.join(", ")
+                        ),
+                    );
+                }
+                return answer;
+            }
+        }
+    }
+    service.notify();
+    let mut answer = runs[0].clone();
+    answer["runs"] = Value::Array(
+        runs.iter()
+            .map(|run| {
+                json!({
+                    "repo": run["repo"],
+                    "runId": run["runId"],
+                    "state": run["state"],
+                    "existing": run["existing"] == true,
+                })
+            })
+            .collect(),
+    );
+    ok(answer)
 }
 
 fn show(env: &CommandEnv<'_>, run_id: &str) -> CommandResponse {
@@ -288,29 +437,47 @@ pub fn auto_queue(deps: &Deps, trigger: Auto, subject_id: &str) {
     if !wanted {
         return;
     }
-    let input = json!({
-        "subjectId": subject_id,
-        "commands": config.commands,
-        "commandsSha": service.commands_sha(),
-        "trigger": "auto",
-    });
     let credential = deps.credential().to_string();
-    let queued = deps.kernel.run(move |core| {
-        let context = new_context(core, &credential)?;
-        core.queue_verify_run(&context, &input)
-    });
-    match queued {
-        Ok(run) => {
-            deps.detail_log(
-                "verify_auto_queued",
-                json!({"subjectId": subject_id, "runId": run["runId"], "existing": run["existing"]}),
-            );
-            service.notify();
+    // A workspace report is verified in every repo it names a commit for.
+    let repos: Vec<Option<String>> = if is_workspace(deps) && trigger == Auto::Report {
+        let id = subject_id.to_string();
+        let rows = deps.kernel.run(move |core| core.report_commits(&id));
+        let listed: Vec<Option<String>> = rows
+            .ok()
+            .and_then(|rows| rows.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|row| row["repo"].as_str().map(|r| Some(r.to_string())))
+            .collect();
+        if listed.is_empty() {
+            vec![None]
+        } else {
+            listed
         }
-        Err(error) => deps.detail_log(
-            "verify_auto_failed",
-            json!({"subjectId": subject_id, "error": error.to_string()}),
-        ),
+    } else {
+        vec![None]
+    };
+    for repo in repos {
+        match queue_one(
+            deps,
+            service,
+            &credential,
+            subject_id,
+            repo.as_deref(),
+            "auto",
+        ) {
+            Ok(run) => {
+                deps.detail_log(
+                    "verify_auto_queued",
+                    json!({"subjectId": subject_id, "runId": run["runId"], "existing": run["existing"]}),
+                );
+                service.notify();
+            }
+            Err(error) => deps.detail_log(
+                "verify_auto_failed",
+                json!({"subjectId": subject_id, "error": error.to_string()}),
+            ),
+        }
     }
 }
 
@@ -347,12 +514,32 @@ pub fn check_gate(deps: &Deps, gate: Gate, subjects: &[String]) -> Result<(), Ke
         return Ok(());
     };
     let config = service.config();
+    // A workspace gates integrate whenever [verify] is configured; a single-repo project keeps its switch.
+    let workspace = is_workspace(deps);
     let guarded = match gate {
         Gate::Review => config.require_review,
-        Gate::Integrate => config.require_integrate,
+        Gate::Integrate => config.require_integrate || workspace,
     };
     if !guarded {
         return Ok(());
+    }
+    if workspace {
+        if gate == Gate::Review {
+            // A set or a member of one is not gated yet: say so before any run is looked for.
+            let ids = subjects.to_vec();
+            let refused = deps.kernel.run(move |core| {
+                for id in &ids {
+                    if let Some(why) = set_refusal(core, id)? {
+                        return Ok(Some(why));
+                    }
+                }
+                Ok(None)
+            })?;
+            if let Some(why) = refused {
+                return Err(KernelError::MutationConflict(why));
+            }
+        }
+        return workspace_gate(deps, service, subjects);
     }
     let (subjects, sha) = (subjects.to_vec(), service.commands_sha());
     let answer = deps
@@ -363,4 +550,77 @@ pub fn check_gate(deps: &Deps, gate: Gate, subjects: &[String]) -> Result<(), Ke
     }
     let failures = answer["failures"].as_array().cloned().unwrap_or_default();
     Err(required_error(&failures))
+}
+
+/// The gate of a workspace: every report passes only when each repo it names a commit for has a passed run at
+/// that commit with that repo's current commands.
+pub(crate) fn workspace_gate(
+    deps: &Deps,
+    service: &VerifyService,
+    subjects: &[String],
+) -> Result<(), KernelError> {
+    let shas: Vec<(String, String)> = {
+        let mut repos: Vec<String> = deps
+            .options
+            .capstan
+            .as_ref()
+            .and_then(|config| config.workspace.as_ref())
+            .map(|w| w.repos.iter().map(|r| r.name.clone()).collect())
+            .unwrap_or_default();
+        repos.push(String::new());
+        repos
+            .into_iter()
+            .map(|repo| {
+                let sha = service.commands_sha_for(&repo);
+                (repo, sha)
+            })
+            .collect()
+    };
+    let subjects = subjects.to_vec();
+    let failures = deps.kernel.run(move |core| {
+        let mut failures: Vec<Value> = Vec::new();
+        for subject in &subjects {
+            let rows = core.report_commits(subject)?;
+            let rows: Vec<Value> = rows.as_array().cloned().unwrap_or_default();
+            if rows.is_empty() {
+                // No per-repo commits: an integration (a set member carries its repo) or a report that names none.
+                let repo = core.repo_of_integration(subject)?.unwrap_or_default();
+                let sha = shas
+                    .iter()
+                    .find(|(name, _)| *name == repo)
+                    .map_or("", |(_, sha)| sha.as_str());
+                let answer = core.verify_gate_for_subjects(std::slice::from_ref(subject), sha)?;
+                if answer["ok"] != true {
+                    failures.extend(answer["failures"].as_array().cloned().unwrap_or_default());
+                }
+                continue;
+            }
+            for row in rows {
+                let repo = row["repo"].as_str().unwrap_or("");
+                let commit = row["commitSha"].as_str().unwrap_or("");
+                let sha = shas
+                    .iter()
+                    .find(|(name, _)| name == repo)
+                    .map_or("", |(_, sha)| sha.as_str());
+                let answer = core.verify_gate_in_repo(repo, commit, sha)?;
+                if answer["ok"] == true {
+                    continue;
+                }
+                failures.push(json!({
+                    "subjectId": subject,
+                    "repo": repo,
+                    "commitSha": commit,
+                    "code": answer["code"],
+                    "runId": answer["run"]["runId"],
+                    "state": answer["run"]["state"],
+                }));
+            }
+        }
+        Ok(failures)
+    })?;
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(required_error(&failures))
+    }
 }

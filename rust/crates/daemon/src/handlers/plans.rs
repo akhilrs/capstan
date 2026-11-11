@@ -712,7 +712,13 @@ fn submit(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
             ))
         }
     };
-    let base_sha = env.deps.git.head_commit().map_err(|_| Thrown::Git)?;
+    if let Some(refusal) = repo_refusal(env, &parsed) {
+        return Ok(refusal);
+    }
+    let base_sha = match revision_base(env)? {
+        Ok(sha) => sha,
+        Err(refusal) => return Ok(refusal),
+    };
     env.log(
         "plan_submit_requested",
         json!({"requestedBy": caller_id, "planId": plan_id}),
@@ -741,6 +747,71 @@ fn submit(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
         })));
     }
     start_review(env, &config.architect, &plan_id, &credential, &stored)
+}
+
+/// The repo checks of a submitted body: in a workspace every package names known repos; in a single-repo project none
+/// names any. `None` when the body passes.
+fn repo_refusal(
+    env: &CommandEnv<'_>,
+    body: &capstan_kernel::plan_body::PlanBody,
+) -> Option<CommandResponse> {
+    let workspace = env
+        .deps
+        .options
+        .capstan
+        .as_ref()
+        .and_then(|config| config.workspace.as_ref());
+    let invalid = |text: String| Some(fail(ErrorCode::Rejected, format!("invalid_plan: {text}")));
+    for package in &body.packages {
+        match workspace {
+            None if !package.repos.is_empty() => {
+                return invalid("repos are only for workspace projects".to_string())
+            }
+            None => {}
+            Some(_) if package.repos.is_empty() => {
+                return invalid(format!(
+                    "package {} needs repos in a workspace project",
+                    package.id
+                ))
+            }
+            Some(workspace) => {
+                if let Some(unknown) = package.repos.iter().find(|r| workspace.repo(r).is_none()) {
+                    return invalid(format!(
+                        "package {} names unknown repo {unknown}",
+                        package.id
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The commit a plan revision records as its base: the project's HEAD, or in a workspace the default repo's HEAD on a
+/// branch. The inner error is the refusal.
+fn revision_base(env: &CommandEnv<'_>) -> Result<Result<String, CommandResponse>, Thrown> {
+    let Some(workspace) = env
+        .deps
+        .options
+        .capstan
+        .as_ref()
+        .and_then(|config| config.workspace.as_ref())
+    else {
+        return Ok(Ok(env.deps.git.head_commit().map_err(|_| Thrown::Git)?));
+    };
+    let repo = workspace.default_repo.clone();
+    let git = env.deps.repo_git(&repo);
+    let readable = git
+        .worktree_state(&env.deps.repo_root(&repo))
+        .ok()
+        .filter(|state| state.branch.is_some())
+        .and_then(|_| git.head_commit().ok());
+    Ok(readable.ok_or_else(|| {
+        fail(
+            ErrorCode::Rejected,
+            format!("plan_refused: default_repo {repo} has no readable HEAD"),
+        )
+    }))
 }
 
 /// The refusal of a plan that has used its review rounds, or `None` while it has some left.
@@ -902,7 +973,10 @@ fn amend(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outco
         Ok(body_json) => body_json,
         Err(refusal) => return Ok(fail(ErrorCode::Rejected, refusal)),
     };
-    let base_sha = env.deps.git.head_commit().map_err(|_| Thrown::Git)?;
+    let base_sha = match revision_base(env)? {
+        Ok(sha) => sha,
+        Err(refusal) => return Ok(refusal),
+    };
     let caller_id = env
         .agent_of(call.identity)
         .map(|c| c.agent_id.clone())

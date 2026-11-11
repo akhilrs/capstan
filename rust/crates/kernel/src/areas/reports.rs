@@ -147,12 +147,48 @@ pub fn record_agent_report(
             let Some(agent) = kernel.agent_by_actor(&actor.actor_id)? else {
                 return Err(KernelError::controller("only an active agent can report"));
             };
-            let existing = query_opt(
-                &kernel.database,
-                ACCEPTED_REPORT_FOR_SQL,
-                rusqlite::params![kernel.project_id, agent.agent_id, agent.generation, commit_sha],
-                AgentReportRow::from_row,
-            )?;
+            let existing = match &commits {
+                None => query_opt(
+                    &kernel.database,
+                    ACCEPTED_REPORT_FOR_SQL,
+                    rusqlite::params![kernel.project_id, agent.agent_id, agent.generation, commit_sha],
+                    AgentReportRow::from_row,
+                )?,
+                // With commits a duplicate is a report of the very same (repo, commit) list: a carried repo keeps the
+                // first commit while another repo moves on, and that is a new report.
+                Some(commits) => {
+                    let wanted: Vec<(&str, &str)> = commits
+                        .iter()
+                        .map(|c| (c.repo.as_str(), c.commit_sha.as_str()))
+                        .collect();
+                    let same_first = query_all(
+                        &kernel.database,
+                        ACCEPTED_REPORT_FOR_SQL,
+                        rusqlite::params![kernel.project_id, agent.agent_id, agent.generation, commit_sha],
+                        AgentReportRow::from_row,
+                    )?;
+                    let mut found = None;
+                    for row in same_first {
+                        let held = workspace::report_commits(kernel, &row.report_id)?;
+                        let held: Vec<(&str, &str)> = held
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .map(|c| {
+                                (
+                                    c["repo"].as_str().unwrap_or(""),
+                                    c["commitSha"].as_str().unwrap_or(""),
+                                )
+                            })
+                            .collect();
+                        if held == wanted {
+                            found = Some(row);
+                            break;
+                        }
+                    }
+                    found
+                }
+            };
             if let Some(existing) = existing {
                 return Ok(MutationOutput::new(
                     json!({"record": report_record(&existing)?, "duplicate": true}),

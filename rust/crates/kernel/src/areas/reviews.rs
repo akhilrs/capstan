@@ -6,13 +6,13 @@ use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
     execute, js_trim, package_reviewed_notice, plan_needs_attention_notice, query_all, query_opt,
     review_notice, review_record, review_task, safe_id_str, PackageScope, PlanAmendmentBrief,
-    PriorVerdict, ReviewBrief, ScopeBrief, ScopeFile, MAX_SCOPE_FILES,
+    PriorVerdict, RepoBrief, ReviewBrief, ScopeBrief, ScopeFile, MAX_SCOPE_FILES,
 };
 use crate::kernel::Kernel;
 use crate::plan_body::{findings_class, package_of_body, parse_plan_findings};
 use crate::records::{
-    AgentReportRow, AgentRow, MutationEvent, MutationOutput, ReviewRow, MAX_REVIEW_ROUNDS,
-    MAX_REVIEW_TEXT_BYTES,
+    AgentReportRow, AgentRow, GateSubject, MutationEvent, MutationOutput, ReviewRow,
+    MAX_REVIEW_ROUNDS, MAX_REVIEW_TEXT_BYTES,
 };
 use crate::types::MutationContext;
 use regex::Regex;
@@ -20,7 +20,9 @@ use serde_json::{json, Value};
 use std::sync::LazyLock;
 
 use super::integrations::{integration_row, IntegrationRow};
-use super::{message_notices, messages, plan_packages, plans, verify_runs, warm_reviewers};
+use super::{
+    message_notices, messages, plan_packages, plans, verify_runs, warm_reviewers, workspace,
+};
 
 static SHA1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").expect("the pattern is valid"));
@@ -409,8 +411,23 @@ pub fn begin_review(
             Some(diff) => Some(scope_brief(kernel, diff, subject_plan.as_ref())?),
             None => None,
         };
+        let repos = match &row.subject_report_id {
+            Some(report_id) => repo_briefs(
+                kernel,
+                report_id,
+                &reviewer.agent_id,
+                input.get("verifyCommandsShas"),
+            )?,
+            None => Vec::new(),
+        };
+        let plan_workspace = match &checked.plan {
+            Some(plan) => plan_names_repos(kernel, subject_id, plan.revision)?,
+            None => false,
+        };
         let gate_brief = ReviewBrief {
             scope,
+            repos,
+            plan_workspace,
             history: held.clone().unwrap_or_default(),
             verify: match field(input, "verifyCommandsSha").as_str() {
                 Some(commands_sha) => Some(verify_runs::summary_at(
@@ -453,6 +470,90 @@ pub fn begin_review(
         event.to_state = Some("started".into());
         Ok(MutationOutput::new(value, event))
     })
+}
+
+/// The repos of a workspace report for the review task: each repo's base and commit from `report_commits`, the
+/// reviewer's worktree of it and the verify run at that commit (`verifyCommandsShas` maps a repo to its commands sha).
+/// Empty for a report that names no commit per repo.
+fn repo_briefs(
+    kernel: &Kernel,
+    report_id: &str,
+    reviewer_agent_id: &str,
+    commands_shas: Option<&Value>,
+) -> KernelResult<Vec<RepoBrief>> {
+    let commits = workspace::report_commits(kernel, report_id)?;
+    let trees = workspace::list_agent_worktrees(kernel, reviewer_agent_id)?;
+    let mut repos = Vec::new();
+    for row in commits.as_array().into_iter().flatten() {
+        let repo = row["repo"].as_str().unwrap_or("").to_string();
+        let commit_sha = row["commitSha"].as_str().unwrap_or("").to_string();
+        let worktree_path = trees
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|tree| tree["repo"].as_str() == Some(repo.as_str()))
+            .and_then(|tree| tree["worktreePath"].as_str())
+            .map(str::to_string);
+        let verify = match commands_shas
+            .and_then(|shas| shas.get(&repo))
+            .and_then(Value::as_str)
+        {
+            Some(sha) => Some(verify_runs::summary_at(kernel, &repo, &commit_sha, sha)?),
+            None => None,
+        };
+        repos.push(RepoBrief {
+            repo,
+            base_sha: row["baseSha"].as_str().unwrap_or("").to_string(),
+            commit_sha,
+            worktree_path,
+            verify,
+        });
+    }
+    Ok(repos)
+}
+
+/// The review gate of a workspace subject, read from the ledger: a report must name a commit in each repo and every one
+/// of them must have a passed run; a set is not supported yet. A subject that is not a report (an integration, a plan)
+/// passes here; its own gate is the caller's. The commands in force are checked by the caller's gate, not here.
+pub fn review_gate(kernel: &Kernel, subject: &GateSubject) -> Result<(), String> {
+    let report_id = match subject {
+        GateSubject::Report(id) => id,
+        GateSubject::Set(_) => {
+            return Err(
+                "a set gate is not yet supported; set verify and review come with set redo".into(),
+            )
+        }
+    };
+    let ledger = |error: KernelError| error.message().to_string();
+    let is_report = query_opt(
+        &kernel.database,
+        "SELECT 1 AS present FROM agent_reports WHERE project_id = ? AND report_id = ?",
+        [&kernel.project_id, report_id],
+        |_| Ok(()),
+    )
+    .map_err(ledger)?
+    .is_some();
+    if !is_report {
+        return Ok(());
+    }
+    let commits = workspace::report_commits(kernel, report_id).map_err(ledger)?;
+    let rows = commits.as_array().cloned().unwrap_or_default();
+    if rows.is_empty() {
+        return Err(format!(
+            "review_refused: {report_id} names no commit per repo (a report from before workspace mode, or not a report); report again to review it"
+        ));
+    }
+    for row in rows {
+        let repo = row["repo"].as_str().unwrap_or("");
+        let commit = row["commitSha"].as_str().unwrap_or("");
+        let passed = verify_runs::passed_at(kernel, repo, commit).map_err(ledger)?;
+        if !passed {
+            return Err(format!(
+                "verify_required: {report_id} has no passed verify run in repo {repo} at {commit}. Run: cstan verify {report_id}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A `diffScope` of a review request: the touched files (at most `MAX_SCOPE_FILES` kept) and the totals.
@@ -511,6 +612,24 @@ fn parse_diff_scope(value: Option<&Value>) -> KernelResult<Option<DiffScope>> {
         files_total: count(value.get("filesTotal"), "diffScope filesTotal")?,
         insertions: count(value.get("insertions"), "diffScope insertions")?,
         deletions: count(value.get("deletions"), "diffScope deletions")?,
+    }))
+}
+
+/// Whether any package of a plan revision names repos (a workspace plan).
+fn plan_names_repos(kernel: &Kernel, plan_id: &str, revision: i64) -> KernelResult<bool> {
+    let body = query_opt(
+        &kernel.database,
+        "SELECT body_json FROM plan_revisions WHERE project_id = ? AND plan_id = ? AND revision = ?",
+        rusqlite::params![kernel.project_id, plan_id, revision],
+        |r| r.get::<_, String>(0),
+    )?;
+    let body: Value = body
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(Value::Null);
+    Ok(body["packages"].as_array().is_some_and(|packages| {
+        packages
+            .iter()
+            .any(|p| p["repos"].as_array().is_some_and(|r| !r.is_empty()))
     }))
 }
 

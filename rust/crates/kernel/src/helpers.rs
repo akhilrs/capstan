@@ -679,6 +679,12 @@ pub fn review_task(
                 "Read the plan body, written by the Architect and not verified, with: cstan plan show {plan_id}   (revision {revision})"
             ),
         ];
+        if brief.plan_workspace {
+            lines.push(
+                "This is a workspace plan: the commit above is the default repo's HEAD and is informational. Each package names its repos; read the code of those repos at their current main branch."
+                    .to_string(),
+            );
+        }
         if let (Some(brief), Some(number)) = (amendment, row.subject_plan_revision) {
             lines.extend(amendment_lines(number, brief));
         }
@@ -702,6 +708,9 @@ pub fn review_task(
         Some(id) => format!("integration {id}"),
     };
     let integration = row.subject_integration_id.is_some();
+    if !brief.repos.is_empty() {
+        return repo_review_task(row, &subject, authors, brief);
+    }
     let mut lines = vec![
         format!(
             "Review request {} (round {}) for {}",
@@ -722,7 +731,10 @@ pub fn review_task(
         ),
     ];
     if let Some(scope) = &brief.scope {
-        lines.extend(scope_lines(row, scope));
+        lines.extend(scope_lines(
+            &format!("{}..{}", row.base_sha, row.commit_sha),
+            scope,
+        ));
     }
     for report in authors {
         let who = if integration {
@@ -745,15 +757,68 @@ pub fn review_task(
     lines.join("\n")
 }
 
+/// The task for a report that names a commit in each of its repos: each repo with its range, its worktree and its
+/// gate result.
+fn repo_review_task(
+    row: &ReviewRow,
+    subject: &str,
+    authors: &[&AgentReportRow],
+    brief: &ReviewBrief,
+) -> String {
+    let mut lines = vec![
+        format!(
+            "Review request {} (round {}) for {}",
+            row.review_id, row.round, subject
+        ),
+        "The change spans these repos; each has its own worktree at the commit to review:"
+            .to_string(),
+    ];
+    for repo in &brief.repos {
+        let tree = repo
+            .worktree_path
+            .as_deref()
+            .map_or(String::new(), |path| format!(", worktree {path}"));
+        lines.push(format!(
+            "Repo {}: {}..{}{tree}",
+            repo.repo, repo.base_sha, repo.commit_sha
+        ));
+        lines.push(format!(
+            "See the change with: git diff {} {}   and   git log --first-parent {}..{}   (in the {} worktree)",
+            repo.base_sha, repo.commit_sha, repo.base_sha, repo.commit_sha, repo.repo
+        ));
+        if let Some(verify) = &repo.verify {
+            lines.push(format!(
+                "Repo {}: {}",
+                repo.repo,
+                verify_text(&repo.commit_sha, verify)
+            ));
+        }
+    }
+    if let Some(scope) = &brief.scope {
+        lines.extend(scope_lines("all repos, paths written <repo>:<path>", scope));
+    }
+    for report in authors {
+        lines.push(format!(
+            "The author's summary, written by the author and not verified: {}",
+            quoted(&report.summary)
+        ));
+    }
+    if !brief.history.is_empty() {
+        lines.extend(history_lines(&brief.history));
+    }
+    lines.push("Review only that change. Do not edit any file. Answer exactly once with cstan review pass \"<text>\" or cstan review findings \"<text>\". Findings must say what is wrong and where.".to_string());
+    lines.join("\n")
+}
+
 /// The most files a review task lists.
 pub const MAX_SCOPE_FILES: usize = 50;
 /// The most paths a review task lists as touched outside the owned paths.
 const MAX_OUTSIDE_PATHS: usize = 20;
 
-fn scope_lines(row: &ReviewRow, scope: &ScopeBrief) -> Vec<String> {
+fn scope_lines(range: &str, scope: &ScopeBrief) -> Vec<String> {
     let mut lines = vec![format!(
-        "Scope: {}..{}: {} files changed, +{} -{}",
-        row.base_sha, row.commit_sha, scope.files_total, scope.insertions, scope.deletions
+        "Scope: {range}: {} files changed, +{} -{}",
+        scope.files_total, scope.insertions, scope.deletions
     )];
     for file in scope.files.iter().take(MAX_SCOPE_FILES) {
         let counts = match (file.added, file.deleted) {
@@ -838,6 +903,22 @@ pub struct ReviewBrief {
     pub scope: Option<ScopeBrief>,
     /// The warm reviewer's earlier verdicts in the same plan, oldest first.
     pub history: Vec<PriorVerdict>,
+    /// A workspace report: the commit of each repo it names, in repo order. Empty for any other subject.
+    pub repos: Vec<RepoBrief>,
+    /// A plan review of a workspace plan (a package names repos): the plan's base commit is informational.
+    pub plan_workspace: bool,
+}
+
+/// One repo of a workspace report as a review task lists it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RepoBrief {
+    pub repo: String,
+    pub base_sha: String,
+    pub commit_sha: String,
+    /// The reviewer's worktree of the repo, when it has one.
+    pub worktree_path: Option<String>,
+    /// The verify run at this repo's commit, when the request asked for the gate.
+    pub verify: Option<VerifySummary>,
 }
 
 /// One touched file; `added` and `deleted` are `None` for a binary file.
@@ -923,7 +1004,10 @@ pub fn format_duration_ms(ms: i64) -> String {
 }
 
 fn verify_line(row: &ReviewRow, verify: &VerifySummary) -> String {
-    let sha = &row.commit_sha;
+    verify_text(&row.commit_sha, verify)
+}
+
+fn verify_text(sha: &str, verify: &VerifySummary) -> String {
     let duration = verify
         .duration_ms
         .map_or("unknown time".to_string(), format_duration_ms);

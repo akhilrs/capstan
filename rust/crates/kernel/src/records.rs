@@ -512,3 +512,10 @@ impl MutationOutput {
         }
     }
 }
+
+/// What a verify gate is asked about: a report (every repo it names a commit for) or an integration set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GateSubject {
+    Report(String),
+    Set(String),
+}

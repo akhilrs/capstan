@@ -117,14 +117,17 @@ pub fn confirmed_link_for_commit(
     Ok(None)
 }
 
-/// Whether an integration is running.
+/// Whether an integration or an integration set is running.
 pub fn integration_running(kernel: &Kernel) -> KernelResult<bool> {
     kernel.assert_open()?;
-    crate::helpers::exists(
+    if crate::helpers::exists(
         &kernel.database,
         "SELECT 1 AS present FROM integrations WHERE project_id = ? AND state = 'running'",
         [&kernel.project_id],
-    )
+    )? {
+        return Ok(true);
+    }
+    Ok(!super::workspace::set_running(kernel)?.is_empty())
 }
 
 fn cleanup_record(kernel: &Kernel, cleanup_id: &str) -> KernelResult<Value> {

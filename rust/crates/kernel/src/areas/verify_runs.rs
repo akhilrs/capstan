@@ -14,7 +14,7 @@ use crate::helpers::{
     VerifySummary,
 };
 use crate::kernel::Kernel;
-use crate::records::{AgentRow, MutationEvent, MutationOutput};
+use crate::records::{AgentRow, GateSubject, MutationEvent, MutationOutput};
 use crate::types::MutationContext;
 use serde_json::{json, Value};
 
@@ -593,6 +593,143 @@ fn skipped_steps(input: &Value) -> KernelResult<String> {
     Ok(serde_json::to_string(&kept)?)
 }
 
+/// How a finished run is told to the agents: a run of a report that names commits per repo waits until every repo's latest
+/// run is final and then speaks once for the report; any other run speaks for itself.
+enum Notice {
+    Own,
+    Wait,
+    Report(String, bool),
+}
+
+/// The `report_commits` rows of a report: (repo, commit), by repo.
+fn report_rows(kernel: &Kernel, report_id: &str) -> KernelResult<Vec<(String, String)>> {
+    query_all(
+        &kernel.database,
+        "SELECT repo, commit_sha FROM report_commits WHERE project_id = ? AND report_id = ? ORDER BY repo",
+        [&kernel.project_id, report_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )
+}
+
+/// The latest run of a report at one (repo, commit) of its rows.
+fn latest_report_run(
+    kernel: &Kernel,
+    report_id: &str,
+    repo: &str,
+    commit_sha: &str,
+) -> KernelResult<Option<RunRow>> {
+    Ok(runs_where(
+        kernel,
+        "subject_report_id = ? AND repo = ? AND commit_sha = ?",
+        &[&report_id, &repo, &commit_sha],
+        "sequence DESC LIMIT 1",
+    )?
+    .into_iter()
+    .next())
+}
+
+fn notice_for(kernel: &Kernel, run: &RunRow) -> KernelResult<Notice> {
+    let Some(report_id) = run.subject_report_id.as_deref() else {
+        return Ok(Notice::Own);
+    };
+    let rows = report_rows(kernel, report_id)?;
+    if rows.is_empty() {
+        return Ok(Notice::Own);
+    }
+    // A run a newer run of its repo replaced does not speak.
+    if let Some(latest) = latest_report_run(kernel, report_id, &run.repo, &run.commit_sha)? {
+        if latest.run_id != run.run_id {
+            return Ok(Notice::Wait);
+        }
+    }
+    let mut lines = Vec::new();
+    let mut passed = true;
+    for (repo, commit_sha) in &rows {
+        let Some(latest) = latest_report_run(kernel, report_id, repo, commit_sha)? else {
+            return Ok(Notice::Wait);
+        };
+        if latest.state == "queued" || latest.state == "running" {
+            return Ok(Notice::Wait);
+        }
+        passed &= latest.state == "passed";
+        let duration = latest
+            .duration_ms
+            .map_or("unknown time".to_string(), format_duration_ms);
+        let mut line = format!(
+            "- repo {repo} at {commit_sha}: {} after {duration} (run {})",
+            latest.state, latest.run_id
+        );
+        if latest.state == "failed" {
+            line.push_str(&format!(
+                ", step {} exit {}",
+                latest.failed_step.map_or("null".into(), |n| n.to_string()),
+                latest.exit_code.map_or("null".into(), |n| n.to_string()),
+            ));
+        }
+        if latest.state != "passed" {
+            let excerpt = tail_excerpt(&latest.output_tail);
+            if !excerpt.is_empty() {
+                line.push_str(&format!(
+                    "; last output lines: {}",
+                    serde_json::to_string(&excerpt).unwrap_or_default()
+                ));
+            }
+        }
+        lines.push(line);
+    }
+    let head = format!(
+        "Verify for report {report_id}: {}",
+        if passed {
+            "passed in every repo"
+        } else {
+            "did not pass"
+        }
+    );
+    Ok(Notice::Report(
+        format!("{head}\n{}", lines.join("\n")),
+        passed,
+    ))
+}
+
+/// Queues the controller notices a finished (or interrupted) run is due: how many were queued.
+fn send_run_notice(kernel: &Kernel, run: &RunRow, now: &str) -> KernelResult<i64> {
+    let Some(parties) = message_notices::notice_parties(kernel)? else {
+        return Ok(0);
+    };
+    let (body, passed) = match notice_for(kernel, run)? {
+        Notice::Wait => return Ok(0),
+        Notice::Own => (notice_text(run), run.state == "passed"),
+        Notice::Report(body, passed) => (body, passed),
+    };
+    let hash = sha256(&body);
+    let mut notified = 0;
+    let mut message_id: Option<String> = None;
+    for recipient in notice_recipients(kernel, run, &parties.pm)? {
+        let id = messages::insert_queued_message(
+            kernel,
+            &parties.controller_actor_id,
+            &recipient,
+            &body,
+            &hash,
+            now,
+            false,
+            if passed {
+                messages::class_for_kind(kernel, "verify_finished")
+            } else {
+                MessageClass::Action
+            },
+        )?;
+        notified += 1;
+        message_id.get_or_insert(id);
+    }
+    execute(
+        &kernel.database,
+        "UPDATE verify_runs SET notified_message_id = ? WHERE project_id = ? AND run_id = ?",
+        rusqlite::params![message_id, kernel.project_id, run.run_id],
+    )?;
+    Ok(notified)
+}
+
 /// `finishVerifyRun`: records how a running run ended and queues one controller notice per recipient.
 pub fn finish_verify_run(
     kernel: &Kernel,
@@ -656,35 +793,7 @@ pub fn finish_verify_run(
             ],
         )?;
         let finished = require_run(kernel, run_id)?;
-        let mut notified = 0;
-        if let Some(parties) = message_notices::notice_parties(kernel)? {
-            let body = notice_text(&finished);
-            let hash = sha256(&body);
-            let mut message_id: Option<String> = None;
-            for recipient in notice_recipients(kernel, &finished, &parties.pm)? {
-                let id = messages::insert_queued_message(
-                    kernel,
-                    &parties.controller_actor_id,
-                    &recipient,
-                    &body,
-                    &hash,
-                    &now,
-                    false,
-                    if state == "passed" {
-                        messages::class_for_kind(kernel, "verify_finished")
-                    } else {
-                        MessageClass::Action
-                    },
-                )?;
-                notified += 1;
-                message_id.get_or_insert(id);
-            }
-            execute(
-                &kernel.database,
-                "UPDATE verify_runs SET notified_message_id = ? WHERE project_id = ? AND run_id = ?",
-                rusqlite::params![message_id, kernel.project_id, run_id],
-            )?;
-        }
+        let notified = send_run_notice(kernel, &finished, &now)?;
         let event = MutationEvent::new("verify_run", run_id, 0)
             .transition("running", state)
             .with_details(json!({"exitCode": exit_code, "failedStep": failed_step, "notices": notified}));
@@ -746,6 +855,18 @@ pub fn interrupt_active_verify_runs(
             interrupted.push(json!({
                 "runId": run.run_id, "pgid": run.pgid, "leaderStart": run.leader_start, "scratchPath": run.scratch_path,
             }));
+        }
+        // A report that names commits per repo hears once, when its last repo is final.
+        let mut told: Vec<String> = Vec::new();
+        for run in &running {
+            let Some(report_id) = run.subject_report_id.as_deref() else { continue };
+            if told.iter().any(|t| t == report_id) || report_rows(kernel, report_id)?.is_empty() {
+                continue;
+            }
+            let current = require_run(kernel, &run.run_id)?;
+            if send_run_notice(kernel, &current, &now)? > 0 {
+                told.push(report_id.to_string());
+            }
         }
         let event = MutationEvent::new("verify_run", &kernel.project_id, 0)
             .with_details(json!({"interrupted": running.len()}));
@@ -861,6 +982,21 @@ fn gate(
     Ok(("verify_missing", None))
 }
 
+/// Whether a run at the commit in the repo passed, under any commands. This is the coarse ledger check behind
+/// `Core::review_gate`; whenever `[verify]` exists the daemon's forced `workspace_gate` (each repo's current commands)
+/// is the authority.
+pub(crate) fn passed_at(kernel: &Kernel, repo: &str, commit_sha: &str) -> KernelResult<bool> {
+    Ok(runs_where(
+        kernel,
+        "repo = ? AND commit_sha = ? AND state = 'passed'",
+        &[&repo, &commit_sha],
+        "sequence DESC LIMIT 1",
+    )?
+    .into_iter()
+    .next()
+    .is_some())
+}
+
 /// The verify run a review brief shows for a commit: the one that decides the gate, or the latest run at the commit
 /// (`missing` when there is none).
 pub fn summary_at(
@@ -930,25 +1066,71 @@ pub fn verify_gate_for_subjects(
     let mut failures = Vec::new();
     for subject_id in subject_ids {
         let subject = subject_of(kernel, subject_id)?;
-        let (code, run) = match &subject.commit_sha {
-            Some(commit_sha) => {
-                let repo = repo_of_subject(kernel, subject_id)?;
-                gate(kernel, &repo, commit_sha, commands_sha)?
-            }
-            None => ("verify_missing", None),
+        // A report that names commits per repo passes only when every repo's row passed.
+        let rows = match &subject.report_id {
+            Some(id) => report_rows(kernel, id)?,
+            None => Vec::new(),
         };
-        if code == "passed" {
-            continue;
+        let checks: Vec<(String, Option<String>)> = if rows.is_empty() {
+            let repo = repo_of_subject(kernel, subject_id)?;
+            vec![(repo, subject.commit_sha.clone())]
+        } else {
+            rows.into_iter()
+                .map(|(repo, sha)| (repo, Some(sha)))
+                .collect()
+        };
+        for (repo, commit_sha) in checks {
+            let (code, run) = match &commit_sha {
+                Some(commit_sha) => gate(kernel, &repo, commit_sha, commands_sha)?,
+                None => ("verify_missing", None),
+            };
+            if code == "passed" {
+                continue;
+            }
+            let mut failure = json!({
+                "subjectId": subject_id,
+                "commitSha": commit_sha,
+                "code": code,
+                "runId": run.as_ref().map(|r| r.run_id.clone()),
+                "state": run.as_ref().map(|r| r.state.clone()),
+            });
+            if !repo.is_empty() {
+                failure["repo"] = Value::String(repo);
+            }
+            failures.push(failure);
         }
-        failures.push(json!({
-            "subjectId": subject_id,
-            "commitSha": subject.commit_sha,
-            "code": code,
-            "runId": run.as_ref().map(|r| r.run_id.clone()),
-            "state": run.as_ref().map(|r| r.state.clone()),
-        }));
     }
     Ok(json!({"ok": failures.is_empty(), "failures": failures}))
+}
+
+/// `subjectRuns`: the runs that decide a gate subject, newest first, as `verify show` prints them. A report's are the
+/// runs of its `report_commits` rows (every run of the report when it names none); a set is not supported yet.
+pub fn subject_runs(kernel: &Kernel, subject: &GateSubject) -> KernelResult<Vec<Value>> {
+    kernel.assert_open()?;
+    let report_id = match subject {
+        GateSubject::Report(id) => id,
+        GateSubject::Set(_) => {
+            return Err(KernelError::controller(
+                "a set gate is not yet supported; set verify and review come with set redo",
+            ))
+        }
+    };
+    let rows = report_rows(kernel, report_id)?;
+    let runs = runs_where(
+        kernel,
+        "subject_report_id = ?",
+        &[report_id],
+        "sequence DESC",
+    )?;
+    runs.iter()
+        .filter(|run| {
+            rows.is_empty()
+                || rows
+                    .iter()
+                    .any(|(repo, sha)| *repo == run.repo && *sha == run.commit_sha)
+        })
+        .map(|run| run.record(kernel))
+        .collect()
 }
 
 /// `verifyStatus`: the runs that are queued or running and the latest finished ones, without their output.

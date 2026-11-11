@@ -22,7 +22,7 @@ use capstan_kernel::{Core, KernelError, KernelResult};
 use capstan_launcher::api::LauncherService;
 use capstan_operator::api::{OperatorService, RestartCoordinator};
 use serde_json::{json, Map, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
@@ -496,6 +496,25 @@ pub trait GitPort: Send + Sync {
             message: "git is not available in this daemon".into(),
         })
     }
+    /// The state of the worktree at `path` (git -C <path>); a port that cannot read it refuses.
+    fn worktree_state(&self, path: &Path) -> GitResult<WorktreeState> {
+        let _ = path;
+        Err(GitError {
+            message: "git is not available in this daemon".into(),
+        })
+    }
+}
+
+/// What `GitPort::worktree_state` reads at a worktree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorktreeState {
+    pub head: String,
+    /// The checked-out branch; `None` for a detached HEAD.
+    pub branch: Option<String>,
+    /// `rebase`, `merge` or `cherry-pick` while one is stopped.
+    pub in_progress: Option<&'static str>,
+    /// Tracked changes or untracked files are present.
+    pub dirty: bool,
 }
 
 /// A git port that refuses everything, for a daemon built without one (and for in-process tests).
@@ -746,6 +765,32 @@ impl Deps {
     /// The project (operator) credential.
     pub fn credential(&self) -> &str {
         self.options.credential()
+    }
+
+    /// The root folder of `repo`: `""` is the project root, a listed repo its configured root. A name the workspace
+    /// does not list gives a path that does not exist, so git refuses it; callers check names first.
+    pub fn repo_root(&self, repo: &str) -> PathBuf {
+        if repo.is_empty() {
+            return self.options.workspace_root.clone();
+        }
+        match self
+            .options
+            .capstan
+            .as_ref()
+            .and_then(|config| config.workspace.as_ref())
+            .and_then(|workspace| workspace.repo(repo))
+        {
+            Some(found) => found.root.clone(),
+            None => self.options.workspace_root.join(repo),
+        }
+    }
+
+    /// The git of `repo`: `""` is `self.git`; a named repo gets a `ProjectGit` on its root.
+    pub fn repo_git(&self, repo: &str) -> Arc<dyn GitPort> {
+        if repo.is_empty() {
+            return Arc::clone(&self.git);
+        }
+        Arc::new(crate::ports::ProjectGit::new(&self.repo_root(repo)))
     }
 
     /// `detailLog` of runDaemon: a `daemon:<event>` entry with code `info` and a detail.

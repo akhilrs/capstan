@@ -501,6 +501,8 @@ pub struct CommandState {
     pub remote_merge: Mutex<()>,
     /// The test seams of the decide-merge route; `None` outside tests.
     pub merge_seams: Mutex<Option<Arc<super::decide_merge_seams::DecideMergeSeams>>>,
+    /// The test seams of the workspace integrate route; `None` outside tests.
+    pub integrate_seams: Mutex<Option<Arc<super::integrate_seams::IntegrateSeams>>>,
     /// The cached answers of `status` (see `status::StatusKey`); built on first use with `[daemon] status_cache_ms`.
     pub status_cache: Mutex<Option<TtlLru<super::status::StatusKey, Value>>>,
     /// The answers of retried request ids and the folded repeated sends (see `replay`).
@@ -598,6 +600,7 @@ impl Default for CommandState {
             waits: Mutex::new(HashMap::new()),
             remote_merge: Mutex::new(()),
             merge_seams: Mutex::new(None),
+            integrate_seams: Mutex::new(None),
             status_cache: Mutex::new(None),
             replies: super::replay::ReplyCache::new(),
         }

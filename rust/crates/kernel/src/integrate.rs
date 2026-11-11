@@ -2279,6 +2279,44 @@ impl GitRepo {
         Ok(own.iter().all(|path| !drift.contains(path)))
     }
 
+    /// Whether git is 2.38 or newer, the version `merge-tree --write-tree` needs. Read for this repository, never
+    /// cached across repositories.
+    pub fn merge_tree_supported(&self) -> bool {
+        if self.seams.force_old_git {
+            return false;
+        }
+        let Ok((0, out)) = self.text(&["--version"], PLAIN) else {
+            return false;
+        };
+        out.split(|c: char| !c.is_ascii_digit() && c != '.')
+            .find_map(|part| {
+                let mut it = part.split('.');
+                let major = it.next()?.parse::<u32>().ok()?;
+                let minor = it.next()?.parse::<u32>().ok()?;
+                Some(major > 2 || (major == 2 && minor >= 38))
+            })
+            .unwrap_or(false)
+    }
+
+    /// Whether `head`'s change is already in `main`: the merge of the two is clean and has main's own tree.
+    pub fn tree_landed(&self, main: &str, head: &str) -> IntegrateResult<Landed> {
+        let merged = self.run_root(&merge_call(&["merge-tree", "--write-tree", main, head]))?;
+        match merged.code {
+            0 => {
+                let merged_tree =
+                    js_trim(utf8(&merged.stdout).lines().next().unwrap_or("")).to_string();
+                let tree =
+                    self.run_root(&merge_call(&["rev-parse", &format!("{main}^{{tree}}")]))?;
+                let same = tree.code == 0
+                    && is_full_sha(&merged_tree)
+                    && merged_tree == js_trim(&utf8(&tree.stdout));
+                Ok(if same { Landed::Yes } else { Landed::No })
+            }
+            1 => Ok(Landed::No),
+            other => Ok(Landed::Unknown(other)),
+        }
+    }
+
     /// Whether the commit is already part of the project's HEAD.
     pub fn is_in_head(&self, sha: &str) -> IntegrateResult<bool> {
         if !is_full_sha(sha) {
@@ -2616,6 +2654,15 @@ pub enum DiffStatError {
     Failed,
 }
 
+/// What `GitRepo::tree_landed` found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Landed {
+    Yes,
+    No,
+    /// `git merge-tree` exited with this code, which is neither clean nor a conflict.
+    Unknown(i32),
+}
+
 /// `IntegrationDeps`.
 pub struct IntegrationDeps<'a> {
     pub kernel: &'a Kernel,
@@ -2693,7 +2740,7 @@ pub fn integrate(
         .in_flight
         .borrow_mut()
         .insert(integration_id.clone());
-    let result = finish_merge(deps, &integration_id, &base_sha, &branch, &begun);
+    let result = finish_merge(deps, &integration_id, &base_sha, &branch, &begun, None);
     deps.state.in_flight.borrow_mut().remove(&integration_id);
     result
 }
@@ -2704,6 +2751,7 @@ fn finish_merge(
     base_sha: &str,
     branch: &str,
     begun: &Value,
+    commits: Option<&[(String, String)]>,
 ) -> IntegrateResult<Value> {
     let finish = |outcome: Value, details: Option<&Value>| -> Result<Value, KernelError> {
         integrations::finish_integration_with_details(
@@ -2714,21 +2762,24 @@ fn finish_merge(
         )
     };
     let info: RefCell<Option<Value>> = RefCell::new(None);
-    let members: Vec<(String, String)> = begun
-        .get("reports")
-        .and_then(Value::as_array)
-        .map(|reports| {
-            reports
-                .iter()
-                .map(|r| {
-                    (
-                        text_of(r, "reportId").to_string(),
-                        text_of(r, "commitSha").to_string(),
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let members: Vec<(String, String)> = match commits {
+        Some(commits) => commits.to_vec(),
+        None => begun
+            .get("reports")
+            .and_then(Value::as_array)
+            .map(|reports| {
+                reports
+                    .iter()
+                    .map(|r| {
+                        (
+                            text_of(r, "reportId").to_string(),
+                            text_of(r, "commitSha").to_string(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
     let merge = || -> IntegrateResult<MergeResult> {
         let mut missing: Option<&str> = None;
         for (report_id, sha) in &members {
@@ -2812,6 +2863,496 @@ fn finish_merge(
     }
 }
 
+// ---------------------------------------------------------------------------------------- integration sets
+
+/// Why a member run was stopped before its merge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MemberStop {
+    Error(String),
+    Cancel,
+}
+
+/// Where a member's integration goes: its set, its branch and the branch of its repo it is based on.
+pub struct MemberTarget<'a> {
+    pub set_id: &'a str,
+    pub branch: &'a str,
+    pub main_branch: &'a str,
+    /// The tip of `main_branch` the caller read; the member's base. The set run reads it once for its landed check
+    /// and passes it here, so both use one tip.
+    pub base_sha: &'a str,
+}
+
+/// A refusal that names the workspace integrate.
+fn set_refusal(message: String) -> IntegrateError {
+    integration_error("workspace_integrate", message)
+}
+
+/// The text of a reason as the integration records keep it: printable ASCII, at most `max` characters.
+fn printable_reason(text: &str, max: usize) -> String {
+    let cleaned: String = text
+        .chars()
+        .map(|c| if (' '..='~').contains(&c) { c } else { '?' })
+        .take(max)
+        .collect();
+    if cleaned.is_empty() {
+        "unknown".into()
+    } else {
+        cleaned
+    }
+}
+
+/// Of several reports by one agent only the newest counts for a repo; the order of the rest is kept.
+fn supersede(
+    kernel: &Kernel,
+    commits: &[(String, String)],
+) -> IntegrateResult<Vec<(String, String)>> {
+    let ids: Vec<String> = commits.iter().map(|(id, _)| id.clone()).collect();
+    let order = integrations::report_order(kernel, &ids)?;
+    let info = |id: &str| order.iter().find(|(r, _, _)| r == id);
+    let mut kept: Vec<(String, String)> = Vec::new();
+    for (id, sha) in commits {
+        let Some((_, agent, sequence)) = info(id) else {
+            kept.push((id.clone(), sha.clone()));
+            continue;
+        };
+        let newer = commits
+            .iter()
+            .any(|(other, _)| info(other).is_some_and(|(_, a, s)| a == agent && s > sequence));
+        if !newer {
+            kept.push((id.clone(), sha.clone()));
+        }
+    }
+    kept.sort_by_key(|(id, _)| info(id).map(|(_, _, s)| *s).unwrap_or(i64::MAX));
+    Ok(kept)
+}
+
+struct InFlight<'a> {
+    state: &'a IntegrationState,
+    id: String,
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.state.in_flight.borrow_mut().remove(&self.id);
+    }
+}
+
+/// `integrate_repo`: the per-repo form of `integrate` for one member of a set. `deps.git` is the repo's own git;
+/// `commits` are `(report_id, commit_sha)` of that repo in report order.
+pub fn integrate_repo(
+    deps: &IntegrationDeps,
+    repo: &str,
+    commits: &[(String, String)],
+    requested_by: &str,
+    target: &MemberTarget,
+) -> IntegrateResult<Value> {
+    integrate_repo_with(deps, repo, commits, requested_by, target, &|_| Ok(()))
+}
+
+/// `integrate_repo`, calling `before` once the member's row is running and attached, before its merge. A stop settles
+/// the row failed and answers its record.
+pub fn integrate_repo_with(
+    deps: &IntegrationDeps,
+    repo: &str,
+    commits: &[(String, String)],
+    requested_by: &str,
+    target: &MemberTarget,
+    before: &dyn Fn(&str) -> Result<(), MemberStop>,
+) -> IntegrateResult<Value> {
+    let commits = supersede(deps.kernel, commits)?;
+    if commits.is_empty() {
+        return Err(set_refusal(format!("repo {repo} has nothing to integrate")));
+    }
+    let base_sha = target.base_sha.to_string();
+    if deps.git.branch_tip(target.branch)?.is_some() {
+        return Err(set_refusal(format!(
+            "branch {} already exists in repo {repo}",
+            target.branch
+        )));
+    }
+    let integration_id = deps.kernel.env.uuid();
+    let report_ids: Vec<&str> = commits.iter().map(|(id, _)| id.as_str()).collect();
+    let begun = integrations::begin_integration(
+        deps.kernel,
+        &deps.ctx(),
+        &json!({
+            "integrationId": integration_id,
+            "reportIds": report_ids,
+            "baseSha": base_sha,
+            "branch": target.branch,
+            "requestedBy": requested_by,
+            "setId": target.set_id,
+        }),
+    )?;
+    deps.state
+        .in_flight
+        .borrow_mut()
+        .insert(integration_id.clone());
+    let _in_flight = InFlight {
+        state: deps.state,
+        id: integration_id.clone(),
+    };
+    let fail_row = |reason: &str| -> Result<Value, KernelError> {
+        integrations::finish_integration_with_details(
+            deps.kernel,
+            &deps.ctx(),
+            &json!({"integrationId": integration_id, "outcome": {"kind": "failed", "reason": printable_reason(reason, 300)}}),
+            None,
+        )
+    };
+    if let Err(error) = crate::areas::workspace::attach_set_member(
+        deps.kernel,
+        &deps.ctx(),
+        &json!({"setId": target.set_id, "repo": repo, "integrationId": integration_id}),
+    ) {
+        let _ = fail_row("the member could not be attached to its set");
+        return Err(error.into());
+    }
+    if let Err(stop) = before(repo) {
+        let reason = match stop {
+            MemberStop::Error(text) => text,
+            MemberStop::Cancel => "cancelled".to_string(),
+        };
+        return Ok(fail_row(&reason)?);
+    }
+    finish_merge(
+        deps,
+        &integration_id,
+        &base_sha,
+        target.branch,
+        &begun,
+        Some(&commits),
+    )
+}
+
+/// What `integrate_set` is given: the reports, the repos' places and the seams of a test.
+pub struct SetRun<'a> {
+    pub report_ids: &'a [String],
+    pub requested_by: &'a str,
+    /// Every repo of the workspace in merge order.
+    pub merge_order: &'a [String],
+    pub main_branch_of: &'a dyn Fn(&str) -> String,
+    pub git_for: &'a dyn Fn(&str) -> GitRepo,
+    /// Called once per member, after its row is running; may stop it or panic.
+    pub before_member: &'a dyn Fn(&str) -> Result<(), MemberStop>,
+}
+
+/// The branch of a member: `<set branch>-<repo>`, with `-<attempt>` from the second attempt on.
+/// Only the set part is clipped, never the `-<repo>` suffix, so two repos of one set cannot share a branch.
+pub fn member_branch(set_branch: &str, repo: &str, attempt: usize) -> String {
+    let suffix = if attempt < 2 {
+        format!("-{repo}")
+    } else {
+        format!("-{repo}-{attempt}")
+    };
+    let room = MAX_BRANCH.saturating_sub(suffix.len());
+    let head = if set_branch.len() <= room {
+        set_branch
+    } else {
+        set_branch[..room].trim_end_matches(['-', '.', '/'])
+    };
+    format!("{head}{suffix}")
+}
+
+struct Planned {
+    repo: String,
+    git: GitRepo,
+    main_branch: String,
+    /// The tip of `main_branch` read for the landed check.
+    tip: String,
+    commits: Vec<(String, String)>,
+}
+
+fn member_answer(record: &Value, repo: &str) -> Value {
+    json!({
+        "repo": repo,
+        "integrationId": record["integrationId"],
+        "state": record["state"],
+        "branch": record["branch"],
+        "head": record["headSha"],
+        "reports": record["reports"].as_array().into_iter().flatten().map(|r| r["reportId"].clone()).collect::<Vec<_>>(),
+        "conflict": if record["state"] == "conflicted" {
+            json!({"reportId": record["conflictReportId"], "files": record["conflictFiles"]})
+        } else {
+            Value::Null
+        },
+        "failure": record["failureReason"],
+    })
+}
+
+/// `integrate_set`: creates a set of the repos the reports touch and integrates one member at a time in merge order,
+/// each settled before the next. Main is never touched. The answer lists the members, the repos that were skipped and
+/// the next step.
+pub fn integrate_set(deps: &IntegrationDeps, run: &SetRun) -> IntegrateResult<Value> {
+    // Recovery of a set cut off by a restart belongs to the set recovery, not to this call.
+    let commits = integrations::workspace_commits(deps.kernel, run.report_ids)?;
+    let mut touched: Vec<String> = run
+        .merge_order
+        .iter()
+        .filter(|repo| commits.iter().any(|c| &c.repo == *repo))
+        .cloned()
+        .collect();
+    let mut rest: Vec<String> = commits
+        .iter()
+        .map(|c| c.repo.clone())
+        .filter(|repo| !touched.contains(repo))
+        .collect();
+    rest.sort();
+    rest.dedup();
+    touched.extend(rest);
+    let mut planned: Vec<Planned> = Vec::new();
+    let mut landed: Vec<String> = Vec::new();
+    for repo in &touched {
+        let git = (run.git_for)(repo);
+        if !git.merge_tree_supported() {
+            return Err(set_refusal(
+                "git 2.38 or newer is needed for workspace integrate".into(),
+            ));
+        }
+        let main = (run.main_branch_of)(repo);
+        let Some(tip) = git.branch_tip(&main)? else {
+            return Err(set_refusal(format!("repo {repo} has no branch {main}")));
+        };
+        let own: Vec<(String, String)> = commits
+            .iter()
+            .filter(|c| &c.repo == repo)
+            .map(|c| (c.report_id.clone(), c.commit_sha.clone()))
+            .collect();
+        let mut keep: Vec<(String, String)> = Vec::new();
+        for (report_id, sha) in supersede(deps.kernel, &own)? {
+            match git.tree_landed(&tip, &sha)? {
+                Landed::Yes => {}
+                Landed::No => keep.push((report_id, sha)),
+                Landed::Unknown(code) => {
+                    return Err(set_refusal(format!(
+                        "git could not compare repo {repo} with {main} (exit {code})"
+                    )))
+                }
+            }
+        }
+        if keep.is_empty() {
+            landed.push(repo.clone());
+        } else {
+            planned.push(Planned {
+                repo: repo.clone(),
+                git,
+                main_branch: main,
+                tip,
+                commits: keep,
+            });
+        }
+    }
+    if planned.is_empty() {
+        return Err(set_refusal(
+            "nothing to integrate: every repo already has these commits".into(),
+        ));
+    }
+    let info = integrations::planned_commit_info(deps.kernel, &json!(run.report_ids))?;
+    let base = match info.get("planId").and_then(Value::as_str) {
+        None => integration_branch_name(&deps.kernel.env.uuid(), None),
+        Some(plan_id) => {
+            let title = text_of(&info, "planTitle");
+            integration_branch_name(plan_id, Some(js_trim(strip_leading_type(title))))
+        }
+    };
+    let mut free = None;
+    for n in 1..1000 {
+        let name = with_suffix(&base, n);
+        if !integrations::set_branch_recorded(deps.kernel, &name)? {
+            free = Some(name);
+            break;
+        }
+    }
+    let Some(set_branch) = free else {
+        return Err(set_refusal(format!("no free branch name for set {base}")));
+    };
+    for member in &planned {
+        let branch = member_branch(&set_branch, &member.repo, 1);
+        if member.git.branch_tip(&branch)?.is_some() {
+            return Err(set_refusal(format!(
+                "branch {branch} already exists in repo {}",
+                member.repo
+            )));
+        }
+    }
+    let repos: Vec<&str> = planned.iter().map(|m| m.repo.as_str()).collect();
+    let created = crate::areas::workspace::create_integration_set(
+        deps.kernel,
+        &deps.ctx(),
+        &json!({"branch": set_branch, "repos": repos}),
+    )?;
+    let set_id = created["setId"].as_str().unwrap_or_default().to_string();
+    let answers: RefCell<Vec<Value>> = RefCell::new(Vec::new());
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || -> IntegrateResult<(String, String)> {
+            for member in &planned {
+                let branch = member_branch(&set_branch, &member.repo, 1);
+                let target = MemberTarget {
+                    set_id: &set_id,
+                    branch: &branch,
+                    main_branch: &member.main_branch,
+                    base_sha: &member.tip,
+                };
+                let member_deps = IntegrationDeps {
+                    kernel: deps.kernel,
+                    git: &member.git,
+                    state: deps.state,
+                    credential: deps.credential,
+                    context: deps.context,
+                    log: deps.log,
+                    impact: deps.impact,
+                };
+                let record = integrate_repo_with(
+                    &member_deps,
+                    &member.repo,
+                    &member.commits,
+                    run.requested_by,
+                    &target,
+                    run.before_member,
+                )?;
+                answers
+                    .borrow_mut()
+                    .push(member_answer(&record, &member.repo));
+                match text_of(&record, "state") {
+                    "merged" => {}
+                    "conflicted" => {
+                        let files: Vec<&str> = record["conflictFiles"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect();
+                        return Ok((
+                            "conflicted".into(),
+                            format!("repo {} conflicts in {}", member.repo, files.join(", ")),
+                        ));
+                    }
+                    _ => {
+                        return Ok((
+                            "failed".into(),
+                            format!(
+                                "repo {} failed: {}",
+                                member.repo,
+                                text_of(&record, "failureReason")
+                            ),
+                        ))
+                    }
+                }
+            }
+            Ok(("merged".into(), String::new()))
+        },
+    ));
+    let (state, reason) = match outcome {
+        Ok(Ok(done)) => done,
+        Ok(Err(error)) => (
+            "failed".into(),
+            format!("the set stopped: {}", error.display()),
+        ),
+        Err(panic) => {
+            let text = panic
+                .downcast_ref::<&str>()
+                .map(|t| t.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown".into());
+            ("failed".into(), format!("the set panicked: {text}"))
+        }
+    };
+    if state == "failed" {
+        for (repo, integration_id) in settle_running_members(deps, &set_id, &reason) {
+            if let Ok(record) = integrations::integration(deps.kernel, &integration_id) {
+                answers.borrow_mut().push(member_answer(&record, &repo));
+            }
+        }
+    }
+    let reason = printable_reason(&reason, 480);
+    crate::areas::workspace::set_integration_state(
+        deps.kernel,
+        &deps.ctx(),
+        &json!({"setId": set_id, "state": state, "reason": if state == "merged" { Value::Null } else { json!(reason) }}),
+    )?;
+    let members = answers.into_inner();
+    let merged: Vec<&str> = members
+        .iter()
+        .filter(|m| m["state"] == "merged")
+        .filter_map(|m| m["repo"].as_str())
+        .collect();
+    let stopped: Option<&Value> = members.iter().find(|m| m["state"] != "merged");
+    let stopped_repo = stopped
+        .and_then(|m| m["repo"].as_str())
+        .or_else(|| {
+            // A member that never answered (a panic or an error) is the first without an answer.
+            planned
+                .iter()
+                .map(|m| m.repo.as_str())
+                .find(|r| !members.iter().any(|m| m["repo"] == *r))
+        })
+        .unwrap_or_default()
+        .to_string();
+    let next = match state.as_str() {
+        "conflicted" => format!(
+            "resolve with a new report for repo {stopped_repo}, then cstan integrate redo {set_id} --repo {stopped_repo}"
+        ),
+        "failed" => format!(
+            "cstan integrate redo {set_id} --repo {stopped_repo}, or cstan integrate discard {set_id} --repo {stopped_repo}"
+        ),
+        _ => "merge each member branch into its repo's main branch".to_string(),
+    };
+    let not_run: Vec<&str> = planned
+        .iter()
+        .map(|m| m.repo.as_str())
+        .filter(|r| !members.iter().any(|m| m["repo"] == *r))
+        .collect();
+    Ok(json!({
+        "setId": set_id,
+        "branch": set_branch,
+        "state": state,
+        "reason": if state == "merged" { Value::Null } else { json!(reason) },
+        "members": members,
+        "merged": merged,
+        "failed": members.iter().filter(|m| m["state"] != "merged").filter_map(|m| m["repo"].as_str()).collect::<Vec<_>>(),
+        "notRun": not_run,
+        "landed": landed,
+        "next": next,
+    }))
+}
+
+/// A member row left running by an error or a panic is settled failed with the reason, as a failed merge is.
+/// Returns the `(repo, integration)` of each row it settled.
+fn settle_running_members(
+    deps: &IntegrationDeps,
+    set_id: &str,
+    reason: &str,
+) -> Vec<(String, String)> {
+    let mut settled = Vec::new();
+    let Ok(set) = crate::areas::workspace::integration_set(deps.kernel, set_id) else {
+        return settled;
+    };
+    for member in set["members"].as_array().into_iter().flatten() {
+        let Some(id) = member["integrationId"].as_str() else {
+            continue;
+        };
+        let running = integrations::integration_row(deps.kernel, id)
+            .ok()
+            .flatten()
+            .is_some_and(|row| row.state == "running");
+        if running
+            && integrations::finish_integration_with_details(
+                deps.kernel,
+                &deps.ctx(),
+                &json!({"integrationId": id, "outcome": {"kind": "failed", "reason": printable_reason(reason, 300)}}),
+                None,
+            )
+            .is_ok()
+        {
+            settled.push((
+                member["repo"].as_str().unwrap_or_default().to_string(),
+                id.to_string(),
+            ));
+        }
+    }
+    settled
+}
+
 /// `settleIntegration`: confirming needs the integrated commit to be part of the project's HEAD already (the PM or
 /// operator merged the branch); the branch is then removed. Discarding removes the branch at once. Returns
 /// `{record, branchRemoved}`.
@@ -2821,6 +3362,7 @@ pub fn settle_integration(
     outcome: &str,
 ) -> IntegrateResult<Value> {
     let before = integrations::integration(deps.kernel, integration_id)?;
+    integrations::refuse_set_member(deps.kernel, integration_id)?;
     let state = text_of(&before, "state").to_string();
     let head_sha = before
         .get("headSha")

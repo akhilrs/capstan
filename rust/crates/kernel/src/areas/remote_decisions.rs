@@ -1867,6 +1867,9 @@ pub fn merge_gates(
     let (Some(hash), Some(integration)) = (hash, integration) else {
         return Err(not_waiting());
     };
+    if let Err(error) = integrations::refuse_set_member(kernel, &input.target) {
+        return Err(merge_refusal("not_waiting", error.message()));
+    }
     let Some(head_sha) = integration
         .head_sha
         .clone()
@@ -1912,7 +1915,8 @@ pub fn merge_gates(
             [&kernel.project_id],
             |row| row.get::<_, i64>(0),
         )?;
-        if facts.integration_running || running.is_some() {
+        let set_running = !super::workspace::set_running(kernel)?.is_empty();
+        if facts.integration_running || running.is_some() || set_running {
             return Err(merge_refusal("busy", "an integration is running"));
         }
     }

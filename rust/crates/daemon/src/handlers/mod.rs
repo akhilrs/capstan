@@ -19,6 +19,7 @@ pub mod env;
 pub mod feed;
 pub mod findings;
 pub mod id_prefix;
+pub mod integrate_seams;
 pub mod kb;
 pub mod keep;
 pub mod links;

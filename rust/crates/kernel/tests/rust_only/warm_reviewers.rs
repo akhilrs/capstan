@@ -603,6 +603,8 @@ fn the_task_renders_scope_files_package_acceptance_and_outside_files_with_the_ga
             }),
         }),
         history: vec![],
+        repos: vec![],
+        plan_workspace: false,
     };
     let task = review_task(&row(), &[], None, &brief);
     assert!(task.contains(&format!(
@@ -636,4 +638,57 @@ fn the_task_renders_scope_files_package_acceptance_and_outside_files_with_the_ga
     assert!(task.contains(&format!(
         "Your earlier verdicts in plan plan-1:\n- review rv0 round 2 of report rp0 at {COMMIT}: passed\nJudge this commit on its own; an earlier verdict does not carry over."
     )));
+}
+
+#[test]
+fn a_workspace_task_lists_the_repo_prefixed_scope_and_what_is_outside_the_owned_paths() {
+    let brief = ReviewBrief {
+        repos: vec![capstan_kernel::helpers::RepoBrief {
+            repo: "core".into(),
+            base_sha: BASE.into(),
+            commit_sha: COMMIT.into(),
+            worktree_path: Some("/w/core".into()),
+            verify: None,
+        }],
+        scope: Some(ScopeBrief {
+            files: vec![file("core:src/a.rs"), file("web:docs/b.md")],
+            files_total: 2,
+            insertions: 4,
+            deletions: 2,
+            package: Some(PackageScope {
+                plan_id: "plan-1".into(),
+                package_id: "a".into(),
+                owns: vec!["core:src/".into()],
+                acceptance: vec![],
+            }),
+        }),
+        ..ReviewBrief::default()
+    };
+    let task = review_task(&row(), &[], None, &brief);
+    assert!(task.contains("Scope: all repos, paths written <repo>:<path>: 2 files changed, +4 -2"));
+    assert!(task.contains("Files touched: \"web:docs/b.md\" (+2 -1)"));
+    assert!(task.contains("Package plan-1/a owns: \"core:src/\""));
+    assert!(
+        task.contains("Touched outside the owned paths: \"web:docs/b.md\""),
+        "{task}"
+    );
+}
+
+#[test]
+fn a_workspace_plan_task_says_the_base_is_informational() {
+    let plan_row = ReviewRow {
+        subject_report_id: None,
+        subject_plan_id: Some("plan-1".into()),
+        subject_plan_revision: Some(1),
+        ..row()
+    };
+    let plain = review_task(&plan_row, &[], None, &ReviewBrief::default());
+    assert!(!plain.contains("workspace plan"));
+    let brief = ReviewBrief {
+        plan_workspace: true,
+        ..ReviewBrief::default()
+    };
+    let task = review_task(&plan_row, &[], None, &brief);
+    assert!(task.contains("workspace plan"), "{task}");
+    assert!(task.contains("informational"), "{task}");
 }
