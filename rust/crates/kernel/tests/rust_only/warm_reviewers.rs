@@ -604,6 +604,7 @@ fn the_task_renders_scope_files_package_acceptance_and_outside_files_with_the_ga
         }),
         history: vec![],
         repos: vec![],
+        set_id: None,
         plan_workspace: false,
     };
     let task = review_task(&row(), &[], None, &brief);

@@ -859,7 +859,7 @@ fn a_restart_mid_run_gives_one_message() {
 // ------------------------------------------------------------------------------------------------ sets and old reports
 
 #[test]
-fn a_set_gate_is_not_yet_supported_and_verify_of_a_set_or_a_member_is_refused() {
+fn a_set_that_is_not_merged_has_no_runs_and_is_not_verified() {
     let w = World::new();
     let credential = w.deps.credential().to_string();
     let set_id = w.ledger(move |core| {
@@ -877,7 +877,7 @@ fn a_set_gate_is_not_yet_supported_and_verify_of_a_set_or_a_member_is_refused() 
         .deps
         .kernel
         .run(move |core| core.subject_runs(&capstan_kernel::records::GateSubject::Set(ids)));
-    assert!(err.unwrap_err().to_string().contains("not yet supported"));
+    assert!(err.unwrap().is_empty());
     // Seed an integration and make it the member of core.
     let credential = w.deps.credential().to_string();
     let (set_for_member, base) = (set_id.clone(), w.base.clone());
@@ -898,13 +898,13 @@ fn a_set_gate_is_not_yet_supported_and_verify_of_a_set_or_a_member_is_refused() 
     let member = w.verify(&["i-1"]);
     assert!(
         text_of(&member).ends_with(&format!(
-            "integration i-1 belongs to set {set_id}; set verify and review come with set redo"
+            "set {set_id} is running; only a merged set is verified"
         )),
         "{member}"
     );
     let whole = w.verify(&[&set_id]);
     assert!(
-        text_of(&whole).contains("set verify and review come with set redo"),
+        text_of(&whole).contains("only a merged set is verified"),
         "{whole}"
     );
 }
@@ -1071,10 +1071,7 @@ fn the_review_gate_of_a_workspace_refuses_a_set_member_and_gates_a_report_per_re
     // (a) the set refusal answers, not verify_missing.
     let refused = w.call("pm-1", "request-review", &["i-1"]);
     let text = text_of(&refused);
-    assert!(
-        text.contains("set verify and review come with set redo"),
-        "{text}"
-    );
+    assert!(text.contains("only a merged set can be reviewed"), "{text}");
     assert!(!text.contains("verify_missing"), "{text}");
     // (b) a report is gated per repo.
     let report = w.reported(&[("core", "a.txt"), ("extra", "c.txt")]);

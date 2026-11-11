@@ -2612,7 +2612,7 @@ impl IntegrationState {
             .retain(|id| id != integration_id);
     }
 
-    fn remember(&self, integration_id: &str) {
+    pub(crate) fn remember(&self, integration_id: &str) {
         let mut pending = self.pending_sweep.borrow_mut();
         if !pending.iter().any(|id| id == integration_id) {
             pending.push(integration_id.to_string());
@@ -2661,6 +2661,46 @@ pub enum Landed {
     No,
     /// `git merge-tree` exited with this code, which is neither clean nor a conflict.
     Unknown(i32),
+}
+
+/// The most paths `member_on_main` compares one by one.
+const MEMBER_PATHS_MAX: usize = 4000;
+
+/// Whether a member's change is on `main` already: `tip` is an ancestor of `main`, or every path that differs between
+/// `base` and `tip` has the same blob at `main` as at `tip` (a path deleted at `tip` must be absent at `main`). It is
+/// true for a branch merged by hand however it was merged (fast-forward, merge, squash or rebase), false when `main`
+/// lacks a path or changed it afterwards. `Err` when git cannot tell.
+pub fn member_on_main(git: &GitRepo, main: &str, base: &str, tip: &str) -> IntegrateResult<bool> {
+    if !is_full_sha(base) || !is_full_sha(tip) {
+        return Err(git_error(
+            "the commit id must be 40 lowercase hex characters",
+        ));
+    }
+    if git.is_ancestor(tip, main)? {
+        return Ok(true);
+    }
+    let paths = git.changed_paths(base, tip)?;
+    if paths.len() > MEMBER_PATHS_MAX {
+        return Err(git_error(
+            "git could not compare the trees (too many paths)",
+        ));
+    }
+    let blob = |rev: &str, path: &str| -> IntegrateResult<Option<String>> {
+        let outcome = git.run(
+            &["rev-parse", "--verify", "--quiet", &format!("{rev}:{path}")],
+            PLAIN,
+        )?;
+        Ok((outcome.code == 0).then(|| js_trim(&utf8(&outcome.stdout)).to_string()))
+    };
+    for raw in paths {
+        let Ok(path) = String::from_utf8(raw) else {
+            return Ok(false);
+        };
+        if blob(main, &path)? != blob(tip, &path)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// `IntegrationDeps`.
@@ -2902,7 +2942,7 @@ fn printable_reason(text: &str, max: usize) -> String {
 }
 
 /// Of several reports by one agent only the newest counts for a repo; the order of the rest is kept.
-fn supersede(
+pub(crate) fn supersede(
     kernel: &Kernel,
     commits: &[(String, String)],
 ) -> IntegrateResult<Vec<(String, String)>> {

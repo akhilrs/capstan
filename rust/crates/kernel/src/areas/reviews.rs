@@ -146,7 +146,10 @@ fn review_checks(kernel: &Kernel, subject_id: &str, reviewer_role: &str) -> Kern
         authors = vec![report];
     } else {
         let integration = integration.expect("checked above");
-        if integration.state != "merged" {
+        // A confirmed member of a set stays the subject of the set's review (its repo is already on main).
+        let confirmed_member = integration.state == "confirmed"
+            && workspace::set_of_integration(kernel, &integration.integration_id)?.is_some();
+        if integration.state != "merged" && !confirmed_member {
             return Err(KernelError::controller(
                 "only a merged, unconfirmed integration can be reviewed",
             ));
@@ -381,7 +384,28 @@ pub fn begin_review(
         )?;
         let row = review_by_id(kernel, &review_id)?
             .ok_or_else(|| KernelError::controller("the review row is missing"))?;
-        let authors: Vec<&AgentReportRow> = checked.authors.iter().collect();
+        // A member of a set: the review covers every member, so their authors are all listed.
+        let set_id = match checked.subject {
+            "integration" => workspace::set_of_integration(kernel, subject_id)?,
+            _ => None,
+        };
+        let mut set_authors: Vec<AgentReportRow> = Vec::new();
+        if let Some(set_id) = &set_id {
+            for member in workspace::member_views(kernel, set_id)? {
+                if let Some(id) = &member.integration_id {
+                    for report in integration_authors(kernel, id)? {
+                        if !set_authors.iter().any(|r| r.report_id == report.report_id) {
+                            set_authors.push(report);
+                        }
+                    }
+                }
+            }
+        }
+        let authors: Vec<&AgentReportRow> = if set_id.is_some() {
+            set_authors.iter().collect()
+        } else {
+            checked.authors.iter().collect()
+        };
         let amendment = match &checked.plan {
             Some(plan) => query_opt(
                 &kernel.database,
@@ -411,14 +435,20 @@ pub fn begin_review(
             Some(diff) => Some(scope_brief(kernel, diff, subject_plan.as_ref())?),
             None => None,
         };
-        let repos = match &row.subject_report_id {
-            Some(report_id) => repo_briefs(
+        let repos = match (&row.subject_report_id, &set_id) {
+            (Some(report_id), _) => repo_briefs(
                 kernel,
                 report_id,
                 &reviewer.agent_id,
                 input.get("verifyCommandsShas"),
             )?,
-            None => Vec::new(),
+            (None, Some(set_id)) => set_repo_briefs(
+                kernel,
+                set_id,
+                &reviewer.agent_id,
+                input.get("verifyCommandsShas"),
+            )?,
+            (None, None) => Vec::new(),
         };
         let plan_workspace = match &checked.plan {
             Some(plan) => plan_names_repos(kernel, subject_id, plan.revision)?,
@@ -427,6 +457,7 @@ pub fn begin_review(
         let gate_brief = ReviewBrief {
             scope,
             repos,
+            set_id: set_id.clone(),
             plan_workspace,
             history: held.clone().unwrap_or_default(),
             verify: match field(input, "verifyCommandsSha").as_str() {
@@ -512,17 +543,59 @@ fn repo_briefs(
     Ok(repos)
 }
 
+/// The repos of a set for the review task: each member's integration base and head, the reviewer's worktree of its repo
+/// and the verify run at that head (`verifyCommandsShas` maps a repo to its commands sha).
+fn set_repo_briefs(
+    kernel: &Kernel,
+    set_id: &str,
+    reviewer_agent_id: &str,
+    commands_shas: Option<&Value>,
+) -> KernelResult<Vec<RepoBrief>> {
+    let trees = workspace::list_agent_worktrees(kernel, reviewer_agent_id)?;
+    let mut repos = Vec::new();
+    for member in workspace::member_views(kernel, set_id)? {
+        let (Some(id), Some(commit_sha)) = (&member.integration_id, &member.head) else {
+            continue;
+        };
+        let base_sha = integration_row(kernel, id)?.map_or(String::new(), |row| row.base_sha);
+        let worktree_path = trees
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|tree| tree["repo"].as_str() == Some(member.repo.as_str()))
+            .and_then(|tree| tree["worktreePath"].as_str())
+            .map(str::to_string);
+        let verify = match commands_shas
+            .and_then(|shas| shas.get(&member.repo))
+            .and_then(Value::as_str)
+        {
+            Some(sha) => Some(verify_runs::summary_at(
+                kernel,
+                &member.repo,
+                commit_sha,
+                sha,
+            )?),
+            None => None,
+        };
+        repos.push(RepoBrief {
+            repo: member.repo.clone(),
+            base_sha,
+            commit_sha: commit_sha.clone(),
+            worktree_path,
+            verify,
+        });
+    }
+    Ok(repos)
+}
+
 /// The review gate of a workspace subject, read from the ledger: a report must name a commit in each repo and every one
-/// of them must have a passed run; a set is not supported yet. A subject that is not a report (an integration, a plan)
-/// passes here; its own gate is the caller's. The commands in force are checked by the caller's gate, not here.
+/// of them must have a passed run; a set must be merged and every member must have a counted passed run (a confirmed
+/// member its newest). A subject that is not a report (an integration, a plan) passes here; its own gate is the caller's.
+/// The commands in force are checked by the caller's gate, not here.
 pub fn review_gate(kernel: &Kernel, subject: &GateSubject) -> Result<(), String> {
     let report_id = match subject {
         GateSubject::Report(id) => id,
-        GateSubject::Set(_) => {
-            return Err(
-                "a set gate is not yet supported; set verify and review come with set redo".into(),
-            )
-        }
+        GateSubject::Set(set_id) => return set_review_gate(kernel, set_id),
     };
     let ledger = |error: KernelError| error.message().to_string();
     let is_report = query_opt(
@@ -550,6 +623,28 @@ pub fn review_gate(kernel: &Kernel, subject: &GateSubject) -> Result<(), String>
         if !passed {
             return Err(format!(
                 "verify_required: {report_id} has no passed verify run in repo {repo} at {commit}. Run: cstan verify {report_id}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The ledger gate of a set review: only a merged set, with a passed run (under any commands) for every member.
+fn set_review_gate(kernel: &Kernel, set_id: &str) -> Result<(), String> {
+    let ledger = |error: KernelError| error.message().to_string();
+    let gate = workspace::set_gate(kernel, set_id, "").map_err(ledger)?;
+    let state = gate["state"].as_str().unwrap_or("");
+    if state != "merged" {
+        return Err(format!(
+            "review_refused: set {set_id} is {state}; only a merged set can be reviewed"
+        ));
+    }
+    for member in gate["members"].as_array().into_iter().flatten() {
+        if member["code"] != "passed" {
+            return Err(format!(
+                "verify_required: set {set_id} has no passed verify run in repo {} at {}. Run: cstan verify {set_id}",
+                member["repo"].as_str().unwrap_or(""),
+                member["commitSha"].as_str().unwrap_or("")
             ));
         }
     }

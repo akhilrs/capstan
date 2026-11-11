@@ -253,6 +253,7 @@ impl World {
             settings,
             budget,
             now,
+            before_delete: &|_| {},
         };
         f(&deps)
     }

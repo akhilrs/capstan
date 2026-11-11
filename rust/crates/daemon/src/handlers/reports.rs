@@ -1041,6 +1041,19 @@ fn integrate_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Com
         return Some(map_kernel_error(&error));
     }
     let first = call.args[0].as_str();
+    if first == "redo" {
+        return Some(redo_command(env, call, &requested_by, None));
+    }
+    if first == "discard" && super::verify::is_workspace(env.deps) {
+        if let Some(repo) = discard_set_target(env, call.args) {
+            return Some(redo_command(env, call, &requested_by, Some(repo)));
+        }
+    }
+    if first == "confirm" && super::verify::is_workspace(env.deps) {
+        if let Some((set_id, repo)) = confirm_set_target(env, call.args) {
+            return Some(confirm_set_command(env, &set_id, repo, &requested_by));
+        }
+    }
     let settling = first == "confirm" || first == "discard";
     if settling {
         if call.args.len() != 2 || !is_safe_agent_id(&call.args[1]) {
@@ -1323,5 +1336,426 @@ fn workspace_integrate(
             format!("integration_refused: {}", error.message()),
         ),
         Err(IntegrateError::Kernel(error)) => map_kernel_error(&error),
+    }
+}
+
+/// How a set member command is asked for: a redo, or a discard of a whole set or of one member.
+#[derive(Clone, Copy)]
+enum SetOp {
+    Redo,
+    Discard,
+}
+
+/// What `integrate discard <id> [--repo <repo>]` targets when `<id>` is a set (or `--repo` is given): the repo to discard
+/// (an empty text for the whole set); `None` for an integration id, which `integrate discard` settles as before.
+fn discard_set_target(env: &CommandEnv<'_>, args: &[String]) -> Option<DiscardTarget> {
+    match args {
+        [_, id, flag, repo] if flag == "--repo" => {
+            Some(DiscardTarget::Member(id.clone(), repo.clone()))
+        }
+        [_, id] if is_safe_agent_id(id) => {
+            let set_id = id.clone();
+            let is_set = env
+                .deps
+                .kernel
+                .run(move |core| core.integration_set(&set_id))
+                .ok()
+                .is_some_and(|set| !set.is_null());
+            is_set.then(|| DiscardTarget::Set(id.clone()))
+        }
+        _ => None,
+    }
+}
+
+enum DiscardTarget {
+    Set(String),
+    Member(String, String),
+}
+
+/// What `integrate confirm <id> [--repo <repo>]` targets when `<id>` is a set (or `--repo` is given): the set and the repo
+/// (none when it was not named); `None` for an integration id, which `integrate confirm` settles as before.
+fn confirm_set_target(env: &CommandEnv<'_>, args: &[String]) -> Option<(String, Option<String>)> {
+    match args {
+        [_, id, flag, repo] if flag == "--repo" => Some((id.clone(), Some(repo.clone()))),
+        [_, flag, repo, id] if flag == "--repo" => Some((id.clone(), Some(repo.clone()))),
+        [_, id] if is_safe_agent_id(id) => {
+            let set_id = id.clone();
+            let is_set = env
+                .deps
+                .kernel
+                .run(move |core| core.integration_set(&set_id))
+                .ok()
+                .is_some_and(|set| !set.is_null());
+            is_set.then(|| (id.clone(), None))
+        }
+        _ => None,
+    }
+}
+
+/// `integrate confirm <set-id> --repo <repo>`: one member of a workspace set is confirmed once its repo's main holds it.
+///
+/// Member coverage is not recorded here: report commits are per repo, so the `commit_sha` match the root-repo path uses is
+/// wrong for members. It stays unrecorded until plan-171 shows per-repo state.
+fn confirm_set_command(
+    env: &CommandEnv<'_>,
+    set_id: &str,
+    repo: Option<String>,
+    requested_by: &str,
+) -> CommandResponse {
+    use super::integrate_seams::{integrate_seams, member_repo};
+    use capstan_kernel::areas::integrations::{integrate_confirm, ConfirmRun};
+    if !is_safe_agent_id(set_id)
+        || repo
+            .as_deref()
+            .is_some_and(|repo| !capstan_kernel::plan_body::is_repo_name(repo))
+    {
+        return fail(
+            ErrorCode::InvalidRequest,
+            "integrate confirm needs a set id and --repo <repo>",
+        );
+    }
+    let Some(workspace) = env
+        .deps
+        .options
+        .capstan
+        .as_ref()
+        .and_then(|config| config.workspace.as_ref())
+    else {
+        return fail(
+            ErrorCode::Rejected,
+            "integration_refused: the project has no [repos]",
+        );
+    };
+    env.log(
+        "integration_settle_requested",
+        json!({"requestedBy": requested_by, "setId": set_id, "repo": repo, "outcome": "confirm"}),
+    );
+    let roots: Vec<(String, std::path::PathBuf)> = workspace
+        .repos
+        .iter()
+        .map(|repo| (repo.name.clone(), env.deps.repo_root(&repo.name)))
+        .collect();
+    let mains: Vec<(String, String)> = workspace
+        .repos
+        .iter()
+        .map(|repo| (repo.name.clone(), workspace.main_branch_of(&repo.name)))
+        .collect();
+    let seams = integrate_seams(&env.state.integrate_seams);
+    let controller = env.deps.credential().to_string();
+    let (set, named) = (set_id.to_string(), repo.clone());
+    let impact = env
+        .config()
+        .map(|config| config.impact.clone())
+        .unwrap_or_default();
+    let ran = env.deps.kernel.call(move |core| {
+        let root_repo = GitRepo::new(std::path::PathBuf::new());
+        let logs: RefCell<Vec<(String, Value)>> = RefCell::new(Vec::new());
+        let context = |credential: &str| -> MutationContext {
+            crate::deps::new_context(core, credential).unwrap_or_else(|_| MutationContext {
+                credential: credential.to_string(),
+                request_id: String::new(),
+                idempotency_key: String::new(),
+                expected_version: 0,
+                input_revision: 0,
+            })
+        };
+        let log =
+            |event: &str, details: Value| logs.borrow_mut().push((event.to_string(), details));
+        let git_for = |name: &str| {
+            let root = roots
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, root)| root.clone())
+                .unwrap_or_default();
+            member_repo(&seams, &root)
+        };
+        let main_of = |name: &str| {
+            mains
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, main)| main.clone())
+                .unwrap_or_default()
+        };
+        let result = INTEGRATIONS.with(|state| {
+            let deps = IntegrationDeps {
+                kernel: core.kernel(),
+                git: &root_repo,
+                state,
+                credential: &controller,
+                context: &context,
+                log: &log,
+                impact: &impact,
+            };
+            integrate_confirm(
+                &deps,
+                &ConfirmRun {
+                    set_id: &set,
+                    repo: named.as_deref(),
+                    main_branch_of: &main_of,
+                    git_for: &git_for,
+                },
+            )
+        });
+        Integrated {
+            result,
+            logs: logs.into_inner(),
+        }
+    });
+    let integrated = match ran {
+        Ok(integrated) => integrated,
+        Err(_) => return map_kernel_error(&KernelError::controller("controller is closed")),
+    };
+    for (event, details) in integrated.logs {
+        env.log(&event, details);
+    }
+    match integrated.result {
+        Ok(result) => {
+            let record = &result["record"];
+            let mut answer = json!({
+                "integrationId": field(record, "integrationId"),
+                "state": field(record, "state"),
+                "branch": field(record, "branch"),
+                "branchRemoved": field(&result, "branchRemoved"),
+                "setId": set_id,
+                "repo": field(&result, "repo"),
+                "warning": field(&result, "warning"),
+            });
+            if let Some(id) = record["integrationId"].as_str() {
+                if let Some(cleanup) = super::cleanup::after_confirm(env, id, requested_by) {
+                    answer["cleanup"] = cleanup;
+                }
+            }
+            ok(answer)
+        }
+        Err(IntegrateError::Integration { code, message }) => {
+            fail(ErrorCode::Rejected, format!("{code}: {message}"))
+        }
+        Err(IntegrateError::Git(_)) => fail(
+            ErrorCode::Error,
+            "the controller could not run git just now",
+        ),
+        Err(IntegrateError::Kernel(error)) if error.is_controller_error() => fail(
+            ErrorCode::Rejected,
+            format!("integration_refused: {}", error.message()),
+        ),
+        Err(IntegrateError::Kernel(error)) => map_kernel_error(&error),
+    }
+}
+
+/// `integrate redo <set-id> --repo <repo>`: the repo's member of a workspace set is integrated again into the same set.
+/// With a discard target it is `integrate discard <set-id> [--repo <repo>]` instead.
+fn redo_command(
+    env: &CommandEnv<'_>,
+    call: &CommandCall<'_>,
+    requested_by: &str,
+    discard: Option<DiscardTarget>,
+) -> CommandResponse {
+    use super::integrate_seams::{integrate_seams, member_repo};
+    use capstan_kernel::areas::integrations::{
+        integrate_discard, integrate_redo, DiscardRun, RedoRun,
+    };
+    let usage = || {
+        fail(
+            ErrorCode::InvalidRequest,
+            if discard.is_some() {
+                "integrate discard needs a set id and optionally --repo <repo>"
+            } else {
+                "integrate redo needs a set id and --repo <repo>"
+            },
+        )
+    };
+    let (set_id, repo): (String, Option<String>) = match &discard {
+        Some(DiscardTarget::Set(id)) => (id.clone(), None),
+        Some(DiscardTarget::Member(id, repo)) => (id.clone(), Some(repo.clone())),
+        None => {
+            let [_, set_id, flag, repo] = call.args else {
+                return usage();
+            };
+            if flag != "--repo" {
+                return usage();
+            }
+            (set_id.clone(), Some(repo.clone()))
+        }
+    };
+    if !is_safe_agent_id(&set_id)
+        || repo
+            .as_deref()
+            .is_some_and(|repo| !capstan_kernel::plan_body::is_repo_name(repo))
+    {
+        return usage();
+    }
+    let op = if discard.is_some() {
+        SetOp::Discard
+    } else {
+        SetOp::Redo
+    };
+    let Some(workspace) = env
+        .deps
+        .options
+        .capstan
+        .as_ref()
+        .and_then(|config| config.workspace.as_ref())
+    else {
+        return fail(
+            ErrorCode::Rejected,
+            "integration_refused: the project has no [repos]",
+        );
+    };
+    env.log(
+        match op {
+            SetOp::Redo => "integration_redo_requested",
+            SetOp::Discard => "integration_set_discard_requested",
+        },
+        json!({"requestedBy": requested_by, "setId": set_id, "repo": repo}),
+    );
+    let roots: Vec<(String, std::path::PathBuf)> = workspace
+        .repos
+        .iter()
+        .map(|repo| (repo.name.clone(), env.deps.repo_root(&repo.name)))
+        .collect();
+    let mains: Vec<(String, String)> = workspace
+        .repos
+        .iter()
+        .map(|repo| (repo.name.clone(), workspace.main_branch_of(&repo.name)))
+        .collect();
+    let seams = integrate_seams(&env.state.integrate_seams);
+    let controller = env.deps.credential().to_string();
+    let integrator = requested_by.to_string();
+    let (set, repo) = (set_id.clone(), repo.clone());
+    let service = env.deps.verify.clone();
+    let impact = env
+        .config()
+        .map(|config| config.impact.clone())
+        .unwrap_or_default();
+    let ran = env.deps.kernel.call(move |core| {
+        let root_repo = GitRepo::new(std::path::PathBuf::new());
+        let logs: RefCell<Vec<(String, Value)>> = RefCell::new(Vec::new());
+        let context = |credential: &str| -> MutationContext {
+            crate::deps::new_context(core, credential).unwrap_or_else(|_| MutationContext {
+                credential: credential.to_string(),
+                request_id: String::new(),
+                idempotency_key: String::new(),
+                expected_version: 0,
+                input_revision: 0,
+            })
+        };
+        let log =
+            |event: &str, details: Value| logs.borrow_mut().push((event.to_string(), details));
+        let git_for = |name: &str| {
+            let root = roots
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, root)| root.clone())
+                .unwrap_or_default();
+            member_repo(&seams, &root)
+        };
+        let main_of = |name: &str| {
+            mains
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, main)| main.clone())
+                .unwrap_or_default()
+        };
+        let before = |name: &str| match &seams {
+            Some(seams) => seams.before_member(name),
+            None => Ok(()),
+        };
+        let abort = |run_id: &str| {
+            if let Some(service) = &service {
+                service.abort(run_id);
+            }
+        };
+        let result = INTEGRATIONS.with(|state| {
+            let deps = IntegrationDeps {
+                kernel: core.kernel(),
+                git: &root_repo,
+                state,
+                credential: &controller,
+                context: &context,
+                log: &log,
+                impact: &impact,
+            };
+            match op {
+                SetOp::Redo => integrate_redo(
+                    &deps,
+                    &RedoRun {
+                        set_id: &set,
+                        repo: repo.as_deref().unwrap_or_default(),
+                        requested_by: &integrator,
+                        main_branch_of: &main_of,
+                        git_for: &git_for,
+                        before_member: &before,
+                        abort_run: &abort,
+                    },
+                ),
+                SetOp::Discard => integrate_discard(
+                    &deps,
+                    &DiscardRun {
+                        set_id: &set,
+                        repo: repo.as_deref(),
+                        main_branch_of: &main_of,
+                        git_for: &git_for,
+                        abort_run: &abort,
+                    },
+                ),
+            }
+        });
+        Integrated {
+            result,
+            logs: logs.into_inner(),
+        }
+    });
+    let integrated = match ran {
+        Ok(integrated) => integrated,
+        Err(_) => return map_kernel_error(&KernelError::controller("controller is closed")),
+    };
+    for (event, details) in integrated.logs {
+        env.log(&event, details);
+    }
+    match integrated.result {
+        Ok(answer) => {
+            wait_runs_stopped(env, &answer["cancelledRuns"]);
+            ok(answer)
+        }
+        Err(IntegrateError::Integration { code, message }) => {
+            fail(ErrorCode::Rejected, format!("{code}: {message}"))
+        }
+        Err(IntegrateError::Git(_)) => fail(
+            ErrorCode::Error,
+            "the controller could not run git just now",
+        ),
+        Err(IntegrateError::Kernel(error)) if error.is_controller_error() => fail(
+            ErrorCode::Rejected,
+            format!("integration_refused: {}", error.message()),
+        ),
+        Err(IntegrateError::Kernel(error)) => map_kernel_error(&error),
+    }
+}
+
+/// Waits (at most a few seconds) until the verify runs a redo stopped are no longer running.
+fn wait_runs_stopped(env: &CommandEnv<'_>, runs: &Value) {
+    let started = std::time::Instant::now();
+    for run_id in runs
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        loop {
+            let seen = env.deps.kernel.change_counter();
+            let id = run_id.to_string();
+            let state = env
+                .deps
+                .kernel
+                .run(move |core| core.verify_run(&id))
+                .map(|run| run["state"].clone());
+            let running = matches!(&state, Ok(state) if state == "running");
+            if !running || started.elapsed() >= std::time::Duration::from_secs(10) {
+                break;
+            }
+            env.deps
+                .kernel
+                .wait_change(seen, std::time::Duration::from_millis(250), None);
+        }
     }
 }

@@ -26,25 +26,6 @@ pub const WORKSPACE_KEYS: &[&str] = &["merge_order", "worktree_dir", "default_re
 const MAX_PATH_CHARS: usize = 1024;
 const MAX_BRANCH_CHARS: usize = 200;
 
-/// Workspace mode is built but not finished: while this is `false`, a project with `[repos]` is refused by the daemon
-/// boot, `cstan start` and `cstan init --workspace` unless `CAPSTAN_WORKSPACE_PREVIEW=1` is set. The package that
-/// completes the mode sets it to `true`.
-pub const WORKSPACE_MODE_READY: bool = false;
-/// The variable that switches the gate off for a trial of the unfinished mode. Worker panes never get it.
-pub const WORKSPACE_PREVIEW_ENV: &str = "CAPSTAN_WORKSPACE_PREVIEW";
-pub const WORKSPACE_NOT_COMPLETE: &str = "workspace mode is not complete in this build";
-pub const WORKSPACE_ROOT_NOT_REPO: &str = "this build boots the daemon only from a git repository root; a non-repo workspace root needs a later build";
-
-/// The gate: `Err` with the not-complete text while the mode is unfinished and `preview` (the value of
-/// `CAPSTAN_WORKSPACE_PREVIEW`) is not `1`. Callers apply it only to a project that has `[repos]`, before any git.
-pub fn workspace_gate(preview: Option<&str>) -> std::result::Result<(), String> {
-    if WORKSPACE_MODE_READY || preview == Some("1") {
-        Ok(())
-    } else {
-        Err(WORKSPACE_NOT_COMPLETE.to_string())
-    }
-}
-
 /// `[repos.<name>.verify]`: the gate of one repository. A repository without it uses the top-level `[verify]`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepoVerify {

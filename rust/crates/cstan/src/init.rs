@@ -264,12 +264,9 @@ impl Cli<'_> {
         Ok(Flow::Code(0))
     }
 
-    /// The refusals of `init --workspace` that need no write: the unfinished-mode gate, then the validation of a
+    /// The refusals of `init --workspace` that need no write: the validation of a
     /// workspace configuration the folder already holds (read through the trust gate, since git runs in its paths).
     fn workspace_init_checks(&self, cwd: &Path) -> Result<(), Fail> {
-        let preview = crate::agent::var(&self.ctx.env, capstan_config::WORKSPACE_PREVIEW_ENV)
-            .and_then(|value| value.to_str());
-        capstan_config::workspace_gate(preview).map_err(invalid)?;
         let store = self.ctx.trust.store(&self.ctx.env);
         if let Ok(config) = capstan_config::load_role_config_with(cwd, &store) {
             if let Some(workspace) = &config.workspace {

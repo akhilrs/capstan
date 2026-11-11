@@ -1607,12 +1607,13 @@ fn discard_integration(
             format!("{} is not waiting", input.request_id),
         )
     })?;
-    let output = integrations::apply_settle(kernel, &input.target, "discarded").map_err(
-        |error| match error {
+    // A member of a workspace set is discarded on its own, as `integrate discard <set> --repo <repo>` does.
+    let member = super::workspace::set_of_integration(kernel, &input.target)?.is_some();
+    let output = integrations::apply_settle_as(kernel, &input.target, "discarded", member)
+        .map_err(|error| match error {
             KernelError::Controller(message) => Refusal::new("not_waiting", message).into(),
             other => other,
-        },
-    )?;
+        })?;
     Ok(Done {
         events: events_of(output),
         message_id: None,
@@ -1867,9 +1868,8 @@ pub fn merge_gates(
     let (Some(hash), Some(integration)) = (hash, integration) else {
         return Err(not_waiting());
     };
-    if let Err(error) = integrations::refuse_set_member(kernel, &input.target) {
-        return Err(merge_refusal("not_waiting", error.message()));
-    }
+    // A member of a workspace set merges on its own, into its repo's main (the daemon routes it to that repo).
+    let set_id = super::workspace::set_of_integration(kernel, &input.target)?;
     let Some(head_sha) = integration
         .head_sha
         .clone()
@@ -1886,6 +1886,14 @@ pub fn merge_gates(
     )?;
     if merged_before.is_some() {
         return Err(not_waiting());
+    }
+    if let Some(set_id) = &set_id {
+        if let Some(earlier) = merge_order_block(kernel, set_id, &input.target)? {
+            return Err(merge_refusal(
+                "not_waiting",
+                format!("merge {earlier} first"),
+            ));
+        }
     }
     if !hash.starts_with(&input.expect) {
         return Err(merge_refusal(
@@ -1920,7 +1928,11 @@ pub fn merge_gates(
             return Err(merge_refusal("busy", "an integration is running"));
         }
     }
-    if !integration_reviewed(kernel, &input.target)? {
+    let reviewed = match &set_id {
+        Some(set_id) => member_reviewed(kernel, set_id, &input.target)?,
+        None => integration_reviewed(kernel, &input.target)?,
+    };
+    if !reviewed {
         return Err(merge_refusal(
             "not_reviewed",
             "the integration is not reviewed: its latest review has not passed",
@@ -1960,6 +1972,44 @@ pub fn merge_gates(
         head_sha,
         verify,
     })
+}
+
+/// The repo of the first member of a set, by position, that is neither confirmed nor dropped (a discarded integration)
+/// before `target`; `None` when `target` is first or every earlier member is done. A member with no integration yet
+/// counts as not done.
+fn merge_order_block(kernel: &Kernel, set_id: &str, target: &str) -> KernelResult<Option<String>> {
+    let set = super::workspace::integration_set(kernel, set_id)?;
+    for member in set["members"].as_array().into_iter().flatten() {
+        let id = member["integrationId"].as_str();
+        if id == Some(target) {
+            return Ok(None);
+        }
+        let state = match id {
+            Some(id) => integrations::integration_row(kernel, id)?.map(|row| row.state),
+            None => None,
+        };
+        if !matches!(state.as_deref(), Some("confirmed" | "discarded")) {
+            return Ok(member["repo"].as_str().map(str::to_string));
+        }
+    }
+    Ok(None)
+}
+
+/// Whether a set member may be confirmed on review grounds: the set is reviewed as one subject, and its latest review
+/// passed with none open (what `settle_integration` demands of a member).
+fn member_reviewed(kernel: &Kernel, set_id: &str, target: &str) -> KernelResult<bool> {
+    let open = query_opt(
+        &kernel.database,
+        "SELECT 1 FROM reviews WHERE project_id = ? AND state = 'started' AND subject_integration_id IN
+           (SELECT integration_id FROM integration_set_members WHERE project_id = ? AND integration_id IS NOT NULL AND set_id = ?)",
+        [kernel.project_id.as_str(), kernel.project_id.as_str(), set_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if open.is_some() {
+        return Ok(false);
+    }
+    Ok(integration_reviewed(kernel, target)?
+        || super::workspace::set_gate(kernel, set_id, "")?["review"]["state"] == "passed")
 }
 
 /// Whether the latest review of an integration passed and none is open (what `settle_integration` demands).
@@ -2018,7 +2068,11 @@ pub fn record_merge(
         };
         if let Err(error) = core.settle_integration(
             &settle,
-            &json!({"integrationId": input.target, "outcome": "confirmed"}),
+            &json!({
+                "integrationId": input.target,
+                "outcome": "confirmed",
+                "member": super::workspace::set_of_integration(kernel, &input.target)?.is_some(),
+            }),
         ) {
             if !confirmed()? {
                 return Err(error);

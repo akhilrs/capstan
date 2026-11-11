@@ -1823,6 +1823,11 @@ impl Core {
         workspace::set_complete(&self.kernel, set_id)
     }
 
+    /// Whether every live member of a set is confirmed (a dropped member is skipped; a row-only member blocks).
+    pub fn set_confirmed(&self, set_id: &str) -> KernelResult<bool> {
+        workspace::set_confirmed(&self.kernel, set_id)
+    }
+
     /// The ids of the sets that are running.
     pub fn set_running(&self) -> KernelResult<Vec<String>> {
         workspace::set_running(&self.kernel)
@@ -1836,5 +1841,33 @@ impl Core {
     /// The verify gate of a set under the commands and the review of its first member, after its reset.
     pub fn set_gate(&self, set_id: &str, commands_sha: &str) -> KernelResult<Value> {
         workspace::set_gate(&self.kernel, set_id, commands_sha)
+    }
+
+    /// `removeSetMember`: an unconfirmed member leaves its set and the set's gates are reset.
+    pub fn remove_set_member(
+        &self,
+        context: &MutationContext,
+        set_id: &str,
+        repo: &str,
+    ) -> KernelResult<Value> {
+        workspace::remove_set_member(
+            &self.kernel,
+            context,
+            &serde_json::json!({"setId": set_id, "repo": repo}),
+        )
+    }
+
+    /// `setGate` with each repo's own commands sha (`sha_of` gives it; '' accepts any commands).
+    pub fn set_gate_by(
+        &self,
+        set_id: &str,
+        sha_of: &dyn Fn(&str) -> String,
+    ) -> KernelResult<Value> {
+        workspace::set_gate_by(&self.kernel, set_id, sha_of)
+    }
+
+    /// The set a subject id names: the set's own id or a member's integration id.
+    pub fn set_of_subject(&self, subject_id: &str) -> KernelResult<Option<String>> {
+        workspace::set_of_subject(&self.kernel, subject_id)
     }
 }

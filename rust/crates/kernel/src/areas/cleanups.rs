@@ -62,6 +62,39 @@ pub fn pane_refs(kernel: &Kernel) -> KernelResult<Vec<PaneRef>> {
     )
 }
 
+/// Every live worktree row of an agent in workspace mode, as a pane: its branch and the worktree path.
+pub fn worktree_refs(kernel: &Kernel) -> KernelResult<Vec<WorktreeRef>> {
+    kernel.assert_open()?;
+    query_all(
+        &kernel.database,
+        "SELECT w.agent_id, a.state, w.repo, w.branch, w.base_sha, w.worktree_path FROM agent_worktrees w
+         JOIN agents a ON a.project_id = w.project_id AND a.agent_id = w.agent_id
+         WHERE w.project_id = ? AND w.removed_at IS NULL ORDER BY w.repo, w.agent_id, w.generation",
+        [&kernel.project_id],
+        |row| {
+            Ok(WorktreeRef {
+                agent_id: row.get(0)?,
+                active: row.get::<_, String>(1)? == "active",
+                repo: row.get(2)?,
+                branch: row.get(3)?,
+                base_sha: row.get(4)?,
+                worktree_path: row.get(5)?,
+            })
+        },
+    )
+}
+
+/// A live worktree the ledger recorded for an agent in one repo (workspace mode).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorktreeRef {
+    pub agent_id: String,
+    pub active: bool,
+    pub repo: String,
+    pub branch: String,
+    pub base_sha: String,
+    pub worktree_path: String,
+}
+
 /// The branches of integrations that are not settled yet (running, merged, conflicted); they are not for cleanup.
 pub fn unsettled_integration_branches(kernel: &Kernel) -> KernelResult<BTreeSet<String>> {
     kernel.assert_open()?;
@@ -259,6 +292,7 @@ pub fn record_offer(
         one_of(entry, "class", &["landed", "landed_by_content", "unlanded"])?;
     }
     let notice = field(input, "notice").as_str();
+    let repo_filter = field(input, "repo").as_str();
     kernel.mutate(
         context,
         "cleanup.offer",
@@ -268,10 +302,14 @@ pub fn record_offer(
             let now = kernel.now();
             let mut superseded: Vec<String> = Vec::new();
             if mode == "ask" {
+                // With a repo (workspace mode) only that repo's open offers are superseded.
                 superseded = query_all(
                     &kernel.database,
-                    "SELECT cleanup_id FROM cleanups WHERE project_id = ? AND state = 'offered' ORDER BY sequence",
-                    [&kernel.project_id],
+                    "SELECT c.cleanup_id FROM cleanups c
+                     LEFT JOIN cleanup_repos r ON r.project_id = c.project_id AND r.cleanup_id = c.cleanup_id
+                     WHERE c.project_id = ?1 AND c.state = 'offered' AND (?2 IS NULL OR COALESCE(r.repo, '') = ?2)
+                     ORDER BY c.sequence",
+                    rusqlite::params![kernel.project_id, repo_filter],
                     |row| row.get::<_, String>(0),
                 )?;
                 for old in &superseded {

@@ -14,6 +14,7 @@ use capstan_kernel::areas::remote_decisions::{
     self, DecideOptions, Kind, ERROR_CODES, MERGE_ERROR_CODES,
 };
 use capstan_kernel::integrate::GitRepo;
+use capstan_kernel::types::MutationContext;
 use capstan_kernel::{KernelError, KernelResult};
 use capstan_operator::api::OperatorFailure;
 use serde_json::Value;
@@ -94,18 +95,24 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
     let reply_to =
         (input.kind == Kind::Message && input.verb == "reply").then(|| input.target.clone());
     // A discard removes the integration's branch once the decision is applied: its name and head, read before.
-    let discarding = if input.kind == Kind::Integration && input.verb == "discard" {
-        let id = input.target.clone();
+    let discard_id =
+        (input.kind == Kind::Integration && input.verb == "discard").then(|| input.target.clone());
+    let discarding = if let Some(id) = discard_id.clone() {
         env.deps
             .kernel
-            .run(move |core| integrations::integration_row(core.kernel(), &id))
+            .run(move |core| {
+                let row = integrations::integration_row(core.kernel(), &id)?;
+                let repo = core.repo_of_integration(&id)?;
+                Ok(row.map(|row| (row, repo)))
+            })
             .ok()
             .flatten()
-            .and_then(|row| {
+            .and_then(|(row, repo)| {
+                // A set member's branch is in its own repo.
                 row.head_sha
                     .clone()
                     .filter(|_| row.state == "merged")
-                    .map(|sha| (row.branch.clone(), sha))
+                    .map(|sha| (row.branch.clone(), sha, repo))
             })
     } else {
         None
@@ -148,9 +155,14 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
             close_answered_picker(env, &message_id);
         }
     }
-    if let (Ok(result), Some((branch, head_sha))) = (&decided, discarding) {
+    if let (Ok(result), Some(id)) = (&decided, discard_id) {
         if result["outcome"] == "applied" && result["repeat"] != true {
-            let repo = GitRepo::new(env.deps.options.workspace_root.clone());
+            discard_member_after(env, &id);
+        }
+    }
+    if let (Ok(result), Some((branch, head_sha, member_repo))) = (&decided, discarding) {
+        if result["outcome"] == "applied" && result["repeat"] != true {
+            let repo = GitRepo::new(env.deps.repo_root(member_repo.as_deref().unwrap_or("")));
             let removed = repo.delete_branch_at(&branch, &head_sha).unwrap_or(false);
             if !removed {
                 // `cstan cleanup` offers the branch of a discarded integration again.
@@ -162,6 +174,82 @@ fn decide(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         }
     }
     Some(answer(decided))
+}
+
+/// The message to the PM when the steps after a member's discard failed.
+fn discard_failure_text(set_id: &str, repo: &str, integration_id: &str, error: &str) -> String {
+    format!(
+        "The remote discard of integration {integration_id} (repo {repo} of set {set_id}) was applied, but resetting the set afterwards failed: {error}. The discard is idempotent: rerun cstan integrate discard {set_id} --repo {repo} to finish it."
+    )
+}
+
+/// A discarded set member resets its set's gates, cancels its runs and may end the set; a plain integration is not one.
+/// This runs after the decision was applied, so a failure cannot undo it: it is logged and the PM is told the set and the
+/// command to rerun. The discard is idempotent: the user can rerun `cstan integrate discard <set> --repo <r>`, which skips
+/// the member already discarded and repeats the cancel, reset and set move.
+fn discard_member_after(env: &CommandEnv<'_>, integration_id: &str) {
+    let id = integration_id.to_string();
+    let service = env.deps.verify.clone();
+    let controller = env.deps.credential().to_string();
+    let result = env.deps.kernel.run(move |core| {
+        let abort = |run_id: &str| {
+            if let Some(service) = &service {
+                service.abort(run_id);
+            }
+        };
+        integrations::after_member_discard(
+            core.kernel(),
+            &|| {
+                crate::deps::new_context(core, &controller).unwrap_or_else(|_| MutationContext {
+                    credential: controller.clone(),
+                    request_id: String::new(),
+                    idempotency_key: String::new(),
+                    expected_version: 0,
+                    input_revision: 0,
+                })
+            },
+            &id,
+            &abort,
+        )
+    });
+    if let Err(error) = result {
+        env.log(
+            "integration_set_discard_failed",
+            serde_json::json!({"integrationId": integration_id, "error": error.message()}),
+        );
+        let id = integration_id.to_string();
+        let credential = env.deps.credential().to_string();
+        let text = error.message().to_string();
+        let told = env.deps.kernel.run(move |core| {
+            let (Some(set_id), Some(repo)) = (
+                core.set_of_integration(&id)?,
+                core.repo_of_integration(&id)?,
+            ) else {
+                return Ok(false);
+            };
+            let Some(parties) =
+                capstan_kernel::areas::message_notices::notice_parties(core.kernel())?
+            else {
+                return Ok(false);
+            };
+            let context = crate::deps::new_context(core, &credential)?;
+            core.enqueue_message(
+                &context,
+                &serde_json::json!({
+                    "recipientAgentId": parties.pm.agent_id,
+                    "body": discard_failure_text(&set_id, &repo, &id, &text),
+                    "actionNeeded": true,
+                }),
+            )?;
+            Ok(true)
+        });
+        if !matches!(told, Ok(true)) {
+            env.log(
+                "integration_set_discard_not_told",
+                serde_json::json!({"integrationId": integration_id}),
+            );
+        }
+    }
 }
 
 /// After a proposal was decided (or forwarded) from a remote client the PM may still show its picker: one Esc closes it,
@@ -313,6 +401,19 @@ mod tests {
         assert_eq!(
             refused(&other),
             fail(ErrorCode::Error, "the command failed")
+        );
+    }
+
+    #[test]
+    fn the_failure_message_names_the_set_and_the_rerun_command() {
+        let text = super::discard_failure_text("set-1", "web", "int-9", "disk full");
+        assert!(
+            text.contains("set set-1") && text.contains("disk full"),
+            "{text}"
+        );
+        assert!(
+            text.contains("rerun cstan integrate discard set-1 --repo web"),
+            "{text}"
         );
     }
 }

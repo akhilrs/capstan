@@ -57,6 +57,15 @@ fn git(dir: &Path, args: &[&str]) -> Result<(i32, String), String> {
 
 /// Finds `path` at the tip of `branch`: its commit, size and whether the worktree changed it since.
 pub fn locate(root: &Path, branch: &str, worktree: &str, path: &str) -> Result<FileRef, String> {
+    // The sender's own worktree shares its repository's branches; in a workspace the root need not be a repository, so
+    // git runs there when the worktree is one and in the root otherwise.
+    let wt = Path::new(worktree);
+    let root = if !worktree.is_empty() && matches!(git(wt, &["rev-parse", "--git-dir"]), Ok((0, _)))
+    {
+        wt
+    } else {
+        root
+    };
     let rev = format!("refs/heads/{branch}^{{commit}}");
     let (code, out) = git(root, &["rev-parse", "--verify", "--quiet", &rev])?;
     let commit = out.trim().to_string();

@@ -628,7 +628,75 @@ fn latest_report_run(
     .next())
 }
 
+/// A run of a set member speaks once for the set: when every member's counted run is final and this run is its member's
+/// newest, it lists every member's newest counted run (a confirmed member shows its last passed run).
+fn set_notice(kernel: &Kernel, run: &RunRow, set_id: &str) -> KernelResult<Notice> {
+    let mut lines = Vec::new();
+    let mut passed = true;
+    let mut own_is_latest = false;
+    for (member, runs) in set_member_runs(kernel, set_id)? {
+        let Some(latest) = runs.first() else {
+            if member.confirmed {
+                continue;
+            }
+            return Ok(Notice::Wait);
+        };
+        if latest.run_id == run.run_id {
+            own_is_latest = true;
+        }
+        if latest.state == "queued" || latest.state == "running" {
+            return Ok(Notice::Wait);
+        }
+        passed &= latest.state == "passed";
+        let duration = latest
+            .duration_ms
+            .map_or("unknown time".to_string(), format_duration_ms);
+        let mut line = format!(
+            "- repo {} at {}: {} after {duration} (run {})",
+            member.repo, latest.commit_sha, latest.state, latest.run_id
+        );
+        if latest.state == "failed" {
+            line.push_str(&format!(
+                ", step {} exit {}",
+                latest.failed_step.map_or("null".into(), |n| n.to_string()),
+                latest.exit_code.map_or("null".into(), |n| n.to_string()),
+            ));
+        }
+        if latest.state != "passed" {
+            let excerpt = tail_excerpt(&latest.output_tail);
+            if !excerpt.is_empty() {
+                line.push_str(&format!(
+                    "; last output lines: {}",
+                    serde_json::to_string(&excerpt).unwrap_or_default()
+                ));
+            }
+        }
+        lines.push(line);
+    }
+    // A run that is not the newest of its member (an older rerun, or one before a reset) does not speak.
+    if !own_is_latest {
+        return Ok(Notice::Wait);
+    }
+    let head = format!(
+        "Verify for set {set_id}: {}",
+        if passed {
+            "passed in every repo"
+        } else {
+            "did not pass"
+        }
+    );
+    Ok(Notice::Report(
+        format!("{head}\n{}", lines.join("\n")),
+        passed,
+    ))
+}
+
 fn notice_for(kernel: &Kernel, run: &RunRow) -> KernelResult<Notice> {
+    if let Some(id) = run.subject_integration_id.as_deref() {
+        if let Some(set_id) = workspace::set_of_integration(kernel, id)? {
+            return set_notice(kernel, run, &set_id);
+        }
+    }
     let Some(report_id) = run.subject_report_id.as_deref() else {
         return Ok(Notice::Own);
     };
@@ -859,13 +927,22 @@ pub fn interrupt_active_verify_runs(
         // A report that names commits per repo hears once, when its last repo is final.
         let mut told: Vec<String> = Vec::new();
         for run in &running {
-            let Some(report_id) = run.subject_report_id.as_deref() else { continue };
-            if told.iter().any(|t| t == report_id) || report_rows(kernel, report_id)?.is_empty() {
+            let key = match (&run.subject_report_id, &run.subject_integration_id) {
+                (Some(report_id), _) if !report_rows(kernel, report_id)?.is_empty() => {
+                    report_id.clone()
+                }
+                (None, Some(id)) => match workspace::set_of_integration(kernel, id)? {
+                    Some(set_id) => set_id,
+                    None => continue,
+                },
+                _ => continue,
+            };
+            if told.contains(&key) {
                 continue;
             }
             let current = require_run(kernel, &run.run_id)?;
             if send_run_notice(kernel, &current, &now)? > 0 {
-                told.push(report_id.to_string());
+                told.push(key);
             }
         }
         let event = MutationEvent::new("verify_run", &kernel.project_id, 0)
@@ -1103,16 +1180,53 @@ pub fn verify_gate_for_subjects(
     Ok(json!({"ok": failures.is_empty(), "failures": failures}))
 }
 
+/// The runs that count for each member of a set: those of its integration, repo and head queued at or after the set's reset,
+/// and for a confirmed member also its newest passed run whatever its time. Newest first within a member.
+fn set_member_runs(
+    kernel: &Kernel,
+    set_id: &str,
+) -> KernelResult<Vec<(workspace::MemberView, Vec<RunRow>)>> {
+    let since = workspace::set_reset_at(kernel, set_id)?;
+    let mut out = Vec::new();
+    for member in workspace::member_views(kernel, set_id)? {
+        let mut kept = Vec::new();
+        if let (Some(id), Some(head)) = (&member.integration_id, &member.head) {
+            let all = runs_where(
+                kernel,
+                "subject_integration_id = ? AND repo = ? AND commit_sha = ?",
+                &[id, &member.repo, head],
+                "sequence DESC",
+            )?;
+            let mut passed_kept = false;
+            for run in all {
+                let fresh = run.queued_at.as_str() >= since.as_str();
+                let confirmed_pass = member.confirmed && run.state == "passed" && !passed_kept;
+                if run.state == "passed" {
+                    passed_kept |= confirmed_pass;
+                }
+                if fresh || confirmed_pass {
+                    kept.push(run);
+                }
+            }
+        }
+        out.push((member, kept));
+    }
+    Ok(out)
+}
+
 /// `subjectRuns`: the runs that decide a gate subject, newest first, as `verify show` prints them. A report's are the
-/// runs of its `report_commits` rows (every run of the report when it names none); a set is not supported yet.
+/// runs of its `report_commits` rows (every run of the report when it names none); a set's are its members' (see `set_member_runs`).
 pub fn subject_runs(kernel: &Kernel, subject: &GateSubject) -> KernelResult<Vec<Value>> {
     kernel.assert_open()?;
     let report_id = match subject {
         GateSubject::Report(id) => id,
-        GateSubject::Set(_) => {
-            return Err(KernelError::controller(
-                "a set gate is not yet supported; set verify and review come with set redo",
-            ))
+        GateSubject::Set(set_id) => {
+            let mut runs: Vec<RunRow> = set_member_runs(kernel, set_id)?
+                .into_iter()
+                .flat_map(|(_, runs)| runs)
+                .collect();
+            runs.sort_by_key(|run| std::cmp::Reverse(run.sequence));
+            return runs.iter().map(|run| run.record(kernel)).collect();
         }
     };
     let rows = report_rows(kernel, report_id)?;

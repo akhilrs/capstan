@@ -446,6 +446,11 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         "set members are not read by the card",
     ),
     (
+        "workspace.set_member_remove",
+        &["integration_set_members", "integration_sets"],
+        "set members are not read by the card",
+    ),
+    (
         "workspace.set_reset",
         &["integration_sets"],
         "integration sets are not read by the card",

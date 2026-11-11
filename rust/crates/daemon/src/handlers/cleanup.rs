@@ -10,11 +10,11 @@ use super::shared::{
 use super::HandlerMap;
 use crate::deps::new_context;
 use capstan_config::{
-    Cleanup, CleanupBranches as ConfigBranches, CleanupWorktrees as ConfigWorktrees,
+    Cleanup, CleanupBranches as ConfigBranches, CleanupWorktrees as ConfigWorktrees, Workspace,
 };
 use capstan_kernel::cleanup::{
     self, Applied, Candidate, CleanupBranches, CleanupDeps, CleanupError, CleanupResult,
-    CleanupSettings, CleanupWorktrees,
+    CleanupSettings, CleanupWorktrees, RepoScope,
 };
 use capstan_kernel::integrate::GitRepo;
 use capstan_kernel::types::MutationContext;
@@ -29,6 +29,22 @@ pub const BUDGET: Duration = Duration::from_secs(30);
 
 /// Test hook: while set, the cleanup after a confirm fails with an engine error before it touches anything.
 pub static FAIL_AFTER_CONFIRM: AtomicBool = AtomicBool::new(false);
+
+/// A hook called with a worktree path.
+pub type PathHook = std::sync::Arc<dyn Fn(&std::path::Path) + Send + Sync>;
+
+/// Test hook: called with the path of a worktree right before its final safety re-check. It is the daemon's value for
+/// `CleanupDeps::before_delete`; nothing in the daemon sets it (no command, config or file reaches it), so it is empty and
+/// a no-op in production, like `FAIL_AFTER_CONFIRM`.
+#[doc(hidden)]
+pub static BEFORE_DELETE: std::sync::Mutex<Option<PathHook>> = std::sync::Mutex::new(None);
+
+fn before_delete(path: &std::path::Path) {
+    let hook = BEFORE_DELETE.lock().ok().and_then(|slot| slot.clone());
+    if let Some(hook) = hook {
+        hook(path);
+    }
+}
 
 /// Registers the handler of the route this module serves (cleanup).
 pub fn register(map: &mut HandlerMap) {
@@ -92,6 +108,15 @@ where
     F: FnOnce(&CleanupDeps) -> CleanupResult<T> + Send + 'static,
 {
     let root = env.deps.options.workspace_root.clone();
+    on_kernel_at(env, root, job)
+}
+
+/// `on_kernel` with the repo `root` the cleanup looks at (a set member's repo for a confirm-time cleanup).
+fn on_kernel_at<T, F>(env: &CommandEnv<'_>, root: std::path::PathBuf, job: F) -> Option<Ran<T>>
+where
+    T: Send + 'static,
+    F: FnOnce(&CleanupDeps) -> CleanupResult<T> + Send + 'static,
+{
     let controller = env.deps.credential().to_string();
     let settings = settings_of(env.config().map(|c| c.cleanup).unwrap_or_default());
     env.deps
@@ -122,6 +147,7 @@ where
                     settings,
                     budget: BUDGET,
                     now: &now,
+                    before_delete: &before_delete,
                 };
                 job(&deps)
             });
@@ -148,6 +174,185 @@ fn refusal(error: &CleanupError) -> CommandResponse {
     }
 }
 
+fn removed_note(repo: &str) -> String {
+    format!("repo {repo} left the config; landed and clean cannot be checked; name it to delete (cstan cleanup apply <id> --branch <branch>); only the worktree folder is removed, the repo's .git/worktrees metadata is left for git worktree prune")
+}
+
+/// The workspace of the configuration, when it has `[repos]`.
+fn workspace_of(env: &CommandEnv<'_>) -> Option<Workspace> {
+    env.config().and_then(|c| c.workspace.clone())
+}
+
+/// Where a workspace cleanup of `repo` runs: `None` for the project root (single-repo behaviour).
+struct Target {
+    repo: String,
+    root: std::path::PathBuf,
+    gone: bool,
+}
+
+impl Target {
+    fn scope<'a>(&'a self, worktree_dir: &'a std::path::Path) -> RepoScope<'a> {
+        RepoScope {
+            repo: &self.repo,
+            repo_root: &self.root,
+            worktree_dir,
+            gone: self.gone,
+        }
+    }
+}
+
+fn target_of(env: &CommandEnv<'_>, ws: &Workspace, repo: &str) -> Target {
+    Target {
+        repo: repo.to_string(),
+        root: env.deps.repo_root(repo),
+        gone: ws.repo(repo).is_none(),
+    }
+}
+
+/// Runs `job` for every repo of the workspace (configured ones in merge order, then removed ones) and collects what it
+/// answers. A refusal or an error ends the run; the offers already recorded stay.
+fn per_repo<F>(
+    env: &CommandEnv<'_>,
+    ws: &Workspace,
+    job: F,
+) -> Result<Vec<(Target, Value)>, CommandResponse>
+where
+    F: Fn(&CleanupDeps, &Target, &std::path::Path) -> CleanupResult<Value> + Clone + Send + 'static,
+{
+    let mut targets: Vec<Target> = ws
+        .merge_order
+        .iter()
+        .map(|repo| target_of(env, ws, repo))
+        .collect();
+    let configured: Vec<String> = ws.merge_order.clone();
+    let removed = on_kernel(env, move |deps| cleanup::removed_repos(deps, &configured));
+    let Some(removed) = removed else {
+        return Err(map_kernel_error(&KernelError::controller(
+            "controller is closed",
+        )));
+    };
+    for (event, details) in removed.logs {
+        env.log(&event, details);
+    }
+    match removed.result {
+        Ok(names) => targets.extend(names.iter().map(|repo| target_of(env, ws, repo))),
+        Err(error) => return Err(refusal(&error)),
+    }
+    let mut out = Vec::new();
+    for target in targets {
+        let run = job.clone();
+        let worktree_dir = ws.worktree_dir.clone();
+        let root = target.root.clone();
+        let on = Target {
+            repo: target.repo.clone(),
+            root: target.root.clone(),
+            gone: target.gone,
+        };
+        let Some(ran) = on_kernel_at(env, root, move |deps| run(deps, &on, &worktree_dir)) else {
+            return Err(map_kernel_error(&KernelError::controller(
+                "controller is closed",
+            )));
+        };
+        for (event, details) in ran.logs {
+            env.log(&event, details);
+        }
+        match ran.result {
+            Ok(value) => out.push((target, value)),
+            Err(error) => return Err(refusal(&error)),
+        }
+    }
+    Ok(out)
+}
+
+/// The cleanup of a workspace: one cleanup per repo that has candidates.
+fn workspace_offer(
+    env: &CommandEnv<'_>,
+    ws: &Workspace,
+    requested_by: String,
+    include_unlanded: bool,
+) -> CommandResponse {
+    let ran = per_repo(env, ws, move |deps, target, worktree_dir| {
+        let scope = target.scope(worktree_dir);
+        let offer = cleanup::offer_in(
+            deps,
+            "manual",
+            None,
+            &requested_by,
+            include_unlanded,
+            Some(&scope),
+        )?;
+        Ok(match offer.cleanup_id {
+            Some(id) => {
+                let mut value = json!({
+                    "cleanupId": id, "repo": target.repo, "candidates": offer.entries.len(),
+                });
+                if target.gone {
+                    value["note"] = json!(removed_note(&target.repo));
+                }
+                value
+            }
+            None => Value::Null,
+        })
+    });
+    match ran {
+        Ok(rows) => ok(json!({
+            "cleanups": rows.into_iter().map(|(_, v)| v).filter(|v| !v.is_null()).collect::<Vec<_>>(),
+        })),
+        Err(response) => response,
+    }
+}
+
+/// `--dry-run` in a workspace: the groups of every configured repo, each entry named with its repo.
+fn workspace_dry_run(env: &CommandEnv<'_>, ws: &Workspace) -> CommandResponse {
+    let ran = per_repo(env, ws, move |deps, target, _| {
+        if target.gone {
+            return Ok(Value::Null);
+        }
+        let c = cleanup::classify(deps)?;
+        let tag = |mut value: Value| {
+            value["repo"] = json!(target.repo);
+            value
+        };
+        Ok(json!({
+            "landed": c.landed.iter().map(|e| tag(entry_value(e))).collect::<Vec<_>>(),
+            "unlanded": c.unlanded.iter().map(|e| tag(entry_value(e))).collect::<Vec<_>>(),
+            "protected": c.protected.iter().map(|p| tag(json!({
+                "branch": p.branch, "sha": p.sha, "worktree": Value::Null,
+                "reason": protected_reason(p.reason), "code": p.reason,
+            }))).collect::<Vec<_>>(),
+        }))
+    });
+    let rows = match ran {
+        Ok(rows) => rows,
+        Err(response) => return response,
+    };
+    let mut out = json!({"dryRun": true, "landed": [], "unlanded": [], "protected": []});
+    for (_, value) in rows {
+        for key in ["landed", "unlanded", "protected"] {
+            if let (Some(into), Some(from)) = (out[key].as_array_mut(), value[key].as_array()) {
+                into.extend(from.iter().cloned());
+            }
+        }
+    }
+    ok(out)
+}
+
+/// The workspace and the repo a cleanup id belongs to (`None` without `[repos]`, or for a cleanup of the project root).
+fn cleanup_target(
+    env: &CommandEnv<'_>,
+    workspace: Option<&Workspace>,
+    id: &str,
+) -> Option<(Workspace, Target)> {
+    let ws = workspace?;
+    let id = id.to_string();
+    let repo = env
+        .deps
+        .kernel
+        .run(move |core| core.cleanup_repo(&id))
+        .ok()?;
+    (!repo.is_empty()).then(|| (ws.clone(), target_of(env, ws, &repo)))
+}
+
 fn cleanup_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
     let Some(requested_by) = env.worker_manager(call.identity) else {
         return Some(fail(
@@ -158,7 +363,16 @@ fn cleanup_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comma
     let args = call.args;
     let usage = |text: &str| Some(fail(ErrorCode::InvalidRequest, text));
     let include_unlanded = env.config().is_some_and(|c| c.cleanup.include_unlanded);
+    let workspace = workspace_of(env);
     let ran = match args.first().map(String::as_str) {
+        None if workspace.is_some() => {
+            let ws = workspace.as_ref().expect("checked");
+            return Some(workspace_offer(env, ws, requested_by, include_unlanded));
+        }
+        Some("--dry-run") if args.len() == 1 && workspace.is_some() => {
+            let ws = workspace.as_ref().expect("checked");
+            return Some(workspace_dry_run(env, ws));
+        }
         None => on_kernel(env, move |deps| {
             let offer = cleanup::offer(deps, "manual", None, &requested_by, include_unlanded)?;
             Ok(json!({
@@ -195,19 +409,42 @@ fn cleanup_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comma
                 }
             }
             let selection = (!branches.is_empty()).then_some(branches);
-            on_kernel(env, move |deps| {
-                let applied = cleanup::apply(deps, &id, selection)?;
-                let mut value = applied_value(&applied);
-                value["cleanupId"] = json!(id);
-                value["state"] = json!("applied");
-                Ok(value)
-            })
+            match cleanup_target(env, workspace.as_ref(), &id) {
+                Some((ws, target)) => {
+                    let root = target.root.clone();
+                    let worktree_dir = ws.worktree_dir;
+                    on_kernel_at(env, root, move |deps| {
+                        let scope = target.scope(&worktree_dir);
+                        let applied = cleanup::apply_in(deps, &id, selection, Some(&scope))?;
+                        let mut value = applied_value(&applied);
+                        value["cleanupId"] = json!(id);
+                        value["state"] = json!("applied");
+                        value["repo"] = json!(target.repo);
+                        if target.gone {
+                            value["note"] = json!(removed_note(&target.repo));
+                        }
+                        Ok(value)
+                    })
+                }
+                None => on_kernel(env, move |deps| {
+                    let applied = cleanup::apply(deps, &id, selection)?;
+                    let mut value = applied_value(&applied);
+                    value["cleanupId"] = json!(id);
+                    value["state"] = json!("applied");
+                    Ok(value)
+                }),
+            }
         }
         Some("decline") if args.len() == 2 => {
             let id = args[1].clone();
+            let repo = cleanup_target(env, workspace.as_ref(), &id).map(|(_, t)| t.repo);
             on_kernel(env, move |deps| {
                 cleanup::decline(deps, &id)?;
-                Ok(json!({"cleanupId": id, "state": "declined"}))
+                let mut value = json!({"cleanupId": id, "state": "declined"});
+                if let Some(repo) = repo {
+                    value["repo"] = json!(repo);
+                }
+                Ok(value)
             })
         }
         _ => {
@@ -242,7 +479,21 @@ pub fn after_confirm(
     }
     let id = integration_id.to_string();
     let by = requested_by.to_string();
-    let ran = on_kernel(env, move |deps| {
+    // A member of a set is cleaned in its own repo.
+    let root = {
+        let member = id.clone();
+        let repo = env
+            .deps
+            .kernel
+            .run(move |core| core.repo_of_integration(&member))
+            .ok()
+            .flatten();
+        match repo {
+            Some(repo) => env.deps.repo_root(&repo),
+            None => env.deps.options.workspace_root.clone(),
+        }
+    };
+    let ran = on_kernel_at(env, root, move |deps| {
         if FAIL_AFTER_CONFIRM.load(Ordering::SeqCst) {
             return Err(CleanupError::Kernel(KernelError::controller(
                 "injected cleanup failure",

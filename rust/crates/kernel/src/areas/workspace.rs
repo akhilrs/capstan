@@ -533,12 +533,20 @@ pub fn create_integration_set(
 }
 
 /// The moves a set state may make (a move to `discarded` also needs every member discarded or detached).
+///
+/// - `running` -> `merged`/`conflicted`/`failed`: the set merge and the set gate settle a running set.
+/// - `merged` -> `failed`: a verify or review failure after the merge; a merged set never becomes `conflicted`.
+/// - `failed` -> `merged`/`conflicted`/`failed`: a redo, or a new reason, after a failure.
+/// - `conflicted` -> `merged`/`failed`/`conflicted`: redo and `integrate discard --repo` recompute the
+///   outcome once a conflicted member is redone or dropped.
+/// - any open state -> `discarded`: `integrate discard` of the whole set.
 fn move_allowed(from: &str, to: &str) -> bool {
     matches!(
         (from, to),
         ("running", "merged" | "conflicted" | "failed")
             | ("merged", "failed")
-            | ("failed", "merged")
+            | ("failed", "merged" | "conflicted" | "failed")
+            | ("conflicted", "merged" | "failed" | "conflicted")
             | ("running" | "merged" | "conflicted" | "failed", "discarded")
     )
 }
@@ -681,6 +689,64 @@ pub fn detach_set_member(
     })
 }
 
+/// `removeSetMember`: an unconfirmed member leaves its set (its repo already has the change on main). Its row is deleted, the
+/// other members keep their positions, and the set's runs and reviews no longer count (`reset_set`). Refuses a confirmed
+/// or unknown member.
+pub fn remove_set_member(
+    kernel: &Kernel,
+    context: &MutationContext,
+    input: &Value,
+) -> KernelResult<Value> {
+    let set_id = safe_id(field(input, "setId"), "set id")?;
+    let repo = repo_arg(input, "repo")?;
+    kernel.mutate(
+        context,
+        "workspace.set_member_remove",
+        CONTROL,
+        input,
+        |_| {
+            require_set(kernel, set_id)?;
+            let member = members_of(kernel, set_id)?
+                .into_iter()
+                .find(|m| m.repo == repo)
+                .ok_or_else(|| set_error(set_id, format!("has no member for repo {repo:?}")))?;
+            if let Some(integration_id) = &member.integration_id {
+                let confirmed = query_opt(
+                    &kernel.database,
+                    "SELECT state FROM integrations WHERE project_id = ? AND integration_id = ?",
+                    [&kernel.project_id, integration_id],
+                    |r| r.get::<_, String>(0),
+                )?
+                .is_some_and(|s| s == "confirmed");
+                if confirmed {
+                    return Err(set_error(
+                        set_id,
+                        format!("member {repo:?} is confirmed and cannot be removed"),
+                    ));
+                }
+            }
+            execute(
+            &kernel.database,
+            "DELETE FROM integration_set_members WHERE project_id = ? AND set_id = ? AND repo = ?",
+            rusqlite::params![kernel.project_id, set_id, repo],
+        )?;
+            let now = kernel.now();
+            execute(
+                &kernel.database,
+                "UPDATE integration_sets SET reset_at = ? WHERE project_id = ? AND set_id = ?",
+                [&now, &kernel.project_id, set_id],
+            )?;
+            let event = MutationEvent::new("integration_set", set_id, 0).with_details(
+                json!({"repo": repo, "removed": member.integration_id, "resetAt": now}),
+            );
+            Ok(MutationOutput::new(
+                json!({"setId": set_id, "repo": repo, "resetAt": now}),
+                event,
+            ))
+        },
+    )
+}
+
 /// `resetSet`: a member was redone or discarded; runs and reviews before now no longer count for the set's gates.
 pub fn reset_set(kernel: &Kernel, context: &MutationContext, input: &Value) -> KernelResult<Value> {
     let set_id = safe_id(field(input, "setId"), "set id")?;
@@ -724,6 +790,32 @@ pub fn set_complete(kernel: &Kernel, set_id: &str) -> KernelResult<bool> {
     Ok(true)
 }
 
+/// `setConfirmed`: whether every live member of a set is confirmed. A member whose integration was discarded (and not
+/// redone) is dropped and skipped; a member with no integration yet (a row only) blocks. A set with no live member is not
+/// confirmed. Refuses an unknown set.
+pub fn set_confirmed(kernel: &Kernel, set_id: &str) -> KernelResult<bool> {
+    kernel.assert_open()?;
+    require_set(kernel, set_id)?;
+    let mut live = 0;
+    for member in members_of(kernel, set_id)? {
+        let Some(integration_id) = member.integration_id else {
+            return Ok(false);
+        };
+        let state = query_opt(
+            &kernel.database,
+            "SELECT state FROM integrations WHERE project_id = ? AND integration_id = ?",
+            [&kernel.project_id, &integration_id],
+            |r| r.get::<_, String>(0),
+        )?;
+        match state.as_deref() {
+            Some("discarded") => {}
+            Some("confirmed") => live += 1,
+            _ => return Ok(false),
+        }
+    }
+    Ok(live > 0)
+}
+
 /// `setRunning`: the ids of the sets in state `running`, oldest first.
 pub fn set_running(kernel: &Kernel) -> KernelResult<Vec<String>> {
     kernel.assert_open()?;
@@ -735,41 +827,90 @@ pub fn set_running(kernel: &Kernel) -> KernelResult<Vec<String>> {
     )
 }
 
+/// One member of a set as the gates read it: its repo, integration, head commit and whether it is confirmed (settled with
+/// the member flag: its code is on main).
+pub(crate) struct MemberView {
+    pub repo: String,
+    pub integration_id: Option<String>,
+    pub head: Option<String>,
+    pub confirmed: bool,
+}
+
+/// `member_views`: the members of a set in position order, without a dropped one (its integration was discarded and not
+/// redone: no runs count for it and it is never the review's subject). Refuses an unknown set.
+pub(crate) fn member_views(kernel: &Kernel, set_id: &str) -> KernelResult<Vec<MemberView>> {
+    require_set(kernel, set_id)?;
+    let mut views = Vec::new();
+    for member in members_of(kernel, set_id)? {
+        let row = match &member.integration_id {
+            Some(id) => crate::areas::integrations::integration_row(kernel, id)?,
+            None => None,
+        };
+        if row.as_ref().is_some_and(|i| i.state == "discarded") {
+            continue;
+        }
+        views.push(MemberView {
+            repo: member.repo,
+            integration_id: member.integration_id,
+            confirmed: row.as_ref().is_some_and(|i| i.state == "confirmed"),
+            head: row.and_then(|i| i.head_sha),
+        });
+    }
+    Ok(views)
+}
+
+/// The instant a set's gates count from ('' before any reset).
+pub(crate) fn set_reset_at(kernel: &Kernel, set_id: &str) -> KernelResult<String> {
+    Ok(require_set(kernel, set_id)?.reset_at.unwrap_or_default())
+}
+
 /// `setGate`: the verify gate of every member of a set under `commands_sha`, and the latest review of the set's first
-/// member. Runs queued and reviews started before the set's `reset_at` are ignored. A member run is one of its own
-/// integration, repo and commit.
+/// member. Runs queued and reviews started before the set's `reset_at` are ignored, except that a confirmed member counts
+/// its newest passed run whatever its time (its code is on main). A member run is one of its own integration, repo and
+/// commit. An empty `commands_sha` accepts a run under any commands.
 pub fn set_gate(kernel: &Kernel, set_id: &str, commands_sha: &str) -> KernelResult<Value> {
+    set_gate_by(kernel, set_id, &|_| commands_sha.to_string())
+}
+
+/// `setGate` with each repo's own commands sha (`sha_of` gives it; '' accepts any commands).
+pub fn set_gate_by(
+    kernel: &Kernel,
+    set_id: &str,
+    sha_of: &dyn Fn(&str) -> String,
+) -> KernelResult<Value> {
     kernel.assert_open()?;
     let row = require_set(kernel, set_id)?;
     let since = row.reset_at.clone().unwrap_or_default();
     let mut members = Vec::new();
     let mut all_passed = true;
     let mut first_subject: Option<String> = None;
-    for member in members_of(kernel, set_id)? {
+    for member in member_views(kernel, set_id)? {
         if first_subject.is_none() {
             first_subject = member.integration_id.clone();
         }
-        let head = match &member.integration_id {
-            Some(id) => {
-                crate::areas::integrations::integration_row(kernel, id)?.and_then(|i| i.head_sha)
-            }
-            None => None,
-        };
-        let (code, run_id) = match (&member.integration_id, &head) {
+        let sha = sha_of(&member.repo);
+        let (code, run_id) = match (&member.integration_id, &member.head) {
             (Some(id), Some(commit)) => {
                 let runs = query_all(
                     &kernel.database,
-                    "SELECT run_id, state FROM verify_runs WHERE project_id = ? AND subject_integration_id = ? AND repo = ? AND commit_sha = ? AND commands_sha = ? AND queued_at >= ? ORDER BY sequence DESC",
-                    rusqlite::params![kernel.project_id, id, member.repo, commit, commands_sha, since],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                    "SELECT run_id, state, queued_at FROM verify_runs WHERE project_id = ? AND subject_integration_id = ? AND repo = ? AND commit_sha = ? AND (? = '' OR commands_sha = ?) ORDER BY sequence DESC",
+                    rusqlite::params![kernel.project_id, id, member.repo, commit, sha, sha],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
                 )?;
-                if let Some((run, _)) = runs.iter().find(|(_, s)| s == "passed") {
+                let counted: Vec<&(String, String, String)> = runs
+                    .iter()
+                    .filter(|(_, state, queued)| {
+                        queued.as_str() >= since.as_str() || (member.confirmed && state == "passed")
+                    })
+                    .collect();
+                if let Some((run, _, _)) = counted.iter().find(|(_, s, _)| s == "passed") {
                     ("passed", Some(run.clone()))
-                } else if let Some((run, _)) =
-                    runs.iter().find(|(_, s)| s == "queued" || s == "running")
+                } else if let Some((run, _, _)) = counted
+                    .iter()
+                    .find(|(_, s, _)| s == "queued" || s == "running")
                 {
                     ("verify_running", Some(run.clone()))
-                } else if let Some((run, _)) = runs.first() {
+                } else if let Some((run, _, _)) = counted.first() {
                     ("verify_failed", Some(run.clone()))
                 } else {
                     ("verify_missing", None)
@@ -781,7 +922,8 @@ pub fn set_gate(kernel: &Kernel, set_id: &str, commands_sha: &str) -> KernelResu
         members.push(json!({
             "repo": member.repo,
             "integrationId": member.integration_id,
-            "commitSha": head,
+            "commitSha": member.head,
+            "confirmed": member.confirmed,
             "code": code,
             "runId": run_id,
         }));
@@ -797,12 +939,22 @@ pub fn set_gate(kernel: &Kernel, set_id: &str, commands_sha: &str) -> KernelResu
     };
     Ok(json!({
         "setId": set_id,
+        "state": row.state,
         "resetAt": row.reset_at,
         "ok": all_passed && !members.is_empty(),
         "members": members,
         "reviewSubjectId": first_subject,
         "review": review,
     }))
+}
+
+/// `setOfSubject`: the set a subject id names, whether it is the set's own id or a member's integration id.
+pub fn set_of_subject(kernel: &Kernel, subject_id: &str) -> KernelResult<Option<String>> {
+    kernel.assert_open()?;
+    if set_row(kernel, subject_id)?.is_some() {
+        return Ok(Some(subject_id.to_string()));
+    }
+    set_of_integration(kernel, subject_id)
 }
 
 // ------------------------------------------------------------------------------------------------- cleanup repos

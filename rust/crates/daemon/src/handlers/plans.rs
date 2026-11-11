@@ -311,6 +311,13 @@ fn landed(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> Outc
             "git_unavailable: the controller could not check the commit",
         )
     };
+    // A workspace root need not be a repository: the head the commit is checked against is the root's.
+    if crate::handlers::verify::is_workspace(env.deps) && env.deps.git.head_commit().is_err() {
+        return Ok(fail(
+            ErrorCode::Rejected,
+            "no_repository: no repository at the workspace root",
+        ));
+    }
     match env.deps.git.commit_on_head(&sha) {
         Ok(Some(true)) => {}
         Ok(Some(false)) => {

@@ -7,7 +7,7 @@
 //! at the recorded commit and is ledgered before the next branch is touched, so `git branch <name> <sha>` restores it.
 
 use crate::areas::cleanups::{self, PaneRef};
-use crate::areas::{integrations, pauses};
+use crate::areas::{integrations, pauses, workspace};
 use crate::errors::KernelError;
 use crate::integrate::{GitRepo, IntegrateError, IntegrationState, Worktree};
 use crate::kernel::Kernel;
@@ -51,6 +51,21 @@ pub struct CleanupDeps<'a> {
     /// How long one offer or apply may take; entries left when it is spent are skipped with reason `budget`.
     pub budget: Duration,
     pub now: &'a dyn Fn() -> Instant,
+    /// Called with the path of a worktree about to be deleted from disk, before the final re-check of that path. A no-op
+    /// in production; a test uses it to swap the path and see that the re-check holds.
+    pub before_delete: &'a dyn Fn(&Path),
+}
+
+/// The repo of a workspace cleanup and where its leftover worktrees live; `None` scope means the single-repo cleanup.
+#[derive(Clone, Copy, Debug)]
+pub struct RepoScope<'a> {
+    pub repo: &'a str,
+    /// The folder of the repo (also the place named in the by-hand command); `deps.git` points at it unless `gone`.
+    pub repo_root: &'a Path,
+    /// A worktree is removed from disk only when it lies under this folder.
+    pub worktree_dir: &'a Path,
+    /// The repo left the configuration: no git is run for it, and only its recorded worktrees are offered.
+    pub gone: bool,
 }
 
 impl CleanupDeps<'_> {
@@ -176,6 +191,22 @@ struct Facts {
     unsettled: BTreeSet<String>,
 }
 
+/// The recorded panes plus the live worktrees of workspace workers, as panes (both say where an agent's branch lives).
+fn pane_and_worktree_refs(kernel: &Kernel) -> CleanupResult<Vec<PaneRef>> {
+    let mut panes = cleanups::pane_refs(kernel)?;
+    panes.extend(
+        cleanups::worktree_refs(kernel)?
+            .into_iter()
+            .map(|w| PaneRef {
+                agent_id: w.agent_id,
+                active: w.active,
+                branch: Some(w.branch),
+                worktree_path: Some(w.worktree_path),
+            }),
+    );
+    Ok(panes)
+}
+
 fn same_path(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     canonical(a) == canonical(b)
@@ -191,7 +222,7 @@ impl Facts {
             branches: branches.into_iter().collect(),
             names,
             worktrees: deps.git.worktrees()?,
-            panes: cleanups::pane_refs(deps.kernel)?,
+            panes: pane_and_worktree_refs(deps.kernel)?,
             unsettled: cleanups::unsettled_integration_branches(deps.kernel)?,
         })
     }
@@ -429,7 +460,10 @@ fn assert_idle(deps: &CleanupDeps) -> CleanupResult<()> {
         Err(other) => return Err(other.into()),
     }
     let running = integrations::running_integrations(deps.kernel, deps.credential)?;
-    if deps.integrations.busy() || running.as_array().is_some_and(|rows| !rows.is_empty()) {
+    if deps.integrations.busy()
+        || running.as_array().is_some_and(|rows| !rows.is_empty())
+        || !workspace::set_running(deps.kernel)?.is_empty()
+    {
         return Err(CleanupError::refused(
             "integration_running",
             "an integration is running",
@@ -470,17 +504,105 @@ pub fn offer(
     requested_by: &str,
     include_unlanded: bool,
 ) -> CleanupResult<CleanupOffer> {
+    offer_in(
+        deps,
+        trigger,
+        integration_id,
+        requested_by,
+        include_unlanded,
+        None,
+    )
+}
+
+/// The worktrees of ended agents in `scope`'s repo that git does not list (the repo moved, or left the configuration),
+/// as `unlanded` candidates at their recorded path. A worktree that is already gone from disk is not offered.
+fn orphan_candidates(
+    deps: &CleanupDeps,
+    scope: &RepoScope,
+    have: &[Candidate],
+) -> CleanupResult<Vec<Candidate>> {
+    let listed: Vec<Worktree> = if scope.gone {
+        Vec::new()
+    } else {
+        deps.git.worktrees()?
+    };
+    let refs = cleanups::worktree_refs(deps.kernel)?;
+    let mut out: Vec<Candidate> = Vec::new();
+    for row in refs.iter().filter(|w| w.repo == scope.repo) {
+        let path = Path::new(&row.worktree_path);
+        let taken = have
+            .iter()
+            .chain(out.iter())
+            .any(|c| c.branch == row.branch);
+        let held = refs
+            .iter()
+            .any(|o| o.active && same_path(Path::new(&o.worktree_path), path));
+        if taken
+            || held
+            || listed.iter().any(|w| same_path(&w.path, path))
+            || std::fs::symlink_metadata(path).is_err()
+        {
+            continue;
+        }
+        out.push(Candidate {
+            branch: row.branch.clone(),
+            sha: row.base_sha.clone(),
+            class: Class::Unlanded,
+            report_id: None,
+            integration_id: None,
+            worktree_path: Some(row.worktree_path.clone()),
+            reason: if scope.gone {
+                "the repo left the configuration; only its worktree is removed, the branch stays".into()
+            } else {
+                "git does not list this worktree any more; only its folder is removed, the branch stays".into()
+            },
+        });
+    }
+    Ok(out)
+}
+
+/// The repos named by live worktrees of the ledger that are not in `configured` (they left the configuration).
+pub fn removed_repos(deps: &CleanupDeps, configured: &[String]) -> CleanupResult<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    for row in cleanups::worktree_refs(deps.kernel)? {
+        if !row.repo.is_empty() && !configured.contains(&row.repo) && !out.contains(&row.repo) {
+            out.push(row.repo);
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// `offer` for one repo of a workspace (`scope`): the repo's own branches plus its leftover worktrees (always offered,
+/// as `unlanded`, so only a named apply removes them). A repo that left the configuration offers worktrees only.
+pub fn offer_in(
+    deps: &CleanupDeps,
+    trigger: &str,
+    integration_id: Option<&str>,
+    requested_by: &str,
+    include_unlanded: bool,
+    scope: Option<&RepoScope>,
+) -> CleanupResult<CleanupOffer> {
     assert_idle(deps)?;
-    let classification = classify_with(deps, false)?;
-    let mut entries = classification.landed;
-    if include_unlanded {
-        entries.extend(classification.unlanded);
+    let (mut entries, protected) = if scope.is_some_and(|s| s.gone) {
+        (Vec::new(), Vec::new())
+    } else {
+        let classification = classify_with(deps, false)?;
+        let mut entries = classification.landed;
+        if include_unlanded {
+            entries.extend(classification.unlanded);
+        }
+        (entries, classification.protected)
+    };
+    if let Some(scope) = scope {
+        let extra = orphan_candidates(deps, scope, &entries)?;
+        entries.extend(extra);
     }
     entries.sort_by(|a, b| a.branch.cmp(&b.branch));
     let mut offer = CleanupOffer {
         cleanup_id: None,
         entries,
-        protected: classification.protected,
+        protected,
         notice: None,
     };
     if offer.entries.is_empty() {
@@ -489,6 +611,13 @@ pub fn offer(
     let cleanup_id = deps.kernel.env.uuid();
     offer.cleanup_id = Some(cleanup_id.clone());
     let notice = offer_notice_text(&offer);
+    let repo = match scope {
+        Some(scope) => Some(scope.repo.to_string()),
+        None => match integration_id {
+            Some(id) => workspace::repo_of_integration(deps.kernel, id)?,
+            None => None,
+        },
+    };
     cleanups::record_offer(
         deps.kernel,
         &deps.ctx(),
@@ -497,17 +626,143 @@ pub fn offer(
             "trigger": trigger,
             "integrationId": integration_id,
             "requestedBy": requested_by,
+            "repo": repo,
             "mode": "ask",
             "entries": offer.entries.iter().map(entry_json).collect::<Vec<_>>(),
             "notice": if trigger == "confirm" { Some(notice.clone()) } else { None },
         }),
     )?;
+    match scope {
+        Some(scope) => workspace::record_cleanup_repo(
+            deps.kernel,
+            &deps.ctx(),
+            &json!({"cleanupId": cleanup_id, "repo": scope.repo}),
+        )
+        .map(|_| ())?,
+        None => record_member_repo(deps, &cleanup_id, integration_id)?,
+    }
     (deps.log)(
         "cleanup_offered",
         json!({"cleanupId": cleanup_id, "branches": offer.entries.len()}),
     );
     offer.notice = Some(notice);
     Ok(offer)
+}
+
+/// A cleanup that follows the confirm of a set member is about that member's repo: the repo is recorded with it.
+fn record_member_repo(
+    deps: &CleanupDeps,
+    cleanup_id: &str,
+    integration_id: Option<&str>,
+) -> CleanupResult<()> {
+    let Some(integration_id) = integration_id else {
+        return Ok(());
+    };
+    if let Some(repo) = workspace::repo_of_integration(deps.kernel, integration_id)? {
+        workspace::record_cleanup_repo(
+            deps.kernel,
+            &deps.ctx(),
+            &json!({"cleanupId": cleanup_id, "repo": repo}),
+        )?;
+    }
+    Ok(())
+}
+
+/// Why `path` may not be deleted from disk, or `None` when it may: a real directory (not a link) whose canonical path
+/// lies under the canonical `worktree_dir`, with a `.git` file (read as a file) that names a gitdir inside a
+/// `.git/worktrees` folder whose own `gitdir` file points back at this path.
+fn unsafe_to_delete(path: &Path, worktree_dir: &Path) -> Option<&'static str> {
+    let is_dir = std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir());
+    if !is_dir {
+        return Some("not_a_directory");
+    }
+    let (Ok(canonical), Ok(base)) = (
+        std::fs::canonicalize(path),
+        std::fs::canonicalize(worktree_dir),
+    ) else {
+        return Some("path_unreadable");
+    };
+    if canonical == base || !canonical.starts_with(&base) {
+        return Some("outside_worktree_dir");
+    }
+    let dot_git = canonical.join(".git");
+    if !std::fs::symlink_metadata(&dot_git).is_ok_and(|m| m.file_type().is_file()) {
+        return Some("no_git_file");
+    }
+    let named = std::fs::read_to_string(&dot_git).ok().and_then(|text| {
+        text.lines()
+            .find_map(|l| l.strip_prefix("gitdir:").map(|g| g.trim().to_string()))
+    });
+    let Some(named) = named else {
+        return Some("no_git_file");
+    };
+    let named = {
+        let p = PathBuf::from(named);
+        if p.is_absolute() {
+            p
+        } else {
+            canonical.join(p)
+        }
+    };
+    let Ok(admin) = std::fs::canonicalize(&named) else {
+        return Some("gitdir_missing");
+    };
+    let in_worktrees = admin.parent().is_some_and(|w| {
+        w.file_name().is_some_and(|n| n == "worktrees")
+            && w.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|n| n == ".git")
+    });
+    if !in_worktrees {
+        return Some("gitdir_not_in_worktrees");
+    }
+    let back = std::fs::read_to_string(admin.join("gitdir"))
+        .ok()
+        .and_then(|text| std::fs::canonicalize(text.trim()).ok());
+    if back.as_deref() != Some(dot_git.as_path()) {
+        return Some("back_link_mismatch");
+    }
+    None
+}
+
+/// Removes the folder of a leftover worktree of an ended agent (no git: the repo may have left the configuration). The
+/// path must equal a recorded worktree of this repo and branch; the safety re-check runs right before the delete. The
+/// error is the skip reason.
+fn remove_orphan(
+    deps: &CleanupDeps,
+    scope: &RepoScope,
+    branch: &str,
+    path: &str,
+) -> Result<(), String> {
+    let by_hand = || {
+        format!(
+            "remove it by hand: git -C {} worktree remove {}",
+            shell_word(&scope.repo_root.to_string_lossy()),
+            shell_word(path)
+        )
+    };
+    let target = Path::new(path);
+    let refs = cleanups::worktree_refs(deps.kernel).map_err(|e| e.message())?;
+    let same = |w: &&cleanups::WorktreeRef| same_path(Path::new(&w.worktree_path), target);
+    if refs.iter().filter(same).any(|w| w.active) {
+        return Err("now_active".into());
+    }
+    if !refs
+        .iter()
+        .filter(same)
+        .any(|w| w.repo == scope.repo && w.branch == branch)
+    {
+        return Err("not_recorded".into());
+    }
+    (deps.before_delete)(target);
+    if let Some(reason) = unsafe_to_delete(target, scope.worktree_dir) {
+        (deps.log)(
+            "cleanup_worktree_kept",
+            json!({"path": path, "reason": reason}),
+        );
+        return Err(by_hand());
+    }
+    std::fs::remove_dir_all(target).map_err(|_| "delete_failed".to_string())
 }
 
 /// Deletes the entries of an open cleanup that are still safe to delete. `selection` names the branches to delete;
@@ -517,6 +772,7 @@ fn run_entries(
     cleanup_id: &str,
     selection: Option<&[String]>,
     auto: bool,
+    scope: Option<&RepoScope>,
 ) -> CleanupResult<Applied> {
     let started = (deps.now)();
     let deadline = started + deps.budget;
@@ -526,7 +782,7 @@ fn run_entries(
         ..Applied::default()
     };
     let text = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).map(str::to_string);
-    let mut entries: Vec<(String, String, Class)> = Vec::new();
+    let mut entries: Vec<(String, String, Class, Option<String>)> = Vec::new();
     for entry in record_value["entries"].as_array().into_iter().flatten() {
         if entry["outcome"] != "offered" {
             continue;
@@ -538,11 +794,11 @@ fn run_entries(
         ) else {
             continue;
         };
-        entries.push((branch, sha, class));
+        entries.push((branch, sha, class, text(entry, "worktreePath")));
     }
     if let Some(names) = selection {
         for name in names {
-            if !entries.iter().any(|(b, _, _)| b == name) {
+            if !entries.iter().any(|(b, ..)| b == name) {
                 applied.skipped.push(Skipped {
                     branch: name.clone(),
                     reason: "not_offered".into(),
@@ -550,7 +806,7 @@ fn run_entries(
             }
         }
     }
-    for (branch, sha, recorded) in entries {
+    for (branch, sha, recorded, recorded_path) in entries {
         let named = selection.is_some_and(|names| names.contains(&branch));
         let wanted = match selection {
             Some(_) => named,
@@ -571,7 +827,37 @@ fn run_entries(
             skip("budget", &mut applied)?;
             continue;
         }
-        let facts = Facts::gather(deps)?;
+        let gone = scope.is_some_and(|s| s.gone);
+        let facts = if gone {
+            None
+        } else {
+            Some(Facts::gather(deps)?)
+        };
+        if let (Some(scope), Some(path)) = (scope, recorded_path.as_deref()) {
+            let listed = facts.as_ref().is_some_and(|f| {
+                f.worktrees
+                    .iter()
+                    .any(|w| same_path(&w.path, Path::new(path)))
+            });
+            if !listed {
+                match remove_orphan(deps, scope, &branch, path) {
+                    Ok(()) => {
+                        record(deps, cleanup_id, &branch, "deleted", None)?;
+                        applied.deleted.push(Deleted {
+                            branch: branch.clone(),
+                            sha: sha.clone(),
+                            worktree_path: Some(path.to_string()),
+                        });
+                    }
+                    Err(reason) => skip(&reason, &mut applied)?,
+                }
+                continue;
+            }
+        }
+        let Some(facts) = facts else {
+            skip("not_a_worktree", &mut applied)?;
+            continue;
+        };
         if facts.branches.get(&branch) != Some(&sha) {
             skip("tip_moved", &mut applied)?;
             continue;
@@ -653,9 +939,20 @@ pub fn apply(
     cleanup_id: &str,
     selection: Option<Vec<String>>,
 ) -> CleanupResult<Applied> {
+    apply_in(deps, cleanup_id, selection, None)
+}
+
+/// `apply` for a cleanup of one repo of a workspace (`scope`): leftover worktrees are removed from disk after the
+/// safety re-check, and nothing runs git in a repo that left the configuration.
+pub fn apply_in(
+    deps: &CleanupDeps,
+    cleanup_id: &str,
+    selection: Option<Vec<String>>,
+    scope: Option<&RepoScope>,
+) -> CleanupResult<Applied> {
     assert_idle(deps)?;
     open_cleanup(deps, cleanup_id)?;
-    let applied = run_entries(deps, cleanup_id, selection.as_deref(), false)?;
+    let applied = run_entries(deps, cleanup_id, selection.as_deref(), false, scope)?;
     cleanups::complete_cleanup(
         deps.kernel,
         &deps.ctx(),
@@ -701,7 +998,8 @@ pub fn apply_auto(deps: &CleanupDeps, integration_id: &str) -> CleanupResult<App
             "entries": entries.iter().map(entry_json).collect::<Vec<_>>(),
         }),
     )?;
-    let applied = run_entries(deps, &cleanup_id, None, true)?;
+    record_member_repo(deps, &cleanup_id, Some(integration_id))?;
+    let applied = run_entries(deps, &cleanup_id, None, true, None)?;
     let notice = auto_notice_text(&applied);
     cleanups::complete_cleanup(
         deps.kernel,

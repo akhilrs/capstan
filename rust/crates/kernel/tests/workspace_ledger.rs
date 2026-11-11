@@ -639,6 +639,13 @@ fn set_states_move_as_listed_and_complete_needs_every_member_merged() {
         "web conflicted"
     );
     set_call(&f, "state", json!({"setId": set, "state": "merged"})).unwrap();
+    // A merged set never becomes conflicted.
+    assert!(refused(set_call(
+        &f,
+        "state",
+        json!({"setId": set, "state": "conflicted", "reason": "late"})
+    ))
+    .contains("cannot move"));
     set_call(
         &f,
         "state",
