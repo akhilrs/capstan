@@ -4,7 +4,6 @@ use super::scratch;
 use super::{LeaseFault, StepRequest, VerifyService};
 use capstan_cache::{GateLeases, GateScope, LeaseError};
 use capstan_herdr::claude_args::build_agent_environment;
-use capstan_launcher::cache_env::cache_extras;
 use capstan_operator::service::{process_start_time, run_command, RunOptions, RunStatus};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
@@ -113,6 +112,7 @@ pub(crate) struct Job<'a> {
     pub scope: GateScope,
     /// `(subject kind, base commit)` for `CAPSTAN_VERIFY_SUBJECT` and `CAPSTAN_VERIFY_BASE`.
     pub subject: Option<&'a (String, String)>,
+    pub repo: &'a str,
 }
 
 /// What a slot directory looked like before a step: its inode and the names of its top-level subdirectories.
@@ -139,6 +139,8 @@ pub(crate) struct Left {
     pub first_start: Arc<Mutex<Option<u64>>>,
     /// Whether the worktree was created, so a teardown hook and a removal are due.
     pub worktree_added: bool,
+    /// The repo of the run ('' is the project root).
+    pub repo: String,
     /// Set once the first process of the run is recorded in the ledger (it keeps one, write-once).
     pub recorded: Arc<AtomicBool>,
     /// The steps the path filters left out; recorded with the finish.
@@ -154,18 +156,20 @@ impl VerifyService {
         commit: &str,
         scope: GateScope,
         subject: Option<&(String, String)>,
+        repo: &str,
     ) -> Result<Vec<(String, String)>, String> {
         let base: HashMap<String, String> = std::env::vars().collect();
         let mut extras: Vec<(String, String)> = Vec::new();
         if let Some(runtime) = &self.cache {
-            match cache_extras(runtime, scope) {
+            let names = self.repos.get(repo).and_then(|r| r.cache.as_deref());
+            match capstan_launcher::cache_env::cache_extras_for(runtime, scope, names) {
                 Ok(cache) => extras.extend(cache),
                 Err(message) => {
                     self.detail_log("verify_cache_unavailable", json!({"message": message}))
                 }
             }
         }
-        extras.extend(self.verify.env.iter().cloned());
+        extras.extend(self.verify_for(repo).env.iter().cloned());
         let mut environment = build_agent_environment(&base, &extras, &self.env_pass)
             .map_err(|error| format!("the gate environment is not acceptable: {error}"))?;
         environment.insert("CAPSTAN_VERIFY_RUN_ID".into(), run_id.to_string());
@@ -305,10 +309,13 @@ impl VerifyService {
             slot,
             scope,
             subject,
+            repo,
         } = *job;
-        let deadline = started + Duration::from_secs(self.verify.timeout_seconds.max(1) as u64);
+        let verify = self.verify_for(repo);
+        let root = self.root_of(repo);
+        let deadline = started + Duration::from_secs(verify.timeout_seconds.max(1) as u64);
         let remaining = |now: Instant| deadline.saturating_duration_since(now).as_millis() as u64;
-        if let Err(message) = scratch::add_worktree(&self.project_root, scratch, commit) {
+        if let Err(message) = scratch::add_worktree(root, scratch, commit) {
             left.worktree_added = scratch.exists();
             return Some(Outcome::error(format!(
                 "git worktree add failed: {message}"
@@ -318,7 +325,7 @@ impl VerifyService {
         if abort.load(Ordering::SeqCst) {
             return None;
         }
-        let environment = match self.command_environment(run_id, commit, scope, subject) {
+        let environment = match self.command_environment(run_id, commit, scope, subject, repo) {
             Ok(environment) => environment,
             Err(message) => return Some(Outcome::error(message)),
         };
@@ -361,15 +368,15 @@ impl VerifyService {
             }
         }
         let mut last: Option<capstan_operator::service::RunResult> = None;
-        let changed = if self.verify.path_filters.iter().any(Option::is_some) {
-            changed_paths(&self.project_root, commit)
+        let changed = if verify.path_filters.iter().any(Option::is_some) {
+            changed_paths(root, commit)
         } else {
             None
         };
         left.skipped = skipped_steps(
             commands,
-            &self.verify.commands,
-            &self.verify.path_filters,
+            &verify.commands,
+            &verify.path_filters,
             changed.as_deref(),
         );
         let lease_wait = *self.lease_wait.lock().unwrap_or_else(|p| p.into_inner());
@@ -407,7 +414,7 @@ impl VerifyService {
                     failed_step: Some(step),
                     tail: format!(
                         "the run's {}s ended before step {step} started",
-                        self.verify.timeout_seconds
+                        verify.timeout_seconds
                     ),
                     truncated: false,
                 });
@@ -535,12 +542,12 @@ impl VerifyService {
             scratch::reap_marked(&scratch::marker(run_id), min_start);
         }
         if left.worktree_added {
-            self.teardown(run_id, commit, scratch, environment, scope);
+            self.teardown(run_id, commit, scratch, environment, scope, &left.repo);
             if self.verify.reap {
                 scratch::reap_marked(&scratch::marker(run_id), min_start);
             }
         }
-        scratch::remove_worktree(&self.project_root, scratch);
+        scratch::remove_worktree(self.root_of(&left.repo), scratch);
     }
 
     /// `[worktree].teardown` in the project root, as for an agent's worktree; a failure is logged and never stops the removal.
@@ -551,6 +558,7 @@ impl VerifyService {
         scratch: &Path,
         environment: Option<&[(String, String)]>,
         scope: GateScope,
+        repo: &str,
     ) {
         if !self.verify.use_worktree_hooks {
             return;
@@ -563,7 +571,7 @@ impl VerifyService {
         };
         let mut env: Vec<(String, String)> = match environment {
             Some(env) => env.to_vec(),
-            None => match self.command_environment(run_id, commit, scope, None) {
+            None => match self.command_environment(run_id, commit, scope, None, repo) {
                 Ok(env) => env,
                 Err(_) => return,
             },
@@ -579,7 +587,7 @@ impl VerifyService {
             * 1000;
         let result = run_command(RunOptions {
             command: command.clone(),
-            cwd: self.project_root.clone(),
+            cwd: self.root_of(repo).to_path_buf(),
             timeout_ms: timeout,
             environment: env,
             output_tail_bytes: 2000,
@@ -686,7 +694,10 @@ impl VerifyService {
             self.run_started(run_id);
         }
         // Owned here so what the run started is still known when it panics.
-        let mut left = Left::default();
+        let mut left = Left {
+            repo: run["repo"].as_str().unwrap_or("").to_string(),
+            ..Left::default()
+        };
         // The slot lease is held here, outside the unwind guard: it outlives the cleanup on every path and is
         // dropped last, so the teardown hook never runs unleased.
         let (scope, mut leases, lease_outcome) = self.lease_run(slot, &abort);
@@ -819,6 +830,7 @@ impl VerifyService {
                     slot,
                     scope,
                     subject: subject.as_ref(),
+                    repo: &left.repo.clone(),
                 };
                 let outcome = self.steps(&job, left, leases);
                 log.finish();

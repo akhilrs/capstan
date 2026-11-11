@@ -1072,12 +1072,14 @@ fn a_review_brief_reads_the_gate_in_the_reports_own_repo() {
         .unwrap()
         .map(Result::unwrap)
         .collect();
+    // The gate is worded per repo (ws-review): the report's own repo is passed at its commit, with the run.
     let brief = bodies
         .iter()
-        .find(|b| b.contains("Gate "))
-        .unwrap_or_else(|| panic!("no gate line in {bodies:?}"));
+        .find(|b| b.contains("Verify for report"))
+        .unwrap_or_else(|| panic!("no verify line in {bodies:?}"));
+    assert!(brief.contains("passed in every repo"), "{brief}");
     assert!(
-        brief.contains(&format!("Gate passed at {COMMIT_A} (run {run_id}")),
+        brief.contains(&format!("repo api at {COMMIT_A}: passed")) && brief.contains(&run_id),
         "{brief}"
     );
     assert!(!brief.contains("No gate run is recorded"), "{brief}");

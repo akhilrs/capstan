@@ -9,6 +9,7 @@
 use crate::deps::{
     new_context, CommitInspection, DaemonOptions, Deps, GitError, GitPort, GitResult,
     InspectCommitInput, KernelHandle, NewCommit, NewCommitMessages, NewCommitMessagesInput,
+    WorktreeState,
 };
 use crate::loops::RustLoops;
 use crate::run::{Built, RunError, Wiring, EXIT_INVALID};
@@ -72,10 +73,15 @@ impl ProjectGit {
 
     /// `runGit`: the exit code and standard output.
     fn run(&self, args: &[&str]) -> GitResult<(i32, String)> {
+        self.run_in(&self.root, args)
+    }
+
+    /// `runGit` in another folder of the same repository (one of its worktrees).
+    fn run_in(&self, dir: &Path, args: &[&str]) -> GitResult<(i32, String)> {
         let output = std::process::Command::new("git")
             .arg("--no-replace-objects")
             .arg("-C")
-            .arg(&self.root)
+            .arg(dir)
             .args(args)
             .env_clear()
             .env(
@@ -128,6 +134,41 @@ fn is_full_sha(text: &str) -> bool {
 }
 
 impl GitPort for ProjectGit {
+    fn worktree_state(&self, path: &Path) -> GitResult<WorktreeState> {
+        let (code, head) = self.run_in(path, &["rev-parse", "--verify", "--quiet", "HEAD"])?;
+        let head = head.trim().to_string();
+        if code != 0 || !is_full_sha(&head) {
+            return Err(failure("git could not read HEAD of the worktree"));
+        }
+        let (code, branch) = self.run_in(path, &["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+        let branch = (code == 0 && !branch.trim().is_empty()).then(|| branch.trim().to_string());
+        let (code, dir) = self.run_in(path, &["rev-parse", "--absolute-git-dir"])?;
+        if code != 0 {
+            return Err(failure("git could not find the git folder of the worktree"));
+        }
+        let dir = PathBuf::from(dir.trim());
+        let in_progress = if dir.join("rebase-merge").exists() || dir.join("rebase-apply").exists()
+        {
+            Some("rebase")
+        } else if dir.join("MERGE_HEAD").exists() {
+            Some("merge")
+        } else if dir.join("CHERRY_PICK_HEAD").exists() {
+            Some("cherry-pick")
+        } else {
+            None
+        };
+        let (code, status) = self.run_in(path, &["status", "--porcelain"])?;
+        if code != 0 {
+            return Err(failure("git could not read the status of the worktree"));
+        }
+        Ok(WorktreeState {
+            head,
+            branch,
+            in_progress,
+            dirty: !status.trim().is_empty(),
+        })
+    }
+
     fn diff_stat(&self, base: &str, commit: &str) -> GitResult<Value> {
         if !is_full_sha(base) || !is_full_sha(commit) {
             return Err(failure("the commits to compare are not full ids"));

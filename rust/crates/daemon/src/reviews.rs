@@ -7,8 +7,9 @@
 use crate::deps::Deps;
 use capstan_config::RoleConfig;
 use capstan_kernel::helpers::{js_trim, normalize_text};
+use capstan_kernel::records::GateSubject;
 use capstan_kernel::KernelError;
-use capstan_launcher::api::{LauncherError, SpawnOptions};
+use capstan_launcher::api::{LauncherError, RepoBase, SpawnOptions};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -132,6 +133,10 @@ pub fn request_review(
         ))
     })?;
     let role = choose_reviewer_role(config, requested_role)?;
+    let workspace = crate::handlers::verify::is_workspace(deps);
+    if workspace {
+        workspace_review_gate(deps, subject_id)?;
+    }
     let check = {
         let (subject, role) = (subject_id.to_string(), role.clone());
         deps.kernel
@@ -144,16 +149,37 @@ pub fn request_review(
         &[subject_id.to_string()],
     )?;
     let commit_sha = check["commitSha"].as_str().unwrap_or("").to_string();
-    let exists = deps
-        .git
-        .commit_exists(&commit_sha)
-        .map_err(|e| ReviewRequestError::new("commit_missing", e.message))?;
-    if !exists {
-        return Err(ReviewRequestError::new(
-            "commit_missing",
-            "the commit to review no longer exists in the repository",
-        )
-        .into());
+    // A workspace report names a commit in each repo: each must exist in its own repo, and the reviewer starts there.
+    let repo_commits = if workspace {
+        report_commit_rows(deps, subject_id)?
+    } else {
+        Vec::new()
+    };
+    if repo_commits.is_empty() {
+        let exists = deps
+            .git
+            .commit_exists(&commit_sha)
+            .map_err(|e| ReviewRequestError::new("commit_missing", e.message))?;
+        if !exists {
+            return Err(ReviewRequestError::new(
+                "commit_missing",
+                "the commit to review no longer exists in the repository",
+            )
+            .into());
+        }
+    }
+    for (repo, commit, _) in &repo_commits {
+        let exists = deps
+            .repo_git(repo)
+            .commit_exists(commit)
+            .map_err(|e| ReviewRequestError::new("commit_missing", e.message))?;
+        if !exists {
+            return Err(ReviewRequestError::new(
+                "commit_missing",
+                format!("the commit to review no longer exists in repo {repo}"),
+            )
+            .into());
+        }
     }
     let launcher = deps.launcher.as_ref().ok_or_else(|| {
         RequestError::Launcher(LauncherError::new(
@@ -164,7 +190,9 @@ pub fn request_review(
     // The warm reviewer of the subject's plan, when the configuration keeps one.
     let mut warm_plan: Option<String> = None;
     let mut reuse: Option<String> = None;
-    if config.review.warm_reviewer {
+    // A warm reviewer is moved to one commit of one repo; a workspace report needs a worktree per repo, so it gets a
+    // fresh reviewer.
+    if config.review.warm_reviewer && repo_commits.is_empty() {
         let plan = deps
             .kernel
             .run({
@@ -200,18 +228,22 @@ pub fn request_review(
         }
     }
     // The brief carries what the commit changes, when git can say.
-    let diff_scope = match check["baseSha"].as_str() {
-        Some(base) => match deps.git.diff_stat(base, &commit_sha) {
-            Ok(scope) => Some(scope),
-            Err(error) => {
-                deps.detail_log(
-                    "review_diff_stat_failed",
-                    json!({"subjectId": subject_id, "error": error.message}),
-                );
-                None
-            }
-        },
-        None => None,
+    let diff_scope = if !repo_commits.is_empty() {
+        workspace_diff_scope(deps, subject_id, &repo_commits)
+    } else {
+        match check["baseSha"].as_str() {
+            Some(base) => match deps.git.diff_stat(base, &commit_sha) {
+                Ok(scope) => Some(scope),
+                Err(error) => {
+                    deps.detail_log(
+                        "review_diff_stat_failed",
+                        json!({"subjectId": subject_id, "error": error.message}),
+                    );
+                    None
+                }
+            },
+            None => None,
+        }
     };
     let mut reused_agent: Option<String> = None;
     // Held from the retarget until the review has begun, so the idle loop cannot release the reviewer in between.
@@ -265,6 +297,15 @@ pub fn request_review(
                 &SpawnOptions {
                     base_sha: Some(commit_sha),
                     review_target: Some(subject_id.to_string()),
+                    repo_bases: (!repo_commits.is_empty()).then(|| {
+                        repo_commits
+                            .iter()
+                            .map(|(repo, commit, _)| RepoBase {
+                                repo: repo.clone(),
+                                commit: commit.clone(),
+                            })
+                            .collect()
+                    }),
                     ..SpawnOptions::default()
                 },
             )?;
@@ -275,6 +316,18 @@ pub fn request_review(
     let mut input = json!({"subjectId": subject_id, "reviewerRole": role, "reviewerAgentId": reviewer_agent_id});
     if let Some(verify) = &deps.verify {
         input["verifyCommandsSha"] = json!(verify.commands_sha());
+    }
+    if !repo_commits.is_empty() {
+        let service = deps.verify.as_ref();
+        let shas: serde_json::Map<String, Value> = repo_commits
+            .iter()
+            .filter_map(|(repo, _, _)| {
+                service.map(|v| (repo.clone(), json!(v.commands_sha_for(repo))))
+            })
+            .collect();
+        if !shas.is_empty() {
+            input["verifyCommandsShas"] = Value::Object(shas);
+        }
     }
     if let Some(plan_id) = &warm_plan {
         input["warmPlanId"] = json!(plan_id);
@@ -308,6 +361,101 @@ pub fn request_review(
             Err(error.into())
         }
     }
+}
+
+/// `(repo, commit, base)` of each repo a workspace report names a commit for; empty for any other subject.
+fn report_commit_rows(
+    deps: &Deps,
+    subject_id: &str,
+) -> Result<Vec<(String, String, String)>, RequestError> {
+    let subject = subject_id.to_string();
+    let rows = deps.kernel.run(move |core| core.report_commits(&subject))?;
+    Ok(rows
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            (
+                row["repo"].as_str().unwrap_or("").to_string(),
+                row["commitSha"].as_str().unwrap_or("").to_string(),
+                row["baseSha"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect())
+}
+
+/// The review gate of a workspace: a set or a member of one is refused with the set text. When `[verify]` is configured
+/// the gate is forced whatever `require_review` says (as integrate is): a report is reviewed only when every repo it
+/// names a commit for has passed verify (a report without per-repo commits is refused). The ledger check is coarse (a
+/// passed run at the commit under any commands); `workspace_gate`, with each repo's current commands, is the authority.
+/// Without `[verify]` a workspace review is not verify-gated, as in a single repo.
+fn workspace_review_gate(deps: &Deps, subject_id: &str) -> Result<(), RequestError> {
+    let subject = subject_id.to_string();
+    let verify = deps.verify.is_some();
+    let refused = deps.kernel.run(move |core| {
+        if let Some(why) = crate::handlers::verify::set_refusal(core, &subject)? {
+            return Ok(Some(why));
+        }
+        if !verify {
+            return Ok(None);
+        }
+        Ok(core.review_gate(&GateSubject::Report(subject)).err())
+    })?;
+    let Some(service) = &deps.verify else {
+        return match refused {
+            None => Ok(()),
+            Some(why) => Err(RequestError::Kernel(KernelError::MutationConflict(why))),
+        };
+    };
+    match refused {
+        None => {
+            crate::handlers::verify::workspace_gate(deps, service, &[subject_id.to_string()])?;
+            Ok(())
+        }
+        // The ledger refusal names the missing run; the gate adds what a queued or running run is waiting for.
+        Some(why) if why.starts_with("verify_required:") => {
+            crate::handlers::verify::workspace_gate(deps, service, &[subject_id.to_string()])?;
+            Err(ReviewRequestError::new("verify_required", why).into())
+        }
+        Some(why) => match why.strip_prefix("review_refused: ") {
+            Some(text) => Err(ReviewRequestError::new("review_refused", text).into()),
+            None => Err(RequestError::Kernel(KernelError::MutationConflict(why))),
+        },
+    }
+}
+
+/// The diff scope of a workspace report: the changed paths of `base..commit` in each repo, written `<repo>:<path>`,
+/// with the totals summed. `None` when no repo's diff could be read.
+fn workspace_diff_scope(
+    deps: &Deps,
+    subject_id: &str,
+    repo_commits: &[(String, String, String)],
+) -> Option<Value> {
+    let mut files = Vec::new();
+    let (mut total, mut insertions, mut deletions) = (0_i64, 0_i64, 0_i64);
+    let mut any = false;
+    for (repo, commit, base) in repo_commits {
+        match deps.repo_git(repo).diff_stat(base, commit) {
+            Ok(scope) => {
+                any = true;
+                for file in scope["files"].as_array().into_iter().flatten() {
+                    let mut file = file.clone();
+                    file["path"] = json!(format!("{repo}:{}", file["path"].as_str().unwrap_or("")));
+                    files.push(file);
+                }
+                total += scope["filesTotal"].as_i64().unwrap_or(0);
+                insertions += scope["insertions"].as_i64().unwrap_or(0);
+                deletions += scope["deletions"].as_i64().unwrap_or(0);
+            }
+            Err(error) => deps.detail_log(
+                "review_diff_stat_failed",
+                json!({"subjectId": subject_id, "repo": repo, "error": error.message}),
+            ),
+        }
+    }
+    any.then(|| {
+        json!({"files": files, "filesTotal": total, "insertions": insertions, "deletions": deletions})
+    })
 }
 
 /// Releases the reviewer of a finished review shortly after the reply, so the pane is not closed under the call that is

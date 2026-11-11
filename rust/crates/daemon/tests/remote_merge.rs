@@ -861,6 +861,43 @@ fn an_integration_running_in_the_ledger_is_busy() {
 }
 
 #[test]
+fn decide_merge_is_refused_busy_while_a_set_runs_and_allowed_after() {
+    let project = new_project();
+    let operator = project.credentials["operator"].clone();
+    let set_id = project
+        .deps
+        .kernel
+        .run({
+            let operator = operator.clone();
+            move |core| {
+                let context = capstan_daemon::deps::new_context(core, &operator)?;
+                let set = core.create_integration_set(
+                    &context,
+                    &json!({"branch": "integration/busy", "repos": ["core"]}),
+                )?;
+                Ok(set["setId"].as_str().unwrap().to_string())
+            }
+        })
+        .expect("a running set");
+    let before = project.rev("main");
+    refuses(&project, "nonce-set-busy", "busy");
+    assert_eq!(project.rev("main"), before, "nothing was merged");
+    project
+        .deps
+        .kernel
+        .run(move |core| {
+            let context = capstan_daemon::deps::new_context(core, &operator)?;
+            core.set_integration_state(
+                &context,
+                &json!({"setId": set_id, "state": "failed", "reason": "cut off before repo core"}),
+            )
+        })
+        .expect("the set fails");
+    let answer = project.decide_merge("nonce-set-free");
+    applied(&answer);
+}
+
+#[test]
 fn a_verify_pass_at_an_older_head_is_not_verified() {
     let project = new_project();
     // The integration head moved on after the pass: the pass is at an older head.

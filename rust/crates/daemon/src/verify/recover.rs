@@ -45,13 +45,19 @@ impl VerifyService {
         // of a live run; the daemon that ran this one is gone and nothing is waiting on them.
         let min_start = leader_start.and_then(|s| s.parse::<u64>().ok());
         killed |= scratch::reap_marked(&scratch::marker(&run_id), min_start) > 0;
-        let commit = {
+        let (commit, repo) = {
             let id = run_id.clone();
-            self.kernel
-                .run(move |core| core.verify_run(&id))
-                .ok()
-                .and_then(|r| r["commitSha"].as_str().map(str::to_string))
-                .unwrap_or_default()
+            let found = self.kernel.run(move |core| core.verify_run(&id)).ok();
+            (
+                found
+                    .as_ref()
+                    .and_then(|r| r["commitSha"].as_str().map(str::to_string))
+                    .unwrap_or_default(),
+                found
+                    .as_ref()
+                    .and_then(|r| r["repo"].as_str().map(str::to_string))
+                    .unwrap_or_default(),
+            )
         };
         let path = run["scratchPath"].as_str().map(PathBuf::from);
         if let Some(path) = &path {
@@ -63,9 +69,10 @@ impl VerifyService {
                     path,
                     None,
                     capstan_cache::GateScope::Shared,
+                    &repo,
                 );
             }
-            scratch::remove_worktree(&self.project_root, path);
+            scratch::remove_worktree(self.root_of(&repo), path);
         }
         if pgid.is_some() {
             let input = json!({"runId": run_id});
@@ -138,13 +145,24 @@ impl VerifyService {
         let Some(target) = text.trim().strip_prefix("gitdir: ") else {
             return false;
         };
-        match (
-            std::fs::canonicalize(target),
-            std::fs::canonicalize(self.project_root.join(".git").join("worktrees")),
-        ) {
-            (Ok(target), Ok(ours)) => target.starts_with(ours),
-            _ => false,
+        let Ok(target) = std::fs::canonicalize(target) else {
+            return false;
+        };
+        self.all_roots().into_iter().any(|root| {
+            std::fs::canonicalize(root.join(".git").join("worktrees"))
+                .is_ok_and(|ours| target.starts_with(ours))
+        })
+    }
+
+    /// The project root and the root of every repo of a workspace.
+    fn all_roots(&self) -> Vec<PathBuf> {
+        let mut roots = vec![self.project_root.clone()];
+        for spec in self.repos.values() {
+            if !roots.contains(&spec.root) {
+                roots.push(spec.root.clone());
+            }
         }
+        roots
     }
 
     /// Leftover worktrees of this project's repository in the scratch root: a crash between `git worktree add` and the
@@ -162,11 +180,15 @@ impl VerifyService {
             if !like_id || !entry.path().is_dir() || !self.is_our_worktree(&entry.path()) {
                 continue;
             }
-            scratch::remove_worktree(&self.project_root, &entry.path());
+            for root in self.all_roots() {
+                scratch::remove_worktree(&root, &entry.path());
+            }
             removed = true;
         }
         if removed {
-            let _ = scratch::git(&self.project_root, &["worktree", "prune"]);
+            for root in self.all_roots() {
+                let _ = scratch::git(&root, &["worktree", "prune"]);
+            }
         }
     }
 }

@@ -525,6 +525,16 @@ impl Core {
         verify_runs::verify_gate_for_subjects(&self.kernel, subject_ids, commands_sha)
     }
 
+    /// The review gate of a workspace subject, read from the ledger (see `reviews::review_gate`).
+    pub fn review_gate(&self, subject: &crate::records::GateSubject) -> Result<(), String> {
+        reviews::review_gate(&self.kernel, subject)
+    }
+
+    /// The runs that decide a gate subject, newest first, as `verify show` prints them.
+    pub fn subject_runs(&self, subject: &crate::records::GateSubject) -> KernelResult<Vec<Value>> {
+        verify_runs::subject_runs(&self.kernel, subject)
+    }
+
     /// `ControllerCore.verifyStatus`.
     pub fn verify_status(&self) -> KernelResult<Value> {
         verify_runs::verify_status(&self.kernel)

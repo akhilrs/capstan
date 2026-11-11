@@ -166,6 +166,8 @@ pub fn begin_integration(
             )? {
                 return Err(KernelError::controller("an integration is already running"));
             }
+            // A report of several repos is in one integration per repo: the members of one set do not count as elsewhere.
+            let own_set = field(input, "setId").as_str().map(str::to_string);
             for id in &ids {
                 let report_state = query_opt(
                     &kernel.database,
@@ -205,8 +207,10 @@ pub fn begin_integration(
                     "SELECT i.integration_id, i.state FROM integration_reports ir
                      JOIN integrations i ON i.project_id = ir.project_id AND i.integration_id = ir.integration_id
                      WHERE ir.project_id = ? AND ir.report_id = ? AND i.state IN ('confirmed', 'merged')
+                     AND NOT EXISTS (SELECT 1 FROM integration_set_members m WHERE m.project_id = i.project_id
+                         AND m.integration_id = i.integration_id AND m.set_id = ?)
                      ORDER BY i.sequence DESC LIMIT 1",
-                    [&kernel.project_id, *id],
+                    [&kernel.project_id, *id, own_set.as_deref().unwrap_or("")],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
                 )?;
                 if let Some((other_id, other_state)) = elsewhere {
@@ -470,6 +474,16 @@ pub fn settle_integration(
     )
 }
 
+/// Refuses to settle an integration that is a member of a set: confirm and discard per repo come with plan-184.
+pub fn refuse_set_member(kernel: &Kernel, integration_id: &str) -> KernelResult<()> {
+    match super::workspace::set_of_integration(kernel, integration_id)? {
+        Some(set_id) => Err(KernelError::controller(format!(
+            "integration {integration_id} belongs to set {set_id}; confirm and discard per repo come with plan-184"
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// The body of `integration.settle`, run inside a mutation: refused unless the integration is merged (or conflicted,
 /// for a discard) and no review of it is open; a confirm needs its latest review passed.
 pub fn apply_settle(
@@ -478,6 +492,7 @@ pub fn apply_settle(
     outcome: &str,
 ) -> KernelResult<MutationOutput> {
     let row = required_row(kernel, integration_id)?;
+    refuse_set_member(kernel, integration_id)?;
     // A conflicted integration holds no branch; it can only be discarded.
     let discarding_conflicted = row.state == "conflicted" && outcome == "discarded";
     if row.state != "merged" && !discarding_conflicted {
@@ -688,6 +703,89 @@ pub fn planned_commit_info(kernel: &Kernel, report_ids: &Value) -> KernelResult<
         }
     }
     commit_info(kernel, &reports)
+}
+
+/// Whether an integration set already uses `branch` as its base name.
+pub fn set_branch_recorded(kernel: &Kernel, branch: &str) -> KernelResult<bool> {
+    kernel.assert_open()?;
+    present(
+        kernel,
+        "SELECT 1 AS present FROM integration_sets WHERE project_id = ? AND branch = ?",
+        [&kernel.project_id, branch],
+    )
+}
+
+/// One commit a workspace report names for a repo, with the report's author and place in the report order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportCommit {
+    pub report_id: String,
+    pub agent_id: String,
+    pub sequence: i64,
+    pub repo: String,
+    pub commit_sha: String,
+}
+
+/// The author and sequence of each report, by id; a report that does not exist is left out.
+pub fn report_order(
+    kernel: &Kernel,
+    report_ids: &[String],
+) -> KernelResult<Vec<(String, String, i64)>> {
+    kernel.assert_open()?;
+    let mut rows = Vec::new();
+    for id in report_ids {
+        safe_id_str(id, "report id")?;
+        if let Some(row) = query_opt(
+            &kernel.database,
+            "SELECT report_id, agent_id, sequence FROM agent_reports WHERE project_id = ? AND report_id = ?",
+            [&kernel.project_id, id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        )? {
+            rows.push(row);
+        }
+    }
+    Ok(rows)
+}
+
+/// The commits per repo of the given reports, in report order. A report without `report_commits` rows was made
+/// before workspace mode and is refused.
+pub fn workspace_commits(
+    kernel: &Kernel,
+    report_ids: &[String],
+) -> KernelResult<Vec<ReportCommit>> {
+    kernel.assert_open()?;
+    let mut commits = Vec::new();
+    for id in report_ids {
+        safe_id_str(id, "report id")?;
+        let Some((_, agent_id, sequence)) = report_order(kernel, std::slice::from_ref(id))?
+            .into_iter()
+            .next()
+        else {
+            return Err(KernelError::controller(format!(
+                "report {id} does not exist"
+            )));
+        };
+        let rows = super::workspace::report_commits(kernel, id)?;
+        let rows = rows.as_array().cloned().unwrap_or_default();
+        if rows.is_empty() {
+            return Err(KernelError::controller(format!(
+                "report {id} predates workspace mode; report again"
+            )));
+        }
+        for row in rows {
+            commits.push(ReportCommit {
+                report_id: id.clone(),
+                agent_id: agent_id.clone(),
+                sequence,
+                repo: field(&row, "repo").as_str().unwrap_or_default().to_string(),
+                commit_sha: field(&row, "commitSha")
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            });
+        }
+    }
+    commits.sort_by_key(|c| c.sequence);
+    Ok(commits)
 }
 
 /// `integrationBranchRecorded`.

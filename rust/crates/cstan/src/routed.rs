@@ -158,7 +158,7 @@ impl Cli<'_> {
             let shape_ok = match args.first().map(String::as_str) {
                 Some("show" | "cancel") => args.len() == 2,
                 Some("list") => args.len() <= 2,
-                Some(_) => args.len() == 1,
+                Some(_) => args.len() == 1 || (args.len() == 3 && args[1] == "--repo"),
                 None => false,
             };
             if !shape_ok {
