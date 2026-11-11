@@ -2,6 +2,12 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## Unreleased
+
+### Features
+
+- feat(kb): local knowledge base storage. `[kb] storage = "local"` keeps the entries in the controller's state directory instead of the repository, so no branch carries them. New keys `pm_note_minutes` and `log_max_entries`; new `cstan kb import`, `log` and `export`; a change log and a rate-limited PM note; a warning while the old file is still in the repository. The default stays `repo`. See [Knowledge base](docs/reference/knowledge-base.md#storage).
+
 ## 0.23.0 (2026-11-10)
 
 ### Upgrade note

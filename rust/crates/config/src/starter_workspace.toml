@@ -175,8 +175,9 @@ prompt = "You research questions on the web and write sourced findings as files 
 # migrations = ["db/migrations/*.sql"]   # added paths matching these are listed as migrations
 # next_steps = [{ paths = ["db/migrations/*.sql"], step = "apply the migrations" }]
 
-# [kb]                                   # opt-in: a committed knowledge base of helpers, components and rules
+# [kb]                                   # opt-in: a local knowledge base of helpers, components and rules, never committed
 # enabled = true
+# storage = "local"
 
 # --- workspace mode: the code lives in repositories under (or beside) this folder, not in this folder ---------------
 # Uncomment and edit. Each repository needs its path (relative to this folder, outside it with .., or absolute) and the

@@ -110,7 +110,7 @@ const RUST_ONLY_HANDOVER: [&str; 5] = [
     "Keep findings short and complete: one line per finding saying what is wrong and where; the review text may be at most 16000 bytes and a longer one is refused. A text over 4000 bytes reaches the requester cut, with a pointer to cstan review show <review-id>. ",
     " Also send the PM `cstan send @pm --file <report path> --summary \"<answer in one line>\"` after the commit and next to the report command; the report text never goes in a message.",
     // The plan-177 kb sentence of the developer prompt (the line break before it goes with it).
-    "\nBefore you write a new helper, function or component, read the Reuse section of your work package (if any), run `cstan kb search <words>` and search the code for an existing one; extend what exists when it fits. When you add something others should reuse, add an entry with `cstan kb add` and commit it with your change. Your report summary ends with Reused: <names> and New: <names> (why nothing existing fit).",
+    "\nBefore you write a new helper, function or component, read the Reuse section of your work package (if any), run `cstan kb search <words>` and search the code for an existing one; extend what exists when it fits. When you add something others should reuse, add an entry with `cstan kb add` and do what it prints: commit the entries file only when it names one to commit, and never commit a knowledge base file otherwise. Your report summary ends with Reused: <names> and New: <names> (why nothing existing fit).",
 ];
 
 /// A value as the fixtures record it: functions are written `<fn>` by the callers, the scratch directory is `<tmp>`, and

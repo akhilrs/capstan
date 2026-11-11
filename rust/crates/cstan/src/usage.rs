@@ -147,9 +147,12 @@ pub const ENTRIES: &[Entry] = &[
     e(KB, "kb", "kb status [--json]", "Show the entry count, stale and missing entries, invalid lines and the search counts of the last 30 days."),
     e(KB, "kb", "kb build [--design]", "Print the brief for the agent that builds the knowledge base (--design: the design record) and the spawn command to run it."),
     e(KB, "kb", "kb refresh [--design]", "Print the brief that lists the stale and missing entries for an agent to re-check, update or remove."),
-    e(KB, "kb", "kb add --id <id> --kind <kind> --title <t> --body <b> [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--force]", "Add an entry to the entries file of this working tree, in id order, stamped with its HEAD. Refused for an id in the file or at HEAD, an entry that breaks a field rule and a similar entry unless --force. Does not commit."),
-    e(KB, "kb", "kb update <id> [--kind <kind>] [--title <t>] [--body <b>] [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--verified]", "Change the named fields of an entry in this working tree and stamp it with HEAD; --verified only re-stamps it. Does not commit."),
-    e(KB, "kb", "kb remove <id>", "Remove an entry from the entries file of this working tree. Does not commit."),
+    e(KB, "kb", "kb add --id <id> --kind <kind> --title <t> --body <b> [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--force]", "Add an entry, stamped with this working tree's HEAD. In [kb] storage = local the entry is saved in the controller's local knowledge base and nothing is committed; otherwise it goes into the entries file of this working tree, in id order, and is not committed. Refused for an existing id, an entry that breaks a field rule and a similar entry unless --force."),
+    e(KB, "kb", "kb update <id> [--kind <kind>] [--title <t>] [--body <b>] [--path <p>] [--area <a>] [--tag <t>]... [--alias <a>]... [--related <r>]... [--verified]", "Change the named fields of an entry and stamp it with HEAD; --verified only re-stamps it. In [kb] storage = local the entry is saved in the controller's local knowledge base and nothing is committed; otherwise the entries file of this working tree changes and is not committed."),
+    e(KB, "kb", "kb remove <id>", "Remove an entry. In [kb] storage = local it is removed from the controller's local knowledge base and nothing is committed; otherwise from the entries file of this working tree, not committed."),
+    e(KB, "kb", "kb import <file> [--replace]", "Add the entries of a JSON Lines file to the local knowledge base ([kb] storage = local; PM or operator only). Ids already present are skipped, or replaced with --replace; invalid lines are listed and never written."),
+    e(KB, "kb", "kb log [--limit <n>] [--json]", "List the changes made to the local knowledge base, newest first: time, agent, verb, id and title (default 20)."),
+    e(KB, "kb", "kb export", "Print the entries file to standard output."),
 ];
 
 /// What `cstan herdr-config` prints.

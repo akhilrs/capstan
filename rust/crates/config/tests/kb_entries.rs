@@ -97,6 +97,8 @@ fn defaults_and_bounds() {
         ("reuse_max_bytes", 0, 4000),
         ("stale_warn", 1, 10_000),
         ("design_stale_commits", 1, 10_000),
+        ("pm_note_minutes", 0, 1440),
+        ("log_max_entries", 10, 10_000),
     ] {
         load(&format!("[kb]\n{key} = {lo}\n")).unwrap();
         load(&format!("[kb]\n{key} = {hi}\n")).unwrap();
@@ -109,6 +111,19 @@ fn defaults_and_bounds() {
             format!("kb.{key} must be between {lo} and {hi}")
         );
     }
+}
+
+#[test]
+fn storage_key() {
+    use capstan_config::kb::KbStorage;
+    assert_eq!(kb("").storage, KbStorage::Repo);
+    assert_eq!(kb("storage = \"local\"").storage, KbStorage::Local);
+    assert_eq!(kb("storage = \"repo\"").storage, KbStorage::Repo);
+    assert_eq!(
+        refusal("storage = \"cloud\""),
+        "kb.storage must be \"repo\" or \"local\""
+    );
+    assert_eq!((kb("").pm_note_minutes, kb("").log_max_entries), (30, 1000));
 }
 
 #[test]

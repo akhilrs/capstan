@@ -244,6 +244,9 @@ pub const KB_KEYS: &[&str] = &[
     "design_stale_commits",
     "role",
     "design_role",
+    "storage",
+    "pm_note_minutes",
+    "log_max_entries",
 ];
 pub const REVIEW_KEYS: &[&str] = &[
     "warm_reviewer",

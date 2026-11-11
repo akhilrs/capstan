@@ -109,21 +109,31 @@ pub fn brief(index: &KbIndex, cfg: &KbConfig, kind: BriefKind, design: bool) -> 
         return cut_to(text, BRIEF_LIMIT);
     }
     let who = &cfg.role;
+    let local = cfg.storage == capstan_config::kb::KbStorage::Local;
+    let place = super::location(index.state_dir(), index.root(), cfg);
+    let tail = if local {
+        "Commit no knowledge base file; report when done.".to_string()
+    } else {
+        format!("Then commit {place} on your branch and report.")
+    };
+    let saved = if local {
+        format!("the controller's local knowledge base at {place}")
+    } else {
+        place.clone()
+    };
     match kind {
         BriefKind::Build => text.push_str(&format!(
-            "Role: {who}. Build the knowledge base at {path}. Read the code at HEAD and add entries with cstan kb add for \
+            "Role: {who}. Build the knowledge base at {saved}. Read the code at HEAD and add entries with cstan kb add for \
              reusable helpers, modules, components, conventions, design rules and decisions. One fact per entry, no code. \
-             Caps: at most {entries} entries, {bytes} bytes per entry. Then commit {path} on your branch and report.\n",
-            path = cfg.path,
+             Caps: at most {entries} entries, {bytes} bytes per entry. {tail}\n",
             entries = cfg.max_entries,
             bytes = cfg.max_entry_bytes
         )),
         BriefKind::Refresh => {
             text.push_str(&format!(
-                "Role: {who}. Refresh the knowledge base at {path}. For each entry below, re-read the code at its path and \
+                "Role: {who}. Refresh the knowledge base at {saved}. For each entry below, re-read the code at its path and \
                  run cstan kb update <id> (add --verified when it is still true) or cstan kb remove <id>. Caps: \
-                 {bytes} bytes per entry. Then commit {path} on your branch and report.\nEntries:\n",
-                path = cfg.path,
+                 {bytes} bytes per entry. {tail}\nEntries:\n",
                 bytes = cfg.max_entry_bytes
             ));
             let items = index.attention(50).unwrap_or_default();

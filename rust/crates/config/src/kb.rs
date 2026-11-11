@@ -16,10 +16,29 @@ pub const MAX_PATH_BYTES: usize = 200;
 pub const MAX_UI_PATHS: usize = 32;
 const MAX_LIST: usize = 8;
 
+/// Where the knowledge base entries live.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KbStorage {
+    Repo,
+    Local,
+}
+
+impl KbStorage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            KbStorage::Repo => "repo",
+            KbStorage::Local => "local",
+        }
+    }
+}
+
 /// The resolved `[kb]` section; `RoleConfig.kb` is `None` when the table is absent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KbConfig {
     pub enabled: bool,
+    pub storage: KbStorage,
+    pub pm_note_minutes: i64,
+    pub log_max_entries: i64,
     pub path: String,
     pub max_entry_bytes: i64,
     pub max_entries: i64,
@@ -36,6 +55,9 @@ impl Default for KbConfig {
     fn default() -> Self {
         KbConfig {
             enabled: true,
+            storage: KbStorage::Repo,
+            pm_note_minutes: 30,
+            log_max_entries: 1000,
             path: DEFAULT_PATH.to_string(),
             max_entry_bytes: 1200,
             max_entries: 2000,
@@ -64,6 +86,9 @@ impl KbConfig {
             ("designStaleCommits", number(self.design_stale_commits)),
             ("role", text(&self.role)),
             ("designRole", text(&self.design_role)),
+            ("storage", text(self.storage.as_str())),
+            ("pmNoteMinutes", number(self.pm_note_minutes)),
+            ("logMaxEntries", number(self.log_max_entries)),
         ])
     }
 }
@@ -156,6 +181,12 @@ pub fn resolve_kb(
     reject_unknown_keys(table, KB_KEYS, "kb")?;
     let d = KbConfig::default();
     let enabled = optional_boolean(table.get("enabled"), "kb.enabled", d.enabled)?;
+    let storage = match optional_string(table.get("storage"), "kb.storage", 16)? {
+        None => d.storage,
+        Some("repo") => KbStorage::Repo,
+        Some("local") => KbStorage::Local,
+        Some(_) => return invalid("kb.storage must be \"repo\" or \"local\"".to_string()),
+    };
     let path = match optional_string(table.get("path"), "kb.path", MAX_PATH_BYTES)? {
         None => d.path.clone(),
         Some(path) => {
@@ -176,6 +207,8 @@ pub fn resolve_kb(
     let search_limit = int("search_limit", 1, 20, d.search_limit)?;
     let reuse_max_bytes = int("reuse_max_bytes", 0, 4000, d.reuse_max_bytes)?;
     let stale_warn = int("stale_warn", 1, 10_000, d.stale_warn)?;
+    let pm_note_minutes = int("pm_note_minutes", 0, 1440, d.pm_note_minutes)?;
+    let log_max_entries = int("log_max_entries", 10, 10_000, d.log_max_entries)?;
     let ui_paths = ui_path_globs(table.get("ui_paths"))?;
     let design_stale_commits = int("design_stale_commits", 1, 10_000, d.design_stale_commits)?;
     let role = role_name(table, "role", &d.role, roles, true)?;
@@ -189,6 +222,9 @@ pub fn resolve_kb(
     )?;
     Ok(Some(KbConfig {
         enabled,
+        storage,
+        pm_note_minutes,
+        log_max_entries,
         path,
         max_entry_bytes,
         max_entries,

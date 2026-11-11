@@ -1,5 +1,6 @@
 //! The controller's knowledge base index: a SQLite cache (FTS5 search, path lookup, links, staleness) built from the
-//! entries file as committed at the project root's HEAD. The working tree is never read. Deleting the index only costs a
+//! entries file as committed at the project root's HEAD (storage = repo; the working tree is never read) or from the
+//! local entries file in the state directory (storage = local). Deleting the index only costs a
 //! rebuild. `text` holds the lines and briefs the controller shows, `stale` the git checks and the warnings.
 use std::io::Read;
 use std::path::Path;
@@ -10,6 +11,7 @@ use std::time::{Duration, Instant};
 use capstan_config::KbConfig;
 
 mod index;
+pub mod local;
 mod stale;
 mod text;
 
@@ -93,7 +95,65 @@ pub(crate) fn git(root: &Path, args: &[&str]) -> Result<(i32, String), String> {
 
 static BUILD: Mutex<()> = Mutex::new(());
 
-/// Opens the index in `<state_dir>/kb`, rebuilding it when HEAD or the entries file's blob changed since the last build.
+/// The local entries file: `<state dir>/kb/entries.jsonl`.
+pub(crate) fn local_file(state_dir: &Path) -> std::path::PathBuf {
+    state_dir.join("kb").join("entries.jsonl")
+}
+
+/// Where the entries live, as the warnings, briefs and refusals name it: `cfg.path` (repo), or the local entries file
+/// relative to `root` when it is under it (normally `.capstan/state/kb/entries.jsonl`), else absolute.
+pub fn location(state_dir: &Path, root: &Path, cfg: &KbConfig) -> String {
+    match cfg.storage {
+        capstan_config::kb::KbStorage::Repo => cfg.path.clone(),
+        capstan_config::kb::KbStorage::Local => {
+            let file = local_file(state_dir);
+            match file.strip_prefix(root) {
+                Ok(rel) => rel.to_string_lossy().into_owned(),
+                Err(_) => file.to_string_lossy().into_owned(),
+            }
+        }
+    }
+}
+
+/// The entries file text: `git show HEAD:<path>` (repo; None when absent) or the local file (local; None when absent).
+pub fn source(state_dir: &Path, root: &Path, cfg: &KbConfig) -> Result<Option<String>, KbError> {
+    match cfg.storage {
+        capstan_config::kb::KbStorage::Repo => {
+            let spec = format!("HEAD:{}", cfg.path);
+            match git(root, &["rev-parse", "--verify", &spec]).map_err(KbError::Git)? {
+                (0, _) => {}
+                _ => return Ok(None),
+            }
+            match git(root, &["show", &spec]).map_err(KbError::Git)? {
+                (0, out) => Ok(Some(out)),
+                _ => Err(KbError::Git(
+                    "the entries file could not be read".to_string(),
+                )),
+            }
+        }
+        capstan_config::kb::KbStorage::Local => read_local(state_dir),
+    }
+}
+
+fn read_local(state_dir: &Path) -> Result<Option<String>, KbError> {
+    match std::fs::read(local_file(state_dir)) {
+        Ok(bytes) => {
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            // A file with no entry and no invalid line counts as missing, the same as an absent file.
+            let parsed = capstan_config::kb::parse_file(&text, usize::MAX);
+            if parsed.entries.is_empty() && parsed.invalid.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(text))
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(KbError::Store(format!("the entries file: {e}"))),
+    }
+}
+
+/// Opens the index in `<state_dir>/kb`, rebuilding it when HEAD or the entries file changed since the last build (the
+/// blob id at HEAD for repo storage, a hash of the local file for local storage).
 pub fn ensure(state_dir: &Path, root: &Path, cfg: &KbConfig) -> Result<KbIndex, KbError> {
     if !cfg.enabled {
         return Err(KbError::NotConfigured);
@@ -102,10 +162,20 @@ pub fn ensure(state_dir: &Path, root: &Path, cfg: &KbConfig) -> Result<KbIndex, 
         (0, out) => out.trim().to_string(),
         _ => return Err(KbError::Git("the project has no commit".to_string())),
     };
-    let spec = format!("HEAD:{}", cfg.path);
-    let blob = match git(root, &["rev-parse", "--verify", &spec]).map_err(KbError::Git)? {
-        (0, out) => out.trim().to_string(),
-        _ => String::new(),
+    let local = cfg.storage == capstan_config::kb::KbStorage::Local;
+    let mut file: Option<String> = None;
+    let blob = if local {
+        file = read_local(state_dir)?;
+        match &file {
+            Some(text) => format!("local:{}", capstan_config::sha256(text)),
+            None => String::new(),
+        }
+    } else {
+        let spec = format!("HEAD:{}", cfg.path);
+        match git(root, &["rev-parse", "--verify", &spec]).map_err(KbError::Git)? {
+            (0, out) => out.trim().to_string(),
+            _ => String::new(),
+        }
     };
     let _guard = BUILD.lock().unwrap_or_else(|p| p.into_inner());
     let mut index = KbIndex::open(state_dir, root)?;
@@ -114,18 +184,9 @@ pub fn ensure(state_dir: &Path, root: &Path, cfg: &KbConfig) -> Result<KbIndex, 
     {
         return Ok(index);
     }
-    let file = if blob.is_empty() {
-        None
-    } else {
-        match git(root, &["show", &spec]).map_err(KbError::Git)? {
-            (0, out) => Some(out),
-            _ => {
-                return Err(KbError::Git(
-                    "the entries file could not be read".to_string(),
-                ))
-            }
-        }
-    };
+    if !local && !blob.is_empty() {
+        file = source(state_dir, root, cfg)?;
+    }
     let parsed = file
         .as_deref()
         .map(|text| capstan_config::kb::parse_file(text, cfg.max_entry_bytes.max(0) as usize));

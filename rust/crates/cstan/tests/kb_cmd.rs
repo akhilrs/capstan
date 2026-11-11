@@ -143,6 +143,25 @@ impl Project {
         )
     }
 
+    fn run_in(&self, dir: &Path, env: &[(&str, &str)], args: &[&str]) -> (i32, String, String) {
+        let o = Command::new(env!("CARGO_BIN_EXE_cstan"))
+            .args(args)
+            .current_dir(dir)
+            .env_clear()
+            .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .env("CAPSTAN_TRUST_DIR", support::trust_dir_of(&self.root))
+            .env("HOME", "/nonexistent")
+            .envs(env.iter().copied())
+            .stdin(Stdio::null())
+            .output()
+            .expect("cstan runs");
+        (
+            o.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&o.stdout).into_owned(),
+            String::from_utf8_lossy(&o.stderr).into_owned(),
+        )
+    }
+
     fn file(&self) -> String {
         std::fs::read_to_string(self.root.join(FILE)).unwrap_or_default()
     }
@@ -441,4 +460,234 @@ fn force_and_verified_are_refused_outside_their_verb() {
         );
     }
     assert_eq!(p.file(), before);
+}
+
+fn local_file(p: &Project) -> PathBuf {
+    p.root.join(".capstan/state/kb/entries.jsonl")
+}
+
+#[test]
+fn local_storage_writes_leave_the_working_tree_alone_and_change_the_state_file() {
+    let p = project("local", Some("storage = \"local\"\n"), &[]);
+    let head = p.head();
+    let status_before = git(&p.root, &["status", "--porcelain"]);
+    let (code, out, err) = p.run(&[
+        "kb",
+        "add",
+        "--id",
+        "dates",
+        "--kind",
+        "helper",
+        "--title",
+        "Parse a calendar date",
+        "--body",
+        "ISO only.",
+    ]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        out,
+        "kb: added dates to the local knowledge base; nothing to commit\n"
+    );
+    let text = std::fs::read_to_string(local_file(&p)).unwrap();
+    assert!(
+        text.contains("\"id\":\"dates\"") && text.contains(&head),
+        "{text}"
+    );
+    let (code, out, err) = p.run(&["kb", "update", "dates", "--body", "ISO 8601 only."]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        out,
+        "kb: updated dates in the local knowledge base; nothing to commit\n"
+    );
+    assert!(std::fs::read_to_string(local_file(&p))
+        .unwrap()
+        .contains("ISO 8601 only."));
+    let (code, _, err) = p.run(&["kb", "update", "nope", "--body", "x"]);
+    assert_eq!(code, 1);
+    assert!(err.starts_with("kb: no entry nope in "), "{err}");
+    let (code, out, _) = p.run(&["kb", "remove", "dates"]);
+    assert_eq!(code, 0);
+    assert_eq!(
+        out,
+        "kb: removed dates from the local knowledge base; nothing to commit\n"
+    );
+    assert_eq!(git(&p.root, &["status", "--porcelain"]), status_before);
+    assert!(!p.root.join(FILE).exists());
+    let (_, log, _) = p.run(&["kb", "log"]);
+    let verbs: Vec<&str> = log.lines().filter_map(|l| l.split("  ").nth(2)).collect();
+    assert_eq!(verbs, ["remove", "update", "add"], "{log}");
+}
+
+#[test]
+fn import_stages_chunks_with_file_line_numbers_and_one_change_line_and_log_and_export_print() {
+    let p = project("import", Some("storage = \"local\"\n"), &[]);
+    let head = p.head();
+    let mut text = String::new();
+    for n in 0..260 {
+        let body = format!("Entry {n}. {}", "word ".repeat(70));
+        text.push_str(&line(
+            &format!("entry-{n:03}"),
+            "convention",
+            &format!("Rule {n} z{n}q"),
+            &body,
+            None,
+            &head,
+        ));
+        text.push('\n');
+        if n == 250 {
+            text.push_str("not json\n");
+        }
+    }
+    assert!(text.len() > 2 * 48 * 1024, "{}", text.len());
+    let input = p.base.join("import.jsonl");
+    std::fs::write(&input, &text).unwrap();
+    let (code, out, err) = p.run(&["kb", "import", input.to_str().unwrap()]);
+    assert_eq!(code, 0, "{err}");
+    let mut lines = out.lines();
+    let place = local_file(&p);
+    let shown = place.strip_prefix(&p.root).unwrap().display().to_string();
+    assert_eq!(
+        lines.next().unwrap(),
+        format!(
+            "kb: imported 260 entries (0 replaced, 0 skipped as existing, 1 invalid) into {shown}"
+        )
+    );
+    assert!(
+        lines.next().unwrap().starts_with("invalid line 252: "),
+        "{out}"
+    );
+    // Again: everything is skipped; --replace replaces.
+    let (_, out, _) = p.run(&["kb", "import", input.to_str().unwrap()]);
+    assert!(
+        out.starts_with("kb: imported 0 entries (0 replaced, 260 skipped as existing, 1 invalid)"),
+        "{out}"
+    );
+    let (_, out, _) = p.run(&["kb", "import", input.to_str().unwrap(), "--replace"]);
+    assert!(
+        out.starts_with("kb: imported 0 entries (260 replaced, 0 skipped as existing, 1 invalid)"),
+        "{out}"
+    );
+    let (code, exported, _) = p.run(&["kb", "export"]);
+    assert_eq!(code, 0);
+    assert_eq!(exported.lines().count(), 260);
+    let (_, log, _) = p.run(&["kb", "log", "--limit", "1"]);
+    assert_eq!(log.lines().count(), 1);
+    assert!(log.contains("  operator  import  -  "), "{log}");
+    let (_, json_log, _) = p.run(&["kb", "log", "--json"]);
+    let parsed: Value = serde_json::from_str(&json_log).unwrap();
+    // one change line per import that wrote something: the first and the replace run
+    assert_eq!(parsed.as_array().unwrap().len(), 2);
+    assert_eq!(parsed[0]["verb"], "import");
+    assert_eq!(parsed[0]["agent"], "operator");
+}
+
+#[test]
+fn an_import_over_the_entry_limit_writes_nothing_and_stages_nothing() {
+    let p = project(
+        "importcap",
+        Some("storage = \"local\"\nmax_entries = 2\n"),
+        &[],
+    );
+    let head = p.head();
+    let text: String = (0..3)
+        .map(|n| {
+            line(
+                &format!("e-{n}"),
+                "convention",
+                &format!("Rule {n} z{n}q"),
+                "A body.",
+                None,
+                &head,
+            ) + "\n"
+        })
+        .collect();
+    let input = p.base.join("big.jsonl");
+    std::fs::write(&input, text).unwrap();
+    let (code, _, err) = p.run(&["kb", "import", input.to_str().unwrap()]);
+    assert_eq!(code, 1);
+    assert!(err.contains("over the limit of 2"), "{err}");
+    assert!(
+        !local_file(&p).exists() || std::fs::read_to_string(local_file(&p)).unwrap().is_empty()
+    );
+    let parts: Vec<_> = std::fs::read_dir(p.root.join(".capstan/state/kb"))
+        .map(|d| {
+            d.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(parts.is_empty(), "{parts:?}");
+}
+
+#[test]
+fn importing_an_empty_file_imports_zero_entries_and_exits_0() {
+    let p = project("importempty", Some("storage = \"local\"\n"), &[]);
+    let input = p.base.join("empty.jsonl");
+    std::fs::write(&input, "").unwrap();
+    let (code, out, err) = p.run(&["kb", "import", input.to_str().unwrap()]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        out.starts_with(
+            "kb: imported 0 entries (0 replaced, 0 skipped as existing, 0 invalid) into "
+        ),
+        "{out}"
+    );
+}
+
+#[test]
+fn log_in_repo_storage_is_refused_like_import() {
+    let p = project("logrepo", Some(""), &[]);
+    let (code, _, err) = p.run(&["kb", "log"]);
+    assert_eq!(code, 1);
+    assert!(err.starts_with("kb: [kb] storage is repo;"), "{err}");
+}
+
+#[test]
+fn a_write_from_a_second_worktree_reaches_the_shared_store_and_leaves_both_trees_clean() {
+    let p = project("worktree", Some("storage = \"local\"\n"), &[]);
+    let second = p.base.join("second");
+    git(
+        &p.root,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            second.to_str().unwrap(),
+        ],
+    );
+    // An agent in the second tree reaches the controller of the first through its socket and credential.
+    p.run(&["kb", "status"]);
+    let socket = p.root.join(".capstan/state/control.sock");
+    let before = (
+        git(&p.root, &["status", "--porcelain"]),
+        git(&second, &["status", "--porcelain"]),
+    );
+    let env = [
+        ("CAPSTAN_TOKEN", OPERATOR),
+        ("CAPSTAN_SOCKET", socket.to_str().unwrap()),
+    ];
+    let (code, _, err) = p.run_in(
+        &second,
+        &env,
+        &[
+            "kb",
+            "add",
+            "--id",
+            "from-second",
+            "--kind",
+            "convention",
+            "--title",
+            "Added elsewhere",
+            "--body",
+            "Body.",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(git(&p.root, &["status", "--porcelain"]), before.0);
+    assert_eq!(git(&second, &["status", "--porcelain"]), before.1);
+    assert!(!p.root.join(FILE).exists() && !second.join(FILE).exists());
+    let (code, out, _) = p.run(&["kb", "export"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("from-second"), "{out}");
 }
