@@ -299,7 +299,7 @@ struct ItemDetailScreen: View {
             }
             if ctx.item.kind == .op, ctx.answerable, shown.whole, main.received {
                 switch approveOffer(ctx, shown: shown) {
-                case .oldHost: footnote(ApproveStrings.oldhostNote)
+                case .oldHost: footnote(CapstanPhoneCore.ApproveStrings.oldhostNote)
                 case .sheet(let plan): approveNotes(plan)
                 case .denyOnly(let limit):
                     if let text = approveDenyOnlyText(limit) { footnote(text) }
@@ -433,7 +433,7 @@ struct ItemDetailScreen: View {
 
     @ViewBuilder
     private func opBar(_ ctx: DetailContext, shown: ShownText, stacked: Bool) -> some View {
-        let deny = Button { confirmDeny = true } label: { Text(verbatim: ApproveStrings.denyAction) }
+        let deny = Button { confirmDeny = true } label: { Text(verbatim: CapstanPhoneCore.ApproveStrings.denyAction) }
             .buttonStyle(.capstanDestructive)
             .disabled(sending || !isAvailable(.opDeny(note: nil)))
         switch approveOffer(ctx, shown: shown) {
@@ -442,7 +442,7 @@ struct ItemDetailScreen: View {
                 deny
             } primary: {
                 Button { forwardApproval() } label: {
-                    if sending { SendingLabel() } else { Text(verbatim: ApproveStrings.oldhostAction) }
+                    if sending { SendingLabel() } else { Text(verbatim: CapstanPhoneCore.ApproveStrings.oldhostAction) }
                 }
                 .buttonStyle(.capstanPrimary)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -453,7 +453,7 @@ struct ItemDetailScreen: View {
                 deny
             } primary: {
                 Button { approveRefusal = nil; approving = true } label: {
-                    if sending { SendingLabel() } else { Text(verbatim: ApproveStrings.answerAction) }
+                    if sending { SendingLabel() } else { Text(verbatim: CapstanPhoneCore.ApproveStrings.answerAction) }
                 }
                 .buttonStyle(.capstanPrimary)
                 .keyboardShortcut(.return, modifiers: .command)
@@ -466,15 +466,15 @@ struct ItemDetailScreen: View {
 
     /// What the host lets this phone do with the proposal. An old host keeps the forward flow; a cut or unverified
     /// command offers no sheet.
-    private func approveOffer(_ ctx: DetailContext, shown: ShownText) -> ApproveOffer {
-        ApproveOffer.make(ctx.item.approveChoices, commandVerified: shown.verified, commandWhole: shown.whole)
+    private func approveOffer(_ ctx: DetailContext, shown: ShownText) -> CapstanPhoneCore.ApproveOffer {
+        CapstanPhoneCore.ApproveOffer.make(ctx.item.approveChoices, commandVerified: shown.verified, commandWhole: shown.whole)
     }
 
     /// The lines under the command when the host limits the choices.
     @ViewBuilder
     private func approveNotes(_ plan: ApprovePlan) -> some View {
         if let text = plan.limitText {
-            footnote(ApproveStrings.limitedLead + " " + text)
+            footnote(CapstanPhoneCore.ApproveStrings.limitedLead + " " + text)
         }
     }
 
