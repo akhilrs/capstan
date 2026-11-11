@@ -658,6 +658,7 @@ pub const SKIPPED_ACTIONS: &[&str] = &[
     "workspace.set_attach",
     "workspace.set_create",
     "workspace.set_detach",
+    "workspace.set_member_remove",
     "workspace.set_reset",
     "workspace.set_state",
     "workspace.worktree_record",

@@ -1192,17 +1192,14 @@ impl LauncherKernel {
         self.environment_with(token, include_pass, None)
     }
 
-    /// `environment`, with the `[cache]` entries limited to `cache_names` (`None`: all) and without the preview switch of
-    /// the unfinished workspace mode, which no pane gets whatever `[env] pass` lists.
+    /// `environment`, with the `[cache]` entries limited to `cache_names` (`None`: all).
     pub fn environment_with(
         &self,
         token: Option<&str>,
         include_pass: Option<bool>,
         cache_names: Option<&[String]>,
     ) -> OpResult<BTreeMap<String, String>> {
-        let mut environment = self.environment_inner(token, include_pass, cache_names)?;
-        environment.remove(capstan_config::WORKSPACE_PREVIEW_ENV);
-        Ok(environment)
+        self.environment_inner(token, include_pass, cache_names)
     }
 
     fn environment_inner(

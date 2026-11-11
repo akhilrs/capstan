@@ -4,7 +4,13 @@ All notable changes are listed here, newest release first. `scripts/release.sh` 
 
 ## Unreleased
 
+### Upgrade note
+
+Workspace mode is on. A project that already lists `[repos]` was refused before and now runs in workspace mode, from a root that need not be a git repository; `CAPSTAN_WORKSPACE_PREVIEW` is gone and has no effect. Projects without `[repos]` are unchanged.
+
 ### Features
+
+- feat(workspace): workspace mode is on. The preview gate is removed from `cstan init --workspace`, `cstan start` and the daemon boot, and the daemon boots from a root that is not a git repository.
 
 - feat(kb): local knowledge base storage. `[kb] storage = "local"` keeps the entries in the controller's state directory instead of the repository, so no branch carries them. New keys `pm_note_minutes` and `log_max_entries`; new `cstan kb import`, `log` and `export`; a change log and a rate-limited PM note; a warning while the old file is still in the repository. The default stays `repo`. See [Knowledge base](docs/reference/knowledge-base.md#storage).
 

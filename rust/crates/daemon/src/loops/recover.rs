@@ -156,6 +156,7 @@ fn recover_sets(deps: &Deps, stopped: &dyn Fn() -> bool) {
 /// The state and reason a cut-off set moves to, from the state of each member's integration.
 fn set_outcome(deps: &Deps, set: &Value) -> (String, String) {
     let mut merged = 0;
+    let mut dropped = 0;
     let mut cut_off: Option<String> = None;
     let members = set["members"].as_array().cloned().unwrap_or_default();
     for member in &members {
@@ -170,6 +171,8 @@ fn set_outcome(deps: &Deps, set: &Value) -> (String, String) {
             .unwrap_or(Value::Null);
         match record["state"].as_str().unwrap_or("") {
             "merged" | "confirmed" => merged += 1,
+            // Dropped: discarded and not redone.
+            "discarded" => dropped += 1,
             "conflicted" => {
                 let files: Vec<&str> = record["conflictFiles"]
                     .as_array()
@@ -195,7 +198,7 @@ fn set_outcome(deps: &Deps, set: &Value) -> (String, String) {
     }
     match cut_off {
         Some(repo) => ("failed".into(), format!("cut off before repo {repo}")),
-        None if merged == members.len() && merged > 0 => ("merged".into(), String::new()),
+        None if merged + dropped == members.len() && merged > 0 => ("merged".into(), String::new()),
         None => ("failed".into(), "cut off before any repo merged".into()),
     }
 }

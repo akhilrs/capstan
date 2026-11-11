@@ -134,9 +134,26 @@ pub fn request_review(
     })?;
     let role = choose_reviewer_role(config, requested_role)?;
     let workspace = crate::handlers::verify::is_workspace(deps);
+    // A set (its id or a member's) is reviewed as one review whose subject is its first member by position.
+    let set_id = if workspace {
+        let subject = subject_id.to_string();
+        deps.kernel.run(move |core| core.set_of_subject(&subject))?
+    } else {
+        None
+    };
     if workspace {
-        workspace_review_gate(deps, subject_id)?;
+        workspace_review_gate(deps, subject_id, set_id.as_deref())?;
     }
+    let gated_id = subject_id;
+    let first_member = match &set_id {
+        Some(set_id) => {
+            let set_id = set_id.clone();
+            let gate = deps.kernel.run(move |core| core.set_gate(&set_id, ""))?;
+            gate["reviewSubjectId"].as_str().map(str::to_string)
+        }
+        None => None,
+    };
+    let subject_id = first_member.as_deref().unwrap_or(subject_id);
     let check = {
         let (subject, role) = (subject_id.to_string(), role.clone());
         deps.kernel
@@ -146,18 +163,32 @@ pub fn request_review(
     crate::handlers::verify::check_gate(
         deps,
         crate::handlers::verify::Gate::Review,
-        &[subject_id.to_string()],
+        &[gated_id.to_string()],
     )?;
     let commit_sha = check["commitSha"].as_str().unwrap_or("").to_string();
     // A workspace report names a commit in each repo: each must exist in its own repo, and the reviewer starts there.
-    let repo_commits = if workspace {
+    let repo_commits = if let Some(set_id) = &set_id {
+        set_commit_rows(deps, set_id)?
+    } else if workspace {
         report_commit_rows(deps, subject_id)?
     } else {
         Vec::new()
     };
+    // A subject with no per-repo commits (a plan revision) records its base from the default repo in a workspace, and
+    // the workspace root need not be a repository.
+    let plain_repo = if workspace {
+        deps.options
+            .capstan
+            .as_deref()
+            .and_then(|c| c.workspace.as_ref())
+            .map(|w| w.default_repo.clone())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let plain_git = deps.repo_git(&plain_repo);
     if repo_commits.is_empty() {
-        let exists = deps
-            .git
+        let exists = plain_git
             .commit_exists(&commit_sha)
             .map_err(|e| ReviewRequestError::new("commit_missing", e.message))?;
         if !exists {
@@ -232,7 +263,7 @@ pub fn request_review(
         workspace_diff_scope(deps, subject_id, &repo_commits)
     } else {
         match check["baseSha"].as_str() {
-            Some(base) => match deps.git.diff_stat(base, &commit_sha) {
+            Some(base) => match plain_git.diff_stat(base, &commit_sha) {
                 Ok(scope) => Some(scope),
                 Err(error) => {
                     deps.detail_log(
@@ -384,17 +415,62 @@ fn report_commit_rows(
         .collect())
 }
 
-/// The review gate of a workspace: a set or a member of one is refused with the set text. When `[verify]` is configured
+/// `(repo, head, base)` of each member of a set that has an integration, in position order.
+fn set_commit_rows(
+    deps: &Deps,
+    set_id: &str,
+) -> Result<Vec<(String, String, String)>, RequestError> {
+    let set_id = set_id.to_string();
+    let gate = deps.kernel.run(move |core| {
+        let gate = core.set_gate(&set_id, "")?;
+        let mut rows = Vec::new();
+        for member in gate["members"].as_array().into_iter().flatten() {
+            let (Some(id), Some(head)) = (
+                member["integrationId"].as_str(),
+                member["commitSha"].as_str(),
+            ) else {
+                continue;
+            };
+            let base = core.integration(id)?["baseSha"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            rows.push((
+                member["repo"].as_str().unwrap_or("").to_string(),
+                head.to_string(),
+                base,
+            ));
+        }
+        Ok(rows)
+    })?;
+    Ok(gate)
+}
+
+/// The review gate of a workspace. A set (`set_id`) is reviewed only when merged and every member has a counted passed run
+/// with its repo's current commands. When `[verify]` is configured
 /// the gate is forced whatever `require_review` says (as integrate is): a report is reviewed only when every repo it
 /// names a commit for has passed verify (a report without per-repo commits is refused). The ledger check is coarse (a
 /// passed run at the commit under any commands); `workspace_gate`, with each repo's current commands, is the authority.
 /// Without `[verify]` a workspace review is not verify-gated, as in a single repo.
-fn workspace_review_gate(deps: &Deps, subject_id: &str) -> Result<(), RequestError> {
+fn workspace_review_gate(
+    deps: &Deps,
+    subject_id: &str,
+    set_id: Option<&str>,
+) -> Result<(), RequestError> {
     let subject = subject_id.to_string();
     let verify = deps.verify.is_some();
+    let set = set_id.map(str::to_string);
     let refused = deps.kernel.run(move |core| {
-        if let Some(why) = crate::handlers::verify::set_refusal(core, &subject)? {
-            return Ok(Some(why));
+        if let Some(set_id) = set {
+            // Without [verify] a set is not verify-gated, but it still has to be merged.
+            if !verify {
+                let gate = core.set_gate(&set_id, "")?;
+                let state = gate["state"].as_str().unwrap_or("").to_string();
+                return Ok((state != "merged").then(|| {
+                    format!("review_refused: set {set_id} is {state}; only a merged set can be reviewed")
+                }));
+            }
+            return Ok(core.review_gate(&GateSubject::Set(set_id)).err());
         }
         if !verify {
             return Ok(None);
@@ -407,14 +483,28 @@ fn workspace_review_gate(deps: &Deps, subject_id: &str) -> Result<(), RequestErr
             Some(why) => Err(RequestError::Kernel(KernelError::MutationConflict(why))),
         };
     };
-    match refused {
-        None => {
-            crate::handlers::verify::workspace_gate(deps, service, &[subject_id.to_string()])?;
-            Ok(())
+    let exact = |deps: &Deps| -> Result<(), RequestError> {
+        match set_id {
+            Some(set_id) => {
+                let failures = crate::handlers::verify::set_gate_failures(deps, service, set_id)?;
+                if failures.is_empty() {
+                    Ok(())
+                } else {
+                    Err(crate::handlers::verify::required_error(&failures).into())
+                }
+            }
+            None => Ok(crate::handlers::verify::workspace_gate(
+                deps,
+                service,
+                &[subject_id.to_string()],
+            )?),
         }
+    };
+    match refused {
+        None => exact(deps),
         // The ledger refusal names the missing run; the gate adds what a queued or running run is waiting for.
         Some(why) if why.starts_with("verify_required:") => {
-            crate::handlers::verify::workspace_gate(deps, service, &[subject_id.to_string()])?;
+            exact(deps)?;
             Err(ReviewRequestError::new("verify_required", why).into())
         }
         Some(why) => match why.strip_prefix("review_refused: ") {

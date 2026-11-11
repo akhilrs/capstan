@@ -367,7 +367,7 @@ pub fn daemon_options_with(
         let capstan: RoleConfig = capstan_config::load_role_config_with(cwd, &store)
             .map_err(|e| invalid(e.to_string()))?;
         warnings = capstan.warnings.clone();
-        check_workspace_boot(&capstan, cwd, preview_from_env().as_deref())?;
+        check_workspace_boot(&capstan)?;
         options.capstan = Some(Arc::new(capstan));
     }
     options.cli_path = std::env::current_exe().ok();
@@ -375,28 +375,13 @@ pub fn daemon_options_with(
     Ok((options, warnings))
 }
 
-/// The value of `CAPSTAN_WORKSPACE_PREVIEW` in this process.
-fn preview_from_env() -> Option<String> {
-    std::env::var(capstan_config::WORKSPACE_PREVIEW_ENV).ok()
-}
-
-/// The workspace checks of a boot, before any socket or port: a project with `[repos]` is refused while the mode is
-/// unfinished (unless `preview` is `1`), then its repositories are validated, and a root that is not a git work tree is
-/// refused because this build boots the daemon only from a repository root. A project without `[repos]` passes.
-pub fn check_workspace_boot(
-    config: &RoleConfig,
-    root: &Path,
-    preview: Option<&str>,
-) -> Result<(), RunError> {
+/// The workspace checks of a boot, before any socket or port: the repositories of a project with `[repos]` are
+/// validated. The root need not be a git work tree. A project without `[repos]` passes.
+pub fn check_workspace_boot(config: &RoleConfig) -> Result<(), RunError> {
     let Some(workspace) = &config.workspace else {
         return Ok(());
     };
-    capstan_config::workspace_gate(preview).map_err(invalid)?;
-    capstan_config::validate_workspace(workspace).map_err(invalid)?;
-    if !capstan_config::is_work_tree_root(root) {
-        return Err(invalid(capstan_config::WORKSPACE_ROOT_NOT_REPO));
-    }
-    Ok(())
+    capstan_config::validate_workspace(workspace).map_err(invalid)
 }
 
 // ------------------------------------------------------------------------------------------------ signals
@@ -595,11 +580,7 @@ fn run_with(
     shutdown: crate::deps::ShutdownHandle,
 ) -> Result<(), RunError> {
     if let Some(config) = &options.capstan {
-        check_workspace_boot(
-            config,
-            &options.workspace_root,
-            preview_from_env().as_deref(),
-        )?;
+        check_workspace_boot(config)?;
     }
     let kernel_options = KernelOptions {
         workspace_root: Some(options.workspace_root.clone()),

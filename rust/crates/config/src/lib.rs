@@ -80,9 +80,7 @@ pub use trust::{
 pub use types::*;
 pub use verify::{path_matches, step_runs, Verify};
 pub use workspace::{
-    first_repo_problem, is_work_tree_root, validate_workspace, workspace_gate, RepoConfig,
-    RepoVerify, Workspace, WORKSPACE_MODE_READY, WORKSPACE_NOT_COMPLETE, WORKSPACE_PREVIEW_ENV,
-    WORKSPACE_ROOT_NOT_REPO,
+    first_repo_problem, is_work_tree_root, validate_workspace, RepoConfig, RepoVerify, Workspace,
 };
 
 /// `loadCapstanConfig` / `loadRoleConfig`: reads `capstan.toml` in `cwd`, lays `capstan.local.toml` over it when that

@@ -1,19 +1,13 @@
-//! Workspace mode at the front door: the unfinished-mode gate of `cstan start`, `cstan init --workspace` and the daemon
-//! boot, `init --workspace` over a root that is not a repository, and the socket verdict from a worktree folder.
+//! Workspace mode at the front door: `cstan init --workspace` and the daemon boot over a root that is not a
+//! repository, and the socket verdict from a worktree folder.
 mod support;
 
-use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
 
 use capstan_config::starter::WORKSPACE_STARTER_CONFIG;
-use capstan_config::{
-    load_role_config_with, record_current, trust_status_with, TrustStatus, WORKSPACE_NOT_COMPLETE,
-    WORKSPACE_ROOT_NOT_REPO,
-};
+use capstan_config::{load_role_config_with, record_current, trust_status_with, TrustStatus};
 use support::*;
-
-const NOT_A_REPO_TEXT: &str = "this build boots the daemon only from a git repository root; a non-repo workspace root needs a later build";
 
 fn git(directory: &Path, args: &[&str]) {
     let output = Command::new("git")
@@ -46,15 +40,6 @@ fn repo_with_commit(directory: &Path) {
     );
 }
 
-fn preview(bed: &TrustBed) -> Vec<(OsString, OsString)> {
-    let mut env = bed.env();
-    env.push((
-        OsString::from("CAPSTAN_WORKSPACE_PREVIEW"),
-        OsString::from("1"),
-    ));
-    env
-}
-
 const BASE: &str = "schema_version = 1\n[nexora]\ntrack = \"never\"\n[hosts.claude]\nkind = \"claude\"\n[roles.pm]\nkind = \"PM\"\nhost = \"claude\"\n";
 
 fn workspace_toml(extra: &str) -> String {
@@ -63,10 +48,10 @@ fn workspace_toml(extra: &str) -> String {
 
 const API: &str = "[repos.api]\npath = \"api\"\nmain_branch = \"main\"\n";
 
-/// A project initialised with the preview, then given `toml` and trusted.
+/// A project initialised, then given `toml` and trusted.
 fn initialised(label: &str, toml: &str) -> TrustBed {
     let bed = TrustBed::new(label);
-    let (exit, out, err) = bed.run(&["init", "--workspace"], preview(&bed));
+    let (exit, out, err) = bed.run(&["init", "--workspace"], bed.env());
     assert_eq!(exit, 0, "{out}{err}");
     bed.write(toml);
     record_current(&bed.project, &bed.store()).unwrap();
@@ -74,32 +59,11 @@ fn initialised(label: &str, toml: &str) -> TrustBed {
 }
 
 #[test]
-fn init_workspace_and_start_are_refused_without_the_preview() {
-    let bed = TrustBed::new("ws-gate-init");
-    let (exit, out, err) = bed.run(&["init", "--workspace"], bed.env());
-    assert_ne!(exit, 0, "{out}");
-    assert!(err.contains(WORKSPACE_NOT_COMPLETE), "{err}");
-    assert!(!bed.project.join(".capstan").exists());
-    assert!(!bed.project.join("capstan.toml").exists());
-
-    // The gate comes before validation: a broken repository gives the not-complete text, not the git text.
-    let bed = initialised("ws-gate-start", &workspace_toml(API));
-    let (exit, out, err) = bed.run(&["start"], bed.env());
-    assert_ne!(exit, 0, "{out}");
-    assert!(err.contains(WORKSPACE_NOT_COMPLETE), "{err}");
-    assert!(!err.contains("top level"), "{err}");
-    // The gate reads the file without judging trust.
-    bed.write(&workspace_toml(&format!("{API}# changed\n")));
-    let (_, _, err) = bed.run(&["start"], bed.env());
-    assert!(err.contains(WORKSPACE_NOT_COMPLETE), "{err}");
-}
-
-#[test]
-fn start_with_the_preview_names_a_repo_without_a_commit() {
+fn start_names_a_repo_without_a_commit() {
     let bed = initialised("ws-start-nocommit", &workspace_toml(API));
     std::fs::create_dir_all(bed.project.join("api")).unwrap();
     git(&bed.project.join("api"), &["init", "--quiet"]);
-    let (exit, out, err) = bed.run(&["start"], preview(&bed));
+    let (exit, out, err) = bed.run(&["start"], bed.env());
     assert_ne!(exit, 0, "{out}");
     assert!(
         err.contains("repo api: ")
@@ -111,7 +75,7 @@ fn start_with_the_preview_names_a_repo_without_a_commit() {
 #[test]
 fn init_workspace_works_in_an_empty_folder_and_writes_the_starter_byte_for_byte() {
     let bed = TrustBed::new("ws-init");
-    let (exit, out, err) = bed.run(&["init", "--workspace"], preview(&bed));
+    let (exit, out, err) = bed.run(&["init", "--workspace"], bed.env());
     assert_eq!(exit, 0, "{out}{err}");
     assert_eq!(
         std::fs::read_to_string(bed.project.join("capstan.toml")).unwrap(),
@@ -135,7 +99,7 @@ fn init_workspace_works_in_an_empty_folder_and_writes_the_starter_byte_for_byte(
         &["init", "--workspace", "--git"][..],
         &["init", "--workspace", "--gitignore"][..],
     ] {
-        let (exit, _, _) = bed.run(args, preview(&bed));
+        let (exit, _, _) = bed.run(args, bed.env());
         assert_eq!(exit, 2, "{args:?}");
     }
 }
@@ -144,7 +108,7 @@ fn init_workspace_works_in_an_empty_folder_and_writes_the_starter_byte_for_byte(
 fn init_workspace_in_a_repository_root_writes_the_block() {
     let bed = TrustBed::new("ws-init-repo");
     repo_with_commit(&bed.project);
-    let (exit, out, err) = bed.run(&["init", "--workspace"], preview(&bed));
+    let (exit, out, err) = bed.run(&["init", "--workspace"], bed.env());
     assert_eq!(exit, 0, "{out}{err}");
     let ignore = std::fs::read_to_string(bed.project.join(".gitignore")).unwrap();
     assert!(ignore.contains(".capstan/"), "{ignore}");
@@ -169,33 +133,25 @@ fn editing_main_branch_turns_trust_to_changed() {
 }
 
 #[test]
-fn the_daemon_boot_gates_then_validates_then_wants_a_repository_root() {
+fn the_daemon_boots_from_a_root_that_is_not_a_repository() {
     let bed = initialised("ws-boot", &workspace_toml(API));
     repo_with_commit(&bed.project.join("api"));
+    assert!(!bed.project.join(".git").exists());
     let config = load_role_config_with(&bed.project, &bed.store()).unwrap();
-    let check = |preview: Option<&str>| {
-        capstan_daemon::run::check_workspace_boot(&config, &bed.project, preview)
-            .map_err(|error| error.message)
-    };
-    // The root is not a repository here: without the variable the gate answers first.
-    assert_eq!(check(None).unwrap_err(), WORKSPACE_NOT_COMPLETE);
-    assert_eq!(check(Some("1")).unwrap_err(), NOT_A_REPO_TEXT);
-    assert_eq!(WORKSPACE_ROOT_NOT_REPO, NOT_A_REPO_TEXT);
-    // A root that is a git repository listed nowhere boots with the variable only.
-    repo_with_commit(&bed.project);
-    git(&bed.project, &["rm", "-r", "--cached", "--quiet", "api"]);
-    assert_eq!(check(None).unwrap_err(), WORKSPACE_NOT_COMPLETE);
-    assert!(check(Some("1")).is_ok());
-    // The options come through the same gate (the variable is not set in this process).
-    let error = capstan_daemon::run::daemon_options_with(&bed.project, bed.store())
-        .err()
-        .expect("refused");
-    assert_eq!(error.message, WORKSPACE_NOT_COMPLETE);
+    // Only the repositories are validated: the root need not be a git work tree.
+    assert!(capstan_daemon::run::check_workspace_boot(&config).is_ok());
+    capstan_daemon::run::daemon_options_with(&bed.project, bed.store()).expect("boots");
+    // A repository without a commit is still refused.
+    std::fs::remove_dir_all(bed.project.join("api")).unwrap();
+    std::fs::create_dir_all(bed.project.join("api")).unwrap();
+    git(&bed.project.join("api"), &["init", "--quiet"]);
+    let error = capstan_daemon::run::check_workspace_boot(&config).unwrap_err();
+    assert!(error.message.contains("repo api: "), "{}", error.message);
     // A project without [repos] passes whatever its root is.
     bed.write(BASE);
     record_current(&bed.project, &bed.store()).unwrap();
     let plain = load_role_config_with(&bed.project, &bed.store()).unwrap();
-    assert!(capstan_daemon::run::check_workspace_boot(&plain, &bed.project, None).is_ok());
+    assert!(capstan_daemon::run::check_workspace_boot(&plain).is_ok());
 }
 
 #[test]

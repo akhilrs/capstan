@@ -503,6 +503,9 @@ pub fn record_signoff(
                     ))
                 }
             };
+            // A set id names the set's review subject.
+            let integration_id = plans::signoff_target(kernel, integration_id)?;
+            let integration_id = integration_id.as_str();
             if plan.state != "approved" {
                 return Err(KernelError::controller(format!(
                     "plan {plan_id} is {}, not approved",
@@ -530,11 +533,16 @@ pub fn record_signoff(
             if plan.cancelled_at.is_some() {
                 return Err(KernelError::controller(format!("plan {plan_id} is cancelled")));
             }
-            if state != "merged" && state != "confirmed" {
+            // A member of a set is signed off with its whole set: every live member confirmed.
+            let set_signoff = plans::signoff_set(kernel, integration_id)?;
+            if set_signoff.is_none() && state != "merged" && state != "confirmed" {
                 return Err(KernelError::controller(format!(
                     "integration {integration_id} is {state}, not merged or confirmed; only an integration that merged cleanly can be signed off"
                 )));
             }
+            let target_sequence = set_signoff
+                .as_ref()
+                .map_or(target_sequence, |set| target_sequence.max(set.target_sequence));
             let report_count = query_opt(
                 &kernel.database,
                 "SELECT COUNT(*) AS n FROM integration_reports WHERE project_id = ? AND integration_id = ?",
@@ -575,7 +583,9 @@ pub fn record_signoff(
                 [&kernel.project_id, integration_id],
                 |row| row.get::<_, String>(0),
             )?;
-            if latest.as_deref() != Some("passed") {
+            if latest.as_deref() != Some("passed")
+                && !set_signoff.as_ref().is_some_and(|set| set.review_passed)
+            {
                 return Err(KernelError::controller(format!(
                     "integration {integration_id} has no passed review as its latest verdict"
                 )));

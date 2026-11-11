@@ -722,7 +722,7 @@ fn report_author(w: &World, report: &str) -> String {
 }
 
 #[test]
-fn a_set_or_a_set_member_is_refused_with_the_set_text() {
+fn a_set_that_is_not_merged_is_refused() {
     let w = World::build_with(true, true, Shape::Review);
     let credential = w.deps.credential().to_string();
     let set_id = w.ledger(move |core| {
@@ -738,7 +738,7 @@ fn a_set_or_a_set_member_is_refused_with_the_set_text() {
     let refused = w.call("pm-1", "request-review", &[&set_id]);
     assert_eq!(refused["ok"], false, "{refused}");
     assert!(
-        text_of(&refused).contains("set verify and review come with set redo"),
+        text_of(&refused).contains("only a merged set can be reviewed"),
         "{refused}"
     );
     assert!(w
@@ -747,7 +747,7 @@ fn a_set_or_a_set_member_is_refused_with_the_set_text() {
             move |core| Ok(core.review_gate(&capstan_kernel::records::GateSubject::Set(set_id)))
         })
         .unwrap_err()
-        .contains("not yet supported"));
+        .contains("only a merged set can be reviewed"));
 }
 
 #[test]

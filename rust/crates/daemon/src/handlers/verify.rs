@@ -88,19 +88,53 @@ pub(crate) fn is_workspace(deps: &Deps) -> bool {
         .is_some_and(|config| config.workspace.is_some())
 }
 
-/// The refusal for a set or a member of one: set verify and review come with set redo.
-pub(crate) fn set_refusal(core: &Core, subject: &str) -> KernelResult<Option<String>> {
-    if let Some(set) = core.set_of_integration(subject)? {
-        return Ok(Some(format!(
-            "integration {subject} belongs to set {set}; set verify and review come with set redo"
-        )));
+/// The members of the set a subject id names (the set's own id or a member's integration id), as the set gate reads them
+/// under any commands: `None` when the subject is not in a set.
+pub(crate) fn set_view(core: &Core, subject: &str) -> KernelResult<Option<Value>> {
+    match core.set_of_subject(subject)? {
+        Some(set_id) => Ok(Some(core.set_gate(&set_id, "")?)),
+        None => Ok(None),
     }
-    if !core.integration_set(subject)?.is_null() {
-        return Ok(Some(format!(
-            "set {subject} cannot be verified yet; set verify and review come with set redo"
-        )));
-    }
-    Ok(None)
+}
+
+/// The gate of a set under each repo's current commands: one failure per member without a counted passed run.
+pub(crate) fn set_gate_failures(
+    deps: &Deps,
+    service: &VerifyService,
+    set_id: &str,
+) -> Result<Vec<Value>, KernelError> {
+    let shas = repo_shas(deps, service);
+    let id = set_id.to_string();
+    deps.kernel.run(move |core| {
+        // A repo without its own `[repos.<r>.verify]` runs the top-level commands (the entry named ''); an empty sha would
+        // accept a run under any commands, and a [verify] section always gives a sha.
+        let top = shas
+            .iter()
+            .find(|(name, _)| name.is_empty())
+            .map(|(_, sha)| sha.clone())
+            .unwrap_or_default();
+        let gate = core.set_gate_by(&id, &|repo| {
+            shas.iter()
+                .find(|(name, _)| name == repo)
+                .map_or_else(|| top.clone(), |(_, sha)| sha.clone())
+        })?;
+        let mut failures = Vec::new();
+        for member in gate["members"].as_array().into_iter().flatten() {
+            let code = member["code"].as_str().unwrap_or("");
+            if code == "passed" {
+                continue;
+            }
+            failures.push(json!({
+                "subjectId": id,
+                "repo": member["repo"],
+                "commitSha": member["commitSha"],
+                "code": code,
+                "runId": member["runId"],
+                "state": if code == "verify_running" { json!("running") } else { Value::Null },
+            }));
+        }
+        Ok(failures)
+    })
 }
 
 /// One run queued for `subject` in `repo` (`None`: the subject's own repo) with that repo's commands.
@@ -164,46 +198,59 @@ fn queue(
     }
     let id = subject.to_string();
     let looked = env.deps.kernel.run(move |core| {
-        if let Some(why) = set_refusal(core, &id)? {
-            return Ok(Err(why));
+        if let Some(gate) = set_view(core, &id)? {
+            return Ok(Looked::Set(gate));
         }
         let rows = core.report_commits(&id)?;
-        Ok(Ok(rows
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row["repo"].as_str().map(str::to_string))
-            .collect::<Vec<_>>()))
+        Ok(Looked::Repos(
+            rows.as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|row| row["repo"].as_str().map(str::to_string))
+                .collect::<Vec<_>>(),
+        ))
     });
-    let repos = match looked {
-        Ok(Ok(repos)) => repos,
-        Ok(Err(why)) => return fail(ErrorCode::Rejected, format!("verify_refused: {why}")),
-        Err(error) => return map_kernel_error(&error),
-    };
-    if repos.is_empty() {
-        return fail(
-            ErrorCode::Rejected,
-            format!("verify_refused: {subject} names no commit per repo (a report from before workspace mode, or not a report); report again to verify it"),
-        );
-    }
-    let targets: Vec<String> = match repo {
-        Some(repo) if !repos.iter().any(|r| r == repo) => {
-            return fail(
-                ErrorCode::Rejected,
-                format!("verify_refused: repo {repo} is not in report {subject}"),
+    // Each target is the subject a run is queued for and the repo it runs in.
+    let (targets, set_id): (Vec<(String, String)>, Option<String>) = match looked {
+        Ok(Looked::Set(gate)) => match set_targets(&gate, repo) {
+            Ok(targets) => (targets, gate["setId"].as_str().map(str::to_string)),
+            Err(why) => return fail(ErrorCode::Rejected, format!("verify_refused: {why}")),
+        },
+        Ok(Looked::Repos(repos)) => {
+            if repos.is_empty() {
+                return fail(
+                    ErrorCode::Rejected,
+                    format!("verify_refused: {subject} names no commit per repo (a report from before workspace mode, or not a report); report again to verify it"),
+                );
+            }
+            let repos = match repo {
+                Some(repo) if !repos.iter().any(|r| r == repo) => {
+                    return fail(
+                        ErrorCode::Rejected,
+                        format!("verify_refused: repo {repo} is not in report {subject}"),
+                    )
+                }
+                // `report_commits` never holds the root repo ('') in workspace mode, so --repo cannot name it.
+                Some(repo) => vec![repo.to_string()],
+                None => repos,
+            };
+            (
+                repos
+                    .into_iter()
+                    .map(|r| (subject.to_string(), r))
+                    .collect(),
+                None,
             )
         }
-        // `report_commits` never holds the root repo ('') in workspace mode, so --repo cannot name it.
-        Some(repo) => vec![repo.to_string()],
-        None => repos,
+        Err(error) => return map_kernel_error(&error),
     };
     let mut runs = Vec::new();
-    for target in &targets {
+    for (target_subject, target) in &targets {
         match queue_one(
             env.deps,
             service,
             &credential,
-            subject,
+            target_subject,
             Some(target),
             "manual",
         ) {
@@ -238,6 +285,9 @@ fn queue(
     }
     service.notify();
     let mut answer = runs[0].clone();
+    if let Some(set_id) = set_id {
+        answer["setId"] = json!(set_id);
+    }
     answer["runs"] = Value::Array(
         runs.iter()
             .map(|run| {
@@ -251,6 +301,54 @@ fn queue(
             .collect(),
     );
     ok(answer)
+}
+
+/// What a workspace verify request names.
+enum Looked {
+    /// A set (its id or a member's): its gate view under any commands.
+    Set(Value),
+    /// A report: the repos it names a commit for.
+    Repos(Vec<String>),
+}
+
+/// The (member integration, repo) pairs a verify of a set queues: one per unconfirmed member (a confirmed member's code is
+/// on main and keeps its last passed run), or the one member `repo` names. Refused unless the set is merged.
+fn set_targets(gate: &Value, repo: Option<&str>) -> Result<Vec<(String, String)>, String> {
+    let set_id = gate["setId"].as_str().unwrap_or("");
+    let state = gate["state"].as_str().unwrap_or("");
+    if state != "merged" {
+        return Err(format!(
+            "set {set_id} is {state}; only a merged set is verified"
+        ));
+    }
+    let members: Vec<&Value> = gate["members"].as_array().into_iter().flatten().collect();
+    let pair = |m: &Value| {
+        (
+            m["integrationId"].as_str().unwrap_or("").to_string(),
+            m["repo"].as_str().unwrap_or("").to_string(),
+        )
+    };
+    match repo {
+        Some(repo) => match members.iter().find(|m| m["repo"] == repo) {
+            None => Err(format!("repo {repo} is not in set {set_id}")),
+            Some(m) if m["confirmed"] == true => Err(format!(
+                "repo {repo} of set {set_id} is confirmed; its code is on main and keeps its last passed run"
+            )),
+            Some(m) => Ok(vec![pair(m)]),
+        },
+        None => {
+            let targets: Vec<_> = members
+                .iter()
+                .filter(|m| m["confirmed"] != true)
+                .map(|m| pair(m))
+                .collect();
+            if targets.is_empty() {
+                Err(format!("every member of set {set_id} is confirmed; nothing to verify"))
+            } else {
+                Ok(targets)
+            }
+        }
+    }
 }
 
 fn show(env: &CommandEnv<'_>, run_id: &str) -> CommandResponse {
@@ -525,19 +623,31 @@ pub fn check_gate(deps: &Deps, gate: Gate, subjects: &[String]) -> Result<(), Ke
     }
     if workspace {
         if gate == Gate::Review {
-            // A set or a member of one is not gated yet: say so before any run is looked for.
+            // A set (its id or a member's) is gated as a whole: every member needs a counted passed run.
             let ids = subjects.to_vec();
-            let refused = deps.kernel.run(move |core| {
+            let sets = deps.kernel.run(move |core| {
+                let mut sets: Vec<(String, Option<String>)> = Vec::new();
                 for id in &ids {
-                    if let Some(why) = set_refusal(core, id)? {
-                        return Ok(Some(why));
-                    }
+                    sets.push((id.clone(), core.set_of_subject(id)?));
                 }
-                Ok(None)
+                Ok(sets)
             })?;
-            if let Some(why) = refused {
-                return Err(KernelError::MutationConflict(why));
+            let mut rest = Vec::new();
+            for (id, set) in sets {
+                match set {
+                    Some(set_id) => {
+                        let failures = set_gate_failures(deps, service, &set_id)?;
+                        if !failures.is_empty() {
+                            return Err(required_error(&failures));
+                        }
+                    }
+                    None => rest.push(id),
+                }
             }
+            if rest.is_empty() {
+                return Ok(());
+            }
+            return workspace_gate(deps, service, &rest);
         }
         return workspace_gate(deps, service, subjects);
     }
@@ -552,6 +662,25 @@ pub fn check_gate(deps: &Deps, gate: Gate, subjects: &[String]) -> Result<(), Ke
     Err(required_error(&failures))
 }
 
+/// The commands sha of each repo of the workspace ('' is the root) under the current configuration.
+fn repo_shas(deps: &Deps, service: &VerifyService) -> Vec<(String, String)> {
+    let mut repos: Vec<String> = deps
+        .options
+        .capstan
+        .as_ref()
+        .and_then(|config| config.workspace.as_ref())
+        .map(|w| w.repos.iter().map(|r| r.name.clone()).collect())
+        .unwrap_or_default();
+    repos.push(String::new());
+    repos
+        .into_iter()
+        .map(|repo| {
+            let sha = service.commands_sha_for(&repo);
+            (repo, sha)
+        })
+        .collect()
+}
+
 /// The gate of a workspace: every report passes only when each repo it names a commit for has a passed run at
 /// that commit with that repo's current commands.
 pub(crate) fn workspace_gate(
@@ -559,23 +688,7 @@ pub(crate) fn workspace_gate(
     service: &VerifyService,
     subjects: &[String],
 ) -> Result<(), KernelError> {
-    let shas: Vec<(String, String)> = {
-        let mut repos: Vec<String> = deps
-            .options
-            .capstan
-            .as_ref()
-            .and_then(|config| config.workspace.as_ref())
-            .map(|w| w.repos.iter().map(|r| r.name.clone()).collect())
-            .unwrap_or_default();
-        repos.push(String::new());
-        repos
-            .into_iter()
-            .map(|repo| {
-                let sha = service.commands_sha_for(&repo);
-                (repo, sha)
-            })
-            .collect()
-    };
+    let shas = repo_shas(deps, service);
     let subjects = subjects.to_vec();
     let failures = deps.kernel.run(move |core| {
         let mut failures: Vec<Value> = Vec::new();

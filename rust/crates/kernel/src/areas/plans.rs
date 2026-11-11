@@ -1358,3 +1358,69 @@ pub(crate) fn dispatch(kernel: &Kernel, op: &str, args: &[Value]) -> Option<Kern
         _ => None,
     }
 }
+
+// ------------------------------------------------------------------------------------------------- signoff over sets
+
+/// What a sign-off reads of the set its integration belongs to.
+pub(crate) struct SetSignoff {
+    /// The newest sequence among the live members' integrations: a package landed in any of them counts.
+    pub target_sequence: i64,
+    /// The set's own review (its subject is the first live member) passed.
+    pub review_passed: bool,
+}
+
+/// `signoff_target`: the integration a sign-off names; a set id names the set's review subject (its first live member).
+pub(crate) fn signoff_target(kernel: &Kernel, id: &str) -> KernelResult<String> {
+    if super::workspace::set_of_subject(kernel, id)?.as_deref() == Some(id) {
+        let subject = super::workspace::member_views(kernel, id)?
+            .into_iter()
+            .find_map(|member| member.integration_id);
+        return subject.ok_or_else(|| {
+            KernelError::controller(format!("set {id} has no live member; discard it"))
+        });
+    }
+    Ok(id.to_string())
+}
+
+/// `signoff_set`: `None` when the integration is not a set member. A member is signed off only when every live member of
+/// its set is confirmed (a dropped member is skipped; a member not started or not confirmed is named).
+pub(crate) fn signoff_set(
+    kernel: &Kernel,
+    integration_id: &str,
+) -> KernelResult<Option<SetSignoff>> {
+    let Some(set_id) = super::workspace::set_of_integration(kernel, integration_id)? else {
+        return Ok(None);
+    };
+    if super::workspace::member_views(kernel, &set_id)?.is_empty() {
+        return Err(KernelError::controller(format!(
+            "set {set_id} has no live member; discard it"
+        )));
+    }
+    if !super::workspace::set_confirmed(kernel, &set_id)? {
+        let mut waiting: Vec<String> = Vec::new();
+        for member in super::workspace::member_views(kernel, &set_id)? {
+            if !member.confirmed {
+                waiting.push(member.repo);
+            }
+        }
+        return Err(KernelError::controller(format!(
+            "set {set_id} is not confirmed: repo {} {} not confirmed yet",
+            waiting.join(", "),
+            if waiting.len() == 1 { "is" } else { "are" }
+        )));
+    }
+    let mut target_sequence = 0;
+    for member in super::workspace::member_views(kernel, &set_id)? {
+        if let Some(id) = member.integration_id {
+            if let Some(row) = super::integrations::integration_row(kernel, &id)? {
+                target_sequence = target_sequence.max(row.sequence);
+            }
+        }
+    }
+    let review_passed =
+        super::workspace::set_gate(kernel, &set_id, "")?["review"]["state"] == "passed";
+    Ok(Some(SetSignoff {
+        target_sequence,
+        review_passed,
+    }))
+}

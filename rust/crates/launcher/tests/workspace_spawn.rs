@@ -100,10 +100,7 @@ fn fixture_with(
             .into_owned(),
         credential: OWNER_CREDENTIAL.into(),
         node_path: Some("/usr/bin/node".into()),
-        base_environment: HashMap::from([
-            ("PATH".to_string(), std::env::var("PATH").unwrap()),
-            ("CAPSTAN_WORKSPACE_PREVIEW".to_string(), "1".to_string()),
-        ]),
+        base_environment: HashMap::from([("PATH".to_string(), std::env::var("PATH").unwrap())]),
         git: None,
         now: None,
         log: Some(Arc::new(move |event, details| {
@@ -262,7 +259,6 @@ fn two_repos_give_two_worktrees_on_one_branch_in_one_folder() {
     assert!(added[1].ends_with(&format!("{agent}/web")));
     let environment = &start["a"][0]["environment"];
     assert!(environment["CAPSTAN_SOCKET"].is_string());
-    assert!(environment.get("CAPSTAN_WORKSPACE_PREVIEW").is_none());
     // The seed names each repo and says to run git inside each.
     let prompt = ws.sc.prompts().pop().unwrap();
     assert!(prompt.contains(&format!("{agent}/core")) && prompt.contains(&format!("{agent}/web")));

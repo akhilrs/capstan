@@ -19,7 +19,12 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::LazyLock;
 
+use super::workspace::{detach_set_member, remove_set_member, reset_set};
 use super::{message_notices, messages, plan_packages, reviews};
+use crate::integrate::{
+    integrate_repo_with, member_branch, member_on_main, supersede, GitRepo, IntegrateError,
+    IntegrateResult, IntegrationDeps, Landed, MemberStop, MemberTarget,
+};
 
 static SHA1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[0-9a-f]{40}$").expect("the pattern is valid"));
@@ -465,12 +470,20 @@ pub fn settle_integration(
             ))
         }
     };
+    // Kernel-internal: only a daemon handler that built this input itself sets it; no wire parameter reaches here.
+    let member = match field(input, "member") {
+        Value::Null => false,
+        Value::Bool(flag) => *flag,
+        _ => return Err(KernelError::type_error("member must be true or false")),
+    };
+    // Kernel-internal as well: a redo lets go of a member whose set review is still running; that review no longer counts.
+    let redo = member && field(input, "redo") == &Value::Bool(true);
     kernel.mutate(
         context,
         "integration.settle",
         "controller:reconcile",
         input,
-        |_| apply_settle(kernel, integration_id, outcome),
+        |_| apply_settle_checked(kernel, integration_id, outcome, member, !redo),
     )
 }
 
@@ -491,8 +504,38 @@ pub fn apply_settle(
     integration_id: &str,
     outcome: &str,
 ) -> KernelResult<MutationOutput> {
+    apply_settle_as(kernel, integration_id, outcome, false)
+}
+
+/// `apply_settle` for a set member when `member` is true (and refused for any integration that is not a member); without
+/// it a member is refused as before.
+pub fn apply_settle_as(
+    kernel: &Kernel,
+    integration_id: &str,
+    outcome: &str,
+    member: bool,
+) -> KernelResult<MutationOutput> {
+    apply_settle_checked(kernel, integration_id, outcome, member, true)
+}
+
+/// `apply_settle_as`, with `check_review` false for a redo's discard: an open review does not hold it back.
+fn apply_settle_checked(
+    kernel: &Kernel,
+    integration_id: &str,
+    outcome: &str,
+    member: bool,
+    check_review: bool,
+) -> KernelResult<MutationOutput> {
     let row = required_row(kernel, integration_id)?;
-    refuse_set_member(kernel, integration_id)?;
+    if member {
+        if super::workspace::set_of_integration(kernel, integration_id)?.is_none() {
+            return Err(KernelError::controller(format!(
+                "integration {integration_id} is not a set member"
+            )));
+        }
+    } else {
+        refuse_set_member(kernel, integration_id)?;
+    }
     // A conflicted integration holds no branch; it can only be discarded.
     let discarding_conflicted = row.state == "conflicted" && outcome == "discarded";
     if row.state != "merged" && !discarding_conflicted {
@@ -500,14 +543,30 @@ pub fn apply_settle(
             "only a merged integration can be settled",
         ));
     }
-    if present(
-        kernel,
-        "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
-        [&kernel.project_id, integration_id],
-    )? {
+    if check_review
+        && present(
+            kernel,
+            "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
+            [&kernel.project_id, integration_id],
+        )?
+    {
         return Err(KernelError::controller(
             "a review of this integration is open",
         ));
+    }
+    if check_review && member && outcome == "confirmed" {
+        if let Some(set_id) = super::workspace::set_of_integration(kernel, integration_id)? {
+            if present(
+                kernel,
+                "SELECT 1 AS present FROM reviews WHERE project_id = ? AND state = 'started' AND subject_integration_id IN
+                   (SELECT integration_id FROM integration_set_members WHERE project_id = ? AND integration_id IS NOT NULL AND set_id = ?)",
+                [&kernel.project_id, &kernel.project_id, &set_id],
+            )? {
+                return Err(KernelError::controller(format!(
+                    "a review of set {set_id} is open"
+                )));
+            }
+        }
     }
     if outcome == "confirmed" {
         let latest = query_opt(
@@ -517,7 +576,17 @@ pub fn apply_settle(
             [&kernel.project_id, integration_id],
             |r| r.get::<_, String>(0),
         )?;
-        if latest.as_deref() != Some("passed") {
+        // A set is reviewed as one subject (its first live member): a member passes with the set's review.
+        let set_passed = match (
+            member,
+            super::workspace::set_of_integration(kernel, integration_id)?,
+        ) {
+            (true, Some(set_id)) => {
+                super::workspace::set_gate(kernel, &set_id, "")?["review"]["state"] == "passed"
+            }
+            _ => false,
+        };
+        if latest.as_deref() != Some("passed") && !set_passed {
             return Err(KernelError::controller(
                 "an integration is confirmed only after its latest review passed",
             ));
@@ -1189,4 +1258,924 @@ pub(crate) fn report_package_ids(
         }
     }
     Ok(found)
+}
+
+// ------------------------------------------------------------------------------------------------ redo of a set member
+
+/// The newest-first reports that could fix a conflicted member of a set: accepted reports with a `report_commits` row for
+/// `repo`, whose sequence is greater than `since`, by an agent on a package of the plan the set's reports belong to (or, with
+/// no plan, by an author of those reports). A report without a row for the repo is never one.
+pub fn redo_candidates(
+    kernel: &Kernel,
+    set_report_ids: &[String],
+    repo: &str,
+    since: i64,
+) -> KernelResult<Vec<ReportCommit>> {
+    kernel.assert_open()?;
+    let info = planned_commit_info(kernel, &json!(set_report_ids))?;
+    let agents: Vec<String> = match info.get("planId").and_then(Value::as_str) {
+        Some(plan_id) => query_all(
+            &kernel.database,
+            "SELECT DISTINCT assignee_agent_id FROM plan_packages WHERE project_id = ? AND plan_id = ? AND assignee_agent_id IS NOT NULL",
+            [&kernel.project_id, plan_id],
+            |row| row.get::<_, String>(0),
+        )?,
+        None => report_order(kernel, set_report_ids)?
+            .into_iter()
+            .map(|(_, agent, _)| agent)
+            .collect(),
+    };
+    let rows = query_all(
+        &kernel.database,
+        "SELECT r.report_id, r.agent_id, r.sequence, c.repo, c.commit_sha FROM agent_reports r
+         JOIN report_commits c ON c.project_id = r.project_id AND c.report_id = r.report_id
+         WHERE r.project_id = ? AND r.state = 'accepted' AND c.repo = ? AND r.sequence > ?
+         ORDER BY r.sequence DESC",
+        rusqlite::params![kernel.project_id, repo, since],
+        |row| {
+            Ok(ReportCommit {
+                report_id: row.get(0)?,
+                agent_id: row.get(1)?,
+                sequence: row.get(2)?,
+                repo: row.get(3)?,
+                commit_sha: row.get(4)?,
+            })
+        },
+    )?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| agents.contains(&row.agent_id))
+        .collect())
+}
+
+/// Every integration that belongs to a set, attached or not: the members' current ones and the earlier attempts, whose
+/// branches are the set's branch with `-<repo>` or `-<repo>-<attempt>` after it. The reports of a member that never started
+/// (or was removed) are known only from these.
+fn set_integration_ids(
+    kernel: &Kernel,
+    set_branch: &str,
+    members: &[Value],
+) -> KernelResult<Vec<String>> {
+    let escaped = set_branch
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let rows = query_all(
+        &kernel.database,
+        "SELECT integration_id, branch FROM integrations WHERE project_id = ? AND branch LIKE ? ESCAPE '\\' ORDER BY sequence",
+        rusqlite::params![kernel.project_id, format!("{escaped}-%")],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )?;
+    let mut ids: Vec<String> = Vec::new();
+    for (id, branch) in rows {
+        // Another set's branch (`<set branch>-2`) starts with this one: its first part after the dash is a number.
+        let rest = &branch[set_branch.len() + 1..];
+        let numbered = rest
+            .split_once('-')
+            .is_some_and(|(head, _)| !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()));
+        if !numbered {
+            ids.push(id);
+        }
+    }
+    for member in members {
+        if let Some(id) = member["integrationId"].as_str() {
+            if !ids.iter().any(|known| known == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    Ok(ids)
+}
+
+/// What a redo is given: the member to redo and the places of the repos.
+pub struct RedoRun<'a> {
+    pub set_id: &'a str,
+    pub repo: &'a str,
+    pub requested_by: &'a str,
+    pub main_branch_of: &'a dyn Fn(&str) -> String,
+    pub git_for: &'a dyn Fn(&str) -> GitRepo,
+    pub before_member: &'a dyn Fn(&str) -> Result<(), MemberStop>,
+    /// Stops the process of a running verify run (the process belongs to the daemon).
+    pub abort_run: &'a dyn Fn(&str),
+}
+
+fn redo_refusal(message: String) -> IntegrateError {
+    IntegrateError::Integration {
+        code: "workspace_integrate".into(),
+        message,
+    }
+}
+
+fn printable(text: &str, max: usize) -> String {
+    let cleaned: String = text
+        .chars()
+        .map(|c| if (' '..='~').contains(&c) { c } else { '?' })
+        .take(max)
+        .collect();
+    if cleaned.is_empty() {
+        "unknown".into()
+    } else {
+        cleaned
+    }
+}
+
+/// Moves the set to `state` unless it is there already in a state that takes no reason.
+fn move_set(
+    deps: &IntegrationDeps,
+    set_id: &str,
+    from: &str,
+    state: &str,
+    reason: &str,
+) -> IntegrateResult<()> {
+    if from == state && state == "merged" {
+        return Ok(());
+    }
+    let reason = if state == "merged" {
+        Value::Null
+    } else {
+        json!(printable(reason, 480))
+    };
+    super::workspace::set_integration_state(
+        deps.kernel,
+        &(deps.context)(deps.credential),
+        &json!({"setId": set_id, "state": state, "reason": reason}),
+    )?;
+    Ok(())
+}
+
+/// Recomputes the state of a set whose members changed (a member was dropped): the first member that is not merged,
+/// confirmed or dropped decides, as in a redo. A set that is running or discarded is left alone. Returns the state.
+fn recompute_set(
+    kernel: &Kernel,
+    context: &dyn Fn() -> MutationContext,
+    set_id: &str,
+) -> IntegrateResult<String> {
+    let set = super::workspace::integration_set(kernel, set_id)?;
+    let from = set["state"].as_str().unwrap_or_default().to_string();
+    if from == "running" || from == "discarded" {
+        return Ok(from);
+    }
+    let (state, reason, _) = set_outcome(&set, kernel)?;
+    if from == state && (state == "merged" || set["reason"].as_str() == Some(reason.as_str())) {
+        return Ok(state);
+    }
+    let reason = if state == "merged" {
+        Value::Null
+    } else {
+        json!(printable(&reason, 480))
+    };
+    super::workspace::set_integration_state(
+        kernel,
+        &context(),
+        &json!({"setId": set_id, "state": state, "reason": reason}),
+    )?;
+    Ok(state)
+}
+
+/// The state a set is in once its members are as they are: the first member that is not merged or confirmed decides.
+/// Returns `(state, reason, repo that holds it up)`.
+fn set_outcome(set: &Value, kernel: &Kernel) -> IntegrateResult<(String, String, Option<String>)> {
+    for member in set["members"].as_array().into_iter().flatten() {
+        let repo = member["repo"].as_str().unwrap_or_default();
+        let Some(id) = member["integrationId"].as_str() else {
+            return Ok((
+                "failed".into(),
+                format!("repo {repo} is not integrated yet"),
+                Some(repo.to_string()),
+            ));
+        };
+        let record = integration(kernel, id)?;
+        match record["state"].as_str().unwrap_or_default() {
+            "merged" | "confirmed" => {}
+            // Dropped: discarded and not redone; the set goes on without it.
+            "discarded" => {}
+            "conflicted" => {
+                let files: Vec<&str> = record["conflictFiles"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect();
+                return Ok((
+                    "conflicted".into(),
+                    format!("repo {repo} conflicts in {}", files.join(", ")),
+                    Some(repo.to_string()),
+                ));
+            }
+            _ => {
+                return Ok((
+                    "failed".into(),
+                    format!(
+                        "repo {repo} failed: {}",
+                        record["failureReason"]
+                            .as_str()
+                            .unwrap_or("it did not merge")
+                    ),
+                    Some(repo.to_string()),
+                ))
+            }
+        }
+    }
+    Ok(("merged".into(), String::new(), None))
+}
+
+/// Discards the integration of a member that is leaving its place (merged or conflicted; any other state has nothing to
+/// discard) and removes its branch from the member's repo.
+fn discard_member_integration(
+    deps: &IntegrationDeps,
+    git: &GitRepo,
+    record: &Value,
+) -> IntegrateResult<()> {
+    let state = record["state"].as_str().unwrap_or_default();
+    if state != "merged" && state != "conflicted" {
+        return Ok(());
+    }
+    let id = record["integrationId"].as_str().unwrap_or_default();
+    settle_integration(
+        deps.kernel,
+        &(deps.context)(deps.credential),
+        &json!({"integrationId": id, "outcome": "discarded", "member": true, "redo": true}),
+    )?;
+    if let (true, Some(head)) = (state == "merged", record["headSha"].as_str()) {
+        let branch = record["branch"].as_str().unwrap_or_default();
+        if !git.delete_branch_at(branch, head).unwrap_or(false) {
+            deps.state.remember(id);
+            (deps.log)(
+                "integration_branch_not_removed",
+                json!({"integrationId": id, "branch": branch}),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Cancels the queued and running verify runs of an integration (only those of `repo` when one is given); the ids of the
+/// runs cancelled are added to `cancelled`, and `abort` stops the process of one that was running.
+fn cancel_member_runs(
+    kernel: &Kernel,
+    context: &dyn Fn() -> MutationContext,
+    integration_id: &str,
+    repo: Option<&str>,
+    abort: &dyn Fn(&str),
+    cancelled: &mut Vec<String>,
+) -> KernelResult<()> {
+    let runs = super::verify_runs::verify_runs(kernel, Some(integration_id), 200)?;
+    for run_record in runs["runs"].as_array().into_iter().flatten() {
+        let state = run_record["state"].as_str().unwrap_or_default();
+        let run_id = run_record["runId"].as_str().unwrap_or_default();
+        if (state != "queued" && state != "running")
+            || repo.is_some_and(|repo| run_record["repo"] != repo)
+            || cancelled.iter().any(|known| known == run_id)
+        {
+            continue;
+        }
+        let record =
+            super::verify_runs::cancel_verify_run(kernel, &context(), &json!({"runId": run_id}))?;
+        if record["needsAbort"] == true {
+            abort(run_id);
+        }
+        cancelled.push(run_id.to_string());
+    }
+    Ok(())
+}
+
+/// `integrate redo <set> --repo <repo>`: the repo's unconfirmed member is let go and the repo is integrated again into the
+/// same set, on its current main tip, under the member's old position. A member whose change is on main already is
+/// refused (it is to be confirmed) or, when its commits have landed, removed from the set. See the answer for the set's
+/// new state and the next step.
+pub fn integrate_redo(deps: &IntegrationDeps, run: &RedoRun) -> IntegrateResult<Value> {
+    let (set_id, repo) = (run.set_id, run.repo);
+    let ctx = || (deps.context)(deps.credential);
+    let set = super::workspace::integration_set(deps.kernel, set_id)?;
+    if set.is_null() {
+        return Err(redo_refusal(format!("set {set_id} does not exist")));
+    }
+    let set_state = set["state"].as_str().unwrap_or_default().to_string();
+    let set_branch = set["branch"].as_str().unwrap_or_default().to_string();
+    match set_state.as_str() {
+        "running" => {
+            return Err(redo_refusal(format!(
+                "set {set_id} is running; wait for it to settle"
+            )))
+        }
+        "discarded" => return Err(redo_refusal(format!("set {set_id} is discarded"))),
+        _ => {}
+    }
+    let members = set["members"].as_array().cloned().unwrap_or_default();
+    let Some(member) = members.iter().find(|m| m["repo"] == repo).cloned() else {
+        return Err(redo_refusal(format!(
+            "set {set_id} has no member for repo {repo}"
+        )));
+    };
+    let old_id = member["integrationId"].as_str().map(str::to_string);
+    let old = match &old_id {
+        Some(id) => integration(deps.kernel, id)?,
+        None => Value::Null,
+    };
+    let old_state = old["state"].as_str().unwrap_or_default().to_string();
+    if old_state == "confirmed" {
+        return Err(redo_refusal(format!(
+            "repo {repo} of set {set_id} is confirmed; its code is on main"
+        )));
+    }
+    if old_state == "running" {
+        return Err(redo_refusal(format!(
+            "repo {repo} of set {set_id} is still merging"
+        )));
+    }
+    let git = (run.git_for)(repo);
+    if !git.merge_tree_supported() {
+        return Err(redo_refusal(
+            "git 2.38 or newer is needed for workspace integrate".into(),
+        ));
+    }
+    let main = (run.main_branch_of)(repo);
+    let Some(tip) = git.branch_tip(&main)? else {
+        return Err(redo_refusal(format!("repo {repo} has no branch {main}")));
+    };
+    // A member the user merged by hand is to be confirmed, not redone.
+    if let (Some(head), true) = (old["headSha"].as_str(), old_state == "merged") {
+        let base = old["baseSha"].as_str().unwrap_or_default();
+        if member_on_main(&git, &main, base, head)? {
+            return Err(redo_refusal(format!(
+                "repo {repo} main already contains {}; confirm it with integrate confirm {set_id} --repo {repo}",
+                old["branch"].as_str().unwrap_or_default()
+            )));
+        }
+    }
+    // The reports of the set, and of this member.
+    let mut set_reports: Vec<AgentReportRow> = Vec::new();
+    for id in set_integration_ids(deps.kernel, &set_branch, &members)? {
+        for row in reviews::integration_authors(deps.kernel, &id)? {
+            if !set_reports.iter().any(|r| r.report_id == row.report_id) {
+                set_reports.push(row);
+            }
+        }
+    }
+    let own_reports: Vec<AgentReportRow> = match &old_id {
+        Some(id) => reviews::integration_authors(deps.kernel, id)?,
+        None => Vec::new(),
+    };
+    let mut fix_report: Option<String> = None;
+    let commits: Vec<(String, String)> = if old_state == "conflicted" {
+        let since = own_reports.iter().map(|r| r.sequence).max().unwrap_or(0);
+        let ids: Vec<String> = set_reports.iter().map(|r| r.report_id.clone()).collect();
+        let found = redo_candidates(deps.kernel, &ids, repo, since)?;
+        let Some(best) = found.into_iter().next() else {
+            return Err(redo_refusal(format!(
+                "no report for repo {repo} since the conflict; report the fix first"
+            )));
+        };
+        fix_report = Some(best.report_id.clone());
+        vec![(best.report_id, best.commit_sha)]
+    } else {
+        let source = if old_id.is_some() {
+            &own_reports
+        } else {
+            &set_reports
+        };
+        let ids: Vec<String> = source.iter().map(|r| r.report_id.clone()).collect();
+        let own: Vec<(String, String)> = workspace_commits(deps.kernel, &ids)?
+            .into_iter()
+            .filter(|c| c.repo == repo)
+            .map(|c| (c.report_id, c.commit_sha))
+            .collect();
+        supersede(deps.kernel, &own)?
+    };
+    if commits.is_empty() {
+        return Err(redo_refusal(format!(
+            "repo {repo} has nothing to integrate"
+        )));
+    }
+    let mut keep: Vec<(String, String)> = Vec::new();
+    for (report_id, sha) in &commits {
+        match git.tree_landed(&tip, sha)? {
+            Landed::Yes => {}
+            Landed::No => keep.push((report_id.clone(), sha.clone())),
+            Landed::Unknown(code) => {
+                return Err(redo_refusal(format!(
+                    "git could not compare repo {repo} with {main} (exit {code})"
+                )))
+            }
+        }
+    }
+    let attempt = member["attempt"].as_i64().unwrap_or(0) as usize + 1;
+    let branch = member_branch(&set_branch, repo, attempt);
+    if !keep.is_empty() && git.branch_tip(&branch)?.is_some() {
+        return Err(redo_refusal(format!(
+            "branch {branch} already exists in repo {repo}"
+        )));
+    }
+    // From here the member is let go. Its verify runs stop first, then the set's gates reset.
+    let mut subject_before: Option<String> = None;
+    for m in &members {
+        if let Some(id) = m["integrationId"].as_str() {
+            if integration(deps.kernel, id)?["state"] != "discarded" {
+                subject_before = Some(id.to_string());
+                break;
+            }
+        }
+    }
+    let mut cancelled: Vec<String> = Vec::new();
+    if let Some(id) = &old_id {
+        cancel_member_runs(
+            deps.kernel,
+            &|| (deps.context)(deps.credential),
+            id,
+            Some(repo),
+            run.abort_run,
+            &mut cancelled,
+        )?;
+    }
+    let review_open = match &subject_before {
+        Some(subject) => present(
+            deps.kernel,
+            "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id = ? AND state = 'started'",
+            [&deps.kernel.project_id, subject],
+        )?,
+        None => false,
+    };
+    if !old.is_null() {
+        discard_member_integration(deps, &git, &old)?;
+    }
+    let mut answer = json!({
+        "setId": set_id,
+        "repo": repo,
+        "cancelledRuns": cancelled,
+        "reviewMustBeRequestedAgain": review_open,
+        "reviewNotice": if review_open { json!("a running review of the set no longer counts; request the review again") } else { Value::Null },
+    });
+    if keep.is_empty() {
+        // Every commit of the repo is on main: the member leaves the set.
+        let removed =
+            remove_set_member(deps.kernel, &ctx(), &json!({"setId": set_id, "repo": repo}));
+        removed?;
+        let after = super::workspace::integration_set(deps.kernel, set_id)?;
+        let left = after["members"].as_array().map_or(0, Vec::len);
+        let (state, reason, holder) = set_outcome(&after, deps.kernel)?;
+        move_set(deps, set_id, &set_state, &state, &reason)?;
+        let next = match (&state[..], &holder) {
+            ("merged", _) if left == 0 => {
+                "nothing to review: every repo of the set is on main already".to_string()
+            }
+            ("merged", _) => "merge each member branch into its repo's main branch".to_string(),
+            (_, Some(holder)) => format!("cstan integrate redo {set_id} --repo {holder}"),
+            _ => String::new(),
+        };
+        answer["landed"] = json!(true);
+        answer["removed"] = json!(true);
+        answer["state"] = json!(state);
+        answer["reason"] = if state == "merged" {
+            Value::Null
+        } else {
+            json!(reason)
+        };
+        answer["members"] = after["members"].clone();
+        answer["next"] = json!(next);
+        answer["message"] = json!(format!(
+            "repo {repo} is on main already and left set {set_id}{}",
+            if left == 0 {
+                "; nothing is left to review"
+            } else {
+                ""
+            }
+        ));
+        return Ok(answer);
+    }
+    if old_id.is_some() {
+        detach_set_member(deps.kernel, &ctx(), &json!({"setId": set_id, "repo": repo}))?;
+    }
+    reset_set(deps.kernel, &ctx(), &json!({"setId": set_id}))?;
+    if set_state == "merged" || set_state == "conflicted" {
+        move_set(
+            deps,
+            set_id,
+            &set_state,
+            "failed",
+            &format!("redoing repo {repo}"),
+        )?;
+    }
+    let target = MemberTarget {
+        set_id,
+        branch: &branch,
+        main_branch: &main,
+        base_sha: &tip,
+    };
+    let member_deps = IntegrationDeps {
+        kernel: deps.kernel,
+        git: &git,
+        state: deps.state,
+        credential: deps.credential,
+        context: deps.context,
+        log: deps.log,
+        impact: deps.impact,
+    };
+    let record = match integrate_repo_with(
+        &member_deps,
+        repo,
+        &keep,
+        run.requested_by,
+        &target,
+        run.before_member,
+    ) {
+        Ok(record) => record,
+        Err(error) => {
+            let _ = move_set(
+                deps,
+                set_id,
+                "failed",
+                "failed",
+                &format!("the redo of repo {repo} stopped: {}", error.display()),
+            );
+            return Err(error);
+        }
+    };
+    let after = super::workspace::integration_set(deps.kernel, set_id)?;
+    let (state, reason, holder) = set_outcome(&after, deps.kernel)?;
+    // The set was failed while the redo ran, or merged when it was and nothing else moved.
+    move_set(deps, set_id, "failed", &state, &reason)?;
+    let next = match (&state[..], &holder) {
+        ("merged", _) => "merge each member branch into its repo's main branch".to_string(),
+        ("conflicted", Some(holder)) => format!(
+            "resolve with a new report for repo {holder}, then cstan integrate redo {set_id} --repo {holder}"
+        ),
+        (_, Some(holder)) => format!(
+            "cstan integrate redo {set_id} --repo {holder}, or cstan integrate discard {set_id} --repo {holder}"
+        ),
+        _ => String::new(),
+    };
+    let conflicted = record["state"] == "conflicted";
+    answer["landed"] = json!(false);
+    answer["state"] = json!(state);
+    answer["reason"] = if state == "merged" {
+        Value::Null
+    } else {
+        json!(reason)
+    };
+    answer["next"] = json!(next);
+    answer["fixReport"] = json!(fix_report);
+    answer["member"] = json!({
+        "repo": repo,
+        "integrationId": record["integrationId"],
+        "state": record["state"],
+        "branch": record["branch"],
+        "head": record["headSha"],
+        "attempt": attempt,
+        "reports": record["reports"].as_array().into_iter().flatten().map(|r| r["reportId"].clone()).collect::<Vec<_>>(),
+        "conflict": if conflicted {
+            json!({"reportId": record["conflictReportId"], "files": record["conflictFiles"]})
+        } else {
+            Value::Null
+        },
+        "failure": record["failureReason"],
+    });
+    Ok(answer)
+}
+
+// ------------------------------------------------------------------------------------------------ discard of a set or a member
+
+/// What a discard is given: the set, the member to discard (the whole set when none) and the places of the repos.
+pub struct DiscardRun<'a> {
+    pub set_id: &'a str,
+    pub repo: Option<&'a str>,
+    pub main_branch_of: &'a dyn Fn(&str) -> String,
+    pub git_for: &'a dyn Fn(&str) -> GitRepo,
+    /// Stops the process of a running verify run (the process belongs to the daemon).
+    pub abort_run: &'a dyn Fn(&str),
+}
+
+/// The state of a member's integration, null state when it has none yet.
+fn member_state(deps: &IntegrationDeps, member: &Value) -> IntegrateResult<(Value, String)> {
+    match member["integrationId"].as_str() {
+        Some(id) => {
+            let record = integration(deps.kernel, id)?;
+            let state = record["state"].as_str().unwrap_or_default().to_string();
+            Ok((record, state))
+        }
+        None => Ok((Value::Null, String::new())),
+    }
+}
+
+/// `integrate discard <set>` and `integrate discard <set> --repo <repo>`: the whole set, or one unconfirmed member, is
+/// thrown away. A set with a confirmed member is refused as a whole (its code is on main); a member whose change is on main
+/// already is to be confirmed instead. Runs of the discarded integrations are cancelled and the set's gates reset. A set
+/// whose every member integration is discarded moves to `discarded`.
+pub fn integrate_discard(deps: &IntegrationDeps, run: &DiscardRun) -> IntegrateResult<Value> {
+    let set_id = run.set_id;
+    let ctx = || (deps.context)(deps.credential);
+    let set = super::workspace::integration_set(deps.kernel, set_id)?;
+    if set.is_null() {
+        return Err(redo_refusal(format!("set {set_id} does not exist")));
+    }
+    let set_state = set["state"].as_str().unwrap_or_default().to_string();
+    match set_state.as_str() {
+        "running" => {
+            return Err(redo_refusal(format!(
+                "set {set_id} is running; wait for it to settle"
+            )))
+        }
+        "discarded" => return Err(redo_refusal(format!("set {set_id} is discarded"))),
+        _ => {}
+    }
+    let members: Vec<Value> = set["members"].as_array().cloned().unwrap_or_default();
+    let targets: Vec<Value> = match run.repo {
+        Some(repo) => {
+            let Some(member) = members.iter().find(|m| m["repo"] == repo) else {
+                return Err(redo_refusal(format!(
+                    "set {set_id} has no member for repo {repo}"
+                )));
+            };
+            vec![member.clone()]
+        }
+        None => members.clone(),
+    };
+    // Refusals first: nothing changes unless the whole request can be done.
+    let mut states: Vec<(Value, Value, String)> = Vec::new();
+    for member in &targets {
+        let repo = member["repo"].as_str().unwrap_or_default();
+        let (record, state) = member_state(deps, member)?;
+        if state == "confirmed" {
+            return Err(redo_refusal(if run.repo.is_some() {
+                format!("repo {repo} of set {set_id} is confirmed; its code is on main")
+            } else {
+                format!("repo {repo} is already merged; discard the others with --repo")
+            }));
+        }
+        if state == "running" {
+            return Err(redo_refusal(format!(
+                "repo {repo} of set {set_id} is still merging"
+            )));
+        }
+        states.push((member.clone(), record, state));
+    }
+    for (member, record, state) in &states {
+        let repo = member["repo"].as_str().unwrap_or_default();
+        if let (Some(head), "merged") = (record["headSha"].as_str(), state.as_str()) {
+            let git = (run.git_for)(repo);
+            let main = (run.main_branch_of)(repo);
+            let base = record["baseSha"].as_str().unwrap_or_default();
+            if git.branch_tip(&main)?.is_some() && member_on_main(&git, &main, base, head)? {
+                let branch = record["branch"].as_str().unwrap_or_default();
+                return Err(redo_refusal(if run.repo.is_some() {
+                    format!("repo {repo} main already contains {branch}; confirm it instead")
+                } else {
+                    format!(
+                        "repo {repo} main already contains {branch}; confirm it or discard the others with --repo"
+                    )
+                }));
+            }
+        }
+    }
+    let review_open = present(
+        deps.kernel,
+        "SELECT 1 AS present FROM reviews WHERE project_id = ? AND subject_integration_id IN
+           (SELECT integration_id FROM integration_set_members WHERE project_id = ? AND set_id = ? AND integration_id IS NOT NULL)
+           AND state = 'started'",
+        [&deps.kernel.project_id, &deps.kernel.project_id, set_id],
+    )?;
+    let mut cancelled: Vec<String> = Vec::new();
+    let mut discarded: Vec<String> = Vec::new();
+    let mut removed: Vec<String> = Vec::new();
+    for (member, record, state) in &states {
+        let repo = member["repo"].as_str().unwrap_or_default().to_string();
+        if let Some(id) = member["integrationId"].as_str() {
+            cancel_member_runs(
+                deps.kernel,
+                &|| (deps.context)(deps.credential),
+                id,
+                Some(&repo),
+                run.abort_run,
+                &mut cancelled,
+            )?;
+        }
+        match state.as_str() {
+            "merged" | "conflicted" => {
+                let git = (run.git_for)(&repo);
+                discard_member_integration(deps, &git, record)?;
+                discarded.push(repo);
+            }
+            "" => {
+                // Never started: only its row; the whole set keeps it (nothing to settle), one member is removed.
+                if run.repo.is_some() {
+                    remove_set_member(
+                        deps.kernel,
+                        &ctx(),
+                        &json!({"setId": set_id, "repo": repo}),
+                    )?;
+                    removed.push(repo);
+                }
+            }
+            "discarded" => {}
+            _ => {
+                // A failed integration has no branch and cannot be settled: it is let go.
+                if run.repo.is_some() {
+                    remove_set_member(
+                        deps.kernel,
+                        &ctx(),
+                        &json!({"setId": set_id, "repo": repo}),
+                    )?;
+                    removed.push(repo);
+                } else {
+                    detach_set_member(
+                        deps.kernel,
+                        &ctx(),
+                        &json!({"setId": set_id, "repo": repo}),
+                    )?;
+                }
+            }
+        }
+    }
+    reset_set(deps.kernel, &ctx(), &json!({"setId": set_id}))?;
+    let after = super::workspace::integration_set(deps.kernel, set_id)?;
+    let mut all_discarded = true;
+    for member in after["members"].as_array().into_iter().flatten() {
+        let (_, state) = member_state(deps, member)?;
+        if run.repo.is_none() && state.is_empty() {
+            continue;
+        }
+        if state != "discarded" {
+            all_discarded = false;
+        }
+    }
+    let state = if all_discarded {
+        move_set(deps, set_id, &set_state, "discarded", "discarded")?;
+        "discarded".to_string()
+    } else {
+        recompute_set(deps.kernel, &|| (deps.context)(deps.credential), set_id)?
+    };
+    let message = match run.repo {
+        Some(repo) if !removed.iter().any(|r| r == repo) => json!(format!(
+            "repo {repo} dropped from set {set_id}; the set continues without it; integrate redo {set_id} --repo {repo} brings it back"
+        )),
+        Some(repo) => json!(format!("repo {repo} removed from set {set_id}")),
+        None => json!(format!("set {set_id} discarded")),
+    };
+    Ok(json!({
+        "message": message,
+        "setId": set_id,
+        "repo": run.repo,
+        "state": state,
+        "discarded": discarded,
+        "removed": removed,
+        "cancelledRuns": cancelled,
+        "members": after["members"],
+        "reviewMustBeRequestedAgain": review_open && state != "discarded",
+        "reviewNotice": if review_open && state != "discarded" { json!("a running review of the set no longer counts; request the review again") } else { Value::Null },
+    }))
+}
+
+// ------------------------------------------------------------------------------------------------ confirm of a member
+
+/// What a confirm is given: the set, the member's repo (none when the caller did not name one) and the places of the repos.
+pub struct ConfirmRun<'a> {
+    pub set_id: &'a str,
+    pub repo: Option<&'a str>,
+    pub main_branch_of: &'a dyn Fn(&str) -> String,
+    pub git_for: &'a dyn Fn(&str) -> GitRepo,
+}
+
+/// `integrate confirm <set> --repo <repo>`: one member of a merged set is confirmed once its repo's main holds its change
+/// (however it got there: fast-forward, squash or rebase). Without `--repo` the caller is asked to name the repo. A member
+/// confirmed before an earlier live member is confirmed anyway and the answer carries the warning
+/// `repo <r> confirmed before <x> (merge_order)`. The member's branch is removed from its repo.
+pub fn integrate_confirm(deps: &IntegrationDeps, run: &ConfirmRun) -> IntegrateResult<Value> {
+    let set_id = run.set_id;
+    let set = super::workspace::integration_set(deps.kernel, set_id)?;
+    if set.is_null() {
+        return Err(redo_refusal(format!("set {set_id} does not exist")));
+    }
+    let members: Vec<Value> = set["members"].as_array().cloned().unwrap_or_default();
+    let Some(repo) = run.repo else {
+        let names: Vec<&str> = members.iter().filter_map(|m| m["repo"].as_str()).collect();
+        return Err(redo_refusal(format!(
+            "name the repo: integrate confirm {set_id} --repo <repo> (one of {})",
+            names.join(", ")
+        )));
+    };
+    let Some(member) = members.iter().find(|m| m["repo"] == repo) else {
+        return Err(redo_refusal(format!(
+            "set {set_id} has no member for repo {repo}"
+        )));
+    };
+    let (record, state) = member_state(deps, member)?;
+    match state.as_str() {
+        "merged" => {}
+        "confirmed" => {
+            return Err(redo_refusal(format!(
+                "repo {repo} of set {set_id} is already confirmed"
+            )))
+        }
+        "" => {
+            return Err(redo_refusal(format!(
+                "repo {repo} of set {set_id} has no integration yet"
+            )))
+        }
+        other => {
+            return Err(redo_refusal(format!(
+                "repo {repo} of set {set_id} is {other}; only a merged member can be confirmed"
+            )))
+        }
+    }
+    let (Some(head), Some(id)) = (record["headSha"].as_str(), record["integrationId"].as_str())
+    else {
+        return Err(redo_refusal(format!(
+            "repo {repo} of set {set_id} has no merged head"
+        )));
+    };
+    let branch = record["branch"].as_str().unwrap_or_default().to_string();
+    let git = (run.git_for)(repo);
+    let main = (run.main_branch_of)(repo);
+    if git.branch_tip(&main)?.is_none()
+        || !member_on_main(
+            &git,
+            &main,
+            record["baseSha"].as_str().unwrap_or_default(),
+            head,
+        )?
+    {
+        return Err(redo_refusal(format!(
+            "repo {repo} main does not contain {branch}"
+        )));
+    }
+    // An earlier live member that is not confirmed yet: the merge order was not followed.
+    let mut before: Option<String> = None;
+    for earlier in &members {
+        if earlier["repo"] == repo {
+            break;
+        }
+        let (_, earlier_state) = member_state(deps, earlier)?;
+        if earlier_state != "confirmed" && earlier_state != "discarded" {
+            before = earlier["repo"].as_str().map(str::to_string);
+            break;
+        }
+    }
+    let warning = before.map(|x| format!("repo {repo} confirmed before {x} (merge_order)"));
+    let settled = settle_integration(
+        deps.kernel,
+        &(deps.context)(deps.credential),
+        &json!({"integrationId": id, "outcome": "confirmed", "member": true}),
+    )?;
+    let removed = git.delete_branch_at(&branch, head).unwrap_or(false);
+    if !removed {
+        deps.state.remember(id);
+        (deps.log)(
+            "integration_branch_not_removed",
+            json!({"integrationId": id, "branch": branch}),
+        );
+    }
+    if let Some(warning) = &warning {
+        (deps.log)(
+            "integration_confirm_out_of_order",
+            json!({"setId": set_id, "repo": repo, "warning": warning}),
+        );
+    }
+    Ok(json!({
+        "record": settled,
+        "branchRemoved": removed,
+        "setId": set_id,
+        "repo": repo,
+        "warning": warning,
+    }))
+}
+
+/// After a member's integration was discarded on its own (a remote decision): its queued and running runs are cancelled
+/// (`abort` stops the process of a running one), the set's gates reset, and a set whose every member integration is
+/// discarded moves to `discarded`. Returns the ids of the runs cancelled.
+pub fn after_member_discard(
+    kernel: &Kernel,
+    context: &dyn Fn() -> MutationContext,
+    integration_id: &str,
+    abort: &dyn Fn(&str),
+) -> KernelResult<Vec<String>> {
+    let Some(set_id) = super::workspace::set_of_integration(kernel, integration_id)? else {
+        return Ok(Vec::new());
+    };
+    let mut cancelled = Vec::new();
+    cancel_member_runs(kernel, context, integration_id, None, abort, &mut cancelled)?;
+    reset_set(kernel, &context(), &json!({"setId": set_id}))?;
+    let set = super::workspace::integration_set(kernel, &set_id)?;
+    let mut all_discarded = true;
+    for member in set["members"].as_array().into_iter().flatten() {
+        if let Some(id) = member["integrationId"].as_str() {
+            if integration(kernel, id)?["state"] != "discarded" {
+                all_discarded = false;
+            }
+        } else {
+            all_discarded = false;
+        }
+    }
+    let state = set["state"].as_str().unwrap_or_default();
+    if all_discarded && state != "discarded" && state != "running" {
+        super::workspace::set_integration_state(
+            kernel,
+            &context(),
+            &json!({"setId": set_id, "state": "discarded", "reason": "discarded"}),
+        )?;
+    } else {
+        recompute_set(kernel, context, &set_id).map_err(|error| match error {
+            IntegrateError::Kernel(error) => error,
+            other => KernelError::controller(other.display()),
+        })?;
+    }
+    Ok(cancelled)
 }

@@ -57,6 +57,8 @@ pub(crate) struct MergeDone {
     pub branch: String,
     pub merge_commit: Option<String>,
     pub made_commit: bool,
+    /// `(set id, repo)` of a member of a workspace set.
+    pub member: Option<(String, String)>,
 }
 
 /// The handler of the decide-merge route (`decide::register` serves it). `decide-merge targets` lists the branches a
@@ -94,20 +96,108 @@ pub fn decide_merge(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comm
             (Remote::default(), None)
         }
     };
+    let member = match member_of(env, &input.target) {
+        Ok(member) => member,
+        Err(response) => return Some(response),
+    };
+    let (root, verify_sha) = match &member {
+        Some(member) => (
+            env.deps.repo_root(&member.repo),
+            verify_sha.map(|own| {
+                env.deps
+                    .verify
+                    .as_ref()
+                    .map_or(own, |service| service.commands_sha_for(&member.repo))
+            }),
+        ),
+        None => (env.deps.options.workspace_root.clone(), verify_sha),
+    };
+    if let Some(member) = &member {
+        if input.args.get("into").is_some_and(|into| !into.is_null()) {
+            return Some(fail(
+                ErrorCode::InvalidRequest,
+                format!(
+                    "repo {0}: --into does not apply to a set member; it merges into repo {0}'s main branch",
+                    member.repo
+                ),
+            ));
+        }
+    }
     let run = Run {
         deps: env.deps,
-        repo: seamed_repo(env.deps, &env.deps.options.workspace_root),
+        repo: seamed_repo(env.deps, &root),
         remote,
         verify_sha,
         input,
         credential: call.credential.to_string(),
         seams: seams(env.deps),
+        member,
     };
     let (response, hand_off) = run.run(call);
     if let Some(hand_off) = hand_off {
         spawn_hand_off(env.deps.clone(), hand_off);
     }
-    response
+    match (&run.member, response) {
+        (Some(_), Some(CommandResponse::Err { code, message }))
+            if message.starts_with("merge ") && message.ends_with(" first") =>
+        {
+            // The merge order refusal names the repo to merge first; it carries no prefix.
+            Some(CommandResponse::Err { code, message })
+        }
+        (Some(member), Some(CommandResponse::Err { code, message })) => {
+            Some(CommandResponse::Err {
+                code,
+                message: format!("repo {}: {message}", member.repo),
+            })
+        }
+        (_, response) => response,
+    }
+}
+
+/// The set and the repo of an integration that is a member of a workspace set.
+#[derive(Clone, Debug)]
+struct SetMember {
+    set_id: String,
+    repo: String,
+    /// The repo's configured main branch: the branch the member merges into.
+    main: String,
+}
+
+/// The member an integration is, if it is one. A member of a project with no `[repos]`, or of a repo the project does not
+/// list, is refused as before; `--into` does not apply to a member, which always merges into its repo's main.
+fn member_of(
+    env: &CommandEnv<'_>,
+    integration_id: &str,
+) -> Result<Option<SetMember>, CommandResponse> {
+    let id = integration_id.to_string();
+    let found = env
+        .deps
+        .kernel
+        .run(move |core| {
+            Ok((
+                core.set_of_integration(&id)?,
+                core.repo_of_integration(&id)?,
+            ))
+        })
+        .map_err(|error| refused(&error))?;
+    let (Some(set_id), Some(repo)) = found else {
+        return Ok(None);
+    };
+    let main = env
+        .deps
+        .options
+        .capstan
+        .as_ref()
+        .and_then(|config| config.workspace.as_ref())
+        .map(|workspace| workspace.main_branch_of(&repo))
+        .filter(|main| !main.is_empty());
+    match main {
+        Some(main) => Ok(Some(SetMember { set_id, repo, main })),
+        None => Err(fail(
+            ErrorCode::NotWaiting,
+            format!("integration {integration_id} belongs to set {set_id}; the project does not list repo {repo}"),
+        )),
+    }
 }
 
 /// `{enabled, defaultBranch, checkedOut, branches}`: whether `[remote] merge` is on, the branch a merge without
@@ -154,6 +244,8 @@ struct Run<'a> {
     input: DecideInput,
     credential: String,
     seams: Option<Arc<DecideMergeSeams>>,
+    /// Set when the integration is a member of a workspace set: the merge is made in that repo, into its main.
+    member: Option<SetMember>,
 }
 
 /// What phase B decided.
@@ -303,7 +395,9 @@ impl Run<'_> {
 
     /// A merge goes into the root's checkout unless `--into` names another branch.
     fn targets_checkout(&self, target: &str) -> bool {
-        self.into().is_none() || self.checked_out().as_deref() == Some(target)
+        self.member.is_some()
+            || self.into().is_none()
+            || self.checked_out().as_deref() == Some(target)
     }
 
     /// At most four git calls: the target branch, the checkout, the tip of the integration branch, whether the head is
@@ -313,6 +407,8 @@ impl Run<'_> {
         let merge_enabled = self.remote.merge;
         let target_branch = if !merge_enabled {
             None
+        } else if let Some(member) = &self.member {
+            Some(member.main.clone())
         } else if let Some(into) = self.into() {
             Some(into)
         } else {
@@ -646,7 +742,7 @@ impl Run<'_> {
         merge_commit: Option<String>,
         made_commit: bool,
     ) -> (CommandResponse, Option<HandOff>) {
-        let merge = json!({
+        let mut merge = json!({
             "integrationId": go.integration_id,
             "branch": go.branch,
             "into": go.target,
@@ -659,6 +755,11 @@ impl Run<'_> {
             "cleanup": self.cleanup_member(),
             "push": {"state": "disabled", "reason": "push_off"},
         });
+        if let Some(member) = &self.member {
+            merge["setId"] = json!(member.set_id);
+            merge["repo"] = json!(member.repo);
+            merge["nextRepo"] = json!(self.next_repo(member));
+        }
         let recorded = if self.seams.as_ref().is_some_and(|s| s.fail_record) {
             Err(KernelError::controller("injected record failure"))
         } else {
@@ -683,6 +784,10 @@ impl Run<'_> {
             branch: go.branch.clone(),
             merge_commit,
             made_commit,
+            member: self
+                .member
+                .as_ref()
+                .map(|member| (member.set_id.clone(), member.repo.clone())),
         };
         // The settle seam stands in for a settle that failed after the row was written.
         let settle_failed = self.seams.as_ref().is_some_and(|s| s.fail_settle);
@@ -704,6 +809,37 @@ impl Run<'_> {
                 confirmed,
             }),
         )
+    }
+
+    /// The repo of the next member of the set after this one that is neither confirmed nor dropped; none when this is the
+    /// last one to merge.
+    fn next_repo(&self, member: &SetMember) -> Option<String> {
+        let (set_id, repo) = (member.set_id.clone(), member.repo.clone());
+        self.deps
+            .kernel
+            .run(move |core| {
+                let set = core.integration_set(&set_id)?;
+                let mut after = false;
+                for entry in set["members"].as_array().into_iter().flatten() {
+                    if entry["repo"] == repo.as_str() {
+                        after = true;
+                        continue;
+                    }
+                    if !after {
+                        continue;
+                    }
+                    let state = match entry["integrationId"].as_str() {
+                        Some(id) => core.integration(id)?["state"].as_str().map(str::to_string),
+                        None => None,
+                    };
+                    if !matches!(state.as_deref(), Some("confirmed" | "discarded")) {
+                        return Ok(entry["repo"].as_str().map(str::to_string));
+                    }
+                }
+                Ok(None)
+            })
+            .ok()
+            .flatten()
     }
 
     /// `{state: scheduled}` unless the project's `[cleanup]` is off.
@@ -833,14 +969,18 @@ fn pm_message(done: &MergeDone, interrupted: bool, confirmed: bool) -> String {
         .merge_commit
         .as_deref()
         .map_or("(not found)".to_string(), str::to_string);
+    let place = match &done.member {
+        Some((set_id, repo)) => format!(" (repo {repo} of set {set_id})"),
+        None => String::new(),
+    };
     let mut text = if done.made_commit {
         format!(
-            "The user merged integration {} (branch {}) into the project's branch from a remote client: merge commit {commit}.",
+            "The user merged integration {}{place} (branch {}) into the project's branch from a remote client: merge commit {commit}.",
             done.integration_id, done.branch
         )
     } else {
         format!(
-            "The user recorded the merge of integration {} (branch {}) from a remote client; the daemon did not merge it, the head was already in the project's branch (merge commit {commit}).",
+            "The user recorded the merge of integration {}{place} (branch {}) from a remote client; the daemon did not merge it, the head was already in the project's branch (merge commit {commit}).",
             done.integration_id, done.branch
         )
     };

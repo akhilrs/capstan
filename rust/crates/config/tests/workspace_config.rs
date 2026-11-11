@@ -8,7 +8,7 @@ use std::process::Command;
 use capstan_config::starter::{STARTER_CONFIG, WORKSPACE_STARTER_CONFIG};
 use capstan_config::{
     load_role_config_with, parse_config, record_current, trust_status_with, validate_workspace,
-    workspace_gate, ConfigError, RoleConfig, TrustStatus, TrustStore, WORKSPACE_NOT_COMPLETE,
+    ConfigError, RoleConfig, TrustStatus, TrustStore,
 };
 
 const BASE: &str = r#"schema_version = 1
@@ -315,19 +315,6 @@ fn a_worktree_dir_inside_another_project_is_refused_and_one_outside_any_is_fine(
     let outside = format!("{repo}[workspace]\nworktree_dir = \"{}\"\n", free.display());
     let ws = load(&p, &outside).unwrap().workspace.unwrap();
     assert_eq!(validate_workspace(&ws), Ok(()));
-}
-
-#[test]
-fn the_gate_names_the_unfinished_mode() {
-    assert_eq!(
-        workspace_gate(None),
-        Err(WORKSPACE_NOT_COMPLETE.to_string())
-    );
-    assert_eq!(
-        workspace_gate(Some("0")),
-        Err(WORKSPACE_NOT_COMPLETE.to_string())
-    );
-    assert_eq!(workspace_gate(Some("1")), Ok(()));
 }
 
 #[test]

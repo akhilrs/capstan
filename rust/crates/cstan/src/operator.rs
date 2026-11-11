@@ -157,20 +157,11 @@ impl Cli<'_> {
         Ok(operator)
     }
 
-    /// The unfinished-mode gate: a project with `[repos]` is refused before any git runs unless
-    /// `CAPSTAN_WORKSPACE_PREVIEW=1`. The file is read without judging trust, since the gate only refuses. Returns
-    /// whether the project is a workspace project.
-    fn workspace_gate(&self) -> Result<bool, Fail> {
-        let Ok(config) = capstan_config::parse_role_config_untrusted(&self.ctx.cwd) else {
-            return Ok(false);
-        };
-        if config.workspace.is_none() {
-            return Ok(false);
-        }
-        let preview = crate::agent::var(&self.ctx.env, capstan_config::WORKSPACE_PREVIEW_ENV)
-            .and_then(|value| value.to_str());
-        capstan_config::workspace_gate(preview).map_err(invalid)?;
-        Ok(true)
+    /// Whether the project in the current folder lists `[repos]`. The file is read without judging trust.
+    fn is_workspace_project(&self) -> bool {
+        capstan_config::parse_role_config_untrusted(&self.ctx.cwd)
+            .map(|config| config.workspace.is_some())
+            .unwrap_or(false)
     }
 
     /// The git half of the workspace checks (a repository without a commit, a missing branch, two names for one
@@ -194,7 +185,7 @@ impl Cli<'_> {
         }
         self.check_daemon_variable()?;
         let operator = self.load_operator()?;
-        if self.workspace_gate()? {
+        if self.is_workspace_project() {
             // Git runs in the paths the file names, so the trust check comes first.
             self.trust_preflight()?;
             self.validate_workspace_config()?;

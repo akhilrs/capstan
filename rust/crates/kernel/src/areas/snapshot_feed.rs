@@ -1465,7 +1465,7 @@ fn build(
                 if !force && reads.used + 2 > reads.max {
                     return Ok(Built::Defer);
                 }
-                let superseded =
+                let (superseded, member) =
                     integration_superseded(core, &candidate.id, int(cols, "sequence"))?;
                 reads.used += 2;
                 let details = if superseded || !scan.details {
@@ -1478,7 +1478,12 @@ fn build(
                 (!superseded).then(|| {
                     let mut found = item(
                         text(cols, "created_at"),
-                        shown(&format!("{state} {branch}")),
+                        shown(&match &member {
+                            Some((set_id, repo)) => {
+                                format!("{state} {branch} (repo {repo} of set {set_id})")
+                            }
+                            None => format!("{state} {branch}"),
+                        }),
                         sha256(&canonical(&json!({
                             "id": candidate.id,
                             "state": state,
@@ -1523,8 +1528,14 @@ pub(crate) const PACKAGE_REPORT: &str = "pp.assignee_agent_id = r.agent_id AND r
     WHERE other.project_id = r.project_id AND other.assignee_agent_id = r.agent_id AND other.assigned_at <= r.created_at
       AND (other.assigned_at, other.plan_id, other.package_id) > (pp.assigned_at, pp.plan_id, pp.package_id))";
 
-/// Whether a `merged` or `conflicted` integration is superseded (see the module doc): one statement, one row.
-fn integration_superseded(core: &Core, integration_id: &str, sequence: i64) -> KernelResult<bool> {
+/// Whether a `merged` or `conflicted` integration is superseded (see the module doc), and the `(set, repo)` it is a member
+/// of: one statement, one row. A member is superseded only by a later integration that is a member of the same set and
+/// repo, never by another member's.
+fn integration_superseded(
+    core: &Core,
+    integration_id: &str,
+    sequence: i64,
+) -> KernelResult<(bool, Option<(String, String)>)> {
     let kernel = core.kernel();
     let sql = format!(
         "WITH mine(plan_id) AS (
@@ -1535,6 +1546,13 @@ fn integration_superseded(core: &Core, integration_id: &str, sequence: i64) -> K
          SELECT
            EXISTS (SELECT 1 FROM integrations j
                     WHERE j.project_id = ?1 AND j.sequence > ?3 AND j.state IN ('merged', 'confirmed')
+                      AND (NOT EXISTS (SELECT 1 FROM integration_set_members me
+                                        WHERE me.project_id = ?1 AND me.integration_id = ?2)
+                           OR EXISTS (SELECT 1 FROM integration_set_members me
+                                        JOIN integration_set_members mj ON mj.project_id = me.project_id
+                                         AND mj.set_id = me.set_id AND mj.repo = me.repo
+                                       WHERE me.project_id = ?1 AND me.integration_id = ?2
+                                         AND mj.integration_id = j.integration_id))
                       AND EXISTS (SELECT 1 FROM integration_reports jr
                                     JOIN agent_reports r ON r.project_id = jr.project_id AND r.report_id = jr.report_id
                                     JOIN plan_packages pp ON pp.project_id = jr.project_id AND {PACKAGE_REPORT}
@@ -1546,15 +1564,29 @@ fn integration_superseded(core: &Core, integration_id: &str, sequence: i64) -> K
                               WHERE pl.cancelled_at IS NULL
                               AND NOT EXISTS (SELECT 1 FROM plan_archives ar WHERE ar.project_id = pl.project_id AND ar.plan_id = pl.plan_id)
                                 AND NOT EXISTS (SELECT 1 FROM plan_signoffs s
-                                                 WHERE s.project_id = ?1 AND s.plan_id = m.plan_id AND s.integration_id <> ?2))"
+                                                 WHERE s.project_id = ?1 AND s.plan_id = m.plan_id AND s.integration_id <> ?2)),
+           (SELECT set_id FROM integration_set_members WHERE project_id = ?1 AND integration_id = ?2),
+           (SELECT repo FROM integration_set_members WHERE project_id = ?1 AND integration_id = ?2)"
     );
     let found = query_opt(
         &kernel.database,
         &sql,
         rusqlite::params![kernel.project_id, integration_id, sequence],
-        |row| Ok(row.get::<_, i64>(0)? == 1 || row.get::<_, i64>(1)? == 1),
+        |row| {
+            let member = match (
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ) {
+                (Some(set_id), Some(repo)) => Some((set_id, repo)),
+                _ => None,
+            };
+            Ok((
+                row.get::<_, i64>(0)? == 1 || row.get::<_, i64>(1)? == 1,
+                member,
+            ))
+        },
     )?;
-    Ok(found.unwrap_or(false))
+    Ok(found.unwrap_or((false, None)))
 }
 
 /// The most reads one integration's details can cost: five statements and the rows they return (four single rows

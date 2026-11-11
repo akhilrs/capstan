@@ -396,6 +396,24 @@ pub fn cleanup_lines(result: Option<&Value>) -> Vec<String> {
     };
     let id = text_of(result.get("cleanupId"));
     let mut lines = Vec::new();
+    // A workspace answers one cleanup per repo.
+    if let Some(Value::Array(cleanups)) = result.get("cleanups") {
+        for cleanup in cleanups {
+            lines.push(format!(
+                "{} repo {}: {} candidates",
+                text_of(cleanup.get("cleanupId")).unwrap_or_default(),
+                text_of(cleanup.get("repo")).unwrap_or_default(),
+                as_number(cleanup.get("candidates")).unwrap_or(0.0) as u64
+            ));
+            if let Some(note) = text_of(cleanup.get("note")) {
+                lines.push(format!("  {note}"));
+            }
+        }
+        if lines.is_empty() {
+            lines.push("nothing to clean up".to_string());
+        }
+        return lines;
+    }
     if matches!(result.get("dryRun"), Some(Value::Bool(true))) {
         cleanup_group(
             &mut lines,

@@ -773,6 +773,13 @@ fn repo_review_task(
         "The change spans these repos; each has its own worktree at the commit to review:"
             .to_string(),
     ];
+    if let Some(set_id) = &brief.set_id {
+        lines[0] = format!(
+            "Review request {} (round {}) for set {set_id} (first member {subject})",
+            row.review_id, row.round
+        );
+        lines[1] = "The set merges one integration per repo; each has its own worktree at the member's head to review, and the reports of every member are listed below:".to_string();
+    }
     for repo in &brief.repos {
         let tree = repo
             .worktree_path
@@ -905,6 +912,8 @@ pub struct ReviewBrief {
     pub history: Vec<PriorVerdict>,
     /// A workspace report: the commit of each repo it names, in repo order. Empty for any other subject.
     pub repos: Vec<RepoBrief>,
+    /// The integration set whose first member is the subject; the task then speaks of the set.
+    pub set_id: Option<String>,
     /// A plan review of a workspace plan (a package names repos): the plan's base commit is informational.
     pub plan_workspace: bool,
 }
