@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iPhone sets: inbox, merge sheet, widget</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ios.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}.phone .mrows{background:var(--cell);border-radius:22px}.phone .mrow{font-size:15px;padding:10px 16px}.phone .mrow .rn{font-size:14px}.phone .mrow .st,.phone .mrow .sub{font-size:13px}.phone .mg{width:20px;height:20px;font-size:15px}.phone .cell .k{white-space:normal}</style>
+</helmet>
+<div class="board ios" style="width:1880px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">08 iPhone · a set is one inbox row; the merge sheet decides one repo at a time in merge order; the widget counts a set once — {{a.label}}</p>
+<div class="row4 {{a.cls}}">
+
+<figure class="fig"><figcaption>1 Inbox: set rows (8 glyphs, then +n)</figcaption>
+<div class="phone"><div class="island" aria-hidden="true"></div>
+<div class="scr" style="padding-top:64px"><h1 class="lt">Inbox</h1><p class="sub">capstan · build-host</p>
+<p class="sh">Integration sets</p>
+<ul class="sect">
+<li><div class="cell" aria-label="Set 8a46cad2, 1 of 3 in main, next web"><span class="ri mg built">○</span><span class="k">Set 8a46cad2 · 1 of 3 in main</span><span class="t">4m</span><span class="m"><span class="strip"><span class="mg inmain">●</span><span class="mg built">○</span><span class="mg built rs">○</span><span class="mg dropped">–</span></span> Merge web next</span></div></li>
+<li><div class="cell"><span class="ri mg conflicted">▲</span><span class="k">Set 3b81e2c4 · conflicted in web</span><span class="t">2m</span><span class="m"><span class="strip"><span class="mg built">○</span><span class="mg conflicted">▲</span><span class="mg building">◌</span><span class="mg building">◌</span></span> web conflicted</span></div></li>
+<li><div class="cell"><span class="ri mg failed">✕</span><span class="k">Set 4c90a7d2 · failed in worker</span><span class="t">3m</span><span class="m"><span class="strip"><span class="mg built">○</span><span class="mg built">○</span><span class="mg failed">✕</span><span class="mg built">○</span></span> worker failed, attempt 2</span></div></li>
+<li><div class="cell"><span class="ri mg building">◌</span><span class="k">Set 2a7f0b19 · building</span><span class="t">1m</span><span class="m"><span class="strip"><span class="mg built">○</span><span class="mg built">○</span><span class="mg building">◌</span><span class="mg building">◌</span></span> 2 of 4 built</span></div></li>
+<li><div class="cell"><span class="ri mg built">○</span><span class="k">Set 9a01c3d7 · 5 of 32 in main</span><span class="t">18m</span><span class="m"><span class="strip"><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg built">○</span><span class="more">+24</span></span> Merge billing next</span></div></li>
+</ul>
+</div>
+<nav inert class="tabs glass" aria-label="Tabs"><a class="tab on" href="#i">Inbox<span class="bdg">9</span></a><a class="tab" href="#a">Agents</a><a class="tab" href="#p">Plans</a><a class="tab" href="#s">Settings</a></nav>
+</div></figure>
+
+<figure class="fig"><figcaption>2 Merge sheet: the next repo</figcaption>
+<div class="phone"><div class="island" aria-hidden="true"></div><div class="scrim"></div>
+<div class="sheet large solid"><div class="grab" aria-hidden="true"></div>
+<div class="eyebrow">Integration · repo web of set 8a46cad2</div>
+<h2 class="h2">Merge web into main</h2>
+<p class="note" style="font-size:15px">Repo 2 of 3 in merge order</p>
+<p class="note" style="font-weight:600">Repos in merge order</p>
+<ul class="mrows">
+<li class="mrow"><span class="pos">1</span><span class="mg inmain">●</span><span class="rn">api</span><span class="st inmain">in main</span></li>
+<li class="mrow next"><span class="pos">2</span><span class="mg built">○</span><span class="rn">web</span><span class="st built">built · Next</span><span class="sub">51ab07e · verify passed</span></li>
+<li class="mrow"><span class="pos">3</span><span class="mg built rs">○</span><span class="rn">worker</span><span class="st built">built</span><span class="sub">c04d9e2 · Review subject</span></li>
+<li class="mrow out"><span class="pos">4</span><span class="mg dropped">–</span><span class="rn">infra</span><span class="st dropped">dropped</span><span class="sub">Outside the gate, review and confirm</span></li>
+</ul>
+<p class="note" style="font-size:15px">gate passed: every repo's latest run passed. After this: worker</p>
+<div style="display:flex;gap:12px;margin-top:auto"><button class="btn" type="button">Cancel</button><button class="btn pri" type="button">Merge web</button></div>
+</div></div></figure>
+
+<figure class="fig"><figcaption>3 Out of order: the host refuses</figcaption>
+<div class="phone"><div class="island" aria-hidden="true"></div><div class="scrim"></div>
+<div class="sheet solid"><div class="grab" aria-hidden="true"></div>
+<div class="eyebrow">Integration · repo worker of set 8a46cad2</div>
+<h2 class="h2">worker has to wait</h2>
+<div class="banner b-yellow" style="border-radius:16px"><span class="ico">▲</span><span class="bt"><b>merge web first</b></span><span class="bt">The set merges one repo at a time, in merge order. Nothing was merged.</span></div>
+<div style="display:flex;gap:12px"><button class="btn" type="button">Close</button><button class="btn pri" type="button">Open web</button></div>
+</div></div></figure>
+
+<figure class="fig"><figcaption>4 Merged, not confirmed · widget counts a set once</figcaption>
+<div class="phone"><div class="island" aria-hidden="true"></div>
+<div class="scr" style="padding-top:72px"><div class="body">
+<div class="eyebrow">Set 8a46cad2</div>
+<h2 class="h2">web is merged into main but not confirmed</h2>
+<div class="banner b-yellow" style="border-radius:16px"><span class="ico">▲</span><span class="bt"><b>Confirm web from the terminal</b></span><span class="bt">worker waits until web is confirmed.</span></div>
+<pre class="ut-b" style="background:var(--cell);border-radius:16px">cstan integrate confirm 8a46cad2 --repo web</pre>
+<button class="btn" type="button" style="flex:none">Copy command</button>
+<div class="wdg m" style="height:auto"><div class="ln" style="font-weight:600">Capstan · 9 waiting</div><div class="ln">Integration sets 8 · each set once</div><div class="ln">Reports 1</div><div class="ln" style="color:var(--label2)">as of 12:04</div></div>
+</div></div>
+</div></figure>
+</div>
+</sc-for>
+<p class="cap">Single-repo project · unchanged rows (Mac and iPhone), for reference</p>
+<div class="row4 light">
+<div style="background:var(--cell);border-radius:22px;width:370px"><div class="cell"><span class="ri mg built">○</span><span class="k">integration/plan-12 · Built · not in main</span><span class="t">4m</span><span class="m">3 reports · merge into main</span></div></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1880,"height":2180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mac inbox rows and set detail</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board mac" style="width:1600px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">04 Mac · Waiting for you: a set is one row (strip in merge order, summary, next repo); the inspector lists the members in merge order with verify per repo — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="win" style="width:1440px;height:820px">
+<nav inert class="side glass" aria-label="Sidebar"><div class="lights" aria-hidden="true"><span></span><span></span><span></span></div><ul class="nav"><li><a class="on" href="#inbox" aria-current="page">Waiting for you<span class="badge">10</span></a></li><li><a href="#agents">Agents</a></li><li><a href="#plans">Plans</a></li><li><a href="#ws">Workspace</a></li><li><a href="#messages">Messages to PM</a></li></ul><div class="sh">Hosts</div><ul class="nav"><li><a href="#h1"><span class="dot s-live" aria-hidden="true"></span>build-host<span class="sub">live</span></a></li><li><a class="in" href="#p1">capstan<span class="badge">10</span></a></li></ul></nav>
+<section class="mid" aria-label="Waiting for you">
+<div class="scroll">
+<div class="grp">Integration sets</div>
+<ul class="rows">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+<li class="row {{r.cls}}" aria-label="{{r.ax}}"><span class="ri mg {{r.icon}}">{{r.g}}</span><span class="k">{{r.title}}</span><span class="t">{{r.age}}</span><span class="m"><span class="strip"><sc-for list="{{r.strip}}" as="s" hint-placeholder-count="4"><span class="mg {{s.c}}">{{s.g}}</span></sc-for><sc-if value="{{r.more}}" hint-placeholder-val="{{false}}"><span class="more">{{r.more}}</span></sc-if></span> {{r.line}}</span></li>
+</sc-for>
+</ul>
+<div class="grp">Reports</div>
+<ul class="rows">
+<li class="row" aria-label="Report 7f3e2a1c from developer-4, accepted, report in 3 repos"><span class="ri mg">◇</span><span class="k">developer-4 · 3 repos</span><span class="t">2 min</span><span class="m"><code>api 9f3c2a1</code> · <code>web 51ab07e</code> · <code>worker c04d9e2</code> on <code>feat/PM-512-refund-sync</code></span></li>
+</ul>
+<p class="note" style="padding:12px">Selected: set 8a46cad2. Hover: set 3b81e2c4. Keyboard focus: set 4c90a7d2 (3 px ring). VoiceOver reads each row as in its label, e.g. "Set 8a46cad2, 1 of 3 in main, next web".</p>
+</div>
+<div class="tb"><div class="capg glass"><h1 class="title" style="margin:0">Waiting for you</h1></div><div class="capg glass"><button class="tbtn sel" type="button">All 10</button><button class="tbtn" type="button">Sets 9</button><button class="tbtn" type="button">Reports 1</button></div><div class="capg glass search">Search</div></div>
+</section>
+<aside class="insp" aria-label="Inspector" style="overflow:hidden">
+<div class="eyebrow">Integration set · capstan</div>
+<h2 class="h2">Set 8a46cad2 · 1 of 3 in main</h2>
+<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill p-blue">○ Built, not in main</span><span class="note"><code>integration/plan-185</code></span></div>
+<div>
+<p class="plabel2">Repos in merge order · 3 repos · 1 dropped</p>
+<ul class="mrows">
+<li class="mrow" aria-label="1 of 4, api, in main"><span class="pos">1</span><span class="mg inmain">●</span><span class="rn">api</span><span class="st inmain">in main</span><span class="sub">9f3c2a1 · verify passed</span></li>
+<li class="mrow next" aria-label="2 of 4, web, built, not in main, next to merge"><span class="pos">2</span><span class="mg built">○</span><span class="rn">web</span><span class="st built">built <span class="tag acc">Next</span></span><span class="sub">51ab07e · verify passed</span></li>
+<li class="mrow" aria-label="3 of 4, worker, built, not in main, review subject"><span class="pos">3</span><span class="mg built rs">○</span><span class="rn">worker</span><span class="st built">built <span class="tag">Review subject</span></span><span class="sub">c04d9e2 · verify running</span></li>
+<li class="mrow out" aria-label="4 of 4, infra, dropped, outside the gate, review and confirm"><span class="pos">4</span><span class="mg dropped">–</span><span class="rn">infra</span><span class="st dropped">dropped</span><span class="sub">Outside the gate, review and confirm</span></li>
+</ul>
+</div>
+<div class="banner b-yellow"><span class="ico">◌</span><span class="bt"><b>gate waiting: worker</b></span><span class="bt">Every repo's latest run must pass. api and web passed; worker is running.</span></div>
+<div class="acts"><div class="btnrow"><button class="btn" type="button">Copy commands</button><button class="btn pri" type="button">Merge web…</button></div></div>
+</aside>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":2060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const G = { i: ['inmain', '●'], b: ['built', '○'], r: ['built rs', '○'], u: ['building', '◌'], c: ['conflicted', '▲'], f: ['failed', '✕'], d: ['dropped', '–'] };
+    const strip = (s) => s.split('').map((k) => ({ c: G[k][0], g: G[k][1] }));
+    const rows = [
+      { title: 'Set 1c2d3e4f · building', line: 'building · 0 of 4 built', strip: strip('uuuu'), icon: 'building', g: '◌', age: '40 s', cls: '', ax: 'Set 1c2d3e4f, building, 0 of 4 built' },
+      { title: 'Set 2a7f0b19 · building', line: 'building · 2 of 4 built', strip: strip('bbuu'), icon: 'building', g: '◌', age: '1 min', cls: '', ax: 'Set 2a7f0b19, building, 2 of 4 built' },
+      { title: 'Set 3b81e2c4 · conflicted in web', line: 'web conflicted: redo it or message the PM', strip: strip('bcuu'), icon: 'conflicted', g: '▲', age: '2 min', cls: 'hov', ax: 'Set 3b81e2c4, conflicted in web' },
+      { title: 'Set 4c90a7d2 · failed in worker', line: 'worker failed, attempt 2', strip: strip('bbfb'), icon: 'failed', g: '✕', age: '3 min', cls: 'is-focus', ax: 'Set 4c90a7d2, failed in worker, attempt 2' },
+      { title: 'Set 8a46cad2 · 1 of 3 in main', line: 'Merge web next', strip: strip('ibrd'), icon: 'built', g: '○', age: '4 min', cls: 'sel', ax: 'Set 8a46cad2, 1 of 3 in main, next web' },
+      { title: 'Set 4b7e91c0 · built', line: 'Merge api next · infra dropped', strip: strip('bbrd'), icon: 'built', g: '○', age: '6 min', cls: '', ax: 'Set 4b7e91c0, built, none in main yet, next api, infra dropped' },
+      { title: 'Set 6e24a8b3 · built', line: 'Merge api next', strip: strip('brbb'), icon: 'built', g: '○', age: '11 min', cls: '', ax: 'Set 6e24a8b3, built, none in main yet, next api' },
+      { title: 'Set 9a01c3d7 · 5 of 32 in main', line: 'Merge billing next', strip: strip('iiiiibbbbuuu'), more: '+20', icon: 'built', g: '○', age: '18 min', cls: '', ax: 'Set 9a01c3d7, 5 of 32 in main, next billing' }
+    ];
+    return { rows, apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

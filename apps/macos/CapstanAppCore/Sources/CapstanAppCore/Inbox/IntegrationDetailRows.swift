@@ -59,6 +59,8 @@ public enum DetailBlock: Sendable, Equatable {
     /// A labelled list of host text; `more` is the "and N more" line of what the host left out.
     case entries(label: String, entries: [DetailEntry], more: String?)
     case results([DetailResult])
+    /// The repos of a set in merge order (`set.members.heading`), with the count line beside the heading.
+    case setMembers(heading: String, count: String, rows: [SetMemberRow])
 }
 
 public struct DetailSection: Sendable, Equatable {
@@ -119,9 +121,11 @@ public struct IntegrationDetailRows: Sendable, Equatable {
         let details = item.integrationDetails
         var reportCount: Int?
         if let details, details.recorded { reportCount = details.reports.count + Int(details.reportsOmitted) }
-        let headLine = headTitle(state: state, branch: branch)
+        var headLine = headTitle(state: state, branch: branch)
         var banners: [DetailBlock] = []
         var sections: [DetailSection] = []
+        let set = item.set ?? details?.set
+        if let set { headLine = SetText.title(set) }
         if state == "conflicted" {
             banners.append(
                 .banner(
@@ -156,13 +160,95 @@ public struct IntegrationDetailRows: Sendable, Equatable {
                     text: "This host's Capstan does not send integration details. Update Capstan on " + hostName
                         + " to see purpose, impact and results. The next steps below still apply."))
         }
+        var leadText = lead(state: state, reportCount: reportCount)
+        var stepList = steps(
+            state: state, branch: branch, hostName: hostName, details: details, mergeAvailable: mergeAvailable,
+            into: into)
+        if let set {
+            let extra = setContent(set, byRepo: details?.byRepo, into: into)
+            banners = extra.banners + banners
+            sections = [extra.members] + (extra.verify.map { [$0] } ?? []) + sections
+            leadText = extra.lead ?? leadText
+            stepList = stepList.map { setStep($0, set: set, into: into) }
+        }
         return IntegrationDetailRows(
-            stateWord: stateWord(state), stateTone: stateTone(state), title: headLine,
-            lead: lead(state: state, reportCount: reportCount), meta: metaRows(branch: branch, headSha: item.headSha),
-            banners: banners, sections: sections,
-            steps: steps(
-                state: state, branch: branch, hostName: hostName, details: details, mergeAvailable: mergeAvailable,
-                into: into))
+            stateWord: stateWord(state), stateTone: stateTone(state), title: headLine, lead: leadText,
+            meta: metaRows(branch: branch, headSha: item.headSha), banners: banners, sections: sections,
+            steps: stepList)
+    }
+
+    // MARK: Sets
+
+    struct SetContent {
+        let banners: [DetailBlock]
+        let members: DetailSection
+        let verify: DetailSection?
+        let lead: String?
+    }
+
+    /// What a member of a set adds to the inspector (board 05): the members in merge order, the gate, the verify of
+    /// each repo and the commands that go with the state of the member that needs one.
+    static func setContent(_ set: IntegrationSet, byRepo: [RepoVerify]?, into: String?) -> SetContent {
+        let rows = SetMemberRow.rows(set, verify: byRepo)
+        let count = String(set.liveMembers.count) + " repos"
+            + (set.droppedCount > 0 ? " · \(set.droppedCount) dropped" : "")
+        let members = DetailSection(
+            title: "Repos in merge order", summary: count,
+            blocks: [.setMembers(heading: "Repos in merge order", count: count, rows: rows)])
+        var banners: [DetailBlock] = []
+        var verify: DetailSection?
+        if let gate = SetGate.make(set, verify: byRepo) {
+            let tone: Tone = gate.state == .passed ? .green : (gate.state == .failed ? .red : .yellow)
+            banners.append(.banner(tone: tone, title: gate.line, text: gate.lead ?? ""))
+            let results = set.members.map { member -> DetailResult in
+                let row = byRepo?.first { $0.repo == member.repo }
+                if member.dropped {
+                    return DetailResult(
+                        label: member.repo, word: "outside the gate", tone: .grey, detail: nil, notes: [])
+                }
+                var notes: [String] = []
+                if let latest = row?.latest, latest.state != "passed", let last = row?.lastPassed {
+                    notes.append("last passed " + String(last.commitSha.prefix(7)))
+                }
+                let word = SetMemberRow.verifyWord(row)
+                let tone: Tone = word == "passed" ? .green : (word == "running" || word == "not run" ? .grey : .red)
+                return DetailResult(label: member.repo, word: word, tone: tone, detail: nil, notes: notes)
+            }
+            verify = DetailSection(title: "Verify by repo", summary: gate.line, blocks: [.results(results)])
+        }
+        var lead: String?
+        if let member = set.liveMembers.first(where: { $0.state == "conflicted" }) {
+            lead = "Nothing reached main. The other repos keep their work."
+            banners.append(
+                .banner(
+                    tone: .yellow, title: member.repo + " conflicted: redo it or message the PM",
+                    text: "cstan integrate redo " + set.setId + " --repo " + member.repo))
+        } else if let member = set.liveMembers.first(where: { $0.state == "failed" }) {
+            lead = member.isRedone
+                ? "The redo failed too. Discard " + member.repo + " to go on without it, or message the PM."
+                : "Redo " + member.repo + ", discard it to go on without it, or message the PM."
+            let word = "failed" + (member.isRedone ? ", attempt \(member.attempt)" : "")
+            banners.append(
+                .banner(
+                    tone: .red, title: member.repo + " " + word,
+                    text: "cstan integrate discard " + set.setId + " --repo " + member.repo))
+        } else if SetText.state(set) == .inMain {
+            lead = "Every repo is merged into its main and confirmed. The PM was told."
+        } else if let dropped = set.members.first(where: { $0.dropped }) {
+            lead = dropped.repo + " was dropped: it is not verified, reviewed or confirmed with this set."
+        } else if SetText.state(set) == .building {
+            lead = "Each repo is merged onto " + (set.member?.branch ?? "the integration branch")
+                + ". Nothing to decide yet."
+        }
+        return SetContent(banners: banners, members: members, verify: verify, lead: lead)
+    }
+
+    /// A merge step of a member names the repo: `Merge web into main`.
+    static func setStep(_ step: DetailStep, set: IntegrationSet, into: String?) -> DetailStep {
+        guard step.action == .merge else { return step }
+        return DetailStep(
+            title: "Merge " + set.repo + " into " + targetName(into), note: step.note, command: step.command,
+            action: step.action, hostText: step.hostText)
     }
 
     // MARK: State

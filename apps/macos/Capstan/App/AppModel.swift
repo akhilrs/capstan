@@ -372,7 +372,7 @@ final class AppModel {
         case .inbox, .hosts, .messages, .allAgents, .allPlans:
             restoredSelection = nil
             return
-        case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _):
+        case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _), .workspace(let hostId, _):
             if unloaded.contains(hostId), hosts.contains(where: { $0.id == hostId && $0.enabled }) { return }
         }
         restoring = true
@@ -539,7 +539,7 @@ final class AppModel {
 
     private func currentHostId() -> UUID? {
         switch selection {
-        case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _): return hostId
+        case .project(let hostId, _), .agents(let hostId, _), .plans(let hostId, _), .workspace(let hostId, _): return hostId
         case .hosts: return hostsFocus?.hostId
         case .inbox, .messages, .allAgents, .allPlans: return nil
         }
@@ -644,7 +644,8 @@ final class AppModel {
         switch selection {
         case .inbox, .messages, .allAgents, .allPlans:
             for host in hosts { refresh(hostId: host.id, projectIds: readyProjects(hostId: host.id)) }
-        case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
+        case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId),
+            .workspace(let hostId, let projectId):
             refresh(hostId: hostId, projectIds: readyProjects(hostId: hostId).intersection([projectId]))
             overviewRefreshed()
         case .hosts:

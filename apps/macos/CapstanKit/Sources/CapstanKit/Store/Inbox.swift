@@ -42,11 +42,16 @@ public struct InboxRow: Identifiable, Sendable, Equatable {
     public let stale: Bool
     public let requestId: String
     public let contentHash: String
+    /// The set an integration row stands for, when the host sent one. The row is the member the person decides next, and
+    /// it stands for the whole set: the other members are not rows of their own.
+    public let set: IntegrationSet?
 
     public init(
         id: InboxRowID, kind: WaitingKind, projectName: String, since: String, summary: UntrustedText,
-        needsTerminal: Bool, forwarded: Bool, stale: Bool, requestId: String, contentHash: String
+        needsTerminal: Bool, forwarded: Bool, stale: Bool, requestId: String, contentHash: String,
+        set: IntegrationSet? = nil
     ) {
+        self.set = set
         self.id = id
         self.kind = kind
         self.projectName = projectName
@@ -143,11 +148,11 @@ public func inbox(_ hosts: [HostModel], filter: InboxFilter = .all) -> [InboxGro
                     id: InboxRowID(hostId: host.hostId, projectId: project.projectId, key: item.key),
                     kind: item.kind, projectName: project.displayName, since: item.since, summary: item.summary,
                     needsTerminal: item.needsTerminal, forwarded: forwarded, stale: project.staleSince != nil,
-                    requestId: item.requestId, contentHash: item.contentHash))
+                    requestId: item.requestId, contentHash: item.contentHash, set: item.set))
             }
         }
     }
-    rows = sortedInboxRows(rows)
+    rows = foldedSetRows(sortedInboxRows(rows))
     return WaitingKind.inboxOrder.compactMap { kind in
         let members = rows.filter { $0.kind == kind }
         return members.isEmpty ? nil : InboxGroup(kind: kind, title: kind.groupTitle, rows: members)
@@ -157,4 +162,49 @@ public func inbox(_ hosts: [HostModel], filter: InboxFilter = .all) -> [InboxGro
 /// The number of items that wait for the person and are not yet forwarded.
 public func badgeCount(_ hosts: [HostModel]) -> Int {
     inbox(hosts, filter: InboxFilter(includeForwarded: false)).reduce(0) { $0 + $1.count }
+}
+
+/// A set shows as one row. Of the member rows of one set (same host, project and set id) the row of the member that is
+/// next in merge order stays, else the first in merge order; the others fold into it. The first row keeps the place of
+/// the set in the list. A row without a set is left as it is, so a project without `[repos]` is unchanged.
+func foldedSetRows(_ rows: [InboxRow]) -> [InboxRow] {
+    struct SetKey: Hashable {
+        let host: UUID
+        let project: String
+        let setId: String
+    }
+    // The member rows of one set carry snapshots that may disagree (each was sent at its own time). The choice must not
+    // depend on which row is read first, or the kept row, its id, would jump between updates and drop the selection:
+    // take the most advanced snapshot (most members in main, then most built, then the lowest repo name), read the next
+    // repo from it, and keep the row of that repo; if no row is of it, the lowest position, then the lowest key.
+    var groups: [SetKey: [InboxRow]] = [:]
+    for row in rows {
+        guard let set = row.set else { continue }
+        groups[SetKey(host: row.id.hostId, project: row.id.projectId, setId: set.setId), default: []].append(row)
+    }
+    var chosen: [SetKey: InboxRow] = [:]
+    for (key, members) in groups {
+        let sets = members.compactMap(\.set)
+        let lead = sets.min {
+            ($1.inMainCount, $1.builtCount, $0.repo) < ($0.inMainCount, $0.builtCount, $1.repo)
+        }
+        let target = lead?.next?.repo
+        chosen[key] = members.min { lhs, rhs in
+            let l = (lhs.set?.repo == target ? 0 : 1, lhs.set?.position ?? 0, lhs.id.key)
+            let r = (rhs.set?.repo == target ? 0 : 1, rhs.set?.position ?? 0, rhs.id.key)
+            return l < r
+        }
+    }
+    var placed: Set<SetKey> = []
+    var folded: [InboxRow] = []
+    for row in rows {
+        guard let set = row.set else {
+            folded.append(row)
+            continue
+        }
+        let key = SetKey(host: row.id.hostId, project: row.id.projectId, setId: set.setId)
+        guard placed.insert(key).inserted, let kept = chosen[key] else { continue }
+        folded.append(kept)
+    }
+    return folded
 }

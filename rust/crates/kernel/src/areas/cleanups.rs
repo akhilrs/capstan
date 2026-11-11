@@ -207,6 +207,11 @@ fn cleanup_record(kernel: &Kernel, cleanup_id: &str) -> KernelResult<Value> {
         },
     )?;
     record["entries"] = Value::Array(entries);
+    // A cleanup of a named repo says so; the record of a single-repo project is what it always was.
+    let repo = super::workspace::cleanup_repo(kernel, cleanup_id)?;
+    if !repo.is_empty() {
+        record["repo"] = Value::String(repo);
+    }
     Ok(record)
 }
 

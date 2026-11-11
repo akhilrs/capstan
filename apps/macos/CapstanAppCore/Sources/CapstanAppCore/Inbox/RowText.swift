@@ -34,6 +34,7 @@ public enum RowText {
     /// `project · actor` or `project · what it asks`. The feed does not carry an actor for a prompt or a message, so
     /// the title names what the item is.
     public static func title(_ row: InboxRow) -> String {
+        if let set = row.set { return SetText.title(set) }
         let project = TextBudget.displayPrefix(row.projectName, maxBytes: projectCap).text
         return project + " · " + detail(row)
     }
@@ -90,6 +91,7 @@ public enum RowText {
     }
 
     public static func secondary(_ row: InboxRow) -> RowSecondary {
+        if let set = row.set { return .plain(setSecondary(set)) }
         guard row.summary.verified else { return .unverified }
         switch row.kind {
         case .integration:
@@ -105,6 +107,13 @@ public enum RowText {
         }
     }
 
+    /// The second line of a set row: the strip, then the reason it waits (`Merge web next`, `web conflicted: ...`).
+    public static func setSecondary(_ set: IntegrationSet) -> String {
+        let strip = SetText.strip(set).text
+        guard let reason = SetText.reason(set) else { return strip }
+        return strip + "  " + reason
+    }
+
     private static func words(_ row: InboxRow) -> (state: String, branch: String) {
         let text = row.summary.displayPlain.trimmingCharacters(in: .whitespaces)
         guard let space = text.firstIndex(of: " ") else { return (text, "") }
@@ -118,6 +127,8 @@ public struct DisplayGroup: Identifiable, Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case kind(WaitingKind)
         case mergeConflicts
+        /// The integrations that are members of a set; each row stands for one set.
+        case integrationSets
     }
 
     public let kind: Kind
@@ -127,6 +138,7 @@ public struct DisplayGroup: Identifiable, Sendable, Equatable {
         switch kind {
         case .kind(let k): return k.wireName
         case .mergeConflicts: return "merge-conflicts"
+        case .integrationSets: return "integration-sets"
         }
     }
 
@@ -135,6 +147,7 @@ public struct DisplayGroup: Identifiable, Sendable, Equatable {
     public var title: String {
         switch kind {
         case .mergeConflicts: return "Merge conflicts"
+        case .integrationSets: return "Integration sets"
         case .kind(let k):
             switch k {
             case .op: return "Command proposals"
@@ -165,11 +178,15 @@ public enum InboxLayout {
     public static func groups(_ groups: [InboxGroup]) -> [DisplayGroup] {
         var shown: [DisplayGroup] = []
         var conflicted: [InboxRow] = []
+        var sets: [InboxRow] = []
         for group in groups {
             if case .integration = group.kind {
-                let ready = group.rows.filter { RowText.integrationState($0) == .merged }
-                conflicted += group.rows.filter { RowText.integrationState($0) != .merged }
+                sets += group.rows.filter { $0.set != nil }
+                let single = group.rows.filter { $0.set == nil }
+                let ready = single.filter { RowText.integrationState($0) == .merged }
+                conflicted += single.filter { RowText.integrationState($0) != .merged }
                 if !ready.isEmpty { shown.append(DisplayGroup(kind: .kind(.integration), rows: ready)) }
+                if !sets.isEmpty { shown.append(DisplayGroup(kind: .integrationSets, rows: sets)) }
             } else if !group.rows.isEmpty {
                 shown.append(DisplayGroup(kind: .kind(group.kind), rows: group.rows))
             }

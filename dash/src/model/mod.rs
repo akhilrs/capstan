@@ -8,6 +8,7 @@ pub mod text;
 pub mod time;
 pub mod types;
 mod waiting;
+mod workspace;
 
 pub use actions::*;
 pub use build::build_dash_model;

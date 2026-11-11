@@ -4,6 +4,7 @@ mod findings;
 mod pipeline;
 mod queue;
 mod work;
+pub mod workspace;
 
 use super::border::{bottom_border, top_border, BorderColors, BottomBorder, Tab, Thumb, TopBorder};
 use super::format::{cell_width, truncate};
@@ -371,13 +372,26 @@ pub fn wish_for(id: PanelId, model: &DashModel, view: &ViewState) -> PanelWish {
     };
     match id {
         PanelId::Agents => PanelWish {
-            want: CHROME_ROWS + 1 + count(visible_agents(model, view.show_all_ended).len()),
+            want: CHROME_ROWS
+                + 1
+                + count(visible_agents(model, view.show_all_ended).len())
+                + visible_agents(model, view.show_all_ended)
+                    .get(view.selected.agents)
+                    .map_or(0, |a| workspace::agent_area_rows_wanted(a)),
             weight: 4.0,
             stretch: true,
             ..base
         },
         PanelId::Pipeline => PanelWish {
-            want: CHROME_ROWS + 1 + 3 + 2 + 1 + pipeline_items(model).len(),
+            want: CHROME_ROWS
+                + 1
+                + 3
+                + 2
+                + 1
+                + pipeline_items(model).len()
+                + pipeline_items(model)
+                    .get(view.selected.pipeline)
+                    .map_or(0, |i| workspace::area_rows_wanted(i)),
             weight: 2.0,
             ..base
         },

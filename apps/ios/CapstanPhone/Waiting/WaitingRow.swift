@@ -1,5 +1,6 @@
 import CapstanAppCore
 import CapstanKit
+import CapstanPhoneCore
 import SwiftUI
 
 /// One row of the Waiting list (board 02): the kind glyph, `project · actor`, the age, and a second line with the
@@ -14,7 +15,7 @@ struct WaitingRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.space[2]) {
-            Image(systemName: row.kind.glyph)
+            Image(systemName: row.set.map { SetText.state($0).symbol } ?? row.kind.glyph)
                 .foregroundStyle(Tokens.color(.label2))
                 .frame(width: 24)
                 .accessibilityHidden(true)
@@ -27,7 +28,8 @@ struct WaitingRow: View {
                     Text(verbatim: RowText.title(row))
                         .font(TypeStyle.headline)
                         .foregroundStyle(quiet ? Tokens.color(.label2) : Tokens.color(.label))
-                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                        // A set title wraps to two lines (board 08); other rows keep one.
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : (row.set == nil ? 1 : 2))
                     if !typeSize.isAccessibilitySize { Spacer(minLength: Tokens.space[1]) }
                     TimelineView(.periodic(from: .now, by: 30)) { context in
                         Text(verbatim: AgeText.short(since: row.since, now: context.date))
@@ -43,6 +45,7 @@ struct WaitingRow: View {
         .contentShape(Rectangle())
         .frame(minHeight: 44)
         .accessibilityElement(children: .combine)
+        .setVoiceover(row.set.map { SetText.rowVoiceover($0) })
     }
 
     private var secondLine: some View {
@@ -63,6 +66,11 @@ struct WaitingRow: View {
                     }
                 }
             }
+            if let set = row.set {
+                // The strip is 8 glyphs then +n on the phone; the count sentence is the VoiceOver text.
+                Text(verbatim: PhoneSetText.secondary(set))
+                    .font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2)).lineLimit(3)
+            } else {
             switch RowText.secondary(row) {
             case .mono(let text):
                 Text(verbatim: text).font(TypeStyle.mono).lineLimit(2)
@@ -70,6 +78,7 @@ struct WaitingRow: View {
                 Text(verbatim: text).font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2)).lineLimit(2)
             case .unverified:
                 Text("Text could not be verified").font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2))
+            }
             }
         }
     }
@@ -117,5 +126,13 @@ struct SkeletonRow: View {
         }
         .padding(.vertical, Tokens.space[2])
         .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// Replaces the combined VoiceOver text only when there is one: a set row reads `a11y.set.row`.
+    @ViewBuilder
+    func setVoiceover(_ label: String?) -> some View {
+        if let label { accessibilityLabel(Text(verbatim: label)) } else { self }
     }
 }

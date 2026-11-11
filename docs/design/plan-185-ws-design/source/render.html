@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Static render of one artboard</title></head>
+<body style="margin:0">
+<div id="out"></div>
+<script>
+// Renders one .dc.html artboard without the canvas runtime: expands sc-for, sc-if and {{holes}}.
+class DCLogic { constructor() { this.props = {}; this.state = {}; } setState() {} }
+const file = new URLSearchParams(location.search).get('f');
+function get(scope, path) {
+  path = path.trim();
+  if (path === 'true') return true;
+  if (path === 'false') return false;
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), scope);
+}
+function fill(text, scope) {
+  return text.replace(/\{\{([^}]+)\}\}/g, (_, p) => { const v = get(scope, p); return v == null ? '' : String(v); });
+}
+function expand(node, scope) {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === 3) { child.textContent = fill(child.textContent, scope); continue; }
+    if (child.nodeType !== 1) continue;
+    const tag = child.tagName.toLowerCase();
+    if (tag === 'sc-for') {
+      const list = get(scope, child.getAttribute('list').replace(/[{}]/g, '')) || [];
+      const as = child.getAttribute('as');
+      const frag = document.createDocumentFragment();
+      list.forEach((item, i) => {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = child.innerHTML;
+        expand(wrap, Object.assign({}, scope, { [as]: item, $index: i }));
+        while (wrap.firstChild) frag.appendChild(wrap.firstChild);
+      });
+      child.replaceWith(frag);
+      continue;
+    }
+    if (tag === 'sc-if') {
+      const v = get(scope, child.getAttribute('value').replace(/[{}]/g, ''));
+      if (!v) { child.remove(); continue; }
+      expand(child, scope);
+      while (child.firstChild) child.parentNode.insertBefore(child.firstChild, child);
+      child.remove();
+      continue;
+    }
+    for (const attr of Array.from(child.attributes)) attr.value = fill(attr.value, scope);
+    expand(child, scope);
+  }
+}
+fetch('project/' + file).then(r => r.text()).then(src => {
+  const doc = new DOMParser().parseFromString(src, 'text/html');
+  for (const l of doc.querySelectorAll('head link[rel=stylesheet]')) {
+    const n = document.createElement('link'); n.rel = 'stylesheet'; n.href = 'project/' + l.getAttribute('href') + '?t=' + Date.now(); document.head.appendChild(n);
+  }
+  const code = doc.querySelector('script[data-dc-script]').textContent;
+  const Component = new Function('DCLogic', code + '\nreturn Component;')(DCLogic);
+  const vals = new Component().renderVals();
+  const root = doc.querySelector('x-dc');
+  const helmet = root.querySelector('helmet');
+  if (helmet) { for (const s of helmet.querySelectorAll('style')) document.head.appendChild(s.cloneNode(true)); helmet.remove(); }
+  const out = document.getElementById('out');
+  out.innerHTML = root.innerHTML;
+  expand(out, vals);
+  document.body.dataset.ready = '1';
+});
+</script>
+</body>
+</html>

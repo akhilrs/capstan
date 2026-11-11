@@ -47,6 +47,9 @@ public struct WaitingItem: WireItem {
     /// What a client may offer for `op approve-as`. nil for another kind and from a host older than `approve-as`
     /// (absent or null), which is how a client knows to offer only `op approve`.
     public let approveChoices: ApproveChoices?
+    /// The integration set an integration item is a member of; nil for another kind, a project without `[repos]` and
+    /// a host that does not send it.
+    public let set: IntegrationSet?
 
     public init(json: JSONValue) throws {
         _ = try json.members("waiting item")
@@ -63,6 +66,8 @@ public struct WaitingItem: WireItem {
         integrationDetails = json.optional("integrationDetails").flatMap { IntegrationDetails(wire: $0) }
         designLink = try json.optionalString("designLink").flatMap { $0.isEmpty ? nil : itemText($0) }
         approveChoices = try json.optional("approveChoices").map(ApproveChoices.init(json:))
+        set = json.optional("set").flatMap { IntegrationSet(wire: $0) }
+            ?? json.optional("integrationDetails").flatMap { $0.optional("set") }.flatMap { IntegrationSet(wire: $0) }
     }
 
     static func validSha(_ text: String) -> String? {
@@ -423,13 +428,19 @@ public struct IntegrationDetails: Codable, Sendable, Equatable {
     public var impact: IntegrationImpact?
     public var review: IntegrationReview?
     public var verify: IntegrationVerify?
+    /// The set of a member of an integration set; nil from a host without workspace data.
+    public var set: IntegrationSet?
+    /// Each repo's own verify result, in merge order, for a member of a set; nil from a host without workspace data.
+    public var byRepo: [RepoVerify]?
 
     public init(
         recorded: Bool, impactError: String? = nil, plans: [IntegrationPlan] = [], plansOmitted: Int64 = 0,
         reports: [IntegrationReport] = [], reportsOmitted: Int64 = 0, signoffs: [IntegrationSignoff] = [],
         signoffsOmitted: Int64 = 0, impact: IntegrationImpact? = nil, review: IntegrationReview? = nil,
-        verify: IntegrationVerify? = nil
+        verify: IntegrationVerify? = nil, set: IntegrationSet? = nil, byRepo: [RepoVerify]? = nil
     ) {
+        self.set = set
+        self.byRepo = byRepo
         self.recorded = recorded
         self.impactError = impactError
         self.plans = plans
@@ -447,8 +458,9 @@ public struct IntegrationDetails: Codable, Sendable, Equatable {
     /// object with a boolean `recorded`.
     init?(wire json: JSONValue) {
         guard case .object = json, let recorded = json.wireBool("recorded") else { return nil }
+        let set = json.optional("set").flatMap { IntegrationSet(wire: $0) }
         guard recorded else {
-            self.init(recorded: false)
+            self.init(recorded: false, set: set)
             return
         }
         self.init(
@@ -460,7 +472,8 @@ public struct IntegrationDetails: Codable, Sendable, Equatable {
             signoffsOmitted: json.wireCount("signoffsOmitted"),
             impact: json.optional("impact").flatMap { IntegrationImpact(wire: $0) },
             review: json.optional("review").flatMap { IntegrationReview(wire: $0) },
-            verify: json.optional("verify").flatMap { IntegrationVerify(wire: $0) })
+            verify: json.optional("verify").flatMap { IntegrationVerify(wire: $0) }, set: set,
+            byRepo: RepoVerify.list(in: json.optional("verify")))
     }
 }
 
@@ -523,6 +536,10 @@ public struct AgentItem: WireItem {
     public let activitySince: String?
     /// The sequence of the observation; a lower one never replaces a higher one.
     public let activitySeq: Int64?
+    /// The worktrees the agent holds, one per repo, and the folder that holds them; nil without worktrees and from a
+    /// host that does not send them.
+    public let worktrees: [AgentWorktree]?
+    public let changeFolder: String?
 
     public init(json: JSONValue) throws {
         _ = try json.members("agent item")
@@ -542,6 +559,8 @@ public struct AgentItem: WireItem {
         activity = json.activityString("activity")
         activitySince = json.activityString("activitySince")
         activitySeq = json.activitySeq()
+        worktrees = AgentWorktree.list(in: json)
+        changeFolder = json.activityString("changeFolder")
     }
 }
 

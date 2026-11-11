@@ -97,6 +97,17 @@ pub(crate) fn set_view(core: &Core, subject: &str) -> KernelResult<Option<Value>
     }
 }
 
+/// The commands sha of `repo`. A repo without its own `[repos.<r>.verify]` runs the top-level commands (the entry named
+/// ''); an empty sha would accept a run under any commands, and a [verify] section always gives a sha.
+pub(crate) fn sha_for(shas: &[(String, String)], repo: &str) -> String {
+    let found = |name: &str| {
+        shas.iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, sha)| sha.clone())
+    };
+    found(repo).or_else(|| found("")).unwrap_or_default()
+}
+
 /// The gate of a set under each repo's current commands: one failure per member without a counted passed run.
 pub(crate) fn set_gate_failures(
     deps: &Deps,
@@ -106,18 +117,7 @@ pub(crate) fn set_gate_failures(
     let shas = repo_shas(deps, service);
     let id = set_id.to_string();
     deps.kernel.run(move |core| {
-        // A repo without its own `[repos.<r>.verify]` runs the top-level commands (the entry named ''); an empty sha would
-        // accept a run under any commands, and a [verify] section always gives a sha.
-        let top = shas
-            .iter()
-            .find(|(name, _)| name.is_empty())
-            .map(|(_, sha)| sha.clone())
-            .unwrap_or_default();
-        let gate = core.set_gate_by(&id, &|repo| {
-            shas.iter()
-                .find(|(name, _)| name == repo)
-                .map_or_else(|| top.clone(), |(_, sha)| sha.clone())
-        })?;
+        let gate = core.set_gate_by(&id, &|repo| sha_for(&shas, repo))?;
         let mut failures = Vec::new();
         for member in gate["members"].as_array().into_iter().flatten() {
             let code = member["code"].as_str().unwrap_or("");
@@ -663,7 +663,7 @@ pub fn check_gate(deps: &Deps, gate: Gate, subjects: &[String]) -> Result<(), Ke
 }
 
 /// The commands sha of each repo of the workspace ('' is the root) under the current configuration.
-fn repo_shas(deps: &Deps, service: &VerifyService) -> Vec<(String, String)> {
+pub(crate) fn repo_shas(deps: &Deps, service: &VerifyService) -> Vec<(String, String)> {
     let mut repos: Vec<String> = deps
         .options
         .capstan

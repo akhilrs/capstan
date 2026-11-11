@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cstan text: sets, reports, verify, cleanup</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="ws-board" style="width:1840px">
+<h1>02 cstan text: status, plan show --brief, verify and cleanup</h1>
+<p>A set is one line: <code>set &lt;set id&gt; &lt;branch&gt;</code>, the strip in merge order, then the summary. A second, dim line names only the members that need a word: the next repo, the review subject, a conflicted or failed member with its attempt, and dropped members. Nothing else is listed, so the line count does not grow with the repo count. Colour comes from the dash roles; under <code>NO_COLOR</code> the words and glyphs carry everything (right column).</p>
+<div class="cols">
+<div class="col" style="width:1040px">
+<p class="tcap">cstan status · integrations, the eight set states <span class="keys">set.line · set.summary.* · set.next · set.reviewSubject · set.dropped.list · member.attempt · state.*</span></p>
+<pre class="term">integrations
+  <span class="b">set 1c2d3e4f</span> integration/plan-185  <span class="d">◌◌◌◌</span>  building · 0 of 4 built                      <span class="d">1. all building</span>
+  <span class="b">set 2a7f0b19</span> integration/plan-185  <span class="info">○○</span><span class="d">◌◌</span>  building · 2 of 4 built                      <span class="d">2. partly built</span>
+  <span class="b">set 3b81e2c4</span> integration/plan-185  <span class="info">○</span><span class="warn">▲</span><span class="d">◌◌</span>  <span class="warn">conflicted in web</span>                            <span class="d">3. one conflicted</span>
+<span class="d">      web conflicted: cstan integrate redo 3b81e2c4 --repo web</span>
+  <span class="b">set 4c90a7d2</span> integration/plan-185  <span class="info">○○</span><span class="bad">✕</span><span class="info">○</span>  <span class="bad">failed in worker</span>                             <span class="d">4. failed after redo</span>
+<span class="d">      worker failed, attempt 2</span>
+  <span class="b">set 4b7e91c0</span> integration/plan-185  <span class="info">○○○</span><span class="d">–</span>  built · none in main yet · next: api          <span class="d">5. one dropped</span>
+<span class="d">      review subject: worker · dropped: infra</span>
+  <span class="b">set 5d13f6a8</span> integration/plan-185  <span class="d">––––</span>  discarded · nothing reached main             <span class="d">6. discarded</span>
+  <span class="b">set 6e24a8b3</span> integration/plan-185  <span class="info">○○○○</span>  built · none in main yet · next: api          <span class="d">7. all built</span>
+<span class="d">      review subject: web</span>
+  <span class="b">set 7f35b9c1</span> integration/plan-185  <span class="ok">●●●●</span>  in main · all 4 repos                        <span class="d">8. all in main</span>
+  <span class="b">set 8a46cad2</span> integration/plan-185  <span class="ok">●</span><span class="info">○○</span><span class="d">–</span>  1 of 3 in main · next: web                   <span class="d">decide order</span>
+<span class="d">      review subject: worker · dropped: infra</span>
+  <span class="b">set 9a01c3d7</span> integration/plan-185  <span class="ok">●●●●●</span><span class="info">○○○○</span><span class="d">◌◌◌</span> <span class="b">+20</span>  5 of 32 in main · next: billing   <span class="d">32 repos</span></pre>
+<p class="tcap">cstan status · a report with commits in several repos <span class="keys">report.repos · report.commit · report.branch</span></p>
+<pre class="term">reports
+  <span class="b">7f3e2a1c</span> developer-4 <span class="ok">accepted</span> 3 repos  api 9f3c2a1 · web 51ab07e · worker c04d9e2  on feat/PM-512-refund-sync   2m
+  <span class="b">0a9d4e55</span> developer-6 <span class="ok">accepted</span> 2 repos  payments-reconciliation-service 1e0a7b3 · web 77c2d10  on fix/PM-530-retry   9m</pre>
+<p class="tcap">cstan status · verify of a set: one gate over each repo's latest run <span class="keys">verify.gate.* · verify.repo · verify.repo.outside · verify.repo.lastPassed</span></p>
+<pre class="term">  <span class="b">set 8a46cad2</span> verify  <span class="warn">gate waiting: worker</span>
+<span class="d">      api passed · web passed · worker running · infra outside the gate</span>
+  <span class="b">set 4c90a7d2</span> verify  <span class="bad">gate failed: worker</span>
+<span class="d">      api passed · web passed · worker failed, last passed 0b8e1d2 · infra passed</span>
+  <span class="b">set 6e24a8b3</span> verify  <span class="ok">gate passed: every repo's latest run passed</span></pre>
+<p class="tcap">cstan verify &lt;report&gt; (shipped lines, unchanged)</p>
+<pre class="term">verify run run-1 for repo web queued; cstan verify show run-1
+verify run run-2 for repo core already running; cstan verify show run-2</pre>
+<p class="tcap">cstan cleanup · one offer per repo; a repo that left the configuration offers its worktrees only <span class="keys">cleanup.repo · cleanup.repo.left · shipped.cleanup.left</span></p>
+<pre class="term">cleanup 3e9a71b0 · api: branches 4, worktrees 1
+cleanup 5c22d8f1 · web: branches 2, worktrees 0
+cleanup 77ab3c09 · legacy-billing: branches 0, worktrees 2
+<span class="warn">  legacy-billing left the configuration: worktrees only, apply them by name</span>
+<span class="d">    feat/PM-401-billing-export  ~/.capstan/wt/developer-3/legacy-billing</span>
+<span class="d">    chore/developer-5-ledger    ~/.capstan/wt/developer-5/legacy-billing</span>
+<span class="d">    reason: the repo left the configuration; only its worktree is removed, the branch stays</span>
+  cstan cleanup apply 77ab3c09 feat/PM-401-billing-export chore/developer-5-ledger</pre>
+<p class="tcap">cstan plan show plan-185 --brief · a package's repos <span class="keys">plan.repos</span></p>
+<pre class="term">plan-185 normal approved Workspace mode: views, docs and apps
+  ws-design docs 6h deps - designer-18 working
+  ws-feed feat 12h deps ws-design developer-7 assigned <span class="b">repos capstan</span>
+  ws-dash feat 6h deps ws-design,ws-feed - pending <span class="b">repos capstan,capstan-dash-fixtures</span></pre>
+<p class="tcap">cstan status · agents: a worker's repos <span class="keys">worktree.count</span></p>
+<pre class="term">  developer-4 Developer active g1 3m · claude-opus-5-5 · plan · <span class="b">3 repos</span></pre>
+</div>
+<div class="col" style="width:660px">
+<p class="tcap">NO_COLOR · the same set lines</p>
+<pre class="term nc">integrations
+  <span class="b">set 3b81e2c4</span> integration/plan-185  ○▲◌◌  conflicted in web
+<span class="d">      web conflicted: cstan integrate redo 3b81e2c4 --repo web</span>
+  <span class="b">set 4c90a7d2</span> integration/plan-185  ○○✕○  failed in worker
+<span class="d">      worker failed, attempt 2</span>
+  <span class="b">set 8a46cad2</span> integration/plan-185  ●○○–  1 of 3 in main · next: web
+<span class="d">      review subject: worker · dropped: infra</span></pre>
+<p class="tcap">TERM=dumb · ASCII glyphs</p>
+<pre class="term nc">  set 8a46cad2 integration/plan-185  #oo-  1 of 3 in main · next: web
+  set 3b81e2c4 integration/plan-185  o!..  conflicted in web
+  set 4c90a7d2 integration/plan-185  ooxo  failed in worker</pre>
+<p class="tcap">Refusals the commands already print (quoted, unchanged)</p>
+<pre class="term nc">repo worker of set 7f35b9c1 is confirmed; its code is on main
+repo web of set 2a7f0b19 is still merging
+a review of set 4b7e91c0 is open
+repo api of set 7f35b9c1 is confirmed; its code is on main
+  and keeps its last passed run</pre>
+<p class="tcap">Single-repo project · unchanged</p>
+<pre class="term nc">integrations
+  7c1e0f2a running integration/plan-12
+  5d02b9c4 merged integration/plan-11
+reports
+  9abf487a developer-1 accepted   3m</pre>
+<p class="muted">Width: a set line is at most 80 columns up to 12 glyphs; the strip caps at 12 and "+n". A branch longer than 32 characters is cut in the middle in the set line only.</p>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1840,"height":1780}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

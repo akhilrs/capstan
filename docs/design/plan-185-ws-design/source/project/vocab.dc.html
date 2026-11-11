@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shared state words and truncation</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="ws-board" style="width:1840px">
+<h1>01 One vocabulary for four surfaces</h1>
+<p>Every surface says a member's or a set's state with the same word and the same glyph. Colour is added on top and never carries the state alone: the word is always there, and where only a glyph fits (the strip) the glyph's shape differs per state and the row's sentence says the counts. The feed's <code>merged</code> is never shown as "merged": it means merged into the integration branch, so it reads <b>built</b>, as the approved Mac inspector already does.</p>
+<table class="vt">
+<thead><tr><th>Feed value</th><th>Word</th><th>Long label (apps)</th><th>Glyph</th><th>ASCII</th><th>SF Symbol</th><th>Dash colour</th><th>App colour</th><th>VoiceOver</th><th>Key</th></tr></thead>
+<tbody>
+<tr><td class="m">running</td><td>building</td><td>Building</td><td class="g">◌</td><td class="m">.</td><td class="m">circle.dotted</td><td>dim</td><td>secondary label</td><td>"building"</td><td class="m">state.building</td></tr>
+<tr><td class="m">merged</td><td>built</td><td>Built, not in main</td><td class="g">○</td><td class="m">o</td><td class="m">circle</td><td>info</td><td>blue</td><td>"built, not in main"</td><td class="m">state.built</td></tr>
+<tr><td class="m">confirmed</td><td>in main</td><td>In main</td><td class="g">●</td><td class="m">#</td><td class="m">circle.fill</td><td>ok</td><td>green</td><td>"in main"</td><td class="m">state.inMain</td></tr>
+<tr><td class="m">conflicted</td><td>conflicted</td><td>Conflicted</td><td class="g">▲</td><td class="m">!</td><td class="m">exclamationmark.triangle.fill</td><td>warn</td><td>yellow</td><td>"conflicted"</td><td class="m">state.conflicted</td></tr>
+<tr><td class="m">failed</td><td>failed</td><td>Failed</td><td class="g">✕</td><td class="m">x</td><td class="m">xmark.circle</td><td>bad</td><td>red</td><td>"failed"</td><td class="m">state.failed</td></tr>
+<tr><td class="m">discarded (set, or a member of a discarded set)</td><td>discarded</td><td>Discarded</td><td class="g">–</td><td class="m">-</td><td class="m">minus.circle</td><td>dim</td><td>secondary label</td><td>"discarded"</td><td class="m">state.discarded</td></tr>
+<tr><td class="m">dropped: true (discarded, not redone, set goes on)</td><td>dropped</td><td>Dropped</td><td class="g">–</td><td class="m">-</td><td class="m">minus.circle</td><td>dim</td><td>secondary label, name struck through</td><td>"dropped, outside the gate, review and confirm"</td><td class="m">state.dropped</td></tr>
+</tbody>
+</table>
+<p class="muted">Set words come from its members: <code>set.summary.*</code> in the strings file. building · 2 of 4 built / built · none in main yet / 1 of 3 in main / in main · all 4 repos / conflicted in web / failed in worker / discarded · nothing reached main. The dash STATE column uses the single word (building, built, partly in main, in main, conflicted, failed, discarded). Markers that are not states: <b>Next</b> (the first live member not in main), <b>Review subject</b> (underline under the glyph in a strip, a tag in rows), <b>attempt 2</b> (after one redo; nothing before a redo).</p>
+
+<h2>Truncation and overflow</h2>
+<div class="cols">
+<div class="col" style="width:880px">
+<p class="tcap">Repo names up to 32 characters: cut in the middle where a column is fixed, whole where the row wraps or has room</p>
+<pre class="term">dash REPO column (12 cells)   <span class="b">payme…ervice</span>    whole name in the selected area
+cstan status member list      <span class="b">payments-reconciliation-service</span> whole, list column sized to the longest (max 32)
+Mac member row (mono 12)      <span class="b">payments-reconciliation-service</span> whole: 32 × 7.2 pt fits the 360 pt column
+iPhone member row             <span class="b">payments-recon…ion-service</span> middle cut at the row width; detail wraps it whole</pre>
+<p class="tcap">32 repos (the limit of a set): the strip shows a fixed number of glyphs, then "+n"; the count sentence always covers every repo</p>
+<pre class="term">cstan, dash 100+ columns   <span class="ok">●●●●●</span><span class="info">○○○○</span><span class="d">◌◌◌</span> <span class="b">+20</span>  5 of 32 in main
+dash 80 columns            <span class="ok">●●●●●</span><span class="info">○○○</span> <span class="b">+24</span>  5 of 32 in main
+Mac inbox row              12 glyphs, then +20
+iPhone inbox row           8 glyphs, then +24  (VoiceOver: "and 24 more repos")</pre>
+<p class="muted">The glyphs shown are always the first ones in merge order, so the next repo is in view while fewer than 12 are in main; once more are in main, the strip starts 2 before the next repo and gains a leading "+n" (<code>+9 ●●○○○…</code>). Member lists (Mac detail, sheets, dash selected area) scroll; the next repo is scrolled into view when the list opens.</p>
+</div>
+<div class="col">
+<p class="tcap">Mac rows at 32 repos, light and dark</p>
+<div class="light" style="background:var(--win);border-radius:12px;padding:8px;width:520px">
+<div class="row"><span class="ri mg built">○</span><span class="k">Set 9a01c3d7 · 5 of 32 in main</span><span class="t">12 min</span><span class="m"><span class="strip"><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg building">◌</span><span class="mg building">◌</span><span class="mg building">◌</span><span class="more">+20</span></span> Merge billing next</span></div>
+</div>
+<div class="dark" style="background:var(--win);border-radius:12px;padding:8px;width:520px">
+<div class="row"><span class="ri mg built">○</span><span class="k">Set 9a01c3d7 · 5 of 32 in main</span><span class="t">12 min</span><span class="m"><span class="strip"><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg inmain">●</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg built">○</span><span class="mg building">◌</span><span class="mg building">◌</span><span class="mg building">◌</span><span class="more">+20</span></span> Merge billing next</span></div>
+</div>
+<p class="tcap">iPhone member rows: 32-character name</p>
+<div class="light" style="background:var(--win);border-radius:12px;width:370px">
+<ul class="mrows" style="background:transparent">
+<li class="mrow"><span class="pos">6</span><span class="mg built">○</span><span class="rn">payments-recon…ion-service</span><span class="st built">built</span><span class="sub">51ab07e · verify passed</span></li>
+<li class="mrow"><span class="pos">7</span><span class="mg building">◌</span><span class="rn">notifications-fanout-worker</span><span class="st building">building</span><span class="sub">no head yet</span></li>
+</ul>
+</div>
+<div class="dark" style="background:var(--win);border-radius:12px;width:370px">
+<ul class="mrows" style="background:transparent">
+<li class="mrow"><span class="pos">6</span><span class="mg built">○</span><span class="rn">payments-recon…ion-service</span><span class="st built">built</span><span class="sub">51ab07e · verify passed</span></li>
+<li class="mrow"><span class="pos">7</span><span class="mg building">◌</span><span class="rn">notifications-fanout-worker</span><span class="st building">building</span><span class="sub">no head yet</span></li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1840,"height":1260}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -191,6 +191,8 @@ struct MainWindow: View {
             PlansScreen(
                 model: model, scope: ProjectKey(hostId: hostId, projectId: projectId), show: planShow, query: listQuery,
                 onShow: { planShow = $0 }, onClearSearch: { listQuery = "" })
+        case .workspace(let hostId, let projectId):
+            WorkspaceScreen(model: model, hostId: hostId, projectId: projectId)
         case .hosts:
             HostsScreen(model: model)
         case .messages:
@@ -221,7 +223,7 @@ struct MainWindow: View {
             AgentInspector(model: model, hostId: hostId, projectId: projectId)
         case .plans, .allPlans:
             PlanInspector(model: model)
-        case .messages:
+        case .messages, .workspace:
             EmptyView()
         }
     }
@@ -229,7 +231,7 @@ struct MainWindow: View {
     private var hasInspector: Bool {
         switch model.selection {
         case .inbox, .project, .hosts, .agents, .plans, .allAgents, .allPlans: return true
-        case .messages: return false
+        case .messages, .workspace: return false
         }
     }
 
@@ -260,7 +262,7 @@ struct MainWindow: View {
                     .frame(height: ToolbarMetrics.capsuleHeight)
                     .glassEffect(.regular, in: Capsule())
             }
-        case .hosts, .messages:
+        case .hosts, .messages, .workspace:
             EmptyView()
         }
     }
@@ -278,6 +280,7 @@ struct MainWindow: View {
         case .allAgents: return "Agents"
         case .agents: return "Agents"
         case .allPlans, .plans: return "Plans"
+        case .workspace: return "Workspace"
         case .hosts: return "Hosts"
         case .messages: return "Messages to PM"
         }

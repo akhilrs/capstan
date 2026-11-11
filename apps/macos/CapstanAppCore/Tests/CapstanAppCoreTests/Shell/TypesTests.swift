@@ -14,6 +14,7 @@ final class TypesTests: XCTestCase {
         let values: [SidebarSelection] = [
             .inbox, .hosts, .messages, .project(hostId: host, projectId: "p1"), .agents(hostId: host, projectId: "p1"),
             .plans(hostId: host, projectId: "p1"), .allAgents, .allPlans,
+            .workspace(hostId: host, projectId: "p1"),
         ]
         for value in values {
             let data = try JSONEncoder().encode(value)
@@ -53,6 +54,13 @@ final class TypesTests: XCTestCase {
         XCTAssertEqual(value.resolved(against: try hosts()), .inbox)
         let otherHost = SidebarSelection.project(hostId: ShellFixtures.hostB, projectId: "p1")
         XCTAssertEqual(otherHost.resolved(against: try hosts()), .inbox)
+    }
+
+    func test_SidebarSelection_workspaceResolvesLikeAProject() throws {
+        let present = SidebarSelection.workspace(hostId: host, projectId: "p1")
+        XCTAssertEqual(present.resolved(against: try hosts()), present)
+        let gone = SidebarSelection.workspace(hostId: host, projectId: "gone")
+        XCTAssertEqual(gone.resolved(against: try hosts()), .inbox)
     }
 
     func test_SidebarSelection_resolvedProjectPresent() throws {

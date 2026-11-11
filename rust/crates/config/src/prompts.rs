@@ -641,6 +641,13 @@ mod tests {
     }
 
     #[test]
+    fn architect_reference_names_workspace_repos_and_owns_prefix() {
+        assert!(ARCHITECT_REFERENCE.contains("`repos`"));
+        assert!(ARCHITECT_REFERENCE.contains("`<repo>:`"));
+        assert!(ARCHITECT_REFERENCE.contains("repos cannot be amended"));
+    }
+
+    #[test]
     fn pm_operator_section_names_the_picker_and_auto_windows() {
         let text = fill(PM_OPERATOR_SECTION, &["operator-1", "operator"]);
         for needle in [

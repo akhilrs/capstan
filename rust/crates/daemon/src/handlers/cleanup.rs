@@ -285,8 +285,10 @@ fn workspace_offer(
             Some(id) => {
                 let mut value = json!({
                     "cleanupId": id, "repo": target.repo, "candidates": offer.entries.len(),
+                    "worktrees": offer.entries.iter().filter(|e| e.worktree_path.is_some()).count(),
                 });
                 if target.gone {
+                    value["left"] = json!(true);
                     value["note"] = json!(removed_note(&target.repo));
                 }
                 value

@@ -16,7 +16,7 @@ struct InboxRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.space[1]) {
-            Image(systemName: row.kind.glyph)
+            Image(systemName: row.set.map { SetText.state($0).symbol } ?? row.kind.glyph)
                 .frame(width: 20)
                 .foregroundStyle(selected ? Tokens.color(.accent) : Tokens.color(.label2))
             VStack(alignment: .leading, spacing: 2) {
@@ -49,6 +49,7 @@ struct InboxRowView: View {
             withAnimation(Motion.animation(Motion.hover, reduce: reduceMotion)) { hovering = inside }
         }
         .accessibilityElement(children: .combine)
+        .setVoiceover(row.set.map { SetText.rowVoiceover($0) })
     }
 
     private var secondLine: some View {
@@ -85,6 +86,14 @@ struct InboxRowView: View {
         case .terminalOnly: return .grey
         case .stale: return .yellow
         }
+    }
+}
+
+extension View {
+    /// Replaces the combined VoiceOver text only when there is one: a set row reads `a11y.set.row`.
+    @ViewBuilder
+    func setVoiceover(_ label: String?) -> some View {
+        if let label { accessibilityLabel(label) } else { self }
     }
 }
 

@@ -83,6 +83,8 @@ public enum SidebarSelection: Codable, Hashable, Sendable {
     case project(hostId: UUID, projectId: String)
     case agents(hostId: UUID, projectId: String)
     case plans(hostId: UUID, projectId: String)
+    /// The repos and agent worktrees of one project of a workspace.
+    case workspace(hostId: UUID, projectId: String)
     /// The agents of every project (grouped by project); `agents` is one project's table.
     case allAgents
     /// The plans of every project (grouped by project); `plans` is one project's list.
@@ -98,7 +100,8 @@ public enum SidebarSelection: Codable, Hashable, Sendable {
             return self
         case .project(let hostId, let projectId),
             .agents(let hostId, let projectId),
-            .plans(let hostId, let projectId):
+            .plans(let hostId, let projectId),
+            .workspace(let hostId, let projectId):
             let present = hosts.contains { $0.hostId == hostId && $0.projects[projectId] != nil }
             return present ? self : .inbox
         }

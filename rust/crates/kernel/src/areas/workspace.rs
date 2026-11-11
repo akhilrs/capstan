@@ -342,6 +342,19 @@ pub(crate) fn insert_report_commits(
     Ok(())
 }
 
+/// Whether the project has any workspace row (a report commit or an integration set). A single-repo project has none, so
+/// callers skip the per-repo lookups. One existence probe.
+pub fn has_workspace_rows(kernel: &Kernel) -> KernelResult<bool> {
+    kernel.assert_open()?;
+    let found = query_all(
+        &kernel.database,
+        "SELECT 1 WHERE EXISTS (SELECT 1 FROM report_commits WHERE project_id = ?1) OR EXISTS (SELECT 1 FROM integration_sets WHERE project_id = ?1)",
+        [&kernel.project_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(!found.is_empty())
+}
+
 /// `reportCommits`: the commits a report named, by repo; empty for a report without any.
 pub fn report_commits(kernel: &Kernel, report_id: &str) -> KernelResult<Value> {
     kernel.assert_open()?;
@@ -1002,4 +1015,281 @@ pub fn cleanup_repo(kernel: &Kernel, cleanup_id: &str) -> KernelResult<String> {
         |row| row.get::<_, String>(0),
     )?
     .unwrap_or_default())
+}
+
+// ------------------------------------------------------------------------------------- read views (status, feed)
+
+/// The most members a set view lists (a set holds at most this many repos).
+pub const SET_VIEW_MEMBERS: usize = 32;
+
+/// One member row as the views read it: the member and the state of its integration (`None` before it exists).
+struct ViewRow {
+    repo: String,
+    position: i64,
+    attempt: i64,
+    integration_id: Option<String>,
+    state: Option<String>,
+    branch: Option<String>,
+    head_sha: Option<String>,
+}
+
+/// The members of a set as a view lists them, in merge order, and what the set as a whole is: whether every live member is
+/// confirmed and which integration is the review subject (the first live member that has one, as `set_gate` picks it).
+/// A member with no integration yet reads `running`; a member whose integration was discarded in a set that goes on is
+/// `dropped` (outside the gate, review and confirm).
+fn member_values(set_state: &str, rows: &[ViewRow]) -> (Vec<Value>, bool, Option<String>) {
+    let mut live = 0;
+    let mut confirmed = true;
+    let mut subject: Option<String> = None;
+    let mut dropped_flags = Vec::new();
+    for row in rows {
+        let discarded = row.state.as_deref() == Some("discarded");
+        dropped_flags.push(discarded && set_state != "discarded");
+        if discarded {
+            continue;
+        }
+        if subject.is_none() {
+            subject.clone_from(&row.integration_id);
+        }
+        if row.state.as_deref() == Some("confirmed") {
+            live += 1;
+        } else {
+            confirmed = false;
+        }
+    }
+    let members = rows
+        .iter()
+        .zip(&dropped_flags)
+        .map(|(row, dropped)| {
+            json!({
+                "repo": row.repo,
+                "position": row.position,
+                "attempt": row.attempt,
+                "integrationId": row.integration_id,
+                "state": row.state.clone().unwrap_or_else(|| "running".to_string()),
+                "branch": row.branch,
+                "headSha": row.head_sha,
+                "dropped": dropped,
+            })
+        })
+        .collect();
+    (members, confirmed && live > 0, subject)
+}
+
+fn view_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ViewRow> {
+    Ok(ViewRow {
+        repo: row.get(0)?,
+        position: row.get(1)?,
+        attempt: row.get(2)?,
+        integration_id: row.get(3)?,
+        state: row.get(4)?,
+        branch: row.get(5)?,
+        head_sha: row.get(6)?,
+    })
+}
+
+/// The members of a set with their integrations: one statement through the set's index, at most [`SET_VIEW_MEMBERS`] rows.
+pub const SET_VIEW_SQL: &str = "SELECT m.repo, m.position, m.attempt, m.integration_id, i.state, i.branch, i.head_sha
+       FROM integration_set_members m
+       LEFT JOIN integrations i ON i.project_id = m.project_id AND i.integration_id = m.integration_id
+      WHERE m.project_id = ?1 AND m.set_id = ?2 ORDER BY m.position LIMIT 32";
+
+/// `setMembersView`: the members of a set as the status, the feed and the events list them, plus whether the set is
+/// confirmed. Empty for an unknown set.
+pub fn set_members_view(
+    kernel: &Kernel,
+    set_id: &str,
+    set_state: &str,
+) -> KernelResult<(Vec<Value>, bool, Option<String>)> {
+    let rows = query_all(
+        &kernel.database,
+        SET_VIEW_SQL,
+        [&kernel.project_id, set_id],
+        view_row,
+    )?;
+    Ok(member_values(set_state, &rows))
+}
+
+/// `integrationSetView`: the `set` member of an integration that belongs to a set (`null` for any other): the set, this
+/// member's place in it and every member. Reads two statements and at most [`SET_VIEW_MEMBERS`] rows.
+pub fn integration_set_view(kernel: &Kernel, integration_id: &str) -> KernelResult<Option<Value>> {
+    kernel.assert_open()?;
+    let Some((set_id, repo, position, attempt, state)) = query_opt(
+        &kernel.database,
+        "SELECT m.set_id, m.repo, m.position, m.attempt, s.state
+           FROM integration_set_members m
+           JOIN integration_sets s ON s.project_id = m.project_id AND s.set_id = m.set_id
+          WHERE m.project_id = ? AND m.integration_id = ?",
+        [&kernel.project_id, integration_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        },
+    )?
+    else {
+        return Ok(None);
+    };
+    let (members, _, subject) = set_members_view(kernel, &set_id, &state)?;
+    let dropped = members
+        .iter()
+        .any(|m| m["repo"] == repo.as_str() && m["dropped"] == true);
+    Ok(Some(json!({
+        "setId": set_id,
+        "state": state,
+        "repo": repo,
+        "position": position,
+        "attempt": attempt,
+        "reviewSubject": subject.as_deref() == Some(integration_id),
+        "dropped": dropped,
+        "members": members,
+    })))
+}
+
+/// `integrationSetsView`: the newest `limit` sets for the status, each with its members in merge order.
+pub fn integration_sets_view(kernel: &Kernel, limit: i64) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    let sets = query_all(
+        &kernel.database,
+        "SELECT set_id, state, branch FROM integration_sets WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        rusqlite::params![kernel.project_id, limit],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        },
+    )?;
+    let mut out = Vec::new();
+    for (set_id, state, branch) in sets {
+        let (members, confirmed, _) = set_members_view(kernel, &set_id, &state)?;
+        out.push(json!({
+            "setId": set_id,
+            "state": state,
+            "branch": branch,
+            "confirmed": confirmed,
+            "members": members,
+        }));
+    }
+    Ok(Value::Array(out))
+}
+
+/// `setVerifyView`: the verify part of the status's newest `limit` sets, in the order of [`integration_sets_view`]: the
+/// gate as the review and merge read it (`set_gate_by`: each repo's own commands sha, the set's `reset_at`) and each live
+/// member's verify. Runs change without a `state_version` bump, so the status keeps this apart from the sets.
+/// `[{setId, gate, verify: [{repo, verify}]}]`; `gate` is `null` for a set with no live member, else
+/// `{state: passed|waiting|failed, repos}` (`failed` names the repos whose counted runs failed, else `waiting` those
+/// still running or without a run); a member's `verify` is `null` without a counted run, else
+/// `{state, commitSha, lastPassed}` (`lastPassed` only when an earlier commit passed).
+pub fn set_verify_view(
+    kernel: &Kernel,
+    limit: i64,
+    sha_of: &dyn Fn(&str) -> String,
+) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    let sets = query_all(
+        &kernel.database,
+        "SELECT set_id FROM integration_sets WHERE project_id = ? ORDER BY sequence DESC LIMIT ?",
+        rusqlite::params![kernel.project_id, limit],
+        |row| row.get::<_, String>(0),
+    )?;
+    let mut out = Vec::new();
+    for set_id in sets {
+        let gate = set_gate_by(kernel, &set_id, sha_of)?;
+        let (mut failed, mut waiting) = (Vec::new(), Vec::new());
+        let mut verify = Vec::new();
+        for member in gate["members"].as_array().into_iter().flatten() {
+            let repo = member["repo"].as_str().unwrap_or_default().to_string();
+            let state = match member["code"].as_str() {
+                Some("passed") => Some("passed"),
+                Some("verify_running") => {
+                    waiting.push(repo.clone());
+                    Some("running")
+                }
+                Some("verify_failed") => {
+                    failed.push(repo.clone());
+                    Some("failed")
+                }
+                _ => {
+                    waiting.push(repo.clone());
+                    None
+                }
+            };
+            let last_passed = match (&member["integrationId"], state) {
+                (Value::String(id), Some(s)) if s != "passed" => query_opt(
+                    &kernel.database,
+                    "SELECT commit_sha FROM verify_runs WHERE project_id = ? AND subject_integration_id = ? AND state = 'passed'
+                      ORDER BY sequence DESC LIMIT 1",
+                    [&kernel.project_id, id],
+                    |r| r.get::<_, String>(0),
+                )?
+                .filter(|sha| member["commitSha"].as_str() != Some(sha.as_str())),
+                _ => None,
+            };
+            verify.push(json!({
+                "repo": repo,
+                "verify": state.map_or(Value::Null, |state| json!({
+                    "state": state, "commitSha": member["commitSha"], "lastPassed": last_passed,
+                })),
+            }));
+        }
+        let gate = if verify.is_empty() {
+            Value::Null
+        } else if !failed.is_empty() {
+            json!({"state": "failed", "repos": failed})
+        } else if !waiting.is_empty() {
+            json!({"state": "waiting", "repos": waiting})
+        } else {
+            json!({"state": "passed", "repos": []})
+        };
+        out.push(json!({"setId": set_id, "gate": gate, "verify": verify}));
+    }
+    Ok(Value::Array(out))
+}
+
+/// `agentWorktreeMembers`: the `worktrees` member of an agent in the status: `[{repo, path, branch}]` from its live
+/// worktrees (current generation), and the change folder (the folder that holds them). Empty for an agent with none.
+pub(crate) fn agent_worktree_members(
+    kernel: &Kernel,
+) -> KernelResult<std::collections::BTreeMap<String, Value>> {
+    kernel.assert_open()?;
+    let rows = query_all(
+        &kernel.database,
+        "SELECT w.agent_id, w.repo, w.worktree_path, w.branch
+           FROM agent_worktrees w
+           JOIN agents a ON a.project_id = w.project_id AND a.agent_id = w.agent_id AND a.generation = w.generation
+          WHERE w.project_id = ? AND w.removed_at IS NULL ORDER BY w.agent_id, w.repo",
+        [&kernel.project_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        },
+    )?;
+    let mut out: std::collections::BTreeMap<String, Vec<(String, String, String)>> =
+        std::collections::BTreeMap::new();
+    for (agent, repo, path, branch) in rows {
+        out.entry(agent).or_default().push((repo, path, branch));
+    }
+    Ok(out
+        .into_iter()
+        .map(|(agent, trees)| {
+            let folder = std::path::Path::new(&trees[0].1)
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned());
+            let list: Vec<Value> = trees
+                .into_iter()
+                .map(|(repo, path, branch)| json!({"repo": repo, "path": path, "branch": branch}))
+                .collect();
+            (agent, json!({"worktrees": list, "changeFolder": folder}))
+        })
+        .collect())
 }

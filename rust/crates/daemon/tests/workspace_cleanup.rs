@@ -326,11 +326,17 @@ fn one_cleanup_per_repo_with_its_own_answer() {
     for repo in ["core", "web"] {
         let cleanup = cleanup_of(&answer, repo);
         assert_eq!(cleanup["candidates"], 1, "{answer}");
+        assert_eq!(cleanup["worktrees"], 1, "{answer}");
         assert!(cleanup["cleanupId"].as_str().is_some());
-        assert!(cleanup.get("note").is_none());
+        assert!(cleanup.get("note").is_none() && cleanup.get("left").is_none());
     }
     let old = cleanup_of(&answer, "old");
     assert_eq!(old["candidates"], 1);
+    assert_eq!(old["worktrees"], 1);
+    assert_eq!(
+        old["left"], true,
+        "a repo that left the configuration says so"
+    );
     assert!(old["note"]
         .as_str()
         .unwrap()

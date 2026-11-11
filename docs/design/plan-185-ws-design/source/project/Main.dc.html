@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workspace views: two directions</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="ws-board" style="width:1840px">
+<h1>00 How a set reads: two directions</h1>
+<p>One integration set, the same data on both sides: set <code>4b7e91c0</code> on branch <code>integration/plan-185</code>, four repos in merge order. <code>api</code> is in main, <code>web</code> is built and next to merge, <code>worker</code> is built and is the review subject, <code>infra</code> was dropped (discarded, not redone). Both directions use the same state words and glyphs; they differ in how much of the set a row shows before you open it.</p>
+<div class="cols">
+
+<section class="dir" style="width:820px">
+<span class="pick">A · Ledger strip (recommended)</span>
+<h3>A set is one row with a glyph strip in merge order</h3>
+<p class="muted">Density high, operate. The row stays one line at any repo count: one glyph per member, then a sentence of counts. Members open as rows in the detail, the dash's selected area or the sheet. 32 repos fit: the strip shows the first 12 and "+20".</p>
+<p class="tcap">cstan status</p>
+<pre class="term">integrations
+  <span class="b">set 4b7e91c0</span> integration/plan-185  <span class="ok">●</span><span class="info">○</span><span class="info">○</span><span class="d">–</span>  1 of 3 in main · next: web
+<span class="d">  review subject: worker · dropped: infra</span></pre>
+<p class="tcap">cstan dash · pipeline row (100 columns and wider)</p>
+<pre class="term"><span class="b">STAGE</span>       <span class="b">STATE</span>          <span class="b">WHO / COMMIT</span>                 <span class="b">AGE</span>
+set         <span class="warn">partly in main</span> <span class="ok">●</span><span class="info">○</span><span class="info">○</span><span class="d">–</span> 4b7e91c0 next: web   4m00s</pre>
+<p class="tcap">Mac · inbox row</p>
+<div class="light" style="background:var(--win);border-radius:12px;padding:8px;width:520px">
+<div class="row" style="grid-template-columns:20px 1fr auto"><span class="ri mg built">○</span><span class="k">Set 4b7e91c0 · 1 of 3 in main</span><span class="t">4 min</span><span class="m"><span class="strip"><span class="mg inmain">●</span><span class="mg built">○</span><span class="mg built rs">○</span><span class="mg dropped">–</span></span> Merge web next · <code>integration/plan-185</code></span></div>
+</div>
+<p class="tcap">iPhone · inbox row</p>
+<div class="light" style="background:var(--win);border-radius:12px;padding:12px 16px;width:370px;font-size:15px;display:flex;flex-direction:column;gap:4px">
+<b style="font-size:17px">Set 4b7e91c0 · 1 of 3 in main</b>
+<span class="strip"><span class="mg inmain">●</span><span class="mg built">○</span><span class="mg built rs">○</span><span class="mg dropped">–</span><span class="sline" style="font-size:15px">Merge web next</span></span>
+</div>
+</section>
+
+<section class="dir" style="width:820px">
+<span class="pick">B · Stacked members</span>
+<h3>A set is a header with every member as its own line</h3>
+<p class="muted">Density medium, closer to a briefing. Every member is visible without opening anything, with its word. A set grows by one line per repo, so 32 repos need a cap: the first 6 lines, then "+26 more repos".</p>
+<p class="tcap">cstan status</p>
+<pre class="term">integrations
+  <span class="b">set 4b7e91c0</span> integration/plan-185  1 of 3 in main
+    1 api     <span class="ok">● in main</span>
+    2 web     <span class="info">○ built</span>   next to merge
+    3 worker  <span class="info">○ built</span>   review subject
+    4 infra   <span class="d">– dropped</span> outside the gate</pre>
+<p class="tcap">cstan dash · pipeline rows</p>
+<pre class="term"><span class="b">STAGE</span>       <span class="b">STATE</span>          <span class="b">WHO / COMMIT</span>                 <span class="b">AGE</span>
+set         <span class="warn">partly in main</span> 4b7e91c0                     4m00s
+ 1 api      <span class="ok">● in main</span>      9f3c2a1                      3m10s
+ 2 web      <span class="info">○ built</span>        51ab07e  next                4m00s
+ 3 worker   <span class="info">○ built</span>        c04d9e2  review              4m00s
+ 4 infra    <span class="d">– dropped</span>      –                            6m20s</pre>
+<p class="tcap">Mac · inbox row</p>
+<div class="light" style="background:var(--win);border-radius:12px;padding:8px;width:520px">
+<div class="row" style="grid-template-columns:20px 1fr auto"><span class="ri mg built">○</span><span class="k">Set 4b7e91c0 · 1 of 3 in main</span><span class="t">4 min</span><span class="m">api in main · web built, next · worker built · infra dropped</span></div>
+</div>
+<p class="tcap">iPhone · inbox row</p>
+<div class="light" style="background:var(--win);border-radius:12px;padding:12px 16px;width:370px;font-size:15px;display:flex;flex-direction:column;gap:4px">
+<b style="font-size:17px">Set 4b7e91c0 · 1 of 3 in main</b>
+<span style="color:var(--label2)">api in main · web built, next<br>worker built · infra dropped</span>
+</div>
+</section>
+</div>
+<p><b>Differ on:</b> data density (A 5, B 3) and audience (A expert, B closer to general). <b>Same in both:</b> the state words, the glyphs, the merge order, the review-subject and dropped markers, the strings file. <b>Recommendation: A</b>, because a set may hold 32 repos and B's rows then push everything else off the dash and the phone; A keeps the per-member view one click away.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1840,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

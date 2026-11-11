@@ -10,6 +10,8 @@ public struct WaitingActivityState: Codable, Hashable, Sendable {
     public var designs: Int
     public var messages: Int
     public var merges: Int
+    /// Of `merges`, how many are integration sets (each counted once); nil when none is.
+    public var sets: Int?
     public var asOf: Date
     public var hostsLive: Int
     public var hostsTotal: Int
@@ -21,6 +23,7 @@ public struct WaitingActivityState: Codable, Hashable, Sendable {
         designs = snapshot.count(of: .design)
         messages = snapshot.count(of: .message)
         merges = snapshot.count(of: .integration)
+        sets = snapshot.sets
         asOf = snapshot.asOf
         hostsLive = snapshot.hostsReachable
         hostsTotal = snapshot.hostsTotal
@@ -33,7 +36,7 @@ public struct WaitingActivityState: Codable, Hashable, Sendable {
     public func shortLine(keep: Int = 2) -> String {
         let all = parts
         guard all.count > keep else { return all.joined(separator: " · ") }
-        let rest = counts.dropFirst(keep).map(\.count).reduce(0, +)
+        let rest = (counts.map(\.count) + (setCount > 0 ? [setCount] : [])).dropFirst(keep).reduce(0, +)
         return (all.prefix(keep) + [String(rest) + " more"]).joined(separator: " · ")
     }
 
@@ -43,14 +46,19 @@ public struct WaitingActivityState: Codable, Hashable, Sendable {
         return String(hostsLive) + " of " + String(hostsTotal) + " hosts live"
     }
 
+    /// The sets and the single merges: `widget.sets` reads "Integration sets 8", the rest as before.
+    private var setCount: Int { min(max(sets ?? 0, 0), merges) }
+
     private var counts: [(count: Int, one: String, many: String)] {
         [
             (proposals, "proposal", "proposals"), (prompts, "prompt", "prompts"), (designs, "design", "designs"),
-            (messages, "message", "messages"), (merges, "merge", "merges"),
+            (messages, "message", "messages"), (merges - setCount, "merge", "merges"),
         ].filter { $0.0 > 0 }.map { (count: $0.0, one: $0.1, many: $0.2) }
     }
 
     private var parts: [String] {
-        counts.map { String($0.count) + " " + ($0.count == 1 ? $0.one : $0.many) }
+        var all = counts.map { String($0.count) + " " + ($0.count == 1 ? $0.one : $0.many) }
+        if setCount > 0 { all.append("Integration sets " + String(setCount)) }
+        return all
     }
 }

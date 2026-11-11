@@ -105,9 +105,8 @@ pub fn color_of_state(state: &str) -> StateColor {
         "deferred" | "queued" | "sent" | "started" | "running" | "evaluating" | "open" => {
             StateColor::Warn
         }
-        "passed" | "merged" | "confirmed" | "accepted" | "healthy" | "active" | "acked" => {
-            StateColor::Ok
-        }
+        "passed" | "merged" | "confirmed" | "accepted" | "healthy" | "active" | "acked"
+        | "in main" => StateColor::Ok,
         _ => StateColor::Dim,
     }
 }

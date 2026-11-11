@@ -30,6 +30,9 @@ public struct GlanceSnapshot: Codable, Sendable, Equatable {
     /// Counts by the kind's wire name; read them with `count(of:)` or `byKind`.
     public let kindCounts: [String: Int]
     public let projects: [GlanceProject]
+    /// How many integration sets of a workspace wait (each counted once in `kindCounts`); nil when none does, so a
+    /// project without `[repos]` writes the same file as before.
+    public let sets: Int?
     public let hostsReachable: Int
     public let hostsTotal: Int
     /// The poll interval when the snapshot was written; staleness is measured against it.
@@ -37,8 +40,9 @@ public struct GlanceSnapshot: Codable, Sendable, Equatable {
 
     public init(
         asOf: Date, kindCounts: [String: Int], projects: [GlanceProject], hostsReachable: Int, hostsTotal: Int,
-        pollMs: Int
+        pollMs: Int, sets: Int = 0
     ) {
+        self.sets = sets > 0 ? sets : nil
         version = GlanceSnapshot.currentVersion
         self.asOf = asOf
         self.kindCounts = kindCounts.filter { $0.value > 0 }
@@ -65,17 +69,27 @@ public struct GlanceSnapshot: Codable, Sendable, Equatable {
     ) -> GlanceSnapshot {
         var kinds: [String: Int] = [:]
         var projects: [GlanceProject] = []
+        var sets = 0
         for host in hosts {
             for project in host.projects.values {
-                let count = project.waiting.count
+                // The member items of one set count once: a set is one thing waiting (plan-185).
+                var seen: Set<String> = []
+                var count = 0
+                for item in project.waiting.values {
+                    if let set = item.set {
+                        guard seen.insert(set.setId).inserted else { continue }
+                        sets += 1
+                    }
+                    kinds[item.kind.wireName, default: 0] += 1
+                    count += 1
+                }
                 guard count > 0 else { continue }
-                for item in project.waiting.values { kinds[item.kind.wireName, default: 0] += 1 }
                 projects.append(GlanceProject(name: project.displayName, count: count))
             }
         }
         return GlanceSnapshot(
             asOf: asOf, kindCounts: kinds, projects: projects, hostsReachable: hostsReachable,
-            hostsTotal: hostsTotal, pollMs: pollMs)
+            hostsTotal: hostsTotal, pollMs: pollMs, sets: sets)
     }
 
     /// Control, bidi and line characters become spaces (the kit's display rules), runs of spaces close up, and the

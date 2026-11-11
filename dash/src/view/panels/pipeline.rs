@@ -71,7 +71,28 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
     let (model, view, theme, g) = (ctx.model, ctx.view, ctx.theme, &ctx.g);
     let cw = ctx.content();
     let items = pipeline_items(model);
-    let sec = pipeline_sections(ctx.body(), items.len());
+    let mut sec = pipeline_sections(ctx.body(), items.len());
+    // The selected row of a set or a multi-repo report opens an area under the table; it takes the rows the table
+    // leaves free, and rows from the table down to three.
+    let area_item = items
+        .get(view.selected.pipeline)
+        .copied()
+        .filter(|i| i.set.is_some() || !i.commits.is_empty());
+    let mut area_rows = 0;
+    if let (Some(item), true) = (area_item, sec.items > 0) {
+        let wanted = super::workspace::area_rows_wanted(item);
+        let used = sec.flow + sec.stages + sec.header + sec.items;
+        let mut spare = ctx.body().saturating_sub(used);
+        if spare < wanted {
+            let steal = (wanted - spare).min(sec.items.saturating_sub(3));
+            sec.items -= steal;
+            spare += steal;
+        }
+        let min_rows = if item.set.is_some() { 4 } else { 2 };
+        if spare >= min_rows {
+            area_rows = spare.min(wanted);
+        }
+    }
     let p = &model.pipeline;
     let mut body: Vec<Line> = Vec::new();
     let flow = format!(
@@ -134,10 +155,25 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
         hidden: 0,
     };
     if sec.header > 0 && !items.is_empty() {
+        // A workspace project's rows name sets and multi-repo reports; the stage column then takes only what the
+        // stage words shown need, so the summary after the set id keeps its room.
+        let stage_width = if items
+            .iter()
+            .any(|i| i.set.is_some() || !i.commits.is_empty())
+        {
+            items
+                .iter()
+                .map(|i| i.stage.chars().count())
+                .max()
+                .unwrap_or(5)
+                .max(5)
+        } else {
+            11
+        };
         let cols = resolve_cols(
             cw,
             vec![
-                Col::new("stage", "STAGE", 11),
+                Col::new("stage", "STAGE", stage_width),
                 Col::new("state", "STATE", PIPELINE_STATE_WIDTH),
                 Col::new("who", "WHO / COMMIT", 12).flex(),
                 Col::new("age", "AGE", 6).right(),
@@ -161,7 +197,15 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
                                 Style::color(theme.color(ColorRole::Fg)),
                             )],
                         ),
-                        ("state", state_span(ctx, &item.state)),
+                        (
+                            "state",
+                            match &item.set {
+                                Some(set) => {
+                                    super::workspace::strip_spans(ctx, set, PIPELINE_STATE_WIDTH)
+                                }
+                                None => state_span(ctx, &item.state),
+                            },
+                        ),
                         (
                             "who",
                             vec![span(
@@ -182,6 +226,12 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
         }
     }
     let header_lines = body.len() - (win.end - win.start);
+    if let (Some(item), true) = (area_item, area_rows > 0) {
+        match &item.set {
+            Some(set) => body.extend(super::workspace::set_area(ctx, set, area_rows)),
+            None => body.extend(super::workspace::report_area(ctx, item)),
+        }
+    }
     assemble(
         ctx,
         PanelSpec {

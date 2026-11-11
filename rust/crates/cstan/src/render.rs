@@ -399,12 +399,24 @@ pub fn cleanup_lines(result: Option<&Value>) -> Vec<String> {
     // A workspace answers one cleanup per repo.
     if let Some(Value::Array(cleanups)) = result.get("cleanups") {
         for cleanup in cleanups {
-            lines.push(format!(
-                "{} repo {}: {} candidates",
+            let (cleanup_id, repo, candidates) = (
                 text_of(cleanup.get("cleanupId")).unwrap_or_default(),
                 text_of(cleanup.get("repo")).unwrap_or_default(),
-                as_number(cleanup.get("candidates")).unwrap_or(0.0) as u64
-            ));
+                as_number(cleanup.get("candidates")).unwrap_or(0.0) as u64,
+            );
+            // One offer per repo: its branches and the worktrees it would remove (when the answer counts them).
+            match as_number(cleanup.get("worktrees")) {
+                Some(trees) => lines.push(format!(
+                    "cleanup {cleanup_id} · {repo}: branches {candidates}, worktrees {}",
+                    trees as u64
+                )),
+                None => lines.push(format!("{cleanup_id} repo {repo}: {candidates} candidates")),
+            }
+            if matches!(cleanup.get("left"), Some(Value::Bool(true))) {
+                lines.push(format!(
+                    "  {repo} left the configuration: worktrees only, apply them by name"
+                ));
+            }
             if let Some(note) = text_of(cleanup.get("note")) {
                 lines.push(format!("  {note}"));
             }
@@ -855,8 +867,13 @@ fn run_state_line(run: &Value, now_ms: f64) -> String {
         text_of(run.get("subjectId")).unwrap_or_default()
     );
     let state = text_of(run.get("state")).unwrap_or_default();
+    // A run of a named repo says so; the run of a single-repo project has no `repo` and its line is what it always was.
+    let repo = match text_of(run.get("repo")) {
+        Some(repo) if !repo.is_empty() => format!(" repo {repo}"),
+        _ => String::new(),
+    };
     let mut line = format!(
-        "{id} {state} {subject} @{}",
+        "{id} {state} {subject}{repo} @{}",
         short_sha(run.get("commitSha"))
     );
     match state.as_str() {

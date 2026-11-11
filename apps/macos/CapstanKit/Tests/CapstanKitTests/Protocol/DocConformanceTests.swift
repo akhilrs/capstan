@@ -52,7 +52,7 @@ final class DocConformanceTests: XCTestCase {
 
     func testSectionFiveEventAndPages() throws {
         let found = try blocks(5)
-        XCTAssertEqual(found.count, 5)
+        XCTAssertEqual(found.count, 10)
         guard case .event(let projectId, let event) = try LineDecoder().decode(Data(found[0].utf8)) else {
             return XCTFail("event")
         }
@@ -65,7 +65,7 @@ final class DocConformanceTests: XCTestCase {
         XCTAssertEqual(event.body.agentBody?.agentId, "dev-3")
         XCTAssertNil(event.body.promptBody)
 
-        let waiting = try Page<WaitingItem>(data: Data(found[1].utf8))
+        let waiting = try Page<WaitingItem>(data: Data(found[6].utf8))
         XCTAssertEqual(waiting.head, 26)
         XCTAssertEqual(waiting.items.first?.key, "message:3")
         XCTAssertEqual(waiting.items.first?.kind, .message)
@@ -97,15 +97,15 @@ final class DocConformanceTests: XCTestCase {
         XCTAssertEqual(details.verify?.latest.state, "passed")
         XCTAssertEqual(details.verify?.lastPassed?.commitSha, integration.headSha)
 
-        let agents = try Page<AgentItem>(data: Data(found[2].utf8))
+        let agents = try Page<AgentItem>(data: Data(found[7].utf8))
         XCTAssertEqual(agents.items.first?.agentId, "dev-1")
         XCTAssertNil(agents.items.first?.task)
 
-        let plans = try Page<PlanItem>(data: Data(found[3].utf8))
+        let plans = try Page<PlanItem>(data: Data(found[8].utf8))
         XCTAssertEqual(plans.items.first?.packages, PackageCounts(total: 3, assigned: 2, reported: 1, integrated: 0))
         XCTAssertEqual(plans.items.first?.title.raw, "Remote protocol")
 
-        let run = try RunItem(json: try decodeJSON(Data(found[4].utf8)))
+        let run = try RunItem(json: try decodeJSON(Data(found[9].utf8)))
         XCTAssertEqual(run.requestId, "run")
         XCTAssertEqual(run.state, "active")
         XCTAssertFalse(run.paused)
@@ -129,7 +129,7 @@ final class DocConformanceTests: XCTestCase {
 
     func testEveryBlockDecodes() throws {
         let all = try ProtocolDoc.jsonBlocks()
-        XCTAssertEqual(all.count, 14)
+        XCTAssertEqual(all.count, 20)
         for block in all {
             for line in lines(block.text) {
                 let value = try decodeJSON(Data(line.utf8))
