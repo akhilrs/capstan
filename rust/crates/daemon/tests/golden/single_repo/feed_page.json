@@ -1,0 +1,851 @@
+{
+  "projectId": "planstatus",
+  "epoch": "f26d994c9ad09c28",
+  "head": 40,
+  "anchorOk": true,
+  "ahead": false,
+  "events": [
+    {
+      "id": "planstatus:f26d994c9ad09c28:5",
+      "seq": 5,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "pm-1"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "pm-1",
+        "kind": "PM",
+        "role": "pm",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "pm-1",
+            "fields": {
+              "agentId": "pm-1",
+              "kind": "PM",
+              "role": "pm",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:8",
+      "seq": 8,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "arch-1"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "arch-1",
+        "kind": "Developer",
+        "role": "architect",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "arch-1",
+            "fields": {
+              "agentId": "arch-1",
+              "kind": "Developer",
+              "role": "architect",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:11",
+      "seq": 11,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "arch-2"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "arch-2",
+        "kind": "Developer",
+        "role": "architect",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "arch-2",
+            "fields": {
+              "agentId": "arch-2",
+              "kind": "Developer",
+              "role": "architect",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:14",
+      "seq": 14,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "arch-3"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "arch-3",
+        "kind": "Developer",
+        "role": "architect",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "arch-3",
+            "fields": {
+              "agentId": "arch-3",
+              "kind": "Developer",
+              "role": "architect",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:17",
+      "seq": 17,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "dev-1"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "dev-1",
+        "kind": "Developer",
+        "role": "developer",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "dev-1",
+            "fields": {
+              "agentId": "dev-1",
+              "kind": "Developer",
+              "role": "developer",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:20",
+      "seq": 20,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "dev-2"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "dev-2",
+        "kind": "Developer",
+        "role": "developer",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "dev-2",
+            "fields": {
+              "agentId": "dev-2",
+              "kind": "Developer",
+              "role": "developer",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:23",
+      "seq": 23,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "dev-3"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "dev-3",
+        "kind": "Developer",
+        "role": "developer",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "dev-3",
+            "fields": {
+              "agentId": "dev-3",
+              "kind": "Developer",
+              "role": "developer",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:26",
+      "seq": 26,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "rev-1"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "rev-1",
+        "kind": "Verifier",
+        "role": "reviewer",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "rev-1",
+            "fields": {
+              "agentId": "rev-1",
+              "kind": "Verifier",
+              "role": "reviewer",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:29",
+      "seq": 29,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "agent.registered",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent",
+        "id": "rev-2"
+      },
+      "from": null,
+      "to": "active",
+      "body": {
+        "agentId": "rev-2",
+        "kind": "Verifier",
+        "role": "reviewer",
+        "state": "active",
+        "paused": false,
+        "generation": 1,
+        "current": {
+          "readAt": 40
+        },
+        "effects": [
+          {
+            "section": "agents",
+            "op": "upsert",
+            "key": "rev-2",
+            "fields": {
+              "agentId": "rev-2",
+              "kind": "Verifier",
+              "role": "reviewer",
+              "state": "active",
+              "paused": false,
+              "generation": 1
+            }
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:30",
+      "seq": 30,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "snapshot.invalidated",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent_pane",
+        "id": "dev-1"
+      },
+      "from": null,
+      "to": null,
+      "body": {
+        "section": "agents",
+        "key": "dev-1",
+        "effects": [
+          {
+            "section": "agents",
+            "op": "invalidate",
+            "key": "dev-1",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:31",
+      "seq": 31,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "snapshot.invalidated",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent_pane",
+        "id": "dev-2"
+      },
+      "from": null,
+      "to": null,
+      "body": {
+        "section": "agents",
+        "key": "dev-2",
+        "effects": [
+          {
+            "section": "agents",
+            "op": "invalidate",
+            "key": "dev-2",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:32",
+      "seq": 32,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "snapshot.invalidated",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "agent_pane",
+        "id": "dev-3"
+      },
+      "from": null,
+      "to": null,
+      "body": {
+        "section": "agents",
+        "key": "dev-3",
+        "effects": [
+          {
+            "section": "agents",
+            "op": "invalidate",
+            "key": "dev-3",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:33",
+      "seq": 33,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "5e3ad831-bd13-4e22-be95-735ace74fdcd",
+      "entity": {
+        "type": "plan",
+        "id": "plan-1"
+      },
+      "from": null,
+      "to": "draft",
+      "body": {
+        "planId": "plan-1",
+        "state": "draft",
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "1",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:34",
+      "seq": 34,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "5e3ad831-bd13-4e22-be95-735ace74fdcd",
+      "entity": {
+        "type": "plan",
+        "id": "plan-2"
+      },
+      "from": null,
+      "to": "draft",
+      "body": {
+        "planId": "plan-2",
+        "state": "draft",
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "2",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:35",
+      "seq": 35,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "5e3ad831-bd13-4e22-be95-735ace74fdcd",
+      "entity": {
+        "type": "plan",
+        "id": "plan-3"
+      },
+      "from": null,
+      "to": "draft",
+      "body": {
+        "planId": "plan-3",
+        "state": "draft",
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "3",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:36",
+      "seq": 36,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "5e3ad831-bd13-4e22-be95-735ace74fdcd",
+      "entity": {
+        "type": "plan",
+        "id": "plan-4"
+      },
+      "from": null,
+      "to": "draft",
+      "body": {
+        "planId": "plan-4",
+        "state": "draft",
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "4",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:37",
+      "seq": 37,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "5e3ad831-bd13-4e22-be95-735ace74fdcd",
+      "entity": {
+        "type": "plan",
+        "id": "plan-5"
+      },
+      "from": null,
+      "to": "draft",
+      "body": {
+        "planId": "plan-5",
+        "state": "draft",
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "5",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:38",
+      "seq": 38,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.approved",
+      "actorId": "fec604fe-ce6d-44e2-9262-14010afe2c4e",
+      "entity": {
+        "type": "plan",
+        "id": "plan-2"
+      },
+      "from": "draft",
+      "to": "approved",
+      "body": {
+        "planId": "plan-2",
+        "state": "approved",
+        "agentId": "arch-1",
+        "revision": 1,
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "2",
+            "fields": {}
+          },
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "plan",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "design",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:39",
+      "seq": 39,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "plan",
+        "id": "plan-3"
+      },
+      "from": null,
+      "to": null,
+      "body": {
+        "planId": "plan-3",
+        "state": null,
+        "packageId": null,
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "3",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "design",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "integration",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "planstatus:f26d994c9ad09c28:40",
+      "seq": 40,
+      "k": 0,
+      "ts": "2027-01-15T08:00:00.000Z",
+      "type": "plan.changed",
+      "actorId": "8cd3b79d-b1ee-4724-a2a7-84a1bdffffb2",
+      "entity": {
+        "type": "plan",
+        "id": "plan-4"
+      },
+      "from": null,
+      "to": null,
+      "body": {
+        "planId": "plan-4",
+        "state": null,
+        "effects": [
+          {
+            "section": "plans",
+            "op": "invalidate",
+            "key": "4",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "design",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "integration",
+            "fields": {}
+          },
+          {
+            "section": "waiting",
+            "op": "invalidate",
+            "key": "message",
+            "fields": {}
+          },
+          {
+            "section": "run",
+            "op": "invalidate",
+            "key": "run",
+            "fields": {}
+          }
+        ]
+      }
+    }
+  ],
+  "scanned": {
+    "seq": 40,
+    "k": 0
+  },
+  "anchor": "a8efa1b8d322dfab",
+  "hasMore": false,
+  "rowsRead": 54
+}

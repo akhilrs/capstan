@@ -1748,6 +1748,11 @@ impl Core {
         workspace::repo_of_integration(&self.kernel, integration_id)
     }
 
+    /// Whether the project has any report commit or integration set row (false for a single-repo project).
+    pub fn has_workspace_rows(&self) -> KernelResult<bool> {
+        workspace::has_workspace_rows(&self.kernel)
+    }
+
     /// The commits a report named, by repo.
     pub fn report_commits(&self, report_id: &str) -> KernelResult<Value> {
         workspace::report_commits(&self.kernel, report_id)
@@ -1869,5 +1874,24 @@ impl Core {
     /// The set a subject id names: the set's own id or a member's integration id.
     pub fn set_of_subject(&self, subject_id: &str) -> KernelResult<Option<String>> {
         workspace::set_of_subject(&self.kernel, subject_id)
+    }
+
+    /// The `set` member of an integration that belongs to an integration set (`None` for any other).
+    pub fn integration_set_view(&self, integration_id: &str) -> KernelResult<Option<Value>> {
+        workspace::integration_set_view(&self.kernel, integration_id)
+    }
+
+    /// The newest `limit` integration sets with their members in merge order (the status member `integrationSets`).
+    pub fn integration_sets_view(&self, limit: i64) -> KernelResult<Value> {
+        workspace::integration_sets_view(&self.kernel, limit)
+    }
+
+    /// The gate and each live member's verify of the newest `limit` sets (see `workspace::set_verify_view`).
+    pub fn set_verify_view(
+        &self,
+        limit: i64,
+        sha_of: &dyn Fn(&str) -> String,
+    ) -> KernelResult<Value> {
+        workspace::set_verify_view(&self.kernel, limit, sha_of)
     }
 }

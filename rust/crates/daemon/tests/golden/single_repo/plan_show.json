@@ -1,0 +1,28 @@
+{
+  "plans": [
+    {
+      "planId": "plan-1",
+      "tier": "normal",
+      "state": "draft",
+      "title": "One"
+    },
+    {
+      "planId": "plan-2",
+      "tier": "normal",
+      "state": "approved",
+      "title": "Two"
+    },
+    {
+      "planId": "plan-3",
+      "tier": "normal",
+      "state": "draft",
+      "title": "Three"
+    },
+    {
+      "planId": "plan-5",
+      "tier": "normal",
+      "state": "draft",
+      "title": "Five"
+    }
+  ]
+}

@@ -88,6 +88,7 @@ struct World {
     credentials: HashMap<String, String>,
     heads: BTreeMap<String, String>,
     clock: Arc<AtomicI64>,
+    state: std::path::PathBuf,
 }
 
 impl World {
@@ -98,6 +99,11 @@ impl World {
 
     /// `days` sets `[architect] stale_plan_days`.
     fn build(more: &str, gate: bool, days: Option<i64>) -> World {
+        World::build_seeded(more, gate, days, None)
+    }
+
+    /// `seed` fixes the ids the kernel makes (a run of the same sequence writes the same rows).
+    fn build_seeded(more: &str, gate: bool, days: Option<i64>, seed: Option<&str>) -> World {
         let dir = private_tempdir();
         let scratch = private_tempdir();
         let identity = Identity {
@@ -106,6 +112,7 @@ impl World {
             credential: format!("operator-{}", "w".repeat(40)),
         };
         let state = write_project(dir.path(), &identity);
+        let state_dir = state.clone();
         let mut config = CONFIG.to_string();
         if let Some(days) = days {
             config = config.replace(
@@ -140,6 +147,7 @@ impl World {
         capstan_ledger::open_database(&database, &capstan_ledger::OpenOptions::default()).unwrap();
         let project = identity.initial_project();
         let clock = Arc::new(AtomicI64::new(BASE));
+        let seed = seed.map(str::to_string);
         let kernel = {
             let clock = clock.clone();
             let (state, project, root) = (state.clone(), project.clone(), dir.path().to_path_buf());
@@ -153,11 +161,13 @@ impl World {
                     },
                     Box::new(TestEnv {
                         clock,
-                        inner: capstan_kernel::SeededEnv::new(&format!(
-                            "status-{}-{}",
-                            std::process::id(),
-                            WORLDS.fetch_add(1, Ordering::SeqCst)
-                        )),
+                        inner: capstan_kernel::SeededEnv::new(&seed.clone().unwrap_or_else(|| {
+                            format!(
+                                "status-{}-{}",
+                                std::process::id(),
+                                WORLDS.fetch_add(1, Ordering::SeqCst)
+                            )
+                        })),
                     }),
                 )
             })
@@ -187,6 +197,7 @@ impl World {
             credentials: HashMap::new(),
             heads,
             clock,
+            state: state_dir,
         };
         world
             .credentials
@@ -813,4 +824,90 @@ fn a_changed_stale_reason_is_a_changed_selection() {
     );
     assert!(refused.contains("selection_changed"), "{refused}");
     assert!(w.list(&["--archived"]).is_empty());
+}
+
+// ------------------------------------------------------------------------------------- single-repo golden files
+
+/// Every document a single-repo project answers (status, plan show, the feed) for one fixed sequence, as text. The files
+/// under `tests/golden/single_repo/` were made by this test at 07534160 (before the per-repo members), with
+/// `CAPSTAN_WRITE_GOLDEN=<dir> cargo test -p capstan-daemon --test plan_status_cli single_repo_documents`; the test
+/// compares byte for byte, so a project without `[repos]` keeps the JSON it always had.
+fn golden_documents(w: &World) -> Vec<(&'static str, String)> {
+    w.mixed();
+    // An integration that waits for a decision, its details and a report, as a single-repo ledger holds them.
+    let path = capstan_ledger::resolve_database_path(&w.state).unwrap();
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let actor: String = conn
+        .query_row(
+            "SELECT actor_id FROM agents WHERE agent_id = 'dev-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let head = w.heads["feat/dev-1"].clone();
+    conn.execute(
+        "INSERT INTO agent_reports(project_id, report_id, sequence, agent_id, generation, actor_id, commit_sha, branch, summary, state, evidence_json, created_at)
+         VALUES ('planstatus', 'rep-1', 1, 'dev-1', 1, ?, ?, 'feat/dev-1', 'one', 'accepted', '{}', '2026-01-01T00:00:00.000Z')",
+        rusqlite::params![actor, head],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, head_sha, created_at, completed_at,
+             failure_reason, conflict_report_id, conflict_files_json, conflict_files_omitted)
+         VALUES ('planstatus', 'int-1', 1, ?, 'int/one', 'pm-1', 'merged', ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, NULL, NULL, NULL)",
+        rusqlite::params![w.heads["main"], head],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO integration_details(project_id, integration_id, details_json, computed_at)
+         VALUES ('planstatus', 'int-1', '{\"plans\":[],\"reports\":[],\"signoffs\":[]}', '2026-01-01T00:00:00.000Z')",
+        [],
+    )
+    .unwrap();
+    let root = w._dir.path().display().to_string();
+    let mut out = Vec::new();
+    for (name, command, args) in [
+        ("status", "status", vec![]),
+        ("plan_show", "plan", vec!["show"]),
+        ("plan_brief", "plan", vec!["show", "--brief"]),
+        (
+            "feed_page",
+            "feed",
+            vec!["page", "--after", "0:0", "--limit", "500"],
+        ),
+        ("feed_waiting", "feed", vec!["waiting", "--limit", "100"]),
+        ("feed_agents", "feed", vec!["agents", "--limit", "100"]),
+        ("feed_plans", "feed", vec!["plans", "--limit", "100"]),
+    ] {
+        let answer = w.ok("operator", command, &args);
+        let text = serde_json::to_string_pretty(&answer)
+            .unwrap()
+            .replace(&root, "<root>");
+        let pid = format!("\"pid\": {}", std::process::id());
+        out.push((name, text.replace(&pid, "\"pid\": 0")));
+    }
+    out
+}
+
+#[test]
+fn single_repo_documents_are_byte_identical_to_the_golden_files() {
+    let w = World::build_seeded("", false, None, Some("single-repo-golden"));
+    let documents = golden_documents(&w);
+    if let Ok(dir) = std::env::var("CAPSTAN_WRITE_GOLDEN") {
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text) in &documents {
+            std::fs::write(format!("{dir}/{name}.json"), format!("{text}\n")).unwrap();
+        }
+        return;
+    }
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/single_repo");
+    for (name, text) in &documents {
+        let want = std::fs::read_to_string(golden.join(format!("{name}.json")))
+            .unwrap_or_else(|e| panic!("golden {name}: {e}"));
+        assert_eq!(
+            &format!("{text}\n"),
+            &want,
+            "{name} differs from its golden file"
+        );
+    }
 }

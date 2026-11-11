@@ -379,6 +379,78 @@ verify result or a sign-off), so a client replaces an item wholesale each time i
 because the `contentHash` is unchanged. A `review.verdict`, `verify.result` or `plan.signed_off` event of an integration
 that is still `merged` or `conflicted` carries an `invalidate` of its waiting item; those events for a report carry none.
 
+#### Workspace members
+
+A project with `[repos]` (workspace mode) adds the members below. Each is present only when the ledger holds the data
+behind it, so a project without workspace data gets exactly the items, events and details described above; a client
+that does not know a member ignores it. No new event type exists, and `contentHash` is computed over the item as sent: it
+changes only for an integration item that is a member of a set (the hash is then over `{id, state, branch, headSha, set}`).
+
+- `set` (on the waiting item of an integration that is a member of an integration set, in its `integrationDetails`, and
+  in the body of its `integration.finished` event) is `{setId, state, repo, position, attempt, reviewSubject, dropped,
+  members}`. `state` is the set's own state (`running`, `merged`, `conflicted`, `failed` or `discarded`). `repo`,
+  `position` (0 is first in merge order) and `attempt` (1 for the first integration of the repo, one more for each redo)
+  are this member's. `reviewSubject` is true for the member whose integration the set's review is about (the first live
+  member that has an integration). `dropped` is true for a member whose integration was discarded while the set goes on:
+  it is outside the gate, the review and the confirm. `members` lists every repo in merge order (at most 32) as `{repo,
+  position, attempt, integrationId, state, branch, headSha, dropped}`; `integrationId`, `branch` and `headSha` are `null`
+  until the repo has an integration, and `state` of such a member is `running`. The state `merged` of a member means
+  merged into the integration branch, not yet into the repo's main branch (`confirmed`): a client shows it as "built".
+  Each member keeps its own waiting item and its title (`merged <branch> (repo <r> of set <s>)`), so an older client still
+  sees every row; a client that knows `set` shows the set as one row.
+- `verify.byRepo` (in the `integrationDetails` of a set member) is `[{repo, latest, lastPassed}]` for every member in
+  merge order, each as the member's `latest` and `lastPassed` of the `verify` member above (`null` while the repo has no
+  finished run). `verify` itself stays the member's own result.
+- `commits` (in the body of a `report.recorded` event, and on the report rows of `cstan --json status`) is `[{repo,
+  commitSha, branch, baseSha}]`, one per repo the report named, ordered by repo. `commitSha` of the report stays the
+  first commit. A report that named no commits has no `commits` member.
+- `integrationSets` (in `cstan --json status`) is the newest sets, each `{setId, state, branch, confirmed, members}`
+  with the members as in `set`; `confirmed` is true when every live member is confirmed. The `integrations` rows of the
+  status also carry `set` for a member. The `worktrees` of an agent in the status list are `[{repo, path, branch}]`
+  from its live worktrees, and `changeFolder` is the folder that holds them; an agent without worktrees has neither.
+- A set of `integrationSets` also carries `gate` (`{state, repos}`), read as the review and merge gates read it (each
+  repo's own commands, the runs on the member's head, the set's reset): `failed` names the live repos whose counted run
+  failed, else `waiting` names those running or without a counted run, else `passed`. A set with no live member has no
+  `gate`. Each live member has `verify` (`null` without a counted run, else `{state, commitSha, lastPassed}`, with
+  `lastPassed` set only when an earlier commit passed); a dropped member has none. The sets and members follow the
+  project's state version; `gate` and `verify` may be up to `[daemon] status_cache_ms` old.
+- `repo` is also a member of a verify run and of a cleanup when the repo is not the root (`''`): a project without
+  `[repos]` has no such member. A cleanup offer of a workspace also counts its `worktrees`, and carries `left: true`
+  when its repo left the configuration.
+
+The feed read budget of a waiting page is charged for these lookups only for a set member: the two statements of the
+set and up to 32 member rows, and, for the details, one statement and up to 32 rows for `verify.byRepo`.
+
+A `set`, as an item reads it (the values are examples):
+
+```json
+{"set":{"setId":"set-4","state":"running","repo":"web","position":1,"attempt":2,"reviewSubject":false,"dropped":false,"members":[{"repo":"api","position":0,"attempt":1,"integrationId":"int-21","state":"confirmed","branch":"integration/set-4","headSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","dropped":false},{"repo":"web","position":1,"attempt":2,"integrationId":"int-24","state":"merged","branch":"integration/set-4","headSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","dropped":false},{"repo":"worker","position":2,"attempt":1,"integrationId":"int-23","state":"conflicted","branch":"integration/set-4","headSha":null,"dropped":false},{"repo":"infra","position":3,"attempt":1,"integrationId":"int-22","state":"discarded","branch":"integration/set-4","headSha":null,"dropped":true}]}}
+```
+
+`verify.byRepo` in the `integrationDetails` of that item:
+
+```json
+{"verify":{"latest":{"state":"failed","commitSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","finishedAt":"2026-11-11T08:50:00.000Z"},"lastPassed":{"commitSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","finishedAt":"2026-11-11T08:40:00.000Z"},"byRepo":[{"repo":"api","latest":{"state":"passed","commitSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-11-11T08:30:00.000Z"},"lastPassed":{"commitSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","finishedAt":"2026-11-11T08:30:00.000Z"}},{"repo":"web","latest":{"state":"failed","commitSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","finishedAt":"2026-11-11T08:50:00.000Z"},"lastPassed":{"commitSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","finishedAt":"2026-11-11T08:40:00.000Z"}},{"repo":"worker","latest":null,"lastPassed":null}]}}
+```
+
+A `report.recorded` event of a report in two repos:
+
+```json
+{"v":1,"kind":"event","projectId":"prustonly","event":{"id":"prustonly:ep1:31","seq":31,"k":0,"ts":"2026-11-11T09:00:00.000Z","type":"report.recorded","actorId":"a1b2c3d4-0000-4000-8000-000000000001","entity":{"type":"agent_report","id":"rep-9"},"from":null,"to":"accepted","body":{"reportId":"rep-9","agentId":"dev-4","state":"accepted","commitSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","commits":[{"repo":"api","commitSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","branch":"feat/PM-512-refund-sync","baseSha":"0123456789abcdef0123456789abcdef01234567"},{"repo":"web","commitSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","branch":"feat/PM-512-refund-sync","baseSha":"89abcdef0123456789abcdef0123456789abcdef"}],"summary":"Added the refund sync","textVerified":true,"truncated":false,"untrusted":["summary"],"current":{"readAt":31,"package":null},"effects":[]}}}
+```
+
+An `integration.finished` event of a set member:
+
+```json
+{"v":1,"kind":"event","projectId":"prustonly","event":{"id":"prustonly:ep1:31","seq":31,"k":0,"ts":"2026-11-11T09:00:00.000Z","type":"integration.finished","actorId":"a1b2c3d4-0000-4000-8000-000000000001","entity":{"type":"integration","id":"int-24"},"from":null,"to":"merged","body":{"integrationId":"int-24","state":"merged","set":{"setId":"set-4","state":"running","repo":"web","position":1,"attempt":2,"reviewSubject":false,"dropped":false,"members":[{"repo":"api","position":0,"attempt":1,"integrationId":"int-21","state":"confirmed","branch":"integration/set-4","headSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","dropped":false},{"repo":"web","position":1,"attempt":2,"integrationId":"int-24","state":"merged","branch":"integration/set-4","headSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","dropped":false},{"repo":"worker","position":2,"attempt":1,"integrationId":"int-23","state":"conflicted","branch":"integration/set-4","headSha":null,"dropped":false},{"repo":"infra","position":3,"attempt":1,"integrationId":"int-22","state":"discarded","branch":"integration/set-4","headSha":null,"dropped":true}]},"effects":[]}}}
+```
+
+The members of `cstan --json status`:
+
+```json
+{"integrationSets":[{"setId":"set-4","state":"running","branch":"integration/set-4","confirmed":false,"members":[{"repo":"api","position":0,"attempt":1,"integrationId":"int-21","state":"confirmed","branch":"integration/set-4","headSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","dropped":false},{"repo":"web","position":1,"attempt":2,"integrationId":"int-24","state":"merged","branch":"integration/set-4","headSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","dropped":false},{"repo":"worker","position":2,"attempt":1,"integrationId":"int-23","state":"conflicted","branch":"integration/set-4","headSha":null,"dropped":false},{"repo":"infra","position":3,"attempt":1,"integrationId":"int-22","state":"discarded","branch":"integration/set-4","headSha":null,"dropped":true}]}],"reports":[{"reportId":"rep-9","agentId":"dev-4","generation":1,"commitSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","state":"accepted","reason":null,"announced":true,"createdAt":"2026-11-11T09:00:00.000Z","commits":[{"repo":"api","commitSha":"9f3c2a1d5b7e4a60918c2d4e6f8091a2b3c4d5e6","branch":"feat/PM-512-refund-sync","baseSha":"0123456789abcdef0123456789abcdef01234567"},{"repo":"web","commitSha":"51ab07e3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9","branch":"feat/PM-512-refund-sync","baseSha":"89abcdef0123456789abcdef0123456789abcdef"}]}],"agents":[{"agentId":"dev-4","kind":"Developer","state":"active","worktrees":[{"repo":"api","path":"/work/cf/dev-4/api","branch":"feat/PM-512-refund-sync"},{"repo":"web","path":"/work/cf/dev-4/web","branch":"feat/PM-512-refund-sync"}],"changeFolder":"/work/cf/dev-4"}]}
+```
+
 One page of each section (the values are examples; the hashes are the SHA-256 of the canonical JSON the item's hash is
 defined over):
 

@@ -10,7 +10,7 @@
 //! # Items (serde, camelCase)
 //! | type | fields |
 //! |---|---|
-//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`, `approveChoices` |
+//! | `WaitingItem` | `key`, `requestId`, `kind`, `since`, `summary`, `contentHash`, `needsTerminal`, `integrationState`, `branch`, `headSha`, `integrationDetails`, `designLink`, `approveChoices`; `set` only for a member of an integration set |
 //! | `AgentItem` | `key`, `agentId`, `kind`, `role`, `generation`, `state`, `paused`, `task`, `branch`, `requestId`, `contentHash`; `model`, `modelSource` only when known |
 //! | `PlanItem` | `key`, `planId`, `sequence`, `title`, `state`, `packages {total, assigned, reported, integrated}`, `packageDetails`, `packageDetailsOmitted` |
 //! | `RunItem` | `requestId` ("run"), `state`, `paused`, `contentHash`, `pm` |
@@ -133,6 +133,10 @@ pub struct WaitingItem {
     /// What a remote client may choose for an Operator proposal (see `operator_proposals::approve_choices`); null for every
     /// other kind. It depends only on the stored row, so it changes only when the row does, and is not part of the hash.
     pub approve_choices: Option<Value>,
+    /// The integration set an integration is a member of, with every member (see `docs/remote-protocol.md`). Present only
+    /// for a member of a set, so the item of any other integration serializes as it always did. It is part of the hash.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set: Option<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1431,6 +1435,7 @@ fn build(
         integration_details: None,
         design_link: None,
         approve_choices: None,
+        set: None,
     };
     Ok(Built::Done(
         match kind {
@@ -1468,14 +1473,44 @@ fn build(
                 let (superseded, member) =
                     integration_superseded(core, &candidate.id, int(cols, "sequence"))?;
                 reads.used += 2;
-                let details = if superseded || !scan.details {
+                // A member of a set carries its set and every member: two statements and the member rows, read whatever the
+                // scan asks for because the set is part of the content hash.
+                // The first candidate of a call is examined even when the budget cannot hold it (`force`), so such a call may pass
+                // `reads.max` by at most `SET_READS` (pinned by `workspace_feed`); no member can be left out of the hash.
+                let set = if superseded || member.is_none() {
                     None
-                } else if !force && reads.used + DETAILS_RESERVE > reads.max {
+                } else if !force && reads.used + SET_READS > reads.max {
                     return Ok(Built::Defer);
                 } else {
-                    Some(integration_details(core, &candidate.id, reads)?)
+                    let view = core.integration_set_view(&candidate.id)?;
+                    let cost = 2 + view.as_ref().map_or(0, |v| 1 + list(v, "members").len());
+                    tick(cost);
+                    reads.used += cost;
+                    view
+                };
+                let by_repo = if set.is_some() { BY_REPO_READS } else { 0 };
+                let details = if superseded || !scan.details {
+                    None
+                } else if !force && reads.used + DETAILS_RESERVE + by_repo > reads.max {
+                    return Ok(Built::Defer);
+                } else {
+                    Some(integration_details(
+                        core,
+                        &candidate.id,
+                        reads,
+                        set.as_ref(),
+                    )?)
                 };
                 (!superseded).then(|| {
+                    let mut hashed = json!({
+                        "id": candidate.id,
+                        "state": state,
+                        "branch": branch,
+                        "headSha": head_sha,
+                    });
+                    if let Some(set) = &set {
+                        hashed["set"] = set.clone();
+                    }
                     let mut found = item(
                         text(cols, "created_at"),
                         shown(&match &member {
@@ -1484,14 +1519,10 @@ fn build(
                             }
                             None => format!("{state} {branch}"),
                         }),
-                        sha256(&canonical(&json!({
-                            "id": candidate.id,
-                            "state": state,
-                            "branch": branch,
-                            "headSha": head_sha,
-                        }))),
+                        sha256(&canonical(&hashed)),
                         false,
                     );
+                    found.set = set;
                     found.integration_state = Some(state.clone());
                     found.branch = Some(branch.clone());
                     found.head_sha = head_sha.map(str::to_string);
@@ -1592,6 +1623,28 @@ fn integration_superseded(
 /// The most reads one integration's details can cost: five statements and the rows they return (four single rows
 /// and ten sign-offs). An item that is not the first of a call waits for this much room.
 const DETAILS_RESERVE: usize = 5 + 4 + SIGNOFF_ROWS;
+/// The most repos of an integration set (the rows of the set statements).
+const SET_ROWS: usize = 32;
+/// The most reads the set of a member costs: the membership statement and its row, then the members statement and its rows.
+/// Only an integration that is a member of a set pays it.
+const SET_READS: usize = 2 + 1 + SET_ROWS;
+/// The most reads the per-repo verify results of a set member cost: one statement and a row per repo.
+const BY_REPO_READS: usize = 1 + SET_ROWS;
+/// The per-repo results of a set: for each member (in merge order) its latest finished run and its last passed run, in one
+/// statement through `verify_runs`'s subject index (`feed_query_plans` pins the plan).
+#[doc(hidden)]
+pub const BY_REPO: &str = "SELECT m.repo,
+        (SELECT v.state FROM verify_runs v WHERE v.project_id = m.project_id AND v.subject_integration_id = m.integration_id
+            AND v.state IN ('passed', 'failed', 'timeout', 'error') ORDER BY v.sequence DESC LIMIT 1),
+        (SELECT v.commit_sha FROM verify_runs v WHERE v.project_id = m.project_id AND v.subject_integration_id = m.integration_id
+            AND v.state IN ('passed', 'failed', 'timeout', 'error') ORDER BY v.sequence DESC LIMIT 1),
+        (SELECT v.finished_at FROM verify_runs v WHERE v.project_id = m.project_id AND v.subject_integration_id = m.integration_id
+            AND v.state IN ('passed', 'failed', 'timeout', 'error') ORDER BY v.sequence DESC LIMIT 1),
+        (SELECT v.commit_sha FROM verify_runs v WHERE v.project_id = m.project_id AND v.subject_integration_id = m.integration_id
+            AND v.state = 'passed' ORDER BY v.sequence DESC LIMIT 1),
+        (SELECT v.finished_at FROM verify_runs v WHERE v.project_id = m.project_id AND v.subject_integration_id = m.integration_id
+            AND v.state = 'passed' ORDER BY v.sequence DESC LIMIT 1)
+   FROM integration_set_members m WHERE m.project_id = ?1 AND m.set_id = ?2 ORDER BY m.position LIMIT 32";
 /// The most sign-offs of an item (the `LIMIT` of [`SIGNOFFS`]).
 const SIGNOFF_ROWS: usize = 10;
 /// The statements of the details of an integration, each through an index (`feed_query_plans` pins their plans).
@@ -1773,14 +1826,15 @@ fn integration_details(
     core: &Core,
     integration_id: &str,
     reads: &mut Reads,
+    set: Option<&Value>,
 ) -> KernelResult<Value> {
     let before = actual_reads();
-    let found = read_details(core, integration_id);
+    let found = read_details(core, integration_id, set);
     reads.used += actual_reads().saturating_sub(before);
     found
 }
 
-fn read_details(core: &Core, integration_id: &str) -> KernelResult<Value> {
+fn read_details(core: &Core, integration_id: &str, set: Option<&Value>) -> KernelResult<Value> {
     let kernel = core.kernel();
     let stored = query_opt(
         &kernel.database,
@@ -1856,8 +1910,61 @@ fn read_details(core: &Core, integration_id: &str) -> KernelResult<Value> {
             })
             .collect(),
     );
+    if let Some(set) = set {
+        add_set_details(core, &mut details, set)?;
+    }
     fit_details(&mut details);
     Ok(details)
+}
+
+/// A set member's details gain `set` and `verify.byRepo`: the latest finished and the last passed run of every member.
+fn add_set_details(core: &Core, details: &mut Value, set: &Value) -> KernelResult<()> {
+    let set_id = field(set, "setId").to_string();
+    let found = rows(
+        core,
+        BY_REPO,
+        vec![project(core), sql_text(&set_id)],
+        &[
+            "repo",
+            "state",
+            "commit",
+            "finished",
+            "passed_commit",
+            "passed_finished",
+        ],
+    )?;
+    let by_repo: Vec<Value> = found
+        .iter()
+        .map(|row| {
+            let latest = row
+                .get("state")
+                .filter(|state| !state.is_null())
+                .map(|state| {
+                    json!({"state": state, "commitSha": row["commit"], "finishedAt": row["finished"]})
+                });
+            let passed = row
+                .get("passed_commit")
+                .filter(|commit| !commit.is_null())
+                .map(|commit| json!({"commitSha": commit, "finishedAt": row["passed_finished"]}));
+            json!({
+                "repo": row["repo"],
+                "latest": latest.unwrap_or(Value::Null),
+                "lastPassed": passed.unwrap_or(Value::Null),
+            })
+        })
+        .collect();
+    if details["verify"].is_null() {
+        if by_repo.iter().all(|entry| entry["latest"].is_null()) {
+            details["verify"] = Value::Null;
+        } else {
+            details["verify"] = json!({"latest": null, "lastPassed": null});
+        }
+    }
+    if details["verify"].is_object() {
+        details["verify"]["byRepo"] = Value::Array(by_repo);
+    }
+    details["set"] = set.clone();
+    Ok(())
 }
 
 /// What building a candidate gave.

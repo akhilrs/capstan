@@ -1558,6 +1558,13 @@ fn brief_plan(
             );
             map.insert("assignee".into(), field(package, "assigneeAgentId"));
             map.insert("progress".into(), json!(package_progress_label(package)));
+            // A workspace package names the repos it works in; a single-repo package has none and the row is unchanged.
+            if let Some(repos) = written
+                .get("repos")
+                .filter(|repos| repos.as_array().is_some_and(|r| !r.is_empty()))
+            {
+                map.insert("repos".into(), repos.clone());
+            }
             if let Some(gates) = gates {
                 map.insert(
                     "verify".into(),

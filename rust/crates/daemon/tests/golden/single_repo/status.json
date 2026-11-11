@@ -1,0 +1,468 @@
+{
+  "projectId": "planstatus",
+  "run": {
+    "state": "active",
+    "stateVersion": 0
+  },
+  "pause": {
+    "run": null,
+    "agents": []
+  },
+  "stateVersion": 40,
+  "inputRevision": 1,
+  "roles": [
+    {
+      "role": "Developer",
+      "seatId": "seat-arch-1",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "seat-arch-2",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "seat-arch-3",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "seat-dev-1",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "seat-dev-2",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Developer",
+      "seatId": "seat-dev-3",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "PM",
+      "seatId": "seat-pm-1",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Verifier",
+      "seatId": "seat-rev-1",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    },
+    {
+      "role": "Verifier",
+      "seatId": "seat-rev-2",
+      "seatState": "active",
+      "actorActive": true,
+      "sessionState": null,
+      "assignmentId": null
+    }
+  ],
+  "plans": [
+    {
+      "planId": "plan-1",
+      "title": "One",
+      "tier": "normal",
+      "state": "draft",
+      "cancelled": false,
+      "architectAgentId": null,
+      "createdAt": "2027-01-15T08:00:00.000Z",
+      "updatedAt": "2027-01-15T08:00:00.000Z",
+      "packages": {},
+      "signoffs": []
+    },
+    {
+      "planId": "plan-2",
+      "title": "Two",
+      "tier": "normal",
+      "state": "approved",
+      "cancelled": false,
+      "architectAgentId": "arch-1",
+      "createdAt": "2027-01-15T08:00:00.000Z",
+      "updatedAt": "2027-01-15T08:00:00.000Z",
+      "packages": {
+        "unassigned": 1
+      },
+      "signoffs": []
+    },
+    {
+      "planId": "plan-3",
+      "title": "Three",
+      "tier": "normal",
+      "state": "draft",
+      "cancelled": true,
+      "architectAgentId": null,
+      "createdAt": "2027-01-15T08:00:00.000Z",
+      "updatedAt": "2027-01-15T08:00:00.000Z",
+      "packages": {},
+      "signoffs": []
+    },
+    {
+      "planId": "plan-5",
+      "title": "Five",
+      "tier": "normal",
+      "state": "draft",
+      "cancelled": false,
+      "architectAgentId": null,
+      "createdAt": "2027-01-15T08:00:00.000Z",
+      "updatedAt": "2027-01-15T08:00:00.000Z",
+      "packages": {},
+      "signoffs": []
+    }
+  ],
+  "work": [],
+  "findings": [],
+  "evidence": [],
+  "finalVerification": [],
+  "agents": [
+    {
+      "agentId": "arch-1",
+      "roleName": "architect",
+      "kind": "Developer",
+      "seatId": "seat-arch-1",
+      "actorId": "fec604fe-ce6d-44e2-9262-14010afe2c4e",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": [
+        "plan plan-2 is approved and package api is not yet integrated"
+      ]
+    },
+    {
+      "agentId": "arch-2",
+      "roleName": "architect",
+      "kind": "Developer",
+      "seatId": "seat-arch-2",
+      "actorId": "e8152cc4-4ab1-4165-88f5-ce946a25b093",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": []
+    },
+    {
+      "agentId": "arch-3",
+      "roleName": "architect",
+      "kind": "Developer",
+      "seatId": "seat-arch-3",
+      "actorId": "ac3c0df5-c977-4095-9d0c-b8588afa4e53",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": []
+    },
+    {
+      "agentId": "dev-1",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "seat-dev-1",
+      "actorId": "ca2be719-6a01-425b-8e9f-b8fc347e3966",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": [
+        "its report rep-1 is not yet merged into an integration"
+      ]
+    },
+    {
+      "agentId": "dev-2",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "seat-dev-2",
+      "actorId": "44a49f1a-acad-492d-b133-5c9aa3b7d3fe",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": []
+    },
+    {
+      "agentId": "dev-3",
+      "roleName": "developer",
+      "kind": "Developer",
+      "seatId": "seat-dev-3",
+      "actorId": "6e60f88e-f629-4d87-b148-1fd4b5a4288e",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": []
+    },
+    {
+      "agentId": "pm-1",
+      "roleName": "pm",
+      "kind": "PM",
+      "seatId": "seat-pm-1",
+      "actorId": "5e3ad831-bd13-4e22-be95-735ace74fdcd",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z"
+    },
+    {
+      "agentId": "rev-1",
+      "roleName": "reviewer",
+      "kind": "Verifier",
+      "seatId": "seat-rev-1",
+      "actorId": "97c01e93-2198-4992-adf3-26be8809738c",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": []
+    },
+    {
+      "agentId": "rev-2",
+      "roleName": "reviewer",
+      "kind": "Verifier",
+      "seatId": "seat-rev-2",
+      "actorId": "d036a42e-ec05-4140-8855-2885b69e802e",
+      "generation": 1,
+      "state": "active",
+      "lastActivityAt": "2027-01-15T08:00:00.000Z",
+      "idleSince": "2027-01-15T08:00:00.000Z",
+      "warnedAt": null,
+      "autoReleaseAt": null,
+      "keptUntil": null,
+      "openWork": []
+    }
+  ],
+  "supervisionState": {
+    "enabled": true,
+    "checkSeconds": 300,
+    "supervisor": null,
+    "lastCheck": null,
+    "openFindings": 0
+  },
+  "legacySupervision": {
+    "enabled": false,
+    "health": "disabled",
+    "targetEpoch": 0,
+    "checkpointEpoch": null,
+    "checkpointAssignmentId": null,
+    "replacementAttempts": 0
+  },
+  "controller": {
+    "pid": 0,
+    "projectRoot": "<root>",
+    "ledgerPath": "<root>/.capstan/state/controller.sqlite"
+  },
+  "messages": [
+    {
+      "messageId": "9cc1cbc3-82ad-42bd-adbb-da663b9839b9",
+      "recipientAgentId": "pm-1",
+      "state": "queued",
+      "sequence": 1,
+      "queuedAt": "2027-01-15T08:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "c1896a3c-a48d-4bfa-8951-962fc2e95bac",
+      "recipientAgentId": "pm-1",
+      "state": "queued",
+      "sequence": 2,
+      "queuedAt": "2027-01-15T08:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    },
+    {
+      "messageId": "546e64fb-a837-4185-abdc-6053fa07239e",
+      "recipientAgentId": "pm-1",
+      "state": "queued",
+      "sequence": 3,
+      "queuedAt": "2027-01-15T08:00:00.000Z",
+      "deferredReason": null,
+      "stateReason": null,
+      "lastNotifiedAt": null
+    }
+  ],
+  "legacySupervisionReason": null,
+  "messagesTruncated": false,
+  "pmMail": {
+    "agentId": "pm-1",
+    "pending": 3,
+    "oldestMessageId": "9cc1cbc3-82ad-42bd-adbb-da663b9839b9",
+    "oldestQueuedAt": "2027-01-15T08:00:00.000Z",
+    "oldestAgeSeconds": 0,
+    "stale": false,
+    "notified": false
+  },
+  "stalledAgentIds": [],
+  "lostAgentIds": [],
+  "stuck": [],
+  "inputClears": [],
+  "panes": [
+    {
+      "agentId": "dev-1",
+      "workspaceId": "ws-1",
+      "paneId": "pane-dev-1",
+      "worktreePath": "/tmp/wt/dev-1",
+      "branch": "feat/dev-1",
+      "baseSha": "1794897c7bb77f253106920ac0e7f9d05d888a6b",
+      "generation": 1,
+      "taskRef": null,
+      "taskTitle": null
+    },
+    {
+      "agentId": "dev-2",
+      "workspaceId": "ws-1",
+      "paneId": "pane-dev-2",
+      "worktreePath": "/tmp/wt/dev-2",
+      "branch": "feat/dev-2",
+      "baseSha": "1794897c7bb77f253106920ac0e7f9d05d888a6b",
+      "generation": 1,
+      "taskRef": null,
+      "taskTitle": null
+    },
+    {
+      "agentId": "dev-3",
+      "workspaceId": "ws-1",
+      "paneId": "pane-dev-3",
+      "worktreePath": "/tmp/wt/dev-3",
+      "branch": "feat/dev-3",
+      "baseSha": "1794897c7bb77f253106920ac0e7f9d05d888a6b",
+      "generation": 1,
+      "taskRef": null,
+      "taskTitle": null
+    }
+  ],
+  "reviews": [],
+  "integrations": [
+    {
+      "integrationId": "int-1",
+      "state": "merged",
+      "branch": "int/one",
+      "reports": [],
+      "conflictReportId": null,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "pipelineCounts": {
+    "reports": {
+      "accepted": 1
+    },
+    "reviews": {},
+    "integrations": {
+      "merged": 1
+    }
+  },
+  "activeTasks": {
+    "plans": [
+      {
+        "planId": "plan-1",
+        "title": "One",
+        "state": "draft",
+        "architectAgentId": null,
+        "nexoraId": null,
+        "total": 0,
+        "done": 0,
+        "packages": []
+      },
+      {
+        "planId": "plan-2",
+        "title": "Two",
+        "state": "approved",
+        "architectAgentId": "arch-1",
+        "nexoraId": null,
+        "total": 1,
+        "done": 0,
+        "packages": [
+          {
+            "packageId": "api",
+            "title": "api",
+            "nexoraId": null,
+            "assigneeAgentId": null,
+            "progress": "unassigned"
+          }
+        ]
+      },
+      {
+        "planId": "plan-5",
+        "title": "Five",
+        "state": "draft",
+        "architectAgentId": null,
+        "nexoraId": null,
+        "total": 0,
+        "done": 0,
+        "packages": []
+      }
+    ],
+    "requirements": [],
+    "truncated": false
+  },
+  "awaitingConfirm": [
+    {
+      "integrationId": "int-1",
+      "branch": "int/one",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "reviewState": null
+    }
+  ],
+  "agentFindings": [],
+  "reports": [
+    {
+      "reportId": "rep-1",
+      "agentId": "dev-1",
+      "generation": 1,
+      "commitSha": "a104191b60b64b2240ed5102c64928063ff5b62f",
+      "state": "accepted",
+      "reason": null,
+      "announced": false,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "cleanupFailed": [],
+  "orphanPanes": []
+}

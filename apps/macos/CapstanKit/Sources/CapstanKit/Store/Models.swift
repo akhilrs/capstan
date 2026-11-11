@@ -121,13 +121,16 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
     public var designLink: UntrustedText?
     /// What `op approve-as` may offer; saved files from before it decode it as nil.
     public var approveChoices: ApproveChoices?
+    /// The set of an integration that is a member of one; saved files from before it decode it as nil.
+    public var set: IntegrationSet?
 
     public init(
         key: String, requestId: String, kind: WaitingKind, since: String, summary: UntrustedText,
         contentHash: String, needsTerminal: Bool, integrationState: String? = nil, branch: UntrustedText? = nil,
         headSha: String? = nil, integrationDetails: IntegrationDetails? = nil, designLink: UntrustedText? = nil,
-        approveChoices: ApproveChoices? = nil
+        approveChoices: ApproveChoices? = nil, set: IntegrationSet? = nil
     ) {
+        self.set = set
         self.approveChoices = approveChoices
         self.designLink = designLink
         self.integrationDetails = integrationDetails
@@ -148,7 +151,7 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
             key: item.key, requestId: item.requestId, kind: item.kind, since: item.since, summary: item.summary,
             contentHash: item.contentHash, needsTerminal: item.needsTerminal, integrationState: item.integrationState,
             branch: item.branch, headSha: item.headSha, integrationDetails: item.integrationDetails,
-            designLink: item.designLink, approveChoices: item.approveChoices)
+            designLink: item.designLink, approveChoices: item.approveChoices, set: item.set)
     }
 
     var json: JSONValue {
@@ -163,6 +166,7 @@ public struct StoredWaiting: Codable, Sendable, Equatable {
         if let integrationDetails { members["integrationDetails"] = integrationDetails.json }
         if let designLink { members["designLink"] = .string(designLink.raw) }
         if let approveChoices { members["approveChoices"] = approveChoices.json }
+        if let set { members["set"] = set.json }
         return .object(members)
     }
 }
@@ -203,7 +207,13 @@ extension IntegrationDetails {
                 "round": .int(review.round),
             ])
         }
-        if let verify { members["verify"] = verify.json }
+        if verify != nil || byRepo != nil {
+            var verifyMembers: [String: JSONValue] = [:]
+            if let verify, case .object(let own) = verify.json { verifyMembers = own }
+            if let byRepo { verifyMembers["byRepo"] = .array(byRepo.map(\.json)) }
+            members["verify"] = .object(verifyMembers)
+        }
+        if let set { members["set"] = set.json }
         return .object(members)
     }
 }
@@ -259,13 +269,19 @@ public struct StoredAgent: Codable, Sendable, Equatable {
     public var activity: String?
     public var activitySince: String?
     public var activitySeq: Int64?
+    /// The worktrees the agent holds and the folder that holds them; saved files from before them decode both as nil.
+    public var worktrees: [AgentWorktree]?
+    public var changeFolder: String?
 
     public init(
         key: String, agentId: String, kind: String, role: String, generation: Int64, state: String, paused: Bool,
         task: UntrustedText?, requestId: String, contentHash: String, branch: UntrustedText? = nil,
         activity: String? = nil, activitySince: String? = nil, activitySeq: Int64? = nil,
-        model: UntrustedText? = nil, modelSource: String? = nil
+        model: UntrustedText? = nil, modelSource: String? = nil, worktrees: [AgentWorktree]? = nil,
+        changeFolder: String? = nil
     ) {
+        self.worktrees = worktrees
+        self.changeFolder = changeFolder
         self.model = model
         self.modelSource = modelSource
         self.activity = activity
@@ -290,7 +306,8 @@ public struct StoredAgent: Codable, Sendable, Equatable {
             state: item.state, paused: item.paused, task: item.task, requestId: item.requestId,
             contentHash: item.contentHash, branch: item.branch, activity: item.activity,
             activitySince: item.activitySince, activitySeq: item.activitySeq,
-            model: item.model, modelSource: item.modelSource)
+            model: item.model, modelSource: item.modelSource, worktrees: item.worktrees,
+            changeFolder: item.changeFolder)
     }
 
     var json: JSONValue {
@@ -306,6 +323,8 @@ public struct StoredAgent: Codable, Sendable, Equatable {
         if let activity { members["activity"] = .string(activity) }
         if let activitySince { members["activitySince"] = .string(activitySince) }
         if let activitySeq { members["activitySeq"] = .int(activitySeq) }
+        if let worktrees { members["worktrees"] = .array(worktrees.map(\.json)) }
+        if let changeFolder { members["changeFolder"] = .string(changeFolder) }
         return .object(members)
     }
 }

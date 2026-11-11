@@ -233,7 +233,7 @@ pub enum InputClass {
 /// - `prompt_relays` updates feed `prompt_relay`;
 /// - ledger retention (`mutation_requests`) and maintenance (vacuum, checkpoint) change no status member, but a pass that
 ///   deletes rows is TTL-bound too: nothing keyed on `state_version` sees it;
-/// - verify runs outside the ledger (process output, the worker's claim) feed `verify`;
+/// - verify runs outside the ledger (process output, the worker's claim) feed `verify` and `set_verify`;
 /// - ntfy and cache status, the Operator service (grants, proposals, window), the launcher and the clock (`now`) are not
 ///   in the ledger at all.
 pub struct StatusInputs {
@@ -259,6 +259,11 @@ pub struct StatusInputs {
     pub awaiting_confirm: Option<Value>,
     pub findings: Option<Value>,
     pub reports: Option<Value>,
+    /// The integration sets with their members; `None` when the project has none (workspace projects only).
+    pub integration_sets: Option<Value>,
+    /// The gate and the members' verify of those sets (`workspace::set_verify_view`). Verify runs change without a
+    /// `state_version` bump, so only this part is TTL-bound; the sets and their members stay keyed.
+    pub set_verify: Option<Value>,
     pub launcher: Option<Value>,
     pub prompt_relay: Option<Value>,
     pub sync_drift: Option<Value>,
@@ -294,6 +299,8 @@ impl StatusInputs {
             awaiting_confirm: _,
             findings: _,
             reports: _,
+            integration_sets: _,
+            set_verify: _,
             launcher: _,
             prompt_relay: _,
             sync_drift: _,
@@ -326,6 +333,8 @@ impl StatusInputs {
             ("awaiting_confirm", Keyed),
             ("findings", Keyed),
             ("reports", Keyed),
+            ("integration_sets", Keyed),
+            ("set_verify", Ttl),
             ("launcher", Ttl),
             ("prompt_relay", Ttl),
             ("sync_drift", Keyed),
@@ -380,6 +389,39 @@ fn add_idle_members(
     Ok(())
 }
 
+/// Adds `set` to every integration row that is a member of an integration set.
+fn add_set_members(
+    core: &capstan_kernel::Core,
+    integrations: &mut Value,
+) -> capstan_kernel::KernelResult<()> {
+    for row in integrations.as_array_mut().into_iter().flatten() {
+        let Some(id) = row["integrationId"].as_str().map(str::to_string) else {
+            continue;
+        };
+        if let Some(set) = core.integration_set_view(&id)? {
+            row["set"] = set;
+        }
+    }
+    Ok(())
+}
+
+/// Adds `commits: [{repo, commitSha, branch, baseSha}]` to every report that named commits per repo.
+fn add_report_commits(
+    core: &capstan_kernel::Core,
+    reports: &mut Value,
+) -> capstan_kernel::KernelResult<()> {
+    for row in reports.as_array_mut().into_iter().flatten() {
+        let Some(id) = row["reportId"].as_str().map(str::to_string) else {
+            continue;
+        };
+        let commits = core.report_commits(&id)?;
+        if commits.as_array().is_some_and(|c| !c.is_empty()) {
+            row["commits"] = commits;
+        }
+    }
+    Ok(())
+}
+
 /// Reads every input in the kernel's closure, in the order Node reads them.
 fn gather(
     core: &capstan_kernel::Core,
@@ -387,6 +429,7 @@ fn gather(
     credential: &str,
     child_activity: Value,
     grace_floor_ms: i64,
+    shas: &[(String, String)],
 ) -> capstan_kernel::KernelResult<StatusInputs> {
     inputs.agents = core.list_agents()?;
     if let Some(minutes) = inputs
@@ -422,7 +465,16 @@ fn gather(
         inputs.input_clears = Some(core.input_clears(credential, MAX_STATUS_CLEARS as i64)?);
         inputs.panes = Some(core.agent_panes(credential)?);
         inputs.reviews = Some(core.reviews(credential, Some(MAX_STATUS_REPORTS as i64))?);
-        inputs.integrations = Some(core.integrations(credential, Some(MAX_STATUS_REPORTS as i64))?);
+        let mut integrations = core.integrations(credential, Some(MAX_STATUS_REPORTS as i64))?;
+        add_set_members(core, &mut integrations)?;
+        inputs.integrations = Some(integrations);
+        let sets = core.integration_sets_view(MAX_STATUS_REPORTS as i64)?;
+        if sets.as_array().is_some_and(|s| !s.is_empty()) {
+            inputs.set_verify = Some(core.set_verify_view(MAX_STATUS_REPORTS as i64, &|repo| {
+                super::verify::sha_for(shas, repo)
+            })?);
+            inputs.integration_sets = Some(sets);
+        }
         inputs.pipeline_counts = Some(core.pipeline_counts(credential)?);
         inputs.active_tasks = Some(core.active_tasks(
             credential,
@@ -435,7 +487,9 @@ fn gather(
         inputs.awaiting_confirm =
             Some(core.awaiting_confirm(credential, Some(MAX_STATUS_REPORTS as i64))?);
         inputs.findings = Some(core.findings(credential, Some(MAX_STATUS_REPORTS as i64))?);
-        inputs.reports = Some(core.agent_reports(credential, Some(MAX_STATUS_REPORTS as i64))?);
+        let mut reports = core.agent_reports(credential, Some(MAX_STATUS_REPORTS as i64))?;
+        add_report_commits(core, &mut reports)?;
+        inputs.reports = Some(reports);
     }
     if inputs
         .config
@@ -478,6 +532,8 @@ pub fn render(inputs: StatusInputs) -> Value {
         awaiting_confirm,
         findings,
         reports,
+        integration_sets,
+        set_verify,
         launcher,
         prompt_relay,
         sync_drift,
@@ -596,6 +652,10 @@ pub fn render(inputs: StatusInputs) -> Value {
             "integrations".into(),
             integration_rows(&integrations.unwrap_or(Value::Null)),
         );
+        if let Some(mut sets) = integration_sets {
+            merge_set_verify(&mut sets, set_verify.as_ref());
+            result.insert("integrationSets".into(), sets);
+        }
         result.insert(
             "pipelineCounts".into(),
             pipeline_counts.unwrap_or(Value::Null),
@@ -755,6 +815,8 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         awaiting_confirm: None,
         findings: None,
         reports: None,
+        integration_sets: None,
+        set_verify: None,
         launcher: outside.as_ref().and_then(|o| o.launcher.clone()),
         prompt_relay: None,
         sync_drift: None,
@@ -764,8 +826,22 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         verify: deps.verify.is_some().then_some(Value::Null),
         ntfy: env.deps.ntfy().map(|sender| sender.status()),
     };
+    // The commands sha of each repo, as the review and merge gates read them ('' accepts any commands without a service).
+    let shas = deps
+        .verify
+        .as_ref()
+        .map(|service| super::verify::repo_shas(deps, service))
+        .unwrap_or_default();
     let built = deps.kernel.run(move |core| {
-        gather(core, inputs, &credential, child_activity, grace_floor_ms).map(render)
+        gather(
+            core,
+            inputs,
+            &credential,
+            child_activity,
+            grace_floor_ms,
+            &shas,
+        )
+        .map(render)
     });
     Some(match built {
         Ok(result) => {
@@ -811,6 +887,31 @@ fn review_rows(reviews: &Value) -> Value {
     )
 }
 
+/// Gives each set its `gate` and each live member its `verify` (a dropped member has neither).
+fn merge_set_verify(sets: &mut Value, verify: Option<&Value>) {
+    let Some(Value::Array(verify)) = verify else {
+        return;
+    };
+    for set in sets.as_array_mut().into_iter().flatten() {
+        let Some(found) = verify.iter().find(|v| v["setId"] == set["setId"]) else {
+            continue;
+        };
+        if !found["gate"].is_null() {
+            set["gate"] = found["gate"].clone();
+        }
+        for member in set["members"].as_array_mut().into_iter().flatten() {
+            if let Some(entry) = found["verify"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|e| e["repo"] == member["repo"])
+            {
+                member["verify"] = entry["verify"].clone();
+            }
+        }
+    }
+}
+
 fn integration_rows(integrations: &Value) -> Value {
     Value::Array(
         integrations
@@ -819,7 +920,7 @@ fn integration_rows(integrations: &Value) -> Value {
             .flatten()
             .map(|i| {
                 let merged = i["state"] == "merged";
-                json!({
+                let mut row = json!({
                     "integrationId": i["integrationId"],
                     "state": i["state"],
                     "branch": if merged { i["branch"].clone() } else { Value::Null },
@@ -827,7 +928,11 @@ fn integration_rows(integrations: &Value) -> Value {
                         .map(|r| r["reportId"].clone()).collect::<Vec<_>>(),
                     "conflictReportId": i["conflictReportId"],
                     "createdAt": i["createdAt"],
-                })
+                });
+                if !i["set"].is_null() {
+                    row["set"] = i["set"].clone();
+                }
+                row
             })
             .collect(),
     )
@@ -840,7 +945,7 @@ fn report_rows(reports: &Value) -> Value {
             .into_iter()
             .flatten()
             .map(|r| {
-                json!({
+                let mut row = json!({
                     "reportId": r["reportId"],
                     "agentId": r["agentId"],
                     "generation": r["generation"],
@@ -849,7 +954,11 @@ fn report_rows(reports: &Value) -> Value {
                     "reason": r["reason"],
                     "announced": !r["notifiedMessageId"].is_null(),
                     "createdAt": r["createdAt"],
-                })
+                });
+                if !r["commits"].is_null() {
+                    row["commits"] = r["commits"].clone();
+                }
+                row
             })
             .collect(),
     )

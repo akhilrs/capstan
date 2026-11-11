@@ -2,6 +2,7 @@ import CapstanAppCore
 import CapstanKit
 import CapstanPhoneCore
 import SwiftUI
+import UIKit
 
 /// Merge… for a branch ready to merge (board 10), at the large detent: the branch, the commit, review and verify as
 /// the host last sent them, then Merge, with Cancel as the default. The host checks everything again just before it
@@ -31,6 +32,18 @@ struct MergeSheet: View {
 
     private var hostName: String { model.hosts.first { $0.id == row.hostId }?.displayName ?? "the host" }
 
+    /// The set the item is a member of; the sheet then decides this repo only, in merge order (board 08).
+    private var set: IntegrationSet? { PhoneSetText.set(of: item) }
+
+    private var setSheet: SetMergeSheet? {
+        set.map { SetMergeSheet.make($0, verify: item.integrationDetails?.byRepo, mainBranch: into.isEmpty ? "main" : into) }
+    }
+
+    /// What the sheet offers for a set: Merge only for the next built member; a blocked one names what to merge first.
+    private var offer: PhoneSetMergeOffer? {
+        setSheet.map { PhoneSetMergeOffer.make($0) { waitingKey(of: $0) } }
+    }
+
     private var branch: String {
         guard let branch = item.branch, branch.verified else { return "the integration branch" }
         return TextBudget.displayPrefix(branch.displayPlain, maxBytes: 128).text
@@ -51,12 +64,12 @@ struct MergeSheet: View {
             }
             .background(Tokens.color(.ground))
             .navigationTitle(
-                Text(verbatim: outcome == nil ? "Merge" : "Merge result"))
+                Text(verbatim: outcome == nil ? (setSheet?.title ?? "Merge") : "Merge result"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if outcome == nil {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }.disabled(sending)
+                        Button { dismiss() } label: { Text(verbatim: isBlocked ? "Close" : "Cancel") }.disabled(sending)
                     }
                 }
             }
@@ -73,6 +86,7 @@ struct MergeSheet: View {
 
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: Tokens.space[3]) {
+            if let set, let sheet = setSheet { setSummary(set, sheet) }
             DetailFacts(facts: facts)
             intoPicker
             HStack(spacing: Tokens.space[2]) {
@@ -83,6 +97,66 @@ struct MergeSheet: View {
                 .font(TypeStyle.footnote)
                 .foregroundStyle(Tokens.color(.label2))
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var isBlocked: Bool {
+        if case .blocked? = offer { return true }
+        return false
+    }
+
+    /// Where this repo stands in the set: the eyebrow, its place in merge order, the repos in order with the next one
+    /// tagged, the gate, the refusal when another repo comes first, and what follows.
+    private func setSummary(_ set: IntegrationSet, _ sheet: SetMergeSheet) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.space[2]) {
+            Text(verbatim: "repo " + set.repo + " of set " + set.setId)
+                .font(TypeStyle.footnote).foregroundStyle(Tokens.color(.label2))
+            Text(verbatim: sheet.order).font(TypeStyle.headline)
+            VStack(alignment: .leading, spacing: Tokens.space[1]) {
+                ForEach(sheet.members) { member in
+                    HStack(spacing: Tokens.space[1]) {
+                        Image(systemName: member.state.symbol).foregroundStyle(member.state.tone.color)
+                            .frame(width: 20).accessibilityHidden(true)
+                        Text(verbatim: member.repo)
+                            .font(member.isCurrent ? TypeStyle.mono.weight(.semibold) : TypeStyle.mono)
+                            .strikethrough(member.struck).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: Tokens.space[1])
+                        Text(verbatim: member.state.word).font(TypeStyle.subheadline).foregroundStyle(member.state.tone.color)
+                        if member.isNext { StatePill(word: SetMemberRow.nextTag, symbol: nil, tone: .accent) }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: member.voiceover))
+                }
+            }
+            if let gate = sheet.gate {
+                DetailNotice(
+                    tone: gate.state == .passed ? .green : (gate.state == .failed ? .red : .yellow),
+                    symbol: gate.state == .passed ? "checkmark" : "exclamationmark.triangle", title: gate.line,
+                    text: gate.lead ?? "")
+            }
+            if let title = sheet.blockedTitle, let by = sheet.blockedBy {
+                DetailNotice(
+                    tone: .yellow, symbol: "exclamationmark.triangle", title: "merge " + by + " first",
+                    text: title + ". " + (sheet.blockedNote ?? SetMergeSheet.blockedLead))
+            } else if let note = sheet.ownNote {
+                DetailNotice(tone: .yellow, symbol: "exclamationmark.triangle", title: note, text: "")
+            }
+            Text(verbatim: sheet.after).font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2))
+        }
+    }
+
+    /// The waiting item of another repo of this set, when the host holds one.
+    private func waitingKey(of repo: String) -> String? {
+        guard let set, let waiting = model.hostModels[row.hostId]?.projects[row.projectId]?.waiting.values else { return nil }
+        return PhoneSetText.waitingKey(of: repo, in: set, among: Array(waiting))
+    }
+
+    /// Shows the item of another repo of the set, after the sheet closes.
+    private func open(_ repo: String) {
+        let key = waitingKey(of: repo)
+        dismiss()
+        if let key {
+            model.navigation.show(.waiting, [.item(InboxRowID(hostId: row.hostId, projectId: row.projectId, key: key))])
         }
     }
 
@@ -177,13 +251,19 @@ struct MergeSheet: View {
     // MARK: Result
 
     private func result(_ outcome: DecideOutcome) -> some View {
-        let text = MergeText.make(outcome, branch: branch, hostName: hostName, at: receivedAt)
+        let text = MergeText.make(outcome, branch: branch, hostName: hostName, at: receivedAt, set: set)
         return VStack(alignment: .leading, spacing: Tokens.space[3]) {
             Text(verbatim: text.headline).font(TypeStyle.title2).fixedSize(horizontal: false, vertical: true)
             DetailNotice(
                 tone: tone(text.tone), symbol: symbol(text.tone), title: text.title, text: text.line)
             if let host = text.hostText {
                 DetailTextBlock(text: host, name: "From the host", shownAs: "shown as written")
+            }
+            if let command = text.command {
+                Text(verbatim: command)
+                    .font(TypeStyle.mono).textSelection(.enabled)
+                    .padding(Tokens.space[2]).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Tokens.color(.cell), in: RoundedRectangle(cornerRadius: Tokens.radius.block))
             }
             if let fixLine {
                 Text(verbatim: fixLine)
@@ -222,7 +302,7 @@ struct MergeSheet: View {
         Group {
             if let outcome {
                 let pending = OutcomeLines.pendingId(outcome)
-                let text = MergeText.make(outcome, branch: branch, hostName: hostName, at: receivedAt)
+                let text = MergeText.make(outcome, branch: branch, hostName: hostName, at: receivedAt, set: set)
                 // A fix action has a longer label: the buttons stack, the action on top, so neither wraps.
                 let hasFix = resumed || text.fix == .resumeProject || (text.fix == .askPM && fixLine == nil)
                 let stack = typeSize.isAccessibilitySize || hasFix
@@ -235,7 +315,20 @@ struct MergeSheet: View {
                         .buttonStyle(.capstanQuiet)
                         .disabled(sending)
                     }
-                    if resumed {
+                    if let repo = text.openRepo {
+                        Button("Close") { dismiss() }.buttonStyle(.capstanQuiet)
+                        Button { open(repo) } label: { Text(verbatim: "Open " + repo) }.buttonStyle(.capstanPrimary)
+                    } else if let command = text.command {
+                        Button("Close") { dismiss() }.buttonStyle(.capstanQuiet)
+                        Button { UIPasteboard.general.string = command } label: { Text("Copy command") }
+                            .buttonStyle(.capstanPrimary)
+                    } else if let next = text.nextRepo {
+                        Button("Done") { dismiss() }.buttonStyle(.capstanQuiet)
+                        // Merge <next>… is offered only when the next repo has an item to open.
+                        if waitingKey(of: next) != nil {
+                            Button { open(next) } label: { Text(verbatim: "Merge " + next + "…") }.buttonStyle(.capstanPrimary)
+                        }
+                    } else if resumed {
                         Button { mergeAgain() } label: {
                             if sending { SendingLabel() } else { Text("Merge again") }
                         }
@@ -264,16 +357,24 @@ struct MergeSheet: View {
                 let stack = typeSize.isAccessibilitySize
                     ? AnyLayout(VStackLayout(spacing: Tokens.space[2])) : AnyLayout(HStackLayout(spacing: Tokens.space[2]))
                 stack {
-                    Button("Cancel") { dismiss() }
+                    Button { dismiss() } label: { Text(verbatim: isBlocked ? "Close" : "Cancel") }
                         .buttonStyle(.capstanQuiet)
                         .keyboardShortcut(.cancelAction)
                         .focused($cancelFocused)
                         .disabled(sending)
-                    Button { merge() } label: {
-                        if sending { SendingLabel() } else { Text("Merge") }
+                    switch offer {
+                    case .some(.blocked(let repo?)):
+                        // Open only where the blocking repo has a waiting item to show.
+                        Button { open(repo) } label: { Text(verbatim: "Open " + repo) }.buttonStyle(.capstanPrimary)
+                    case .some(.blocked(nil)):
+                        EmptyView()
+                    default:
+                        Button { merge() } label: {
+                            if sending { SendingLabel() } else { Text(verbatim: setSheet?.action ?? "Merge") }
+                        }
+                        .buttonStyle(.capstanPrimary)
+                        .disabled(sending || offer == .nothingToMerge)
                     }
-                    .buttonStyle(.capstanPrimary)
-                    .disabled(sending)
                 }
             }
         }

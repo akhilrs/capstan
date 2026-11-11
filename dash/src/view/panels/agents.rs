@@ -8,7 +8,9 @@ use crate::model::{visible_agents, AgentRow, TASK_NONE};
 use crate::view::border::{thumb_range, Tab};
 use crate::view::format::{age, age_detail};
 use crate::view::graph::{area_graph, graph_spans, recency_bar};
-use crate::view::layout::{agent_sections, fits, window_of, OptionalColumn, MAX_GRAPH_ROWS};
+use crate::view::layout::{
+    agent_sections, fits, window_of, OptionalColumn, MAX_GRAPH_ROWS, WIDE_COLUMNS,
+};
 use crate::view::lines::{plain, span, Style};
 use crate::view::types::{ColorRole, Line};
 
@@ -63,7 +65,31 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
     let cw = ctx.content();
     let agents = visible_agents(model, view.show_all_ended);
     let active = model.agents.iter().filter(|a| a.state == "active").count();
-    let sec = agent_sections(ctx.body(), agents.len());
+    let mut sec = agent_sections(ctx.body(), agents.len());
+    // The selected agent's worktrees open an area below the rows; it takes the rows the graph would get, and rows
+    // from the list down to three.
+    let area_agent = agents
+        .get(view.selected.agents)
+        .copied()
+        .filter(|a| !a.worktrees.is_empty());
+    let mut area_rows = 0;
+    if let Some(agent) = area_agent {
+        let wanted = super::workspace::agent_area_rows_wanted(agent);
+        let mut spare = ctx.body().saturating_sub(sec.header + sec.rows);
+        if spare < wanted {
+            let steal = (wanted - spare).min(sec.rows.saturating_sub(3));
+            sec.rows -= steal;
+            spare += steal;
+        }
+        if spare >= 3 {
+            area_rows = spare.min(wanted);
+            sec.graph = if spare - area_rows >= 3 {
+                spare - area_rows
+            } else {
+                0
+            };
+        }
+    }
     let name_width = AGENT_NAME_MAX.min(widest(agents.iter().map(|a| a.agent_id.as_str()), 12));
     let pane_width = widest(
         agents.iter().map(|a| a.pane_id.as_deref().unwrap_or("-")),
@@ -74,12 +100,20 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
         TASK_MIN as usize,
     ));
     // Optional columns go before an agent name is cut: TASK first, then the rest rightmost first.
-    let optional: [(&str, bool); 4] = [
+    // REPOS shows only for a workspace project (some agent holds worktrees) on a terminal 100 columns or wider, and
+    // goes after the task, pane and activity columns when the panel is narrow.
+    let with_repos = view.size.columns as usize >= WIDE_COLUMNS
+        && agents.iter().any(|a| !a.worktrees.is_empty());
+    let mut optional: Vec<(&str, bool)> = vec![
         ("task", true),
         ("pane", fits(cw, OptionalColumn::AgentsPane)),
         ("activity", fits(cw, OptionalColumn::AgentsActivity)),
         ("role", fits(cw, OptionalColumn::AgentsRole)),
     ];
+    if with_repos {
+        // After TASK, PANE and ACTIVITY, before ROLE.
+        optional.insert(3, ("repos", true));
+    }
     let any_paused = agents.iter().any(|a| a.paused_at.is_some());
     let build = |drop: usize| -> Vec<Col> {
         let kept = |key: &str| {
@@ -94,6 +128,9 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
         }
         rest.push(Col::new("gen", "GEN", 3));
         rest.push(Col::new("state", "STATE", if any_paused { 11 } else { 7 }));
+        if kept("repos") {
+            rest.push(Col::new("repos", "REPOS", 5));
+        }
         if kept("activity") {
             rest.push(Col::new("activity", "ACTIVITY", 8));
         }
@@ -213,6 +250,14 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
                         "pane",
                         vec![span(a.pane_id.as_deref().unwrap_or("-"), dim())],
                     ),
+                    (
+                        "repos",
+                        vec![if a.worktrees.is_empty() {
+                            span(if g.ascii { "-" } else { "–" }, dim())
+                        } else {
+                            span(a.worktrees.len().to_string(), fg())
+                        }],
+                    ),
                 ],
             },
         )
@@ -229,6 +274,9 @@ pub fn panel(ctx: &Ctx) -> Vec<Line> {
             a,
             ctx.focused && win.start + i == view.selected.agents,
         ));
+    }
+    if let (Some(agent), true) = (area_agent, area_rows > 0) {
+        body.extend(super::workspace::agent_area(ctx, agent, area_rows));
     }
     if sec.graph > 0 {
         let limit = model.header.worker_limit;

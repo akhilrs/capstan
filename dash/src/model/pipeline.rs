@@ -11,6 +11,10 @@ use super::types::{PipelineItem, PipelineStage};
 
 /// `<agent> <short commit>`.
 pub(super) fn label_report(row: &Value) -> String {
+    let commits = super::workspace::report_commits(row);
+    if !commits.is_empty() {
+        return super::workspace::label_multi_report(&text_of(row, "agentId"), &commits);
+    }
     let sha = text_or_null(get(row, "commitSha")).filter(|s| !s.is_empty());
     let short = sha.map_or_else(|| "-".to_string(), |s| slice_units(&s, 7));
     format!("{} {}", text_of(row, "agentId"), short)
@@ -78,6 +82,8 @@ pub(super) fn stage_of(
                 state,
                 label,
                 created_at: text_of(row, "createdAt"),
+                set: None,
+                commits: super::workspace::report_commits(row),
             }
         })
         .collect();
@@ -96,5 +102,77 @@ pub(super) fn stage_of(
             capped: rows.len() >= PIPELINE_ITEMS,
             items,
         },
+    }
+}
+
+/// The integrations stage of a workspace project: a set is one row and its members' own rows fold into it. A status
+/// without sets, or without any member row, is the plain stage.
+pub(super) fn integrations_stage(
+    rows: &[&Value],
+    sets: &[&Value],
+    truth: Option<IndexMap<String, i64>>,
+) -> PipelineStage {
+    let set_rows: Vec<super::types::SetRow> = sets
+        .iter()
+        .filter_map(|s| super::workspace::set_row(s))
+        .collect();
+    if set_rows.is_empty() {
+        return stage_of(
+            rows,
+            "integration",
+            "integrationId",
+            label_integration,
+            truth,
+        );
+    }
+    let in_set = |row: &&Value| field(row, "set").is_some_and(is_plain_object);
+    let (members, singles): (Vec<&Value>, Vec<&Value>) =
+        rows.iter().copied().partition(|r| in_set(r));
+    let plain = stage_of(
+        &singles,
+        "integration",
+        "integrationId",
+        label_integration,
+        None,
+    );
+    let mut capped = plain.capped;
+    let mut items = plain.items;
+    // True counts, when the status has them, cover every row: take the folded member rows out of them.
+    let mut counts = match truth {
+        Some(mut truth) => {
+            for m in &members {
+                let state = text_of(m, "state");
+                if let Some(n) = truth.get_mut(&state) {
+                    *n -= 1;
+                }
+            }
+            truth.retain(|_, n| *n > 0);
+            truth
+        }
+        None => plain.counts,
+    };
+    for set in set_rows {
+        let started = members
+            .iter()
+            .filter(|m| {
+                get(m, "set")
+                    .map(|s| text_of(s, "setId") == set.set_id)
+                    .unwrap_or(false)
+            })
+            .map(|m| text_of(m, "createdAt"))
+            .filter(|c| !c.is_empty())
+            .min()
+            .unwrap_or_default();
+        *counts.entry(set.word.clone()).or_insert(0) += 1;
+        items.push(super::workspace::set_item(set, started));
+    }
+    items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    capped |= items.len() > PIPELINE_ITEMS;
+    items.truncate(PIPELINE_ITEMS);
+    PipelineStage {
+        total: counts.values().sum(),
+        counts,
+        capped,
+        items,
     }
 }

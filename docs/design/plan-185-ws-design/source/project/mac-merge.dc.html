@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mac merge sheet for a set member</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board mac" style="width:1800px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">06 Mac · merge sheet: one repo at a time, in merge order; the host's order refusal is quoted as sent; confirm per repo — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="gal" style="grid-template-columns:repeat(3, 520px);justify-content:center">
+<sc-for list="{{cases}}" as="c" hint-placeholder-count="6">
+<div class="panel sheet-like" style="width:520px;border-radius:22px;padding:20px 24px;gap:16px">
+<p class="plabel">{{c.cap}}</p>
+<div class="eyebrow">Set 8a46cad2 · <code>integration/plan-185</code></div>
+<h2 class="h2">{{c.title}}</h2>
+<p class="note" style="font-size:13px">{{c.order}}</p>
+<ul class="mrows">
+<sc-for list="{{c.members}}" as="m" hint-placeholder-count="4">
+<li class="mrow {{m.cls}}"><span class="pos">{{m.pos}}</span><span class="mg {{m.c}}">{{m.g}}</span><span class="rn">{{m.repo}}</span><span class="st {{m.c}}">{{m.word}}</span><span class="sub">{{m.sub}}</span></li>
+</sc-for>
+</ul>
+<sc-if value="{{c.banner}}" hint-placeholder-val="{{true}}">
+<div class="banner {{c.bcls}}"><span class="ico">{{c.bg}}</span><span class="bt"><b>{{c.banner}}</b></span><span class="bt">{{c.btext}}</span></div>
+</sc-if>
+<sc-if value="{{c.cmd}}" hint-placeholder-val="{{false}}">
+<pre class="ut-b" style="background:var(--mono-bg);border-radius:10px">{{c.cmd}}</pre>
+</sc-if>
+<p class="note">{{c.after}}</p>
+<div class="btnrow"><button class="btn {{c.b2cls}}" type="button">{{c.b2}}</button><sc-if value="{{c.b1}}" hint-placeholder-val="{{true}}"><button class="btn pri {{c.b1cls}}" type="button">{{c.b1}}</button></sc-if></div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1800,"height":2380}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = { i: ['inmain', '●', 'in main'], b: ['built', '○', 'built'], r: ['built rs', '○', 'built'], d: ['dropped', '–', 'dropped'] };
+    const m = (pos, k, repo, sub, cls) => ({ pos, c: W[k][0], g: W[k][1], word: W[k][2], repo, sub, cls: cls || (k === 'd' ? 'out' : '') });
+    const set = (a, b, c, nx) => [m(1, a, 'api', a === 'i' ? 'in main · 9f3c2a1' : '9f3c2a1 · verify passed', nx === 1 ? 'next' : ''), m(2, b, 'web', b === 'i' ? 'in main · 7d1c0e9' : '51ab07e · verify passed', nx === 2 ? 'next' : ''), m(3, c, 'worker', c === 'i' ? 'in main · e81f2a4' : 'c04d9e2 · verify passed · review subject', nx === 3 ? 'next' : ''), m(4, 'd', 'infra', 'Outside the gate, review and confirm')];
+    const cases = [
+      { cap: '1 Decide the next repo (focus on Merge web)', title: 'Merge web into main', order: 'Repo 2 of 3 in merge order', members: set('i', 'b', 'r', 2), banner: 'gate passed: every repo’s latest run passed', bcls: 'b-green', bg: '●', btext: 'Review passed on worker, the review subject of this set.', after: 'After this: worker', b2: 'Cancel', b1: 'Merge web', b1cls: 'is-focus' },
+      { cap: '2 Out of order: the host refuses', title: 'worker has to wait', order: 'Repo 3 of 3 in merge order', members: set('i', 'b', 'r', 2), banner: 'merge web first', bcls: 'b-yellow', bg: '▲', btext: 'The set merges one repo at a time, in merge order.', after: 'Nothing was merged.', b2: 'Close', b1: 'Open web' },
+      { cap: '3 Merged and confirmed', title: 'web is in main · 7d1c0e9', order: 'Repo 2 of 3 in merge order', members: set('i', 'i', 'r', 3), banner: '2 of 3 in main', bcls: 'b-green', bg: '●', btext: 'web is confirmed. The PM was told.', after: 'After this: worker', b2: 'Done', b1: 'Merge worker…' },
+      { cap: '4 Merged, not confirmed', title: 'web is merged into main but not confirmed', order: 'Repo 2 of 3 in merge order', members: set('i', 'b', 'r', 2), banner: 'Confirm web from the terminal', bcls: 'b-yellow', bg: '▲', btext: 'The merge commit 7d1c0e9 is on main. Recording it failed, so worker waits until web is confirmed.', cmd: 'cstan integrate confirm 8a46cad2 --repo web', after: '', b2: 'Close', b1: 'Copy command' },
+      { cap: '5 The last repo', title: 'Merge worker into main', order: 'Repo 3 of 3 in merge order', members: set('i', 'i', 'r', 3), banner: 'gate passed: every repo’s latest run passed', bcls: 'b-green', bg: '●', btext: 'infra was dropped and is not merged with this set.', after: 'This is the last repo of the set.', b2: 'Cancel', b1: 'Merge worker' },
+      { cap: '6 A review is open (shipped refusal)', title: 'web has to wait', order: 'Repo 2 of 3 in merge order', members: set('i', 'b', 'r', 2), banner: 'a review of set 8a46cad2 is open', bcls: 'b-yellow', bg: '▲', btext: 'Merging waits for the review of worker to finish.', after: 'Nothing was merged.', b2: 'Close', b1: '' }
+    ];
+    return { cases, apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

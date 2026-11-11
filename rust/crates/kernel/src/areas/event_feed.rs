@@ -820,9 +820,20 @@ struct Ctx<'a> {
     max_rows: usize,
     max_bytes: usize,
     cache: HashMap<String, Option<Value>>,
+    workspace: Option<bool>,
 }
 
 impl Ctx<'_> {
+    /// Whether the project has workspace rows (checked once per call, not charged: a single existence probe like the epoch).
+    fn has_workspace(&mut self) -> Step<bool> {
+        if let Some(found) = self.workspace {
+            return Ok(found);
+        }
+        let found = self.core.has_workspace_rows()?;
+        self.workspace = Some(found);
+        Ok(found)
+    }
+
     /// Spends one row read, or says the budget is spent.
     fn charge(&mut self) -> Step<()> {
         if self.reads >= self.max_rows {
@@ -920,6 +931,50 @@ fn load_report(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
         sql_params![project, id],
         &["agentId", "summary", "commitSha"],
     )
+}
+
+/// The commits a report named, by repo (`None` for a report without any: a project without `[repos]`). The rows are written
+/// with the report and never change. One statement and a row each.
+fn load_report_commits(ctx: &mut Ctx<'_>, report_id: &str) -> Step<Option<Value>> {
+    let key = format!("report_commits:{report_id}");
+    if let Some(found) = ctx.cache.get(&key) {
+        return Ok(found.clone());
+    }
+    if !ctx.has_workspace()? {
+        return Ok(None);
+    }
+    ctx.charge()?;
+    let commits = ctx.core.report_commits(report_id)?;
+    let list = commits.as_array().map_or(0, Vec::len);
+    for _ in 0..list {
+        ctx.charge()?;
+    }
+    let found = (list > 0).then_some(commits);
+    ctx.cache.insert(key, found.clone());
+    Ok(found)
+}
+
+/// The `set` member of an integration that belongs to an integration set (`None` for any other): two statements and the
+/// rows they return.
+fn load_integration_set(ctx: &mut Ctx<'_>, integration_id: &str) -> Step<Option<Value>> {
+    let key = format!("integration_set:{integration_id}");
+    if let Some(found) = ctx.cache.get(&key) {
+        return Ok(found.clone());
+    }
+    if !ctx.has_workspace()? {
+        return Ok(None);
+    }
+    ctx.charge()?;
+    ctx.charge()?;
+    let found = ctx.core.integration_set_view(integration_id)?;
+    if let Some(set) = &found {
+        let members = set["members"].as_array().map_or(0, Vec::len);
+        for _ in 0..=members {
+            ctx.charge()?;
+        }
+    }
+    ctx.cache.insert(key, found.clone());
+    Ok(found)
 }
 
 fn load_agent(ctx: &mut Ctx<'_>, id: &str) -> Step<Option<Value>> {
@@ -1530,6 +1585,9 @@ fn build_inner(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built
             body.insert("agentId".into(), report["agentId"].clone());
             body.insert("state".into(), json!(row.to));
             body.insert("commitSha".into(), report["commitSha"].clone());
+            if let Some(commits) = load_report_commits(ctx, &row.entity_id)? {
+                body.insert("commits".into(), commits);
+            }
             if text_of(&row.input, "summaryHash") == Some(sha256(summary).as_str()) {
                 text.put(&mut body, "summary", summary, TEXT_CAP);
             } else {
@@ -1901,6 +1959,9 @@ fn build_inner(ctx: &mut Ctx<'_>, row: &Row, draft: &Draft) -> Step<Option<Built
         "integration.finished" => {
             body.insert("integrationId".into(), json!(row.entity_id));
             body.insert("state".into(), json!(row.to));
+            if let Some(set) = load_integration_set(ctx, &row.entity_id)? {
+                body.insert("set".into(), set);
+            }
             let sequence = load_integration(ctx, &row.entity_id)?.map(|i| num_text(&i, "sequence"));
             // A merged integration counts its packages as integrated in their plans.
             let mut list = vec![
@@ -2277,6 +2338,7 @@ pub fn feed_page_with(
         max_rows,
         max_bytes,
         cache: HashMap::new(),
+        workspace: None,
     };
     let mut page = FeedPage {
         project_id: ctx.project_id.clone(),
@@ -2433,6 +2495,7 @@ pub fn recent_page(core: &Core, epoch: &str, head: u64, limit: u32) -> KernelRes
         max_rows: RECENT_MAX_READS,
         max_bytes: RECENT_MAX_BYTES,
         cache: HashMap::new(),
+        workspace: None,
     };
     let mut events: Vec<Value> = Vec::new();
     let mut bytes = PAGE_ENVELOPE_BYTES;

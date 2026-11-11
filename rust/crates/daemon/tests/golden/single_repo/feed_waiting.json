@@ -1,0 +1,33 @@
+{
+  "head": 40,
+  "items": [
+    {
+      "key": "integration:1",
+      "requestId": "integration:int-1",
+      "kind": "integration",
+      "since": "2026-01-01T00:00:00.000Z",
+      "summary": "merged int/one",
+      "contentHash": "d9e4e657812354f4d4a5de0dbed78283047117d6378ec287dd6d51c714528ef5",
+      "needsTerminal": false,
+      "integrationState": "merged",
+      "branch": "int/one",
+      "headSha": "a104191b60b64b2240ed5102c64928063ff5b62f",
+      "integrationDetails": {
+        "recorded": true,
+        "impactError": null,
+        "plans": [],
+        "plansOmitted": 0,
+        "reports": [],
+        "reportsOmitted": 0,
+        "impact": null,
+        "review": null,
+        "verify": null,
+        "signoffsOmitted": 0,
+        "signoffs": []
+      },
+      "designLink": null,
+      "approveChoices": null
+    }
+  ],
+  "next": null
+}

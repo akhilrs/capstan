@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use super::helpers::{is_worker_kind, TASK_NONE, WORKING_WINDOW_MS};
-use super::pipeline::{label_integration, label_report, label_review, stage_of, true_counts};
+use super::pipeline::{integrations_stage, label_report, label_review, stage_of, true_counts};
 use super::tasks::{pane_task, review_subjects, task_index_of};
 use super::text::clean;
 use super::time::parse_iso_ms;
@@ -319,6 +319,8 @@ pub fn build_dash_model(status: &Value, now_ms: i64, worker_limit: Option<i64>) 
                 queue_depth: queue_depth as i64,
                 task,
                 fingerprint,
+                worktrees: super::workspace::agent_worktrees(a),
+                change_folder: text_or_null(get(a, "changeFolder")),
                 agent_id,
             }
         })
@@ -506,11 +508,9 @@ pub fn build_dash_model(status: &Value, now_ms: i64, worker_limit: Option<i64>) 
                 label_review,
                 true_counts(pipeline_counts, "reviews"),
             ),
-            integrations: stage_of(
+            integrations: integrations_stage(
                 &list(get(status, "integrations")),
-                "integration",
-                "integrationId",
-                label_integration,
+                &list(get(status, "integrationSets")),
                 true_counts(pipeline_counts, "integrations"),
             ),
         },

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mac set inspector states</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="board mac" style="width:1600px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">05 Mac · inspector for each set state, a multi-repo report, loading and an older host — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="gal" style="grid-template-columns:repeat(4, 360px);justify-content:center">
+<sc-for list="{{cases}}" as="c" hint-placeholder-count="8">
+<div class="ipanel">
+<p class="plabel">{{c.cap}}</p>
+<div class="eyebrow">{{c.eyebrow}}</div>
+<h2 class="h2">{{c.title}}</h2>
+<div><span class="pill {{c.pill}}">{{c.pillText}}</span></div>
+<sc-if value="{{c.members}}" hint-placeholder-val="{{true}}">
+<p class="plabel2" style="margin:0">{{c.listHead}}</p>
+<ul class="mrows">
+<sc-for list="{{c.members}}" as="m" hint-placeholder-count="4">
+<li class="mrow {{m.cls}}"><span class="pos">{{m.pos}}</span><span class="mg {{m.c}}">{{m.g}}</span><span class="rn">{{m.repo}}</span><span class="st {{m.c}}">{{m.word}}</span><span class="sub">{{m.sub}}</span></li>
+</sc-for>
+</ul>
+</sc-if>
+<sc-if value="{{c.banner}}" hint-placeholder-val="{{true}}">
+<div class="banner {{c.bcls}}"><span class="ico">{{c.bg}}</span><span class="bt"><b>{{c.banner}}</b></span><span class="bt">{{c.btext}}</span></div>
+</sc-if>
+<sc-if value="{{c.skel}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:8px"><div class="prog"><i style="width:40%;background:var(--fill2)"></i></div><div class="prog"><i style="width:70%;background:var(--fill2)"></i></div><div class="prog"><i style="width:55%;background:var(--fill2)"></i></div></div>
+</sc-if>
+<sc-if value="{{c.cmd}}" hint-placeholder-val="{{false}}">
+<pre class="ut-b" style="background:var(--mono-bg);border-radius:10px">{{c.cmd}}</pre>
+</sc-if>
+<div class="btnrow"><sc-if value="{{c.b2}}" hint-placeholder-val="{{false}}"><button class="btn" type="button">{{c.b2}}</button></sc-if><sc-if value="{{c.b1}}" hint-placeholder-val="{{false}}"><button class="btn pri" type="button">{{c.b1}}</button></sc-if></div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":2840}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const W = { i: ['inmain', '●', 'in main'], b: ['built', '○', 'built'], u: ['building', '◌', 'building'], c: ['conflicted', '▲', 'conflicted'], f: ['failed', '✕', 'failed'], d: ['dropped', '–', 'dropped'], x: ['discarded', '–', 'discarded'] };
+    const m = (pos, k, repo, sub, cls) => ({ pos, c: W[k][0], g: W[k][1], word: W[k][2], repo, sub, cls: cls || (k === 'd' ? 'out' : '') });
+    const cases = [
+      { cap: '1 All building', eyebrow: 'Integration set · capstan', title: 'Set 1c2d3e4f · building', pill: 'p-grey', pillText: '◌ Building', listHead: 'Repos in merge order · 4 repos', members: [m(1, 'u', 'api', 'no head yet'), m(2, 'u', 'web', 'no head yet'), m(3, 'u', 'worker', 'no head yet'), m(4, 'u', 'infra', 'no head yet')], banner: 'building · 0 of 4 built', bcls: 'b-grey', bg: '◌', btext: 'Each repo is merged onto integration/plan-185. Nothing to decide yet.', b2: 'Copy commands' },
+      { cap: '2 Partly built', eyebrow: 'Integration set · capstan', title: 'Set 2a7f0b19 · building', pill: 'p-grey', pillText: '◌ Building', listHead: 'Repos in merge order · 4 repos', members: [m(1, 'b', 'api', '9f3c2a1 · verify passed'), m(2, 'b', 'web', '51ab07e · verify running'), m(3, 'u', 'worker', 'no head yet'), m(4, 'u', 'infra', 'no head yet')], banner: 'building · 2 of 4 built', bcls: 'b-grey', bg: '◌', btext: 'Merging waits until every repo is built and the gate passes.', b2: 'Copy commands' },
+      { cap: '3 One conflicted', eyebrow: 'Integration set · capstan', title: 'Set 3b81e2c4 · conflicted in web', pill: 'p-yellow', pillText: '▲ Conflicted · nothing to merge', listHead: 'Repos in merge order · 4 repos', members: [m(1, 'b', 'api', '9f3c2a1 · verify passed'), m(2, 'c', 'web', 'stopped at a conflict'), m(3, 'u', 'worker', 'no head yet'), m(4, 'u', 'infra', 'no head yet')], banner: 'web conflicted: redo it or message the PM', bcls: 'b-yellow', bg: '▲', btext: 'Nothing reached main. The other repos keep their work.', cmd: 'cstan integrate redo 3b81e2c4 --repo web', b2: 'Copy command', b1: 'Message PM…' },
+      { cap: '4 One failed after a redo', eyebrow: 'Integration set · capstan', title: 'Set 4c90a7d2 · failed in worker', pill: 'p-red', pillText: '✕ Failed · nothing to merge', listHead: 'Repos in merge order · 4 repos', members: [m(1, 'b', 'api', '9f3c2a1 · verify passed'), m(2, 'b', 'web', '51ab07e · verify passed'), m(3, 'f', 'worker', 'attempt 2 · last passed 0b8e1d2'), m(4, 'b', 'infra', '3d4e5f6 · verify passed')], banner: 'worker failed, attempt 2', bcls: 'b-red', bg: '✕', btext: 'The redo failed too. Discard worker to go on without it, or message the PM.', cmd: 'cstan integrate discard 4c90a7d2 --repo worker', b2: 'Copy command', b1: 'Message PM…' },
+      { cap: '5 One dropped, the rest built', eyebrow: 'Integration set · capstan', title: 'Set 4b7e91c0 · built', pill: 'p-blue', pillText: '○ Built · not in main', listHead: 'Repos in merge order · 3 repos · 1 dropped', members: [m(1, 'b', 'api', '9f3c2a1 · verify passed', 'next'), m(2, 'b', 'web', '51ab07e · verify passed'), m(3, 'b', 'worker', 'c04d9e2 · verify passed · review subject'), m(4, 'd', 'infra', 'Outside the gate, review and confirm')], banner: 'gate passed: every repo’s latest run passed', bcls: 'b-green', bg: '●', btext: 'infra was dropped: it is not verified, reviewed or confirmed with this set.', b2: 'Copy commands', b1: 'Merge api…' },
+      { cap: '6 Discarded', eyebrow: 'Integration set · capstan', title: 'Set 5d13f6a8 · discarded', pill: 'p-grey', pillText: '– Discarded', listHead: 'Repos in merge order · 4 repos', members: [m(1, 'x', 'api', '9f3c2a1'), m(2, 'x', 'web', '51ab07e'), m(3, 'x', 'worker', 'no head'), m(4, 'x', 'infra', 'no head')], banner: 'discarded · nothing reached main', bcls: 'b-grey', bg: '–', btext: 'Not in Waiting for you; shown from the plan or a search.' },
+      { cap: '7 All in main', eyebrow: 'Integration set · capstan', title: 'Set 7f35b9c1 · in main', pill: 'p-green', pillText: '● In main · confirmed', listHead: 'Repos in merge order · 4 repos', members: [m(1, 'i', 'api', '9f3c2a1'), m(2, 'i', 'web', '51ab07e'), m(3, 'i', 'worker', 'c04d9e2'), m(4, 'i', 'infra', '3d4e5f6')], banner: 'in main · all 4 repos', bcls: 'b-green', bg: '●', btext: 'Every repo is merged into its main and confirmed. The PM was told.' },
+      { cap: '8 A report in three repos', eyebrow: 'Report · developer-4 · capstan', title: '7f3e2a1c · 3 repos', pill: 'p-green', pillText: 'Accepted', listHead: 'Commits', members: [m('', 'b', 'api', '9f3c2a1 · feat/PM-512-refund-sync · verify passed'), m('', 'b', 'web', '51ab07e · feat/PM-512-refund-sync · verify passed'), m('', 'u', 'worker', 'c04d9e2 · feat/PM-512-refund-sync · verify not run')], banner: 'gate waiting: worker', bcls: 'b-yellow', bg: '◌', btext: 'Each repo the report names has its own run; the gate passes when every latest run passed.' },
+      { cap: 'Loading', eyebrow: 'Integration set · capstan', title: 'Set 8a46cad2', pill: 'p-grey', pillText: 'Loading', skel: true, banner: '', b2: '' },
+      { cap: 'Host too old', eyebrow: 'Integration · capstan', title: 'built integration/plan-185 (repo web of set 8a46cad2)', pill: 'p-blue', pillText: '○ Built · not in main', banner: 'The host did not send workspace data.', bcls: 'b-grey', bg: 'i', btext: 'It may run a Capstan older than this app. Each repo shows as its own integration, with its shipped title.' }
+    ];
+    return { cases, apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

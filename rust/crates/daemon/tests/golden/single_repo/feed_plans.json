@@ -1,0 +1,69 @@
+{
+  "head": 40,
+  "items": [
+    {
+      "key": "1",
+      "planId": "plan-1",
+      "sequence": 1,
+      "title": "One",
+      "state": "draft",
+      "packages": {
+        "total": 0,
+        "assigned": 0,
+        "reported": 0,
+        "integrated": 0
+      },
+      "packageDetails": [],
+      "packageDetailsOmitted": 0,
+      "requestId": "plan:plan-1",
+      "contentHash": "630257f545907aa180bd9f7080f43d48d0597a26894015317bbbadfa8e72db44"
+    },
+    {
+      "key": "2",
+      "planId": "plan-2",
+      "sequence": 2,
+      "title": "Two",
+      "state": "approved",
+      "packages": {
+        "total": 1,
+        "assigned": 0,
+        "reported": 0,
+        "integrated": 0
+      },
+      "packageDetails": [
+        {
+          "id": "api",
+          "title": "api",
+          "role": "developer",
+          "assigneeAgentId": null,
+          "state": "unassigned",
+          "dependsOn": [],
+          "review": null,
+          "integrationId": null,
+          "integrationState": null
+        }
+      ],
+      "packageDetailsOmitted": 0,
+      "requestId": "plan:plan-2",
+      "contentHash": "8e8dc790302e24380d04709a18f8609b912f125d610b8dd62f49a990186da526"
+    },
+    {
+      "key": "5",
+      "planId": "plan-5",
+      "sequence": 5,
+      "title": "Five",
+      "state": "draft",
+      "packages": {
+        "total": 0,
+        "assigned": 0,
+        "reported": 0,
+        "integrated": 0
+      },
+      "packageDetails": [],
+      "packageDetailsOmitted": 0,
+      "requestId": "plan:plan-5",
+      "contentHash": "974f3c610d545342d3e428df5ec0bcdaa78efc020f514870f14c0370b094c84b"
+    }
+  ],
+  "next": null
+}

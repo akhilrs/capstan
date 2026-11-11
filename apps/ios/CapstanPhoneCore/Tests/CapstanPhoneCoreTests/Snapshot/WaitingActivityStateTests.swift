@@ -16,6 +16,20 @@ final class WaitingActivityStateTests: XCTestCase {
         XCTAssertEqual(s.shortLine(), "2 proposals · 2 prompts · 3 more")
     }
 
+    func testASetCountsOnceAndReadsIntegrationSets() {
+        let s = WaitingActivityState(GlanceSnapshot(
+            asOf: Date(timeIntervalSince1970: 0), kindCounts: ["prompt": 1, "integration": 9], projects: [],
+            hostsReachable: 1, hostsTotal: 1, pollMs: 2000, sets: 8))
+        XCTAssertEqual(s.total, 10)
+        XCTAssertEqual(s.kindsLine, "1 prompt · 1 merge · Integration sets 8")
+        XCTAssertEqual(s.shortLine(), "1 prompt · 1 merge · 8 more")
+    }
+
+    func testNoSetsLeavesTheLineAsBefore() {
+        XCTAssertNil(state(["integration": 2]).sets)
+        XCTAssertEqual(state(["integration": 2]).kindsLine, "2 merges")
+    }
+
     func testZeroKindsAreLeftOut() {
         let s = state(["prompt": 1])
         XCTAssertEqual(s.kindsLine, "1 prompt")

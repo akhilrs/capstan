@@ -94,6 +94,67 @@ struct IntegrationDetailsView: View {
                 }
             }
         }
+        case .setMembers(let heading, let count, let rows):
+            membersView(heading: heading, count: count, rows: rows)
+        }
+    }
+
+    /// The repos of a set in merge order: position, glyph, repo, word, then the head and verify line. The next member
+    /// is tinted and tagged, a dropped one is struck through. Scrolls into place at the next member.
+    private func membersView(heading: String, count: String, rows: [SetMemberRow]) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.space[0]) {
+            HStack {
+                Text(verbatim: heading).font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(verbatim: count).font(.system(size: 12).monospacedDigit()).foregroundStyle(Tokens.color(.label2))
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(rows) { row in memberRow(row).id(row.id) }
+                    }
+                }
+                .frame(maxHeight: 280)
+                .onAppear {
+                    if let next = rows.first(where: \.isNext) { proxy.scrollTo(next.id, anchor: .center) }
+                }
+            }
+        }
+    }
+
+    private func memberRow(_ row: SetMemberRow) -> some View {
+        HStack(alignment: .top, spacing: Tokens.space[1]) {
+            Text(verbatim: String(row.position))
+                .font(.system(size: 12).monospacedDigit()).foregroundStyle(Tokens.color(.label2))
+                .frame(width: 20, alignment: .trailing)
+            Image(systemName: row.state.symbol)
+                .foregroundStyle(row.state.tone.color).frame(width: 16).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Tokens.space[0]) {
+                    Text(verbatim: row.repo)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .strikethrough(row.struck)
+                        .foregroundStyle(row.struck ? Tokens.color(.label2) : Tokens.color(.label))
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(verbatim: row.state.word).font(.system(size: 12)).foregroundStyle(row.state.tone.color)
+                    if row.isNext { StatePill(word: SetMemberRow.nextTag, symbol: nil, tone: .accent) }
+                    if row.isReviewSubject { StatePill(word: SetMemberRow.reviewSubjectTag, symbol: nil, tone: .grey) }
+                    if let attempt = row.attempt {
+                        Text(verbatim: attempt).font(.system(size: 12)).foregroundStyle(Tokens.color(.label2))
+                    }
+                }
+                Text(verbatim: row.sub)
+                    .font(.system(size: 12, design: .monospaced)).foregroundStyle(Tokens.color(.label2))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, Tokens.space[0])
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.radius.control)
+                .fill(row.isNext ? Tokens.color(.accent).opacity(0.12) : Color.clear))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.voiceover)
     }
 
     private func entriesView(label: String, entries: [DetailEntry], more: String?) -> some View {

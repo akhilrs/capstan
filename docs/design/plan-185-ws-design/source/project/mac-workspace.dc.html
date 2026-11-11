@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mac workspace overview</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="mac.css">
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}.wsg{grid-template-columns:28px minmax(0,1.4fr) 110px 90px 90px}.wtg{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,2fr)}.clg{grid-template-columns:96px minmax(0,1fr) 90px 90px 120px}</style>
+</helmet>
+<div class="board mac" style="width:1600px">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="2">
+<p class="cap">07 Mac · Workspace: the project's repos in merge order, each agent's worktrees and change folder, and the cleanup offers by repo — {{a.label}}</p>
+<div class="{{a.cls}} desk">
+<div class="win two" style="width:1440px;height:900px">
+<nav inert class="side glass" aria-label="Sidebar"><div class="lights" aria-hidden="true"><span></span><span></span><span></span></div><ul class="nav"><li><a href="#inbox">Waiting for you<span class="badge">10</span></a></li><li><a href="#agents">Agents</a></li><li><a href="#plans">Plans</a></li><li><a class="on" href="#ws" aria-current="page">Workspace</a></li><li><a href="#messages">Messages to PM</a></li></ul></nav>
+<section class="mid" aria-label="Workspace">
+<div class="scroll" style="display:flex;flex-direction:column;gap:16px;padding:64px 24px 24px">
+<div>
+<p class="plabel2">Repos · 4 in merge order</p>
+<div class="tbl">
+<div class="th wsg"><span>#</span><span>Repo</span><span>Main branch</span><span class="num-r">Worktrees</span><span class="num-r">Open sets</span></div>
+<div class="tr wsg"><span class="num-r">1</span><span><code>api</code></span><span><code>main</code></span><span class="num-r">2</span><span class="num-r">3</span></div>
+<div class="tr wsg sel"><span class="num-r">2</span><span><code>web</code></span><span><code>main</code></span><span class="num-r">2</span><span class="num-r">3</span></div>
+<div class="tr wsg"><span class="num-r">3</span><span><code>payments-reconciliation-service</code></span><span><code>trunk</code></span><span class="num-r">1</span><span class="num-r">2</span></div>
+<div class="tr wsg"><span class="num-r">4</span><span><code>infra</code></span><span><code>main</code></span><span class="num-r">0</span><span class="num-r">1</span></div>
+</div>
+</div>
+<div>
+<p class="plabel2">Worktrees · developer-4 · on <code>feat/PM-512-refund-sync</code></p>
+<div class="tbl">
+<div class="th wtg"><span>Repo</span><span>Branch</span><span>Path</span></div>
+<div class="tr wtg"><span><code>api</code></span><span><code>feat/PM-512-refund-sync</code></span><span><code>~/.capstan/wt/developer-4/api</code></span></div>
+<div class="tr wtg"><span><code>web</code></span><span><code>feat/PM-512-refund-sync</code></span><span><code>~/.capstan/wt/developer-4/web</code></span></div>
+<div class="tr wtg"><span><code>payments-reconciliation-service</code></span><span><code>feat/PM-512-refund-sync</code></span><span><code>~/.capstan/wt/developer-4/payments-reconci…</code></span></div>
+<div class="tr wtg"><span>Change folder</span><span></span><span><code>~/.capstan/wt/developer-4</code></span></div>
+</div>
+<p class="note" style="padding:8px 0 0">developer-6 · 2 repos · developer-2 · No worktrees: this agent has not started work in a repo.</p>
+</div>
+<div>
+<p class="plabel2">Cleanups by repo</p>
+<div class="tbl">
+<div class="th clg"><span>Cleanup</span><span>Repo</span><span class="num-r">Branches</span><span class="num-r">Worktrees</span><span></span></div>
+<div class="tr clg"><span><code>3e9a71b0</code></span><span><code>api</code></span><span class="num-r">4</span><span class="num-r">1</span><span class="num-r">offered</span></div>
+<div class="tr clg"><span><code>5c22d8f1</code></span><span><code>web</code></span><span class="num-r">2</span><span class="num-r">0</span><span class="num-r">offered</span></div>
+<div class="tr clg"><span><code>77ab3c09</code></span><span><code>legacy-billing</code></span><span class="num-r">0</span><span class="num-r">2</span><span class="num-r">by name only</span></div>
+</div>
+<div class="banner b-yellow" style="margin-top:8px"><span class="ico">▲</span><span class="bt"><b>legacy-billing left the configuration: worktrees only, apply them by name</b></span><span class="bt">the repo left the configuration; only its worktree is removed, the branch stays</span><span class="ba"><button class="btn" type="button">Copy command</button></span></div>
+<pre class="ut-b" style="background:var(--mono-bg);border-radius:10px;margin-top:8px">cstan cleanup apply 77ab3c09 feat/PM-401-billing-export chore/developer-5-ledger</pre>
+</div>
+</div>
+<div class="tb"><div class="capg glass"><h1 class="title" style="margin:0">Workspace</h1></div><div class="capg glass"><button class="tbtn" type="button">capstan</button></div></div>
+</section>
+</div>
+</div>
+</sc-for>
+<p class="cap">07b Mac · Workspace states — Light</p>
+<div class="light desk">
+<div class="gal" style="grid-template-columns:repeat(3, 360px);justify-content:center">
+<div class="ipanel"><p class="plabel">Loading</p><h2 class="h3">Workspace</h2><p class="note">Loading the workspace from build-host…</p><div class="prog"><i style="width:60%;background:var(--fill2)"></i></div></div>
+<div class="ipanel"><p class="plabel">Empty cleanups</p><h2 class="h3">Cleanups by repo</h2><p class="note">No repo has anything to clean up.</p></div>
+<div class="ipanel"><p class="plabel">Older host</p><h2 class="h3">Workspace</h2><div class="banner b-grey"><span class="ico">i</span><span class="bt"><b>The host did not send workspace data.</b></span><span class="bt">It may run a Capstan older than this app.</span></div></div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":2520}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { apps: [ { cls: 'light', label: 'Light' }, { cls: 'dark', label: 'Dark' } ] };
+  }
+}
+</script>
+</body>
+</html>

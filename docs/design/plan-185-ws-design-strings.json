@@ -1,0 +1,1115 @@
+{
+ "about": "plan-185 ws-design: every new user-visible text of the workspace views, used by cstan text, cstan dash, the Mac app and the iPhone app. {braces} are values filled in by the surface. 'surfaces' names where a key is used. Keys under 'shipped.' are texts the controller already sends; they are quoted as they are and must not be reworded. Single-repo projects use none of these keys.",
+ "strings": {
+  "state.building": {
+   "text": "building",
+   "long": "Building",
+   "voiceover": "building",
+   "glyph": "◌",
+   "ascii": ".",
+   "symbol": "circle.dotted",
+   "from": "member or set state running",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "state.built": {
+   "text": "built",
+   "long": "Built, not in main",
+   "voiceover": "built, not in main",
+   "glyph": "○",
+   "ascii": "o",
+   "symbol": "circle",
+   "from": "state merged: merged into the integration branch, not yet into the repo's main",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "state.inMain": {
+   "text": "in main",
+   "long": "In main",
+   "voiceover": "in main",
+   "glyph": "●",
+   "ascii": "#",
+   "symbol": "circle.fill",
+   "from": "member confirmed",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "state.conflicted": {
+   "text": "conflicted",
+   "long": "Conflicted",
+   "voiceover": "conflicted",
+   "glyph": "▲",
+   "ascii": "!",
+   "symbol": "exclamationmark.triangle.fill",
+   "from": "state conflicted",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "state.failed": {
+   "text": "failed",
+   "long": "Failed",
+   "voiceover": "failed",
+   "glyph": "✕",
+   "ascii": "x",
+   "symbol": "xmark.circle",
+   "from": "state failed",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "state.discarded": {
+   "text": "discarded",
+   "long": "Discarded",
+   "voiceover": "discarded",
+   "glyph": "–",
+   "ascii": "-",
+   "symbol": "minus.circle",
+   "from": "set or member discarded",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "state.dropped": {
+   "text": "dropped",
+   "long": "Dropped",
+   "voiceover": "dropped, outside the gate, review and confirm",
+   "glyph": "–",
+   "ascii": "-",
+   "symbol": "minus.circle",
+   "from": "member discarded and not redone in a set that goes on",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.title": {
+   "text": "Set {setId}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.line": {
+   "text": "set {setId} {branch}",
+   "surfaces": [
+    "cstan",
+    "dash"
+   ]
+  },
+  "set.summary.building": {
+   "text": "building · {built} of {live} built",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.built": {
+   "text": "built · none in main yet",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.partlyInMain": {
+   "text": "{inMain} of {live} in main",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.inMain": {
+   "text": "in main · all {live} repos",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.conflicted": {
+   "text": "conflicted in {repo}",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.failed": {
+   "text": "failed in {repo}",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.discarded": {
+   "text": "discarded · nothing reached main",
+   "note": "when a member was confirmed before the discard: discarded · {inMain} of {live} stay in main",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.summary.discardedKept": {
+   "text": "discarded · {inMain} of {live} stay in main",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.state.partlyInMain": {
+   "text": "partly in main",
+   "note": "the dash STATE column word for a set with some members in main",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.next": {
+   "text": "next: {repo}",
+   "surfaces": [
+    "cstan",
+    "dash"
+   ]
+  },
+  "set.next.app": {
+   "text": "Merge {repo} next",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.reviewSubject": {
+   "text": "review subject: {repo}",
+   "surfaces": [
+    "cstan",
+    "dash"
+   ]
+  },
+  "set.reviewSubject.tag": {
+   "text": "Review subject",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.dropped.list": {
+   "text": "dropped: {repos}",
+   "surfaces": [
+    "cstan",
+    "dash"
+   ]
+  },
+  "set.dropped.note": {
+   "text": "Outside the gate, review and confirm",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.overflow": {
+   "text": "+{n}",
+   "voiceover": "{n} more repos",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "set.members.heading": {
+   "text": "Repos in merge order",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.members.count": {
+   "text": "{live} repos · {dropped} dropped",
+   "note": "the second part only when a member is dropped",
+   "surfaces": [
+    "mac",
+    "ios",
+    "dash"
+   ]
+  },
+  "member.position": {
+   "text": "{position}",
+   "note": "1-based merge order position",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "member.attempt": {
+   "text": "attempt {n}",
+   "note": "n = attempt + 1; shown only after a redo (attempt 1 or more)",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "member.next.tag": {
+   "text": "Next",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "member.sub": {
+   "text": "{headSha} · verify {verifyWord}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "member.sub.noHead": {
+   "text": "no head yet",
+   "surfaces": [
+    "mac",
+    "ios",
+    "dash"
+   ]
+  },
+  "member.voiceover": {
+   "text": "{position} of {total}, {repo}, {stateVoiceover}",
+   "note": "then ', review subject', ', next to merge', ', attempt {n}' when they apply",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "report.repos": {
+   "text": "{n} repos",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "report.commit": {
+   "text": "{repo} {shortSha}",
+   "note": "joined with \" · \"",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "report.commits.heading": {
+   "text": "Commits",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "report.voiceover": {
+   "text": "report in {n} repos",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.gate.passed": {
+   "text": "gate passed: every repo's latest run passed",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.gate.waiting": {
+   "text": "gate waiting: {repos}",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.gate.failed": {
+   "text": "gate failed: {repos}",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.repo": {
+   "text": "{repo} {verifyWord}",
+   "note": "verifyWord is the shipped run state (queued, running, passed, failed, interrupted)",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.repo.notRun": {
+   "text": "not run",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.repo.lastPassed": {
+   "text": "last passed {shortSha}",
+   "note": "when the latest run did not pass and an earlier one did",
+   "surfaces": [
+    "cstan",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.repo.outside": {
+   "text": "outside the gate",
+   "note": "a dropped member",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.heading": {
+   "text": "Verify by repo",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.title": {
+   "text": "Merge {repo} into {mainBranch}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.order": {
+   "text": "Repo {position} of {live} in merge order",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.after": {
+   "text": "After this: {repo}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.after.last": {
+   "text": "This is the last repo of the set.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.action": {
+   "text": "Merge {repo}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.blocked.title": {
+   "text": "{repo} has to wait",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.blocked.lead": {
+   "text": "The set merges one repo at a time, in merge order.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.blocked.action": {
+   "text": "Open {repo}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.done": {
+   "text": "{repo} is in main · {shortSha}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "confirm.needed": {
+   "text": "{repo} is merged into {mainBranch} but not confirmed",
+   "surfaces": [
+    "cstan",
+    "mac",
+    "ios"
+   ]
+  },
+  "confirm.command": {
+   "text": "cstan integrate confirm {setId} --repo {repo}",
+   "surfaces": [
+    "cstan",
+    "mac",
+    "ios"
+   ]
+  },
+  "confirm.copy": {
+   "text": "Copy command",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "cleanup.repo": {
+   "text": "cleanup {cleanupId} · {repo}: branches {branches}, worktrees {worktrees}",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac"
+   ]
+  },
+  "cleanup.repo.left": {
+   "text": "{repo} left the configuration: worktrees only, apply them by name",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac"
+   ]
+  },
+  "cleanup.heading": {
+   "text": "Cleanups by repo",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "cleanup.none": {
+   "text": "No repo has anything to clean up.",
+   "surfaces": [
+    "cstan",
+    "mac"
+   ]
+  },
+  "worktree.heading": {
+   "text": "Worktrees",
+   "surfaces": [
+    "mac",
+    "dash"
+   ]
+  },
+  "worktree.row": {
+   "text": "{repo} {branch} {path}",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac"
+   ]
+  },
+  "worktree.changeFolder": {
+   "text": "Change folder",
+   "surfaces": [
+    "mac",
+    "dash"
+   ]
+  },
+  "worktree.count": {
+   "text": "{n} repos",
+   "surfaces": [
+    "dash",
+    "mac"
+   ]
+  },
+  "worktree.none": {
+   "text": "No worktrees: this agent has not started work in a repo.",
+   "surfaces": [
+    "mac",
+    "dash"
+   ]
+  },
+  "workspace.title": {
+   "text": "Workspace",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.repos.heading": {
+   "text": "Repos",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.repo.row": {
+   "text": "{repo} · {mainBranch}",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.repo.mergeOrder": {
+   "text": "Merge order {position}",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.loading": {
+   "text": "Loading the workspace from {host}…",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.error": {
+   "text": "The host did not send workspace data. It may run a Capstan older than this app.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "plan.repos": {
+   "text": "repos {repos}",
+   "note": "comma-joined, like deps",
+   "surfaces": [
+    "cstan"
+   ]
+  },
+  "a11y.strip": {
+   "text": "{summaryVoiceover}. {members}",
+   "note": "members: one '{repo} {stateVoiceover}' per member in merge order, the first 12 then '{n} more repos'",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "a11y.set.row": {
+   "text": "Set {setId}, {summary}, next {repo}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "shipped.mergeOrder": {
+   "text": "merge {repo} first",
+   "source": "kernel/src/areas/remote_decisions.rs (decide merge refusal, not_waiting)",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "shipped.memberTitle": {
+   "text": "{state} {branch} (repo {repo} of set {setId})",
+   "source": "kernel/src/areas/snapshot_feed.rs (feed item title of a member)",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "shipped.redo.confirmed": {
+   "text": "repo {repo} of set {setId} is confirmed; its code is on main",
+   "source": "kernel/src/areas/integrations.rs",
+   "surfaces": [
+    "cstan"
+   ]
+  },
+  "shipped.redo.running": {
+   "text": "repo {repo} of set {setId} is still merging",
+   "source": "kernel/src/areas/integrations.rs",
+   "surfaces": [
+    "cstan"
+   ]
+  },
+  "shipped.review.open": {
+   "text": "a review of set {setId} is open",
+   "source": "kernel/src/areas/integrations.rs",
+   "surfaces": [
+    "cstan",
+    "mac",
+    "ios"
+   ]
+  },
+  "shipped.verify.confirmed": {
+   "text": "repo {repo} of set {setId} is confirmed; its code is on main and keeps its last passed run",
+   "source": "daemon/src/handlers/verify.rs",
+   "surfaces": [
+    "cstan"
+   ]
+  },
+  "shipped.cleanup.left": {
+   "text": "the repo left the configuration; only its worktree is removed, the branch stays",
+   "source": "kernel/src/cleanup.rs",
+   "surfaces": [
+    "cstan",
+    "mac"
+   ]
+  },
+  "report.branch": {
+   "text": "on {branch}",
+   "note": "once per report when every commit is on one branch; else each commit gets its own \"on {branch}\"",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "cleanup.status.offered": {
+   "text": "offered",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "cleanup.status.byName": {
+   "text": "by name only",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "set.short.building": {
+   "text": "building {built}/{live} built",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.short.built": {
+   "text": "built {live}/{live}",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.short.partlyInMain": {
+   "text": "{inMain}/{live} in main",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.short.inMain": {
+   "text": "in main {live}/{live}",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.short.conflicted": {
+   "text": "conflicted: {repo}",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.short.failed": {
+   "text": "failed: {repo}",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.short.discarded": {
+   "text": "discarded",
+   "note": "WHO / COMMIT column of the dash pipeline, after the set id",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "set.title.app": {
+   "text": "Set {setId} · {summaryTitle}",
+   "note": "summaryTitle: building, built, conflicted in {repo}, failed in {repo}, {inMain} of {live} in main, in main, discarded",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "member.conflicted.redo": {
+   "text": "{repo} conflicted: cstan integrate redo {setId} --repo {repo}",
+   "surfaces": [
+    "cstan"
+   ]
+  },
+  "member.conflicted.app": {
+   "text": "{repo} conflicted: redo it or message the PM",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "member.failed": {
+   "text": "{repo} failed, attempt {n}",
+   "note": "\", attempt {n}\" only after a redo",
+   "surfaces": [
+    "cstan",
+    "dash",
+    "mac",
+    "ios"
+   ]
+  },
+  "member.discard.command": {
+   "text": "cstan integrate discard {setId} --repo {repo}",
+   "surfaces": [
+    "cstan",
+    "mac",
+    "ios"
+   ]
+  },
+  "member.redo.command": {
+   "text": "cstan integrate redo {setId} --repo {repo}",
+   "surfaces": [
+    "cstan",
+    "mac",
+    "ios"
+   ]
+  },
+  "pill.building": {
+   "text": "Building",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "pill.failed": {
+   "text": "Failed · nothing to merge",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "pill.discarded": {
+   "text": "Discarded",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "pill.built": {
+   "text": "Built · not in main",
+   "note": "existing plan-137 pill",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "pill.conflicted": {
+   "text": "Conflicted · nothing to merge",
+   "note": "existing plan-137 pill",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "pill.inMain": {
+   "text": "In main · confirmed",
+   "note": "existing plan-137 pill",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.building": {
+   "text": "Each repo is merged onto {branch}. Nothing to decide yet.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.waiting": {
+   "text": "Merging waits until every repo is built and the gate passes.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.conflicted": {
+   "text": "Nothing reached main. The other repos keep their work.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.failedAgain": {
+   "text": "The redo failed too. Discard {repo} to go on without it, or message the PM.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.failed": {
+   "text": "Redo {repo}, discard it to go on without it, or message the PM.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.dropped": {
+   "text": "{repo} was dropped: it is not verified, reviewed or confirmed with this set.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "set.lead.inMain": {
+   "text": "Every repo is merged into its main and confirmed. The PM was told.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.gate.leadWaiting": {
+   "text": "Every repo’s latest run must pass. {passed} passed; {running} is running.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "verify.gate.leadReport": {
+   "text": "Each repo the report names has its own run; the gate passes when every latest run passed.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.reviewPassed": {
+   "text": "Review passed on {repo}, the review subject of this set.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.nothingMerged": {
+   "text": "Nothing was merged.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.confirmed": {
+   "text": "{repo} is confirmed. The PM was told.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.dropped": {
+   "text": "{repo} was dropped and is not merged with this set.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "decide.reviewOpen": {
+   "text": "Merging waits for the review of {repo} to finish.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "confirm.title": {
+   "text": "Confirm {repo} from the terminal",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "confirm.lead": {
+   "text": "The merge commit {shortSha} is on main. Recording it failed, so {nextRepo} waits until {repo} is confirmed.",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "action.copyCommands": {
+   "text": "Copy commands",
+   "note": "existing",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "action.messagePm": {
+   "text": "Message PM…",
+   "note": "existing",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "action.done": {
+   "text": "Done",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "action.close": {
+   "text": "Close",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "action.cancel": {
+   "text": "Cancel",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  },
+  "dash.selected.above": {
+   "text": "▲ {n} above",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.selected.below": {
+   "text": "▼ {n} below",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.selected.fullName": {
+   "text": "{shortName} = {fullName}",
+   "note": "hint line when a repo name was cut in the middle",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.col.repos": {
+   "text": "REPOS",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.col.repo": {
+   "text": "REPO",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.col.head": {
+   "text": "HEAD",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.col.verify": {
+   "text": "VERIFY",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.marker.next": {
+   "text": "next",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "dash.marker.review": {
+   "text": "review",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "worktree.agentHeading": {
+   "text": "{agentId} worktrees on {branch}",
+   "surfaces": [
+    "dash",
+    "mac"
+   ]
+  },
+  "worktree.changeFolder.cli": {
+   "text": "change folder",
+   "surfaces": [
+    "dash"
+   ]
+  },
+  "workspace.col.repo": {
+   "text": "Repo",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.col.main": {
+   "text": "Main branch",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.col.worktrees": {
+   "text": "Worktrees",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.col.openSets": {
+   "text": "Open sets",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "workspace.repos.count": {
+   "text": "Repos · {n} in merge order",
+   "surfaces": [
+    "mac"
+   ]
+  },
+  "widget.sets": {
+   "text": "Integration sets {n}",
+   "note": "the medium widget kind line; a set counts once, whatever its repo count",
+   "surfaces": [
+    "ios"
+   ]
+  },
+  "a11y.inspector.member": {
+   "text": "{position} of {total}, {repo}, {stateVoiceover}",
+   "surfaces": [
+    "mac",
+    "ios"
+   ]
+  }
+ }
+}

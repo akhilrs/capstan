@@ -252,6 +252,19 @@ pub fn list_agents(kernel: &Kernel) -> KernelResult<Value> {
             agent["modelSource"] = json!(source);
         }
     }
+    // An agent that holds worktrees (a workspace project) lists them with the folder that holds them.
+    let held = super::workspace::agent_worktree_members(kernel)?;
+    if !held.is_empty() {
+        for agent in agents.as_array_mut().into_iter().flatten() {
+            let Some(found) = agent["agentId"].as_str().and_then(|id| held.get(id)) else {
+                continue;
+            };
+            agent["worktrees"] = found["worktrees"].clone();
+            if !found["changeFolder"].is_null() {
+                agent["changeFolder"] = found["changeFolder"].clone();
+            }
+        }
+    }
     Ok(agents)
 }
 

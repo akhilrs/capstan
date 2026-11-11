@@ -235,6 +235,10 @@ The flow for a normal or high-risk requirement:
 
 `cstan plan show [<plan-id>] [--brief]` (`--brief`: one line per plan, or per package of one plan; with `--json` it returns that brief shape) lists plans, packages, assignees and derived progress. The operator can cancel a plan or package with `cstan plan cancel`. The design record is [`docs/design/architect-role.md`](../design/architect-role.md).
 
+## Workspace projects
+
+A project that lists `[repos]` ([Workspace mode](workspace.md)) follows the same flow with one difference: a change is a set of repositories, not one. A worker gets a change folder with one worktree per repo of its package, all on one branch, and reports a commit per repo (`cstan report <repo>=<commit>...` or `--heads`; a repo left out keeps its last commit). The gate runs per repo and passes when every repo's latest run passed. `cstan integrate` merges the reports into a **set** with one integration per repo in `[workspace] merge_order`; a failed or conflicted repo is redone (`integrate redo <set> --repo`) after a new report, or dropped (`integrate discard <set> --repo`), each repo is confirmed on its own (`integrate confirm <set> --repo`), and `decide-merge` merges a member into its repo's main in that order. Cleanup makes one offer per repo. In a plan, each package names its `repos` and prefixes its `owns` entries with `<repo>:`; `repos` are fixed at submit.
+
 ## Plan status and archive
 
 Every plan has one status: `draft`, `in_review`, `approved`, `signed_off`, `cancelled`, `superseded` or `archived` (an archived plan shows `archived` whatever its state was). `cstan plan show` with filters lists plans by status (the flags add up), `--stale` keeps the stale ones, `--all` includes archived plans; without a filter archived plans are left out. `cstan plan --stale` is `cstan plan show --stale`. Commands: [commands.md](commands.md).

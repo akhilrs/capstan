@@ -434,6 +434,7 @@ Capstan is released under the [MIT License](LICENSE).
 ## Further reading
 
 - [How Capstan works](docs/reference/workflow.md): concepts, delivery flow, messaging, worker lifecycle, findings, plans, prompt relay
+- [Workspace mode](docs/reference/workspace.md): one team changing several repositories together
 - [Install reference](docs/reference/install.md) · [Configuration reference](docs/reference/configuration.md) · [Command reference](docs/reference/commands.md) · [Operator](docs/reference/operator.md) · [Researcher](docs/reference/researcher.md)
 - [`docs/design/architect-role.md`](docs/design/architect-role.md), [`docs/design/researcher-role.md`](docs/design/researcher-role.md), [`docs/design/cstan-dash-v2.md`](docs/design/cstan-dash-v2.md)
 - [`decisions/DEC-005-capstan-v2-direction.md`](decisions/DEC-005-capstan-v2-direction.md): the current direction and trust model

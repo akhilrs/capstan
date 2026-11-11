@@ -220,6 +220,8 @@ fn every_status_input_is_classified() {
         awaiting_confirm: None,
         findings: None,
         reports: None,
+        integration_sets: None,
+        set_verify: None,
         launcher: None,
         prompt_relay: None,
         sync_drift: None,
@@ -252,6 +254,8 @@ fn every_status_input_is_classified() {
         awaiting_confirm: _,
         findings: _,
         reports: _,
+        integration_sets: _,
+        set_verify: _,
         launcher: _,
         prompt_relay: _,
         sync_drift: _,
@@ -261,7 +265,7 @@ fn every_status_input_is_classified() {
     } = inputs;
     let named: BTreeSet<&str> = classes.iter().map(|(name, _)| *name).collect();
     assert_eq!(named.len(), classes.len(), "a field is classified twice");
-    assert_eq!(named.len(), 28);
+    assert_eq!(named.len(), 30);
     let class_of = |name: &str| classes.iter().find(|(n, _)| *n == name).unwrap().1;
     // Fed by rows written without a state_version bump, or by things outside the ledger.
     for name in [
@@ -274,6 +278,7 @@ fn every_status_input_is_classified() {
         "panes",
         "prompt_relay",
         "verify",
+        "set_verify",
         "ntfy",
         "cache",
         "launcher",

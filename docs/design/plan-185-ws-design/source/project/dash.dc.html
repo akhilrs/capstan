@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cstan dash: pipeline and agents</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="ws.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>body{margin:0}</style>
+</helmet>
+<div class="ws-board" style="width:1840px">
+<h1>03 cstan dash: the pipeline and agents panels</h1>
+<p>A set is one pipeline row. The STATE column holds the strip (10 cells: up to 10 glyphs, else 7 and "+n"); WHO / COMMIT holds the set id and a short summary. The members' own integration items fold into the set row. Selecting a set fills the selected area with its members in merge order: the next repo carries the row marker and "next", the review subject "review", a dropped member is dim with "outside the gate". The stage line counts a set once, with the set words. Frames are drawn by a script at the exact panel width (60 cells in the 120-column layout, 80 in the one-column layout).</p>
+<div class="cols">
+<div class="col" style="width:620px">
+<p class="tcap">120 columns · pipeline panel, every set state, set 8a46cad2 selected <span class="keys">set.state.* · set.short.* · set.overflow · state.* · member.* · verify.gate.waiting · report.repos</span></p>
+<pre class="term">╭─<span class="b">²pipeline</span>─────────────┤ reported &gt; review &gt; integrated ├─╮
+│ reported 6  ──►  review 5  ──►  integrated 9             │
+│ reports      <span class="ok">████████████</span><span class="bad">▒▒</span>   6  accepted 5  rejected 1  │
+│ integrations <span class="ok">███</span><span class="info">█████</span><span class="warn">▒▒</span><span class="bad">▒</span><span class="d">▓</span>  9  built 4  in main 1  …      │
+│ <span class="b">STAGE</span>       <span class="b">STATE</span>      <span class="b">WHO / COMMIT</span>              <span class="b">  AGE</span>   │
+│ set         <span class="d">◌</span><span class="d">◌</span><span class="d">◌</span><span class="d">◌</span>       1c2d3e4f building 0/4 built   40s │
+│ set         <span class="info">○</span><span class="info">○</span><span class="d">◌</span><span class="d">◌</span>       2a7f0b19 building 2/4 built 1m10s │
+│ set         <span class="info">○</span><span class="warn">▲</span><span class="d">◌</span><span class="d">◌</span>       3b81e2c4 conflicted: web    2m05s │
+│ set         <span class="info">○</span><span class="info">○</span><span class="bad">✕</span><span class="info">○</span>       4c90a7d2 failed: worker     3m00s │
+│ <span class="sel">set         <span class="ok">●</span><span class="info">○</span><span class="info">○</span><span class="d">–</span>       8a46cad2 1/3 in main        4m00s</span> │
+│ report      <span class="ok">accepted  </span> developer-4 3 repos 9f3c2a1    5m │
+│ set         <span class="info">○</span><span class="info">○</span><span class="info">○</span><span class="d">–</span>       4b7e91c0 built 3/3          6m20s │
+│ set         <span class="d">–</span><span class="d">–</span><span class="d">–</span><span class="d">–</span>       5d13f6a8 discarded          9m00s │
+│ set         <span class="info">○</span><span class="info">○</span><span class="info">○</span><span class="info">○</span>       6e24a8b3 built 4/4            11m │
+│ set         <span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span>       7f35b9c1 in main 4/4          14m │
+│ set         <span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="b">+</span><span class="b">2</span><span class="b">5</span> 9a01c3d7 5/32 in main         18m │
+│ <span class="d">── selected </span><span class="d">────────────────────────────────────────────</span> │
+│ <span class="b">set 8a46cad2 </span>integration/plan-185  1 of 3 in main        │
+│ <span class="b"> # </span><span class="b">REPO        </span><span class="b">STATE       </span><span class="b">HEAD     </span><span class="b">VERIFY   </span>            │
+│  1 api         <span class="ok">● in main   </span>9f3c2a1  <span class="ok">passed   </span>            │
+│ <span class="b">▌2 </span>web         <span class="info">○ built     </span>51ab07e  <span class="ok">passed   </span><span class="b">next</span>        │
+│  3 worker      <span class="info">○ built     </span>c04d9e2  <span class="d">running  </span>review      │
+│  4 <span class="d">infra       </span><span class="d">– dropped   </span><span class="d">–        </span><span class="d">outside the gate</span>     │
+│ <span class="warn">gate waiting: worker</span>                                     │
+╰─────────────────────────────────────────────────┤ 5/14 ├─╯</pre>
+</div>
+<div class="col" style="width:620px">
+<p class="tcap">NO_COLOR · the same panel; the selected row is underlined</p>
+<pre class="term nc">╭─<span class="b">²pipeline</span>─────────────┤ reported &gt; review &gt; integrated ├─╮
+│ reported 6  ──►  review 5  ──►  integrated 9             │
+│ reports      <span class="ok">████████████</span><span class="bad">▒▒</span>   6  accepted 5  rejected 1  │
+│ integrations <span class="ok">███</span><span class="info">█████</span><span class="warn">▒▒</span><span class="bad">▒</span><span class="d">▓</span>  9  built 4  in main 1  …      │
+│ <span class="b">STAGE</span>       <span class="b">STATE</span>      <span class="b">WHO / COMMIT</span>              <span class="b">  AGE</span>   │
+│ set         <span class="d">◌</span><span class="d">◌</span><span class="d">◌</span><span class="d">◌</span>       1c2d3e4f building 0/4 built   40s │
+│ set         <span class="info">○</span><span class="info">○</span><span class="d">◌</span><span class="d">◌</span>       2a7f0b19 building 2/4 built 1m10s │
+│ set         <span class="info">○</span><span class="warn">▲</span><span class="d">◌</span><span class="d">◌</span>       3b81e2c4 conflicted: web    2m05s │
+│ set         <span class="info">○</span><span class="info">○</span><span class="bad">✕</span><span class="info">○</span>       4c90a7d2 failed: worker     3m00s │
+│ <span class="sel">set         <span class="ok">●</span><span class="info">○</span><span class="info">○</span><span class="d">–</span>       8a46cad2 1/3 in main        4m00s</span> │
+│ report      <span class="ok">accepted  </span> developer-4 3 repos 9f3c2a1    5m │
+│ set         <span class="info">○</span><span class="info">○</span><span class="info">○</span><span class="d">–</span>       4b7e91c0 built 3/3          6m20s │
+│ set         <span class="d">–</span><span class="d">–</span><span class="d">–</span><span class="d">–</span>       5d13f6a8 discarded          9m00s │
+│ set         <span class="info">○</span><span class="info">○</span><span class="info">○</span><span class="info">○</span>       6e24a8b3 built 4/4            11m │
+│ set         <span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span>       7f35b9c1 in main 4/4          14m │
+│ set         <span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="b">+</span><span class="b">2</span><span class="b">5</span> 9a01c3d7 5/32 in main         18m │
+│ <span class="d">── selected </span><span class="d">────────────────────────────────────────────</span> │
+│ <span class="b">set 8a46cad2 </span>integration/plan-185  1 of 3 in main        │
+│ <span class="b"> # </span><span class="b">REPO        </span><span class="b">STATE       </span><span class="b">HEAD     </span><span class="b">VERIFY   </span>            │
+│  1 api         <span class="ok">● in main   </span>9f3c2a1  <span class="ok">passed   </span>            │
+│ <span class="b">▌2 </span>web         <span class="info">○ built     </span>51ab07e  <span class="ok">passed   </span><span class="b">next</span>        │
+│  3 worker      <span class="info">○ built     </span>c04d9e2  <span class="d">running  </span>review      │
+│  4 <span class="d">infra       </span><span class="d">– dropped   </span><span class="d">–        </span><span class="d">outside the gate</span>     │
+│ <span class="warn">gate waiting: worker</span>                                     │
+╰─────────────────────────────────────────────────┤ 5/14 ├─╯</pre>
+</div>
+<div class="col" style="width:520px">
+<p class="tcap">Agents panel · REPOS column and the selected agent's worktrees <span class="keys">worktree.count · worktree.heading · worktree.changeFolder</span></p>
+<pre class="term">╭─<span class="b">¹agents</span>──────────────────────────┤ 5 active ├┤ 1 ended ├─╮
+│   <span class="b">AGENT</span>        <span class="b">ROLE</span>       <span class="b">GEN</span> <span class="b">STATE</span>    <span class="b">REPOS</span>   <span class="b">AGE</span>       │
+│ <span class="sel">* developer-4  Developer  g1  working  3        3s      </span> │
+│ * developer-6  Developer  g2  working  2       41s       │
+│ ● pm-1         PM         g1  idle     –     1m35s       │
+│ <span class="d">── selected </span><span class="d">────────────────────────────────────────────</span> │
+│ <span class="b">developer-4 </span>worktrees on feat/PM-512-refund-sync         │
+│ api     <span class="d">~/.capstan/wt/developer-4/api</span>                    │
+│ web     <span class="d">~/.capstan/wt/developer-4/web</span>                    │
+│ worker  <span class="d">~/.capstan/wt/developer-4/worker</span>                 │
+│ change folder  <span class="d">~/.capstan/wt/developer-4</span>                 │
+╰──────────────────────────────────────────────────────────╯</pre>
+<p class="muted">REPOS shows at 100 columns and wider; it is left out first when the panel is narrow (before ACTIVITY). An agent with no worktrees shows "–". The selected area shows "No worktrees: this agent has not started work in a repo." for such an agent.</p>
+<p class="tcap">Single-repo project · unchanged (from the showcase fixture)</p>
+<pre class="term">╭─<span class="b">²pipeline</span>─────────────┤ reported &gt; review &gt; integrated ├─╮
+│ integrations █████████▓▓▓▓▓   3  merged 2  running 1     │
+│ <span class="b">STAGE</span>       <span class="b">STATE</span>      <span class="b">WHO / COMMIT</span>                  <span class="b">AGE</span> │
+│ integration <span class="d">running</span>    7c1e0f2a                       5s │
+│ report      <span class="ok">accepted</span>   designer-1 8bf60fa          1m12s │
+│ integration <span class="ok">merged</span>     5d02b9c4                    4m00s │
+╰──────────────────────────────────────────────────────────╯</pre>
+</div>
+</div>
+<div class="cols">
+<div class="col" style="width:820px">
+<p class="tcap">80 columns · a set of 32 repos; the selected area scrolls around the next repo; a 32-character name is cut in the middle and spelled out on the hint line <span class="keys">set.overflow · set.next</span></p>
+<pre class="term">╭─<span class="b">²pipeline</span>─────────────────────────────────┤ reported &gt; review &gt; integrated ├─╮
+│ <span class="b">STAGE</span>       <span class="b">STATE</span>      <span class="b">WHO / COMMIT</span>                                  <span class="b">  AGE</span>   │
+│ <span class="sel">set         <span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="ok">●</span><span class="b">+</span><span class="b">2</span><span class="b">5</span> 9a01c3d7 5 of 32 in main · next: billing          18m</span> │
+│ <span class="d">── selected </span><span class="d">────────────────────────────────────────────────────────────────</span> │
+│ <span class="b">set 9a01c3d7 </span>integration/plan-190  5 of 32 in main · <span class="d">▲ 3 above</span>               │
+│ <span class="b"> # </span><span class="b">REPO          </span><span class="b">STATE       </span><span class="b">HEAD     </span><span class="b">VERIFY   </span>                              │
+│  5 ledger-core   <span class="ok">● in main   </span>3a1b9c0  <span class="ok">passed</span>                                 │
+│ <span class="b">▌6 </span>payme…service <span class="info">○ built     </span>51ab07e  <span class="ok">passed   </span><span class="b">next</span>                          │
+│  7 notif…worker  <span class="info">○ built     </span>77c2d10  <span class="ok">passed</span>                                 │
+│  8 search-index  <span class="d">◌ building  </span><span class="d">–        </span><span class="d">not run</span>                                │
+│ <span class="d">▼ 24 below · </span>payme…service<span class="d"> = payments-reconciliation-service</span>                 │
+╰──────────────────────────────────────────────────────────────────────┤ 1/1 ├─╯</pre>
+</div>
+<div class="col" style="width:820px">
+<p class="tcap">Keys: unchanged. Enter on a set row opens the selected area; ↑↓ moves within the members; Esc returns to the rows. No new action key: deciding a merge stays in the apps and the CLI.</p>
+<p class="muted">Empty: a workspace project with no set shows the existing "no integrations" line. Loading and error: the existing link states (● answering / ○ link down) and the last frame stay. Hover does not exist in the terminal; focus is the heavy border of the focused panel and the ▌ row marker, as today.</p>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1840,"height":1540}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

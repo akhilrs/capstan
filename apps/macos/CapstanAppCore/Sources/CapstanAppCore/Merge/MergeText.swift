@@ -18,10 +18,20 @@ public struct MergeText: Equatable, Sendable {
     public var fix: Fix = .none
     /// The refusal in a few words, for the message to the PM.
     public var reason: String = ""
+    /// For a member of an integration set: the repo whose item the person opens next (a refusal that names the repo to
+    /// merge first), else nil.
+    public var openRepo: String?
+    /// For a member of a set: the terminal command that records a merge Capstan could not record.
+    public var command: String?
+    /// For a member of a set: the repo merged after this one; nil when this is the last or the item is no member.
+    public var nextRepo: String?
 
     public enum Fix: Equatable, Sendable { case none, resumeProject, askPM }
 
-    public static func make(_ outcome: DecideOutcome, branch: String, hostName: String, at: Date) -> MergeText {
+    public static func make(
+        _ outcome: DecideOutcome, branch: String, hostName: String, at: Date, set: IntegrationSet? = nil
+    ) -> MergeText {
+        if let set, let made = SetMergeText.make(outcome, set: set, hostName: hostName) { return made }
         let time = at.formatted(date: .omitted, time: .shortened)
         switch outcome {
         case .applied(let result), .forwarded(let result):

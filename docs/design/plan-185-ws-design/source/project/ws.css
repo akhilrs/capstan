@@ -1,0 +1,75 @@
+/* plan-185 workspace views: parts added on top of mac.css / ios.css, and the terminal frames.
+   Terminal colours are the dash theme roles (dash/src/view/theme.rs); app colours are the existing app tokens.
+   Spacing on the 4 px scale only. */
+.ws-board{box-sizing:border-box;padding:24px 40px 48px;display:flex;flex-direction:column;gap:16px;font-family:"IBM Plex Sans",-apple-system,"SF Pro Text","Inter",system-ui,sans-serif;color:#1b2229;background:#f3f4f2}
+.ws-board h1{margin:0;font-size:28px;line-height:1.2;font-weight:600;letter-spacing:-.01em}
+.ws-board h2{margin:24px 0 0;font-size:17px;line-height:1.4;font-weight:600}
+.ws-board p{margin:0;font-size:14px;line-height:1.55;max-width:1040px}
+.ws-board .muted{color:#5b6670}
+.keys{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:#5b6670}
+.keys b{font-weight:500;color:#1b2229}
+.cols{display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+
+/* terminal frame (cstan text and cstan dash) */
+.term{margin:0;box-sizing:border-box;padding:12px 16px;border-radius:4px;background:#0e1216;color:#cccccc;font-family:"IBM Plex Mono",ui-monospace,"SF Mono",monospace;font-size:13px;line-height:1.45;white-space:pre;overflow:hidden}
+.term.nc{background:#f3f4f2;color:#1b2229;box-shadow:inset 0 0 0 1px #cdd2d5}
+.term .b{color:#eeeeee;font-weight:600}
+.term .d{color:#8f9aa3}
+.term .ok{color:#77ca9b}
+.term .warn{color:#cbc06c}
+.term .bad{color:#ff8a80}
+.term .info{color:#6cb4d8}
+.term .sel{background:#3b4252}
+.term.nc .b{color:#1b2229}
+.term.nc .d,.term.nc .ok,.term.nc .warn,.term.nc .bad,.term.nc .info{color:#1b2229}
+.term.nc .d{color:#5b6670}
+.term.nc .sel{background:transparent;text-decoration:underline}
+.tcap{font-size:12px;font-weight:600;color:#3a3f45;margin:0}
+
+/* vocabulary table */
+.vt{border-collapse:collapse;font-size:13px;line-height:1.45}
+.vt th{text-align:left;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#5b6670;padding:8px 12px;border-bottom:1px solid #cdd2d5;vertical-align:bottom}
+.vt td{padding:8px 12px;border-bottom:1px solid #cdd2d5;vertical-align:top}
+.vt td.m,.vt code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px}
+.vt .g{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:15px}
+
+/* member strip and member rows (apps) */
+.strip{display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap}
+.mg{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;color:var(--label2)}
+.mg svg{width:12px;height:12px}
+.mg.inmain{color:var(--green)}
+.mg.built{color:var(--blue)}
+.mg.building{color:var(--label2)}
+.mg.conflicted{color:var(--yellow)}
+.mg.failed{color:var(--red)}
+.mg.dropped,.mg.discarded{color:var(--label2)}
+.mg.rs{box-shadow:inset 0 -2px 0 currentColor}
+.more{font-size:12px;font-weight:600;color:var(--label2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.sline{font-size:12px;color:var(--label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrows{list-style:none;margin:0;padding:0;border-radius:12px;background:var(--fill);overflow:hidden}
+.mrow{display:grid;grid-template-columns:24px 16px minmax(0,1fr) auto;gap:2px 8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--sep);font-size:13px}
+.mrow:last-child{border-bottom:0}
+.mrow .pos{font-variant-numeric:tabular-nums;color:var(--label2);font-size:12px;text-align:right}
+.mrow .rn{font-family:ui-monospace,"SF Mono","IBM Plex Mono",monospace;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mrow .st{font-size:12px;font-weight:600;white-space:nowrap}
+.mrow .sub{grid-column:3 / 5;font-size:12px;color:var(--label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow.out{opacity:1}
+.mrow.out .rn{text-decoration:line-through;text-decoration-thickness:1px;color:var(--label2)}
+.mrow.next{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent)}
+.mrow.foc{box-shadow:inset 0 0 0 3px var(--focus)}
+.tag{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;font-size:11px;font-weight:600;color:var(--label2);box-shadow:inset 0 0 0 1px var(--sep);white-space:nowrap}
+.tag.acc{color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.st.inmain{color:var(--green)}.st.built{color:var(--blue)}.st.building{color:var(--label2)}.st.conflicted{color:var(--yellow)}.st.failed{color:var(--red)}.st.dropped,.st.discarded{color:var(--label2)}
+.dir{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:4px;box-shadow:inset 0 0 0 1px #cdd2d5;background:#ffffff}
+.dir h3{margin:0;font-size:17px;font-weight:600}
+.dir .pick{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;font-weight:500;color:#8a521c}
+/* from plan-169 model.css: the inspector panel and its list label */
+.ipanel{width:360px;box-sizing:border-box;padding:16px 20px;border-radius:16px;background:var(--win);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:16px;color:var(--label);font-size:13px;line-height:1.4}
+.ipanel .meta dd{overflow-wrap:anywhere}
+.plabel2{font-size:12px;font-weight:600;color:var(--label);margin:0 0 8px}
+/* app samples placed on a board keep their own text colour */
+.ws-board .light,.ws-board .dark{color:var(--label)}
+/* the dash's selected row: text is bright on selectBg, the glyph shape and word keep the meaning */
+.term .sel .d,.term .sel .info,.term .sel .ok,.term .sel .warn,.term .sel .bad{color:#eeeeee}
+.term.nc .sel .d,.term.nc .sel .info,.term.nc .sel .ok,.term.nc .sel .warn,.term.nc .sel .bad{color:#1b2229}

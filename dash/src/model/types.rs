@@ -27,6 +27,21 @@ pub struct AgentRow {
     /// What the agent works on, one line; `-` when nothing is known.
     pub task: String,
     pub fingerprint: String,
+    /// The worktrees the agent holds, one per repo of a workspace project; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<AgentWorktree>,
+    /// The folder that holds those worktrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change_folder: Option<String>,
+}
+
+/// One worktree an agent holds: the repo, where it is and the branch it is on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWorktree {
+    pub repo: String,
+    pub path: String,
+    pub branch: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -57,6 +72,70 @@ pub struct PipelineItem {
     pub label: String,
     pub created_at: String,
     pub fingerprint: String,
+    /// The integration set of a `set` row, with its members in merge order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<SetRow>,
+    /// The commit of each repo a report names, when it names more than one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<ReportCommit>,
+}
+
+/// One repo's commit in a multi-repo report.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportCommit {
+    pub repo: String,
+    pub commit_sha: String,
+    pub branch: String,
+}
+
+/// An integration set: one row of the pipeline with a member per repo, in merge order.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRow {
+    pub set_id: String,
+    pub branch: String,
+    /// The set's state word: building, built, partly in main, in main, conflicted, failed or discarded.
+    pub word: String,
+    /// The short summary after the set id: `2/4 built`, `1/3 in main`, `conflicted: web`.
+    pub summary: String,
+    /// Members that count: every one that is neither dropped nor discarded.
+    pub live: i64,
+    pub members: Vec<SetMember>,
+    pub gate: Option<SetGate>,
+}
+
+/// One repo of a set. `state` is the feed word (`running`, `merged`, `confirmed`, `conflicted`, `failed`, `discarded`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetMember {
+    pub repo: String,
+    pub position: i64,
+    pub attempt: i64,
+    pub state: String,
+    pub head_sha: Option<String>,
+    pub dropped: bool,
+    /// The first live member that is not in main, once the set can be merged.
+    pub next: bool,
+    pub review_subject: bool,
+    pub verify: Option<MemberVerify>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberVerify {
+    /// `passed`, `running` (a queued run reads as running) or `failed`.
+    pub state: String,
+    pub commit_sha: Option<String>,
+    pub last_passed: Option<String>,
+}
+
+/// The set's gate: `passed`, `waiting` or `failed`, with the repos it names.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetGate {
+    pub state: String,
+    pub repos: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

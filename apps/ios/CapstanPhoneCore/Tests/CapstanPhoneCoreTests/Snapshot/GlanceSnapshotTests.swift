@@ -49,6 +49,38 @@ final class GlanceSnapshotTests: XCTestCase {
         ])
     }
 
+    private func setItem(_ key: String, repo: String, position: Int, setId: String) -> String {
+        var item = waiting(key, kind: "integration", summary: "merged b (repo \(repo) of set \(setId))")
+        item.removeLast()
+        let members = ["api", "web"].enumerated().map {
+            "{\"repo\":\"\($0.element)\",\"position\":\($0.offset),\"attempt\":1,\"state\":\"merged\",\"dropped\":false}"
+        }.joined(separator: ",")
+        return item + ",\"set\":{\"setId\":\"\(setId)\",\"state\":\"merged\",\"repo\":\"\(repo)\",\"position\":\(position),"
+            + "\"attempt\":1,\"reviewSubject\":false,\"dropped\":false,\"members\":[\(members)]}}"
+    }
+
+    func testAnIntegrationSetCountsOnce() throws {
+        let host = try model([
+            project("ws", root: "/work/ws", waiting: [
+                setItem("m1", repo: "api", position: 0, setId: "s1"),
+                setItem("m2", repo: "web", position: 1, setId: "s1"),
+                waiting("w1", kind: "prompt", summary: "x"),
+            ])
+        ])
+        let snapshot = GlanceSnapshot.make(
+            hosts: [host], hostsReachable: 1, hostsTotal: 1, pollMs: 2000, asOf: Date(timeIntervalSince1970: 1000))
+        XCTAssertEqual(snapshot.count(of: .integration), 1)
+        XCTAssertEqual(snapshot.sets, 1)
+        XCTAssertEqual(snapshot.totalWaiting, 2)
+        XCTAssertEqual(snapshot.projects.first?.count, 2)
+    }
+
+    func testSingleRepoSnapshotHasNoSets() throws {
+        let snapshot = GlanceSnapshot.make(
+            hosts: [try sample()], hostsReachable: 1, hostsTotal: 2, pollMs: 2000, asOf: Date(timeIntervalSince1970: 1000))
+        XCTAssertNil(snapshot.sets)
+    }
+
     func testCountsKindsAndProjects() throws {
         let snapshot = GlanceSnapshot.make(
             hosts: [try sample()], hostsReachable: 1, hostsTotal: 2, pollMs: 2000, asOf: Date(timeIntervalSince1970: 1000))

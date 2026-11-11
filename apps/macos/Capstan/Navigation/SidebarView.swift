@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The rows of the sidebar. Agents and Plans stand for every project; the project in view is chosen in the toolbar.
 private enum NavItem: Hashable {
-    case waiting, agents, plans, messages, hosts
+    case waiting, agents, plans, workspace, messages, hosts
     case host(UUID)
     case project(hostId: UUID, projectId: String)
 }
@@ -40,6 +40,7 @@ struct SidebarView: View {
             nav("Waiting for you", symbol: "tray", count: counts.waiting, item: .waiting, current: current)
             nav("Agents", symbol: "person.2", count: attentionCount, item: .agents, current: current)
             nav("Plans", symbol: "doc.text", count: needsYouPlans, item: .plans, current: current)
+            nav("Workspace", symbol: "square.stack.3d.up", count: 0, item: .workspace, current: current)
             nav("Messages to PM", symbol: "bubble.left", count: openQuestions, item: .messages, current: current)
             nav("Hosts", symbol: "server.rack", count: model.hosts.count, item: .hosts, current: current)
             Section {
@@ -187,6 +188,7 @@ struct SidebarView: View {
         case .project(let hostId, let projectId): return .project(hostId: hostId, projectId: projectId)
         case .agents, .allAgents: return .agents
         case .plans, .allPlans: return .plans
+        case .workspace: return .workspace
         case .hosts: return model.hostsFocus.map { NavItem.host($0.hostId) } ?? NavItem.hosts
         }
     }
@@ -202,6 +204,8 @@ struct SidebarView: View {
             model.selection = .allAgents
         case .plans:
             model.selection = .allPlans
+        case .workspace:
+            if let key = workProject() { model.selection = .workspace(hostId: key.hostId, projectId: key.projectId) }
         case .hosts:
             model.hostsFocus = nil
             model.selection = .hosts
@@ -217,7 +221,8 @@ struct SidebarView: View {
     /// The project Agents and Plans open on: the one in view, else the first one that has something to show.
     private func workProject() -> ProjectKey? {
         switch model.selection {
-        case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId):
+        case .project(let hostId, let projectId), .agents(let hostId, let projectId), .plans(let hostId, let projectId),
+            .workspace(let hostId, let projectId):
             return ProjectKey(hostId: hostId, projectId: projectId)
         case .inbox, .hosts, .messages, .allAgents, .allPlans:
             let keys = model.hosts.flatMap { host in
