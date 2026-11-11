@@ -722,6 +722,7 @@ and without branches checked out in another worktree.
 | `merge_failed` | the merge started and did not end well; the message gives the reason and whether the tree was restored |
 | `git_unavailable` | git could not be run |
 | `merge_unrecorded` | the merge was made but its decision could not be recorded; the same call again records it |
+| `merge_order` | an integration that must merge earlier in the workspace's `merge_order` is not merged yet; 0.24.0 refused the out-of-order decide-merge of a set member with `not_waiting` (text "merge <x> first"); from the next release it answers `merge_order`, so a client that matched `not_waiting` here should also match `merge_order` |
 
 A merge that was made adds `merge` to the result: the integration and branch, `into` (the branch merged into), the merge commit (`null` when the head was
 already in the project's branch, `alreadyInHead` true), the verify state (`passed` with its run, or `not_configured`),

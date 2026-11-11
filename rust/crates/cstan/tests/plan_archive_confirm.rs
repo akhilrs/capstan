@@ -100,6 +100,29 @@ fn the_binary_with_piped_input_and_no_yes_refuses_before_any_call() {
     assert_eq!(std::fs::read_dir(&scratch.0).unwrap().count(), 0);
 }
 
+#[test]
+fn an_agent_without_a_terminal_is_not_asked_to_confirm_the_controller_refuses_it() {
+    let scratch = support::Scratch::new("plan-archive-agent", 0);
+    let socket = scratch.0.join("no-such.sock");
+    let mut child = Command::new(FRONT)
+        .args(["plan", "archive", "plan-1"])
+        .current_dir(&scratch.0)
+        .env_clear()
+        .env("CAPSTAN_TOKEN", "agent-token")
+        .env("CAPSTAN_SOCKET", &socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("cstan runs");
+    drop(child.stdin.take());
+    let out = child.wait_with_output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    // The terminal refusal is only for the operator: an agent's call goes to the controller (here nobody listens).
+    assert!(!err.contains("needs a terminal"), "{err}");
+    assert!(err.contains("controller is not running"), "{err}");
+}
+
 /// A scripted controller: it answers the preview, then the confirm, and keeps what it was asked.
 struct Fake {
     calls: Vec<Vec<String>>,

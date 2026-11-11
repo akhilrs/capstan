@@ -261,32 +261,38 @@ fn spawn(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse
         plan: get(&named, "plan"),
         ..SpawnOptions::default()
     };
-    // The warnings of the knowledge base; a task naming a package also checks the UI paths it owns.
-    let (task_plan, task_package) = match get(&named, "task")
-        .as_deref()
-        .and_then(|t| t.split_once('/'))
-    {
-        Some((plan, package)) => (Some(plan.to_string()), Some(package.to_string())),
-        None => (None, None),
-    };
-    let ui_owns =
-        match (&task_plan, &task_package) {
-            (Some(plan), Some(package)) => {
-                super::plans::package_owns(env, call.credential, plan, package)
-                    .map(|(owns, design)| if design { vec!["*".to_string()] } else { owns })
-            }
-            _ => None,
-        };
-    let kb = super::plans::kb_warnings(
-        env,
-        ui_owns.as_deref(),
-        task_plan.as_deref(),
-        task_package.as_deref(),
-    );
     Some(
         match crate::warm::spawn_with_eviction(env.deps, launcher, role_name, &options) {
             Ok(result) => {
                 let mut value = result.to_value();
+                let kb = {
+                    // The warnings of the knowledge base, computed after the launch so they never delay it. A task naming a package
+                    // checks the UI paths it owns; a spawn with no package (or an unknown one) gets the knowledge base warnings only.
+                    let (task_plan, task_package) = match get(&named, "task")
+                        .as_deref()
+                        .and_then(|t| t.split_once('/'))
+                    {
+                        Some((plan, package)) => {
+                            (Some(plan.to_string()), Some(package.to_string()))
+                        }
+                        None => (None, None),
+                    };
+                    let ui_owns = match (&task_plan, &task_package) {
+                        (Some(plan), Some(package)) => {
+                            super::plans::package_owns(env, call.credential, plan, package).map(
+                                |(owns, design)| if design { vec!["*".to_string()] } else { owns },
+                            )
+                        }
+                        _ => None,
+                    }
+                    .unwrap_or_default();
+                    super::plans::kb_warnings(
+                        env,
+                        Some(ui_owns.as_slice()),
+                        task_plan.as_deref(),
+                        task_package.as_deref(),
+                    )
+                };
                 if !kb.is_empty() {
                     if let Some(map) = value.as_object_mut() {
                         let mut texts: Vec<String> = Vec::new();
