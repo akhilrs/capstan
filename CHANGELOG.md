@@ -2,17 +2,23 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
-## Unreleased
+## 0.24.0 (2026-11-11)
 
 ### Upgrade note
 
-Workspace mode is on. A project that already lists `[repos]` was refused before and now runs in workspace mode, from a root that need not be a git repository; `CAPSTAN_WORKSPACE_PREVIEW` is gone and has no effect. Projects without `[repos]` are unchanged.
+Migration 0063 (workspace repos) applies on the first start after the upgrade. Workspace mode applies only to a project with `[repos]`; single-repo projects behave as before. `[kb] storage` defaults to `repo`, so a project that switches to `local` runs `cstan kb import` on its old file. Every machine must run 0.24.0 before a `capstan.toml` uses `[repos]` or `[kb] storage`. `CAPSTAN_WORKSPACE_PREVIEW` is gone and has no effect.
 
 ### Features
 
-- feat(workspace): workspace mode is on. The preview gate is removed from `cstan init --workspace`, `cstan start` and the daemon boot, and the daemon boots from a root that is not a git repository.
+- feat(workspace): workspace mode is on. The preview gate is removed from `cstan init --workspace`, `cstan start` and the daemon boot, and the daemon boots from a root that is not a git repository (`feat(workspace): set redo, discard, confirm, cleanup and workspace mode on (plan-184)`).
+- feat(workspace): one project over many git repos: `[repos]` and `[workspace]` config, a repo ledger, per-repo worktrees, `cstan init --workspace` and `cstan repo add` (`feat(workspace): workspace config, ledger and per-repo worktrees (plan-181 part 1)`, `feat(workspace): cstan repo add (plan-181 part 2)`).
+- feat(workspace): per-repo reports, gates and reviews, and integration sets with a merge per repo (`feat(workspace): per-repo reports, gates, reviews and integration sets (plan-183)`).
+- feat(workspace): set redo, discard, confirm, cleanup and crash recovery (`feat(workspace): set redo, discard, confirm, cleanup and workspace mode on (plan-184)`).
+- feat(kb): local knowledge base storage. `[kb] storage = "local"` keeps the entries in the controller's state directory instead of the repository, so no branch carries them. New keys `pm_note_minutes` and `log_max_entries`; new `cstan kb import`, `log` and `export`; writes go through the controller; a change log and a rate-limited PM note; a warning while the old file is still in the repository; the committed kb file is removed. The default stays `repo`. See [Knowledge base](docs/reference/knowledge-base.md#storage) (`feat(kb): local knowledge base storage outside the repository (plan-182)`).
 
-- feat(kb): local knowledge base storage. `[kb] storage = "local"` keeps the entries in the controller's state directory instead of the repository, so no branch carries them. New keys `pm_note_minutes` and `log_max_entries`; new `cstan kb import`, `log` and `export`; a change log and a rate-limited PM note; a warning while the old file is still in the repository. The default stays `repo`. See [Knowledge base](docs/reference/knowledge-base.md#storage).
+### Documentation
+
+- docs(kb): fix the commit-rule source path (`docs(kb): fix the commit-rule source path`).
 
 ## 0.23.0 (2026-11-10)
 
