@@ -1250,8 +1250,12 @@ fn parse_show_flags(args: &[String], archive_sub: bool) -> Result<ShowFlags, Com
 
 /// The configured number of idle days after which a plan is stale.
 fn stale_days_of(env: &CommandEnv<'_>) -> i64 {
-    env.config()
-        .map_or(30, |config| config.architect.stale_plan_days)
+    stale_days(env.config().map(|config| config.architect.stale_plan_days))
+}
+
+/// The configured stale days, or the documented default (`[architect] stale_plan_days`) when there is no config.
+fn stale_days(configured: Option<i64>) -> i64 {
+    configured.unwrap_or(capstan_config::DEFAULT_ARCHITECT_STALE_PLAN_DAYS)
 }
 
 /// A plan with its status and stale reasons, from `core.plan_statuses` and `core.list_plans`.
@@ -2095,4 +2099,15 @@ fn plan_model(env: &CommandEnv<'_>, call: &CommandCall<'_>, rest: &[String]) -> 
         }
     }
     Ok(model_command(env, call, "plan", plan_id, &rest[1..])?)
+}
+
+#[cfg(test)]
+mod stale_days_tests {
+    use super::stale_days;
+
+    #[test]
+    fn without_a_config_the_documented_default_of_14_days_applies() {
+        assert_eq!(stale_days(None), 14);
+        assert_eq!(stale_days(Some(7)), 7);
+    }
 }

@@ -139,7 +139,7 @@ pub fn decide_merge(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<Comm
     }
     match (&run.member, response) {
         (Some(_), Some(CommandResponse::Err { code, message }))
-            if message.starts_with("merge ") && message.ends_with(" first") =>
+            if code == ErrorCode::MergeOrder =>
         {
             // The merge order refusal names the repo to merge first; it carries no prefix.
             Some(CommandResponse::Err { code, message })

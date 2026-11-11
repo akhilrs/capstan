@@ -208,7 +208,7 @@ const LOCAL_ONLY_NTFY_VALUES: [&str; 8] = [
 /// The refusal of a key that sends data off the host or passes host secrets to agents, set in the tracked file.
 pub fn tracked_local_only_refusal(key: &str) -> String {
     format!(
-        "{key} is not honoured in {CONFIG_FILE_NAME}, which is tracked in git; set it in {LOCAL_CONFIG_FILE_NAME} (untracked), so a pulled commit cannot send host secrets or notifications elsewhere"
+        "{key} is not honoured in {CONFIG_FILE_NAME}: env.pass, ntfy and remote are local-only and belong in {LOCAL_CONFIG_FILE_NAME} (untracked), so a pulled commit cannot send host secrets or notifications elsewhere"
     )
 }
 

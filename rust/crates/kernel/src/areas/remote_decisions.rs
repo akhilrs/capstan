@@ -54,6 +54,7 @@ pub const ERROR_CODES: &[&str] = &[
     "git_too_old",
     "merge_failed",
     "git_unavailable",
+    "merge_order",
 ];
 
 /// The codes of refusals of verbs whose protocol text is not yet written; empty since the merge was documented. A new
@@ -1890,7 +1891,7 @@ pub fn merge_gates(
     if let Some(set_id) = &set_id {
         if let Some(earlier) = merge_order_block(kernel, set_id, &input.target)? {
             return Err(merge_refusal(
-                "not_waiting",
+                "merge_order",
                 format!("merge {earlier} first"),
             ));
         }

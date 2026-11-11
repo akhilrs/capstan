@@ -168,8 +168,16 @@ impl Cli<'_> {
         if command == "notify" && args != ["test"] {
             return Err(Fail::Usage);
         }
-        // `plan archive` asks first: with nobody to ask and no --yes it ends here, before the controller is called.
-        let archive_flow = command == "plan" && crate::plan_confirm::is_archive(args);
+        let access = access_of(command);
+        let agent = if access == Access::Operator {
+            None
+        } else {
+            self.agent_environment()?
+        };
+        // `plan archive` asks first: with nobody to ask and no --yes it ends here, before the controller is called. An
+        // agent is not asked at all: the controller refuses it as forbidden before anything else.
+        let archive_flow =
+            command == "plan" && agent.is_none() && crate::plan_confirm::is_archive(args);
         let mut confirm = crate::plan_confirm::stdio();
         if archive_flow
             && !args.iter().any(|a| a == "--yes")
@@ -180,12 +188,6 @@ impl Cli<'_> {
                 message: crate::plan_confirm::NEEDS_TERMINAL.into(),
             }));
         }
-        let access = access_of(command);
-        let agent = if access == Access::Operator {
-            None
-        } else {
-            self.agent_environment()?
-        };
         let use_agent = access == Access::Agent
             || (matches!(access, Access::Read | Access::Any) && agent.is_some());
         let (socket, credential) = if use_agent {

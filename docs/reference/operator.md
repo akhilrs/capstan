@@ -148,6 +148,7 @@ Setting `merge = false` (the kill switch) stops every new merge at once, with th
 | `branch_moved` | The integration branch is no longer at the head that was reviewed. |
 | `unsafe_config` | The repository's git configuration could run code during the merge (for example a `filter.lfs.smudge`). |
 | `wrong_branch` | The checkout is detached or not on the branch the merge goes into. |
+| `merge_order` | The integration is a member of a workspace set and an earlier repo in the merge order is not confirmed yet; the message names the repo to merge first. |
 | `dirty_tree` | Tracked files have changes, a merge is in progress, or an untracked file is in the way of the merge. |
 | `merge_conflict` | The integration does not merge cleanly; the files are listed. |
 | `git_too_old` | git is older than the merge needs. |

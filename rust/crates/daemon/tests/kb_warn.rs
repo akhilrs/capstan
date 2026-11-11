@@ -450,10 +450,11 @@ fn spawn_warns_for_a_ui_package_on_the_record_and_not_for_another() {
         assert!(text.starts_with("design record:"), "{task}: {text}");
     }
     assert_eq!(w.spawn_warning("plan-1/api"), None);
-    // A task that is not a package, and no task, give the knowledge base warnings only (here the design record is
-    // checked for the project as a whole).
-    let plain = w.spawn_warning("PM-5");
-    assert!(plain.is_none_or(|t| t.starts_with("design record:")));
+    // A task that is not a package, and no task, give the knowledge base warnings only: no design record warning.
+    assert_eq!(w.spawn_warning("PM-5"), None);
+    w.script_spawn("dev-9");
+    let bare = w.ok("pm-1", "spawn", &["developer"]);
+    assert!(bare.get("warning").is_none(), "{bare}");
 }
 
 #[test]

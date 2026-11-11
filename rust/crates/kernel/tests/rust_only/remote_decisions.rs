@@ -407,7 +407,8 @@ fn free_text_is_cleaned_capped_and_kept_in_the_arguments() {
             "merge_conflict",
             "git_too_old",
             "merge_failed",
-            "git_unavailable"
+            "git_unavailable",
+            "merge_order"
         ]
     );
     assert_eq!(RESULT_FIELDS.len(), 13);

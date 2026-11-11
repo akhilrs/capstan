@@ -340,6 +340,33 @@ fn import_adds_skips_reports_invalid_and_replaces() {
 }
 
 #[test]
+fn import_counts_an_id_repeated_in_the_file_once_and_keeps_the_first() {
+    let mut repo = Repo::new();
+    let head = repo.head();
+    let mut text = String::new();
+    for title in ["first", "second", "third"] {
+        text.push_str(&to_line(&entry("dup", title, None, &head)));
+        text.push('\n');
+    }
+    // One unique id fits a limit of 1; counted per line it would be refused.
+    repo.cfg.max_entries = 1;
+    let r = local::import(repo.state(), repo.root(), &repo.cfg, &text, false, WHO).unwrap();
+    assert_eq!((r.added, r.replaced, r.skipped), (1, 0, 0));
+    // The later lines of the id are reported invalid and never counted.
+    assert_eq!(
+        r.invalid.iter().map(|(line, _)| *line).collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(local::log(repo.state(), 1)[0].count, 1);
+    assert_eq!(
+        local::entry(repo.state(), repo.root(), &repo.cfg, "dup")
+            .unwrap()
+            .title,
+        "first"
+    );
+}
+
+#[test]
 fn staleness_matches_repo_mode() {
     let repo = Repo::new();
     let head = repo.head();

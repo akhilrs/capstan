@@ -548,7 +548,7 @@ fn a_later_member_is_blocked_until_the_earlier_one_is_confirmed() {
     let set = w.merged_set();
     let web_before = w.mains().1;
     let refused = w.decide(&set.web, "nonce-web");
-    assert_eq!(refused["code"], "not_waiting", "{refused}");
+    assert_eq!(refused["code"], "merge_order", "{refused}");
     assert_eq!(refusal(&refused), "merge core first", "{refused}");
     assert_eq!(w.mains().1, web_before, "nothing was merged");
     assert_eq!(w.state_of(&set.web), "merged");

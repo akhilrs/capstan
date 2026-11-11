@@ -97,6 +97,7 @@ pub enum ErrorCode {
     AttemptRunning,
     AttemptFailed,
     AnswerNotKept,
+    MergeOrder,
 }
 
 impl ErrorCode {
@@ -145,6 +146,7 @@ impl ErrorCode {
             Self::AttemptRunning => "attempt_running",
             Self::AttemptFailed => "attempt_failed",
             Self::AnswerNotKept => "answer_not_kept",
+            Self::MergeOrder => "merge_order",
             Self::Error => "error",
         }
     }
@@ -196,6 +198,7 @@ impl ErrorCode {
             Self::AttemptRunning,
             Self::AttemptFailed,
             Self::AnswerNotKept,
+            Self::MergeOrder,
         ]
         .into_iter()
         .find(|code| code.as_str() == name)
