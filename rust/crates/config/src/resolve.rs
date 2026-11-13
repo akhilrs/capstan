@@ -205,11 +205,10 @@ const LOCAL_ONLY_NTFY_VALUES: [&str; 8] = [
     "ca_file",
 ];
 
-/// The refusal of a key that sends data off the host or passes host secrets to agents, set in the tracked file.
+/// The refusal of a key that sends data off the host or passes host secrets to agents, set in the tracked file. A rule,
+/// so it holds for any config root, a workspace root that is not a git repository included.
 pub fn tracked_local_only_refusal(key: &str) -> String {
-    format!(
-        "{key} is not honoured in {CONFIG_FILE_NAME}: env.pass, ntfy and remote are local-only and belong in {LOCAL_CONFIG_FILE_NAME} (untracked), so a pulled commit cannot send host secrets or notifications elsewhere"
-    )
+    format!("{key} is local-only: put it in {LOCAL_CONFIG_FILE_NAME}")
 }
 
 /// The refusal of `[remote] merge = true`, `push = true`, `push_url` or `merge_branch` in the tracked file.
@@ -2137,7 +2136,10 @@ mod trust_parity_tests {
             let text = format!("[{table}]\n{key} = {value}\n");
             let result = parse_layered_config(text.as_bytes(), None, Path::new("/tmp"), None);
             let error = result.expect_err(&path).to_string();
-            assert!(error.contains("not honoured in"), "{path}: {error}");
+            assert!(
+                error.contains("not honoured in") || error.contains("is local-only: put it in"),
+                "{path}: {error}"
+            );
             assert!(!is_checked(&path), "{path}");
         }
     }

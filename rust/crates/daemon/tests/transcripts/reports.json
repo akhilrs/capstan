@@ -269,7 +269,7 @@
 "operator-a5698b554178dfdf15374bc30921edd3c776e01621e4e1e679f20864cb68040a",
 "cIjYEjN-gH5-al3oAcu5R0O6AeDMf4Jz452PUznd1cw",
 "recordAgentReport",
-"{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"request-review needs a report or integration id and optionally a reviewer role\"}",
+"{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"request-review needs a report or integration id, optionally a reviewer role and --brief <file>\"}",
 "{\"ok\":false,\"code\":\"not_configured\",\"message\":\"reviews need capstan.toml, Herdr and a git repository\"}",
 "{\"ok\":false,\"code\":\"forbidden\",\"message\":\"only the PM, the operator or the architect may integrate reports\"}",
 "{\"ok\":false,\"code\":\"invalid_request\",\"message\":\"integrate confirm needs one integration id\"}",

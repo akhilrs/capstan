@@ -12,7 +12,7 @@ use super::HandlerMap;
 use crate::deps::{
     new_context, CommitInspection, InspectCommitInput, NewCommitMessages, NewCommitMessagesInput,
 };
-use crate::reviews::{request_review, RequestError, Requested};
+use crate::reviews::{request_review_with_brief, RequestError, Requested, RequesterBriefText};
 use capstan_kernel::areas::messaging::parse_iso_ms;
 use capstan_kernel::integrate::{
     check_commit_message, integrate, settle_integration, GitRepo, IntegrateError, IntegrationDeps,
@@ -922,20 +922,48 @@ fn request_review_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Optio
             "only the PM or the architect can request a review",
         ));
     };
-    if call.args.is_empty() || call.args.len() > 2 {
+    // `--brief=<text>` (the client read the file) may follow the id and the role.
+    let (brief_args, plain): (Vec<&String>, Vec<&String>) =
+        call.args.iter().partition(|a| a.starts_with("--brief="));
+    if plain.is_empty() || plain.len() > 2 || brief_args.len() > 1 {
         return Some(fail(
             ErrorCode::InvalidRequest,
-            "request-review needs a report or integration id and optionally a reviewer role",
+            "request-review needs a report or integration id, optionally a reviewer role and --brief <file>",
         ));
     }
-    let report_id = call.args[0].clone();
+    let brief_text = match brief_args.first() {
+        None => None,
+        Some(arg) => {
+            let text = crate::reviews::review_text(&arg["--brief=".len()..]);
+            if text.is_empty() {
+                return Some(fail(ErrorCode::InvalidRequest, "the brief is empty"));
+            }
+            if text.len() > super::shared::MAX_REVIEW_BRIEF_BYTES {
+                return Some(fail(
+                    ErrorCode::InvalidRequest,
+                    format!(
+                        "the brief may be at most {} bytes",
+                        super::shared::MAX_REVIEW_BRIEF_BYTES
+                    ),
+                ));
+            }
+            if super::shared::imitates_frame(&text) {
+                return Some(fail(
+                    ErrorCode::InvalidRequest,
+                    "the brief must not contain a line that looks like a Capstan message frame",
+                ));
+            }
+            Some(text)
+        }
+    };
+    let report_id = plain[0].clone();
     if !is_safe_agent_id(&report_id) {
         return Some(fail(
             ErrorCode::InvalidRequest,
             "the report or integration id is not valid",
         ));
     }
-    let role = call.args.get(1).cloned();
+    let role = plain.get(1).map(|a| (*a).clone());
     if role.as_deref().is_some_and(|role| !is_role_name(role)) {
         return Some(fail(
             ErrorCode::InvalidRequest,
@@ -960,7 +988,19 @@ fn request_review_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Optio
         json!({"requestedBy": caller.agent_id, "reportId": report_id}),
     );
     Some(
-        match request_review(env.deps, &report_id, role.as_deref(), call.credential) {
+        match request_review_with_brief(
+            env.deps,
+            &report_id,
+            role.as_deref(),
+            call.credential,
+            brief_text
+                .as_deref()
+                .map(|text| RequesterBriefText {
+                    from: &caller.agent_id,
+                    text,
+                })
+                .as_ref(),
+        ) {
             Ok(Requested {
                 review,
                 reviewer_state,

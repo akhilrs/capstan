@@ -1886,6 +1886,11 @@ impl Core {
         workspace::integration_sets_view(&self.kernel, limit)
     }
 
+    /// The open cleanup offers of a workspace, newest first (see `workspace::cleanup_offers_view`).
+    pub fn cleanup_offers_view(&self) -> KernelResult<Value> {
+        workspace::cleanup_offers_view(&self.kernel)
+    }
+
     /// The gate and each live member's verify of the newest `limit` sets (see `workspace::set_verify_view`).
     pub fn set_verify_view(
         &self,

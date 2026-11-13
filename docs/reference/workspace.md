@@ -102,7 +102,7 @@ A review covers an integration **set** (below) as a whole. `cstan request-review
 
 - A stopped set names the repo and the next step: `resolve with a new report for repo <r>, then cstan integrate redo <set> --repo <r>`, or `cstan integrate redo <set> --repo <r>, or cstan integrate discard <set> --repo <r>`.
 - `cstan integrate redo <set-id> --repo <repo>` integrates one repo again. It is refused for `set <id> is running; wait for it to settle`, `set <id> is discarded`, `set <id> has no member for repo <r>`, `repo <r> of set <id> is confirmed; its code is on main`, `repo <r> of set <id> is still merging`, `no report for repo <r> since the conflict; report the fix first`, `repo <r> has nothing to integrate` and `branch <b> already exists in repo <r>`; when the repo's main already holds the change it says to confirm instead.
-- `cstan integrate discard <set-id>` throws the whole set away. `cstan integrate discard <set-id> --repo <repo>` drops one unconfirmed member: the set continues without it (`repo <r> dropped from set <id>; the set continues without it; integrate redo <id> --repo <r> brings it back`). A dropped member does not block the others.
+- `cstan integrate discard <set-id>` throws the whole set away. `cstan integrate discard <set-id> --repo <repo>` drops one unconfirmed member: the set continues without it (`repo <r> dropped from set <id>; the set continues without it; integrate redo <id> --repo <r> brings it back`). A dropped member does not block the others. The answer lists the integration branches it deleted, per repo (`removedBranches`; after 0.24.0).
 - `cstan integrate confirm <set-id> --repo <repo>` keeps one repo once its main holds the change. Every live member must be confirmed before the set is.
 - `decide-merge` merges a member into its own repo's main branch (`--into` does not apply to a member). Members merge in order: a member whose earlier repo is not settled is refused with `merge <repo> first`.
 
@@ -116,3 +116,9 @@ A review covers an integration **set** (below) as a whole. `cstan request-review
 - Each repo's own `.claude` settings files are not loaded for an agent that works from the change folder, so a repo's project-level permissions and hooks do not apply; put what the team needs in `capstan.toml` roles. A repo's `CLAUDE.md` is still read when the agent opens it, and the agent's prompt says to.
 - The config folder is only a config folder: the code, the branches and the merges are in the listed repos.
 - Git 2.38 or newer is needed to integrate.
+
+## Release and reports (after 0.24.0)
+
+- `cstan release <agent-id>` treats each repo as a single-repo project does: every worktree is removed, a branch that holds commits is kept (integration works from the branches) and a branch still at its base is deleted. `worktreeRemoved` is `true` when every worktree was removed. Before the fix after 0.24.0 a worktree with commits was kept.
+- The `Verified report` message for a report that names several repos lists every repo's commit and branch (`Commits:` then `- <repo>: <sha> on branch <branch>`); a one-repo report keeps the `Commit:` and `Branch:` lines.
+- `cstan repo add` answers only when the worktree and the repo's setup are done, and a report made right after it names the repo in either form (`<repo>=<sha>` or `--heads`).

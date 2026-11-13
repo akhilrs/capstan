@@ -90,6 +90,12 @@ public enum SetText {
 
     // MARK: Set
 
+    /// The key of the waiting item of another repo of the same set, when the host holds one. "Open <repo>" and
+    /// "Merge <next>…" are offered only for a repo that has an item to show; the Mac and the phone share this.
+    public static func waitingKey(of repo: String, in set: IntegrationSet, among waiting: [StoredWaiting]) -> String? {
+        waiting.first { $0.set?.repo == repo && $0.set?.setId == set.setId }?.key
+    }
+
     /// The set's word and sentence (`set.summary.*`).
     public static func state(_ set: IntegrationSet) -> SetState {
         let live = set.liveMembers

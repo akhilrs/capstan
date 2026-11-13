@@ -199,4 +199,43 @@ final class WorkspaceItemsTests: XCTestCase {
         XCTAssertEqual(stored.worktrees, held.worktrees)
         XCTAssertEqual(stored.changeFolder, "/w")
     }
+
+    // MARK: repos and cleanups of the run item
+
+    private let runWithWorkspace = #"""
+    {"requestId":"run","state":"active","paused":false,"contentHash":"h",
+     "repos":[{"repo":"api","mainBranch":"main"},{"repo":"web","mainBranch":"release"}],
+     "cleanups":[{"cleanupId":"c-2","repo":"web","branches":2,"worktrees":1},
+                 {"cleanupId":"c-1","repo":"old","branches":1,"worktrees":1,"left":true}]}
+    """#
+
+    func testTheRunItemCarriesTheReposAndTheOpenCleanups() throws {
+        let item = try RunItem(json: try json(runWithWorkspace))
+        XCTAssertEqual(item.repos, [WorkspaceRepo(repo: "api", mainBranch: "main"), WorkspaceRepo(repo: "web", mainBranch: "release")])
+        XCTAssertEqual(
+            item.cleanups,
+            [
+                CleanupOffer(cleanupId: "c-2", repo: "web", branches: 2, worktrees: 1),
+                CleanupOffer(cleanupId: "c-1", repo: "old", branches: 1, worktrees: 1, left: true),
+            ])
+    }
+
+    func testARunItemOfASingleRepoProjectHasNeither() throws {
+        let item = try RunItem(json: try json(#"{"requestId":"run","state":"active","paused":false,"contentHash":"h"}"#))
+        XCTAssertNil(item.repos)
+        XCTAssertNil(item.cleanups)
+    }
+
+    func testStoredRunKeepsTheReposAndCleanupsThroughJSONAndASavedFile() throws {
+        let stored = StoredRun(try RunItem(json: try json(runWithWorkspace)))
+        let again = try RunItem(json: stored.json)
+        XCTAssertEqual(again.repos, stored.repos)
+        XCTAssertEqual(again.cleanups, stored.cleanups)
+        let saved = try JSONDecoder().decode(StoredRun.self, from: try JSONEncoder().encode(stored))
+        XCTAssertEqual(saved, stored)
+        let old = #"{"requestId":"run","state":"active","paused":true,"contentHash":"h"}"#
+        let before = try JSONDecoder().decode(StoredRun.self, from: Data(old.utf8))
+        XCTAssertNil(before.repos)
+        XCTAssertNil(before.cleanups)
+    }
 }

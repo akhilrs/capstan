@@ -84,7 +84,7 @@ pub const ENTRIES: &[Entry] = &[
     e(WORKERS, "release", "release <agent-id>", "End a worker and free its pane and worktree."),
     e(WORKERS, "repo", "repo add <repo>", "Add a worktree in one more repo to your change, on your branch (workers only)."),
     e(WORKERS, "replace", "replace <agent-id>", "Replace a lost or stuck worker with a new one."),
-    e(REVIEW, "request-review", "request-review <report-or-integration-id> [role]", "Start an independent review of a report or an integration."),
+    e(REVIEW, "request-review", "request-review <report-or-integration-id> [role] [--brief <file>]", "Start an independent review of a report or an integration. --brief <file> puts the text of the file (at most 8 KB, plain text) into the reviewer's first message, after the controller's own instructions: what to check, which suites to run, whether the build slot is granted."),
     e(REVIEW, "review", "review pass|findings <text>", "Reviewer: answer the review request once."),
     e(REVIEW, "review", "review show <review-id> [--json]", "Print the full stored verdict text of a review, with its subject, state, reviewer and commit (PM, operator, the reviewer, the author of the reviewed work and the architect of its plan)."),
     e(REVIEW, "integrate", "integrate <report-id>...", "Squash reviewed reports onto an integration branch."),

@@ -146,6 +146,62 @@ fn anchor(text: &str) -> Result<&str, CommandResponse> {
     }
 }
 
+/// Whether the project has `[repos]`: only then does the `run` item carry the workspace part.
+fn is_workspace(env: &CommandEnv<'_>) -> bool {
+    env.config()
+        .is_some_and(|config| config.workspace.is_some())
+}
+
+/// The open cleanup offers, read in the same kernel closure as the item (`None` when the project has no `[repos]`).
+fn offers_of(core: &capstan_kernel::Core, wanted: bool) -> KernelResult<Option<Value>> {
+    wanted.then(|| core.cleanup_offers_view()).transpose()
+}
+
+/// The workspace part of the `run` item of the snapshot, set on `answer[member]`: `repos` (`[{repo, mainBranch}]` in merge
+/// order, from the configuration) and `cleanups` (the open offers, `[{cleanupId, repo, branches, worktrees, left?}]`;
+/// `left` when the repo left the configuration). Both are left out for a project without `[repos]`, and `cleanups` while
+/// none is open. They are not part of the item's `contentHash`: the repos follow the configuration and the offers move on
+/// their own events.
+fn with_workspace(
+    env: &CommandEnv<'_>,
+    mut answer: Value,
+    member: &str,
+    offers: Option<Value>,
+) -> Value {
+    let Some(workspace) = env.config().and_then(|config| config.workspace.as_ref()) else {
+        return answer;
+    };
+    let Some(item) = answer.get_mut(member).and_then(Value::as_object_mut) else {
+        return answer;
+    };
+    item.insert(
+        "repos".into(),
+        Value::Array(
+            workspace
+                .merge_order
+                .iter()
+                .map(|repo| json!({"repo": repo, "mainBranch": workspace.main_branch_of(repo)}))
+                .collect(),
+        ),
+    );
+    let mut offers = match offers {
+        Some(Value::Array(offers)) => offers,
+        _ => Vec::new(),
+    };
+    for offer in &mut offers {
+        let gone = offer["repo"]
+            .as_str()
+            .is_some_and(|repo| workspace.repo(repo).is_none());
+        if gone {
+            offer["left"] = json!(true);
+        }
+    }
+    if !offers.is_empty() {
+        item.insert("cleanups".into(), Value::Array(offers));
+    }
+    answer
+}
+
 fn feed(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
     let Some((sub, rest)) = call.args.split_first() else {
         return Some(usage());
@@ -164,7 +220,19 @@ fn run(
     let kernel = &deps.kernel;
     Ok(match sub {
         "head" if rest.is_empty() => answer(kernel.run(event_feed::feed_head)),
-        "snapshot" if rest.is_empty() => answer(kernel.run(snapshot_feed::snapshot_head)),
+        "snapshot" if rest.is_empty() => {
+            let wanted = is_workspace(env);
+            let found = kernel.run(move |core| {
+                Ok((
+                    snapshot_feed::snapshot_head(core)?,
+                    offers_of(core, wanted)?,
+                ))
+            });
+            answer(found.map(|(head, offers)| {
+                let head = serde_json::to_value(head).expect("a feed result serializes");
+                with_workspace(env, head, "run", offers)
+            }))
+        }
         "page" => {
             let flags = Flags::parse(rest, &["--after", "--limit", "--anchor"])?;
             let after = position(flags.required("--after")?)?;
@@ -235,15 +303,20 @@ fn run(
         }
         "item" if rest.len() == 2 => {
             let (section, key) = (rest[0].clone(), rest[1].clone());
+            let wanted = section == "run" && is_workspace(env);
             let found = kernel.run({
                 let (section, key) = (section.clone(), key.clone());
-                move |core| snapshot_feed::snapshot_item(core, &section, &key)
+                move |core| {
+                    Ok((
+                        snapshot_feed::snapshot_item(core, &section, &key)?,
+                        offers_of(core, wanted)?,
+                    ))
+                }
             });
-            answer(
-                found.map(
-                    |item: Option<Value>| json!({"section": section, "key": key, "item": item}),
-                ),
-            )
+            answer(found.map(|(item, offers): (Option<Value>, Option<Value>)| {
+                let answer = json!({"section": section, "key": key, "item": item});
+                with_workspace(env, answer, "item", offers)
+            }))
         }
         "hash" if rest.len() == 1 => {
             let request_id = rest[0].clone();

@@ -698,6 +698,11 @@ public struct RunItem: WireItem {
     public let contentHash: String
     /// The PM card; nil when the project has no active PM, and from a host that does not send it.
     public let pm: PmCard?
+    /// The repos of a workspace with their main branches, in merge order; nil for a single-repo project and from a host
+    /// before they were sent.
+    public let repos: [WorkspaceRepo]?
+    /// The open cleanup offers of a workspace, newest first; nil while none is open.
+    public let cleanups: [CleanupOffer]?
 
     public init(json: JSONValue) throws {
         _ = try json.members("run item")
@@ -706,6 +711,8 @@ public struct RunItem: WireItem {
         paused = try json.bool("paused")
         contentHash = try json.string("contentHash")
         pm = json.optional("pm").flatMap { PmCard(wire: $0) }
+        repos = WorkspaceRepo.list(in: json)
+        cleanups = CleanupOffer.list(in: json)
     }
 }
 

@@ -29,7 +29,7 @@ public enum PhoneSetText {
     /// The key of the waiting item of another repo of the same set, when the host holds one: "Open <repo>" and
     /// "Merge <next>…" are offered only for a repo that has an item to show.
     public static func waitingKey(of repo: String, in set: IntegrationSet, among waiting: [StoredWaiting]) -> String? {
-        waiting.first { $0.set?.repo == repo && $0.set?.setId == set.setId }?.key
+        SetText.waitingKey(of: repo, in: set, among: waiting)
     }
 }
 

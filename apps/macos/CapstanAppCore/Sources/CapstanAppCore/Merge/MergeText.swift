@@ -143,3 +143,12 @@ public struct MergeText: Equatable, Sendable {
         }
     }
 }
+
+extension MergeText {
+    /// `openRepo` when the host holds a waiting item of that repo in the set to show, else nil: the result offers
+    /// `Open <repo>` only where there is something to open.
+    public func openableRepo(in set: IntegrationSet?, among waiting: [StoredWaiting]) -> String? {
+        guard let repo = openRepo, let set, SetText.waitingKey(of: repo, in: set, among: waiting) != nil else { return nil }
+        return repo
+    }
+}

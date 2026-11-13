@@ -254,7 +254,7 @@ struct MergeSheet: View {
                     Button { retry(pending) } label: { Text(verbatim: sending ? "Sending…" : "Retry") }
                         .buttonStyle(.capstanQuiet).disabled(sending)
                 }
-                if let repo = made.openRepo {
+                if let repo = made.openRepo, waitingKey(of: repo) != nil {
                     Button("Close") { dismiss() }.buttonStyle(.capstanQuiet)
                     Button { open(repo) } label: { Text(verbatim: "Open " + repo) }
                         .buttonStyle(.capstanPrimary).keyboardShortcut(.defaultAction)
@@ -312,8 +312,8 @@ struct MergeSheet: View {
     /// Shows the item of another repo of the set in the inspector: the one the host said has to be merged first, or the
     /// one that follows. The members other than the next one are not rows of the list; the inspector reads any item.
     private func waitingKey(of repo: String) -> String? {
-        let waiting = model.hostModels[row.hostId]?.projects[row.projectId]?.waiting.values
-        return waiting?.first(where: { $0.set?.repo == repo && $0.set?.setId == set?.setId })?.key
+        guard let set, let waiting = model.hostModels[row.hostId]?.projects[row.projectId]?.waiting.values else { return nil }
+        return SetText.waitingKey(of: repo, in: set, among: Array(waiting))
     }
 
     private func open(_ repo: String) {

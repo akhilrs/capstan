@@ -79,4 +79,36 @@ final class WorkspaceOverviewTests: XCTestCase {
         XCTAssertEqual(WorkspaceOverview.older, "The host did not send workspace data. It may run a Capstan older than this app.")
         XCTAssertEqual(WorkspaceOverview.loading(host: "build-1"), "Loading the workspace from build-1…")
     }
+
+    func testTheMainBranchAndTheCleanupsComeFromTheRunItem() throws {
+        var model = try project(agents: [agent("dev-1", trees: [AgentWorktree(repo: "web", path: "/w/web")], folder: "/w")])
+        model.run = StoredRun(
+            requestId: "run", state: "active", paused: false, contentHash: "h",
+            repos: [WorkspaceRepo(repo: "api", mainBranch: "main"), WorkspaceRepo(repo: "web", mainBranch: "release")],
+            cleanups: [
+                CleanupOffer(cleanupId: "c-2", repo: "web", branches: 2, worktrees: 1),
+                CleanupOffer(cleanupId: "c-1", repo: "old", branches: 1, worktrees: 1, left: true),
+            ])
+        let overview = WorkspaceOverview.make(model)
+        XCTAssertEqual(overview.repos.map(\.repo), ["api", "web"])
+        XCTAssertEqual(overview.repos.map(\.mainBranch), ["main", "release"])
+        XCTAssertEqual(overview.repos.map(\.worktrees), [0, 1])
+        XCTAssertEqual(overview.cleanups.map(\.line), [
+            "cleanup c-2 · web: branches 2, worktrees 1", "cleanup c-1 · old: branches 1, worktrees 1",
+        ])
+        XCTAssertNil(overview.cleanups[0].leftNote)
+        XCTAssertNil(overview.cleanups[0].applyCommand)
+        XCTAssertEqual(overview.cleanups[1].leftNote, "old left the configuration: worktrees only, apply them by name")
+        XCTAssertEqual(overview.cleanups[1].applyCommand, "cstan cleanup apply c-1 <branch>")
+        XCTAssertFalse(overview.isEmpty)
+    }
+
+    func testAHostWithoutReposOrCleanupsShowsNoMainBranchAndNoCleanups() throws {
+        let members = [member("api", 0, "merged")]
+        let set = IntegrationSet(setId: "s1", state: "merged", repo: "api", position: 0, members: members)
+        let overview = WorkspaceOverview.make(try project(waiting: [waiting("integration:1", set: set)]))
+        XCTAssertEqual(overview.repos.map(\.mainBranch), [nil])
+        XCTAssertTrue(overview.cleanups.isEmpty)
+        XCTAssertEqual(WorkspaceOverview.noCleanups, "No repo has anything to clean up.")
+    }
 }

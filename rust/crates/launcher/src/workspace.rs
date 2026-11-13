@@ -611,9 +611,9 @@ impl LauncherKernel {
         })
     }
 
-    /// The release of a workspace worker: the worktrees with no commit after their base (and no report) go with their
-    /// new branches, those with commits stay for the integration, and the folder goes when it is empty. A removal that
-    /// fails keeps the row and the pane row, so the next start retries it.
+    /// The release of a workspace worker, repo by repo as for a single repo: every worktree goes, a branch that holds
+    /// commits stays (integration works from the branches), a branch still at its base goes too, and the folder goes
+    /// when it is empty. A removal that fails keeps the row and the pane row, so the next start retries it.
     pub(crate) fn release_workspace(
         &self,
         agent_id: &str,
@@ -629,7 +629,6 @@ impl LauncherKernel {
         let budget = self.budget(CLEANUP_BUDGET_MS);
         let keep_all =
             info.keep_worktrees || self.config.cleanup.worktrees == CleanupWorktrees::Keep;
-        let reported = !keep_all && self.ledger.agent_has_reports(agent_id)?;
         let mut failed = false;
         let mut all_removed = true;
         let mut any_branch_kept = false;
@@ -674,20 +673,6 @@ impl LauncherKernel {
                 }
             }
             let present = self.git.worktree_present(&tree.path);
-            let moved = self
-                .git
-                .branch_tip_in(&root, &tree.branch)
-                .is_some_and(|tip| tip != tree.base_sha);
-            if present && (moved || reported) {
-                self.log(
-                    "worktree_kept",
-                    json!({"agentId": agent_id, "repo": tree.repo, "worktreePath": tree.path, "reason": if moved { "commits" } else { "reported" }}),
-                );
-                let _ = self.ledger.remove_agent_worktree(agent_id, &tree.repo);
-                all_removed = false;
-                any_branch_kept = true;
-                continue;
-            }
             if present {
                 self.teardown_worktree(agent_id, &tree.path, &budget);
             }

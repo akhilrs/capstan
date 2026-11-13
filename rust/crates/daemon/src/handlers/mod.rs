@@ -274,7 +274,7 @@ pub fn command_limit_ms(deps: &Deps, command: &str, identity: &Identity) -> Opti
             Some(u64::try_from(seconds).unwrap_or(0) * 1000)
         }
         "launch" | "spawn" | "request-review" | "plan" | "integrate" | "prompt" | "release"
-        | "pm-restart" | "cache" | "verify" => Some(LAUNCHER_LIMIT_MS),
+        | "pm-restart" | "cache" | "verify" | "repo" => Some(LAUNCHER_LIMIT_MS),
         // A replacement is a release and a spawn, each with its own budget, behind whatever else the launcher runs.
         "replace" => Some(3 * LAUNCHER_LIMIT_MS),
         "decide-merge" => Some(DECIDE_MERGE_LIMIT_MS),

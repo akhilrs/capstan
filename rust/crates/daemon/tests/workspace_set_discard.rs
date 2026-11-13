@@ -1041,9 +1041,28 @@ fn discarding_a_whole_set_discards_every_member_and_the_set() {
         .as_str()
         .unwrap()
         .to_string();
+    let web_branch = world.integration(&set.web)["branch"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert!(world.branch_exists("core", &core_branch));
     let answer = world.discarded(&[&set.id]);
     assert_eq!(answer["state"], "discarded", "{answer}");
+    // The answer lists each branch it deleted, per repo (the trial printed an empty "removed:").
+    assert_eq!(
+        answer["removedBranches"],
+        json!([
+            {"repo": "core", "branch": core_branch},
+            {"repo": "web", "branch": web_branch}
+        ]),
+        "{answer}"
+    );
+    let message = answer["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!("core: {core_branch}"))
+            && message.contains(&format!("web: {web_branch}")),
+        "{message}"
+    );
     assert_eq!(world.set_of(&set.id)["state"], "discarded");
     assert_eq!(world.integration(&set.core)["state"], "discarded");
     assert_eq!(world.integration(&set.web)["state"], "discarded");
