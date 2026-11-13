@@ -2,6 +2,26 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.25.0 (2026-11-13)
+
+### Upgrade note
+
+Run `cstan restart` in each project after installing 0.25.0. The Mac and iPhone app code is in the tree but was not built on Linux, so it is untested in this release.
+
+### Features
+
+- feat(workspace): workspace views in `cstan status`, the dashboard and the feed, plus workspace docs and apps (`feat(workspace): workspace views, docs and apps (plan-185)`, `feat: Workspace mode: views, docs and apps (rebased on main 3775f3aa)`).
+
+### Bug fixes
+
+- fix: follow-ups after v0.24.0: the typed `merge_order` code (`fix: follow-ups after v0.24.0 (PM-519)`).
+- fix: workspace trial fixes and feed cleanups: feed repos, a workspace release that removes its worktrees, a timeout on `cstan repo add`, a Verified report that lists each repo, a discard that lists the removed branches, and a shorter local-only refusal text. `cstan request-review` gains `--brief` (`fix: workspace trial fixes, feed cleanups and request-review --brief (PM-527, PM-528, PM-529)`).
+- fix: the `request-review` usage message names `--brief` naturally (`fix: reword the request-review usage message to name --brief naturally`).
+
+### Documentation
+
+- docs(remote): state which release answers `merge_order` (`docs(remote): state which release answers merge_order`).
+
 ## 0.24.0 (2026-11-11)
 
 ### Upgrade note
