@@ -4,7 +4,7 @@ use crate::canonical::sha256;
 use crate::dispatch::{arg, call, Args};
 use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
-    execute, js_trim, query_all, query_opt, report_notice, report_record, safe_id_str,
+    execute, js_trim, query_all, query_opt, report_notice_repos, report_record, safe_id_str,
 };
 use crate::json::stringify;
 use crate::kernel::Kernel;
@@ -401,14 +401,19 @@ fn announce(kernel: &Kernel, report_id: &str, role_name: &str, now: &str) -> Ker
             pms.remove(0)
         }
     };
+    let repos: Vec<(String, String, String)> = query_all(
+        &kernel.database,
+        "SELECT repo, commit_sha, branch FROM report_commits WHERE project_id = ? AND report_id = ? ORDER BY repo",
+        [&kernel.project_id, report_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    let notice = report_notice_repos(&row, role_name, &repos);
     let body = match &route {
         Some(route) => format!(
             "{}\nWork package: {}/{}",
-            report_notice(&row, role_name),
-            route.plan_id,
-            route.package_id
+            notice, route.plan_id, route.package_id
         ),
-        None => report_notice(&row, role_name),
+        None => notice,
     };
     let message_id = messages::insert_queued_message(
         kernel,

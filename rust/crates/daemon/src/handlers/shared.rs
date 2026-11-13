@@ -35,6 +35,9 @@ pub const MAX_STATUS_REPORTS: usize = 20;
 /// Room the driver's frame header and footer need inside the adapter's text limit.
 pub const FRAME_RESERVE: usize = 1024;
 pub const MAX_SEND_BODY_BYTES: usize = MAX_TEXT_BYTES - FRAME_RESERVE;
+/// The most bytes of a `request-review --brief` text (the review task is typed into the reviewer's pane, which takes at
+/// most 16 KiB in all).
+pub const MAX_REVIEW_BRIEF_BYTES: usize = 8 * 1024;
 /// The time a launcher operation may run; it covers the operation budgets and one queued operation.
 pub const LAUNCHER_LIMIT_MS: u64 = 600_000;
 pub const WIDENS_LABEL: &str = "CHANGES PERMISSIONS BEYOND THIS ACTION";

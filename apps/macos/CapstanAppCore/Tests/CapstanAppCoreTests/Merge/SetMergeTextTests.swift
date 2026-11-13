@@ -84,6 +84,22 @@ final class SetMergeTextTests: XCTestCase {
         XCTAssertEqual(made.tone, .warning)
     }
 
+    func testTheResultOffersOpenOnlyForARepoThatHasAWaitingItem() {
+        let worker = set(repo: "worker")
+        let made = MergeText.make(
+            refused("not_waiting", "merge web first"), branch: "b", hostName: "h", at: now, set: worker)
+        var webItem = StoredWaiting(
+            key: "w", requestId: "w", kind: .integration, since: "",
+            summary: text(""), contentHash: "w", needsTerminal: false)
+        webItem.set = set(repo: "web")
+        XCTAssertEqual(made.openableRepo(in: worker, among: [webItem]), "web")
+        XCTAssertNil(made.openableRepo(in: worker, among: []))
+        XCTAssertNil(made.openableRepo(in: nil, among: [webItem]))
+        XCTAssertNil(MergeText.make(.refused(
+            DecideRefusal(code: .notWaiting, message: text("merge nowhere first")), hint: .refresh),
+            branch: "b", hostName: "h", at: now, set: worker).openableRepo(in: worker, among: [webItem]))
+    }
+
     func testARefusalThatLooksLikeTheOrderOneButNamesNoMemberIsNotRead() {
         let made = MergeText.make(
             refused("not_waiting", "merge nowhere first"), branch: "b", hostName: "h", at: now, set: set(repo: "worker"))

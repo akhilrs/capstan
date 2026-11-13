@@ -70,6 +70,7 @@ struct WaitingRow: View {
                 // The strip is 8 glyphs then +n on the phone; the count sentence is the VoiceOver text.
                 Text(verbatim: PhoneSetText.secondary(set))
                     .font(TypeStyle.subheadline).foregroundStyle(Tokens.color(.label2)).lineLimit(3)
+                    .accessibilityLabel(Text(verbatim: PhoneSetText.stripVoiceover(set)))
             } else {
             switch RowText.secondary(row) {
             case .mono(let text):

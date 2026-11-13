@@ -143,6 +143,43 @@ fn text(out: &mut Vec<u8>, line: &JsStr) {
     out.push(b'\n');
 }
 
+/// `request-review ... --brief <file>`: the file is read here and sent as one `--brief=<text>` argument. The text must be
+/// non-empty, valid UTF-8, at most `MAX_REVIEW_BRIEF_BYTES` and hold no line that looks like a Capstan message frame.
+fn expand_brief(args: &[String]) -> Result<Vec<String>, Fail> {
+    let Some(at) = args.iter().position(|a| a == "--brief") else {
+        return Ok(args.to_vec());
+    };
+    let Some(path) = args.get(at + 1) else {
+        return Err(invalid("--brief needs a file path"));
+    };
+    if args.iter().filter(|a| *a == "--brief").count() > 1 {
+        return Err(invalid("--brief may be given once"));
+    }
+    let max = capstan_daemon::handlers::shared::MAX_REVIEW_BRIEF_BYTES;
+    let bytes = std::fs::read(path)
+        .map_err(|error| invalid(format!("cannot read the brief file {path}: {error}")))?;
+    if bytes.len() > max {
+        return Err(invalid(format!(
+            "the brief file {path} is {} bytes; a brief may be at most {max} bytes",
+            bytes.len()
+        )));
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|_| invalid(format!("the brief file {path} is not valid UTF-8 text")))?;
+    if text.trim().is_empty() {
+        return Err(invalid(format!("the brief file {path} is empty")));
+    }
+    if capstan_daemon::handlers::shared::imitates_frame(&text) {
+        return Err(invalid(
+            "the brief must not contain a line that looks like a Capstan message frame",
+        ));
+    }
+    let mut out: Vec<String> = args[..at].to_vec();
+    out.push(format!("--brief={text}"));
+    out.extend_from_slice(&args[at + 2..]);
+    Ok(out)
+}
+
 impl Cli<'_> {
     /// `runRouted`.
     pub fn run_routed(&mut self, command: &str, args: &[String], json: bool) -> Result<Flow, Fail> {
@@ -154,6 +191,13 @@ impl Cli<'_> {
                 "a command argument holds a replacement character, so its text was not valid UTF-8",
             ));
         }
+        let brief_args;
+        let args = if command == "request-review" {
+            brief_args = expand_brief(args)?;
+            &brief_args[..]
+        } else {
+            args
+        };
         if command == "verify" {
             let shape_ok = match args.first().map(String::as_str) {
                 Some("show" | "cancel") => args.len() == 2,

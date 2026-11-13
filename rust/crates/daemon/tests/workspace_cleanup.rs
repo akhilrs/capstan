@@ -271,6 +271,28 @@ worktree_dir = "{c}"
         serde_json::from_str(&outcome.response.expect("an answer")).expect("JSON")
     }
 
+    /// `feed snapshot` and `feed item run run`: the `run` item each answers.
+    fn feed_runs(&self) -> (Value, Value) {
+        let one = |args: &[&str]| {
+            let frame =
+                json!({"v": 1, "credential": self.operator, "command": "feed", "args": args});
+            let outcome = handle_frame(
+                &self.deps,
+                frame.to_string().as_bytes(),
+                &AbortSignal::new(),
+                MAX_RESPONSE_BYTES,
+            );
+            let answer: Value =
+                serde_json::from_str(&outcome.response.expect("an answer")).unwrap();
+            assert_eq!(answer["ok"], true, "feed {args:?}: {answer}");
+            answer["result"].clone()
+        };
+        (
+            one(&["snapshot"])["run"].clone(),
+            one(&["item", "run", "run"])["item"].clone(),
+        )
+    }
+
     fn ok(&self, args: &[&str]) -> Value {
         let answer = self.call(args);
         assert_eq!(answer["ok"], true, "cleanup {args:?}: {answer}");
@@ -628,4 +650,67 @@ fn without_repos_the_answer_keeps_its_single_repo_shape() {
     );
     assert!(answer["cleanupId"].is_null());
     assert_eq!(answer["offered"], 0);
+}
+
+#[test]
+fn the_feed_run_item_carries_the_repos_main_branches_and_the_open_cleanups_of_a_workspace() {
+    let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    let world = old_world(&["good", "gone"]);
+    // No offer yet: the repos show, the cleanups do not.
+    let (snapshot, item) = world.feed_runs();
+    let repos = json!([
+        {"repo": "core", "mainBranch": "main"},
+        {"repo": "web", "mainBranch": "main"},
+    ]);
+    assert_eq!(snapshot["repos"], repos, "{snapshot}");
+    assert_eq!(item["repos"], repos, "{item}");
+    assert!(snapshot.get("cleanups").is_none(), "{snapshot}");
+
+    world.worktree("good", "core", &at(&world, "good"), "b/good");
+    world.worktree("gone", "old", &at(&world, "gone"), "b/gone");
+    world.end("good");
+    world.end("gone");
+    let answer = world.ok(&[]);
+    let core_id = cleanup_of(&answer, "core")["cleanupId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let old_id = cleanup_of(&answer, "old")["cleanupId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (snapshot, item) = world.feed_runs();
+    assert_eq!(snapshot["cleanups"], item["cleanups"]);
+    let offers = snapshot["cleanups"].as_array().unwrap();
+    assert_eq!(offers.len(), 2, "{snapshot}");
+    let core = offers.iter().find(|o| o["repo"] == "core").unwrap();
+    assert_eq!(core["cleanupId"], core_id.as_str());
+    assert_eq!(core["branches"], 1);
+    assert_eq!(core["worktrees"], 1);
+    assert!(core.get("left").is_none(), "{core}");
+    let old = offers.iter().find(|o| o["repo"] == "old").unwrap();
+    assert_eq!(old["cleanupId"], old_id.as_str());
+    assert_eq!(old["left"], true);
+
+    // A declined offer is no longer listed.
+    world.ok(&["decline", &core_id]);
+    let (snapshot, _) = world.feed_runs();
+    assert_eq!(
+        snapshot["cleanups"].as_array().unwrap().len(),
+        1,
+        "{snapshot}"
+    );
+}
+
+#[test]
+fn the_feed_run_item_of_a_single_repo_project_has_neither() {
+    let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    let world = World::build(&[], false);
+    let (snapshot, item) = world.feed_runs();
+    for run in [&snapshot, &item] {
+        assert!(
+            run.get("repos").is_none() && run.get("cleanups").is_none(),
+            "{run}"
+        );
+    }
 }

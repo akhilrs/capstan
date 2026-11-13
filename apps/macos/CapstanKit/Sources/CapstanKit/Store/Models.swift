@@ -409,13 +409,22 @@ public struct StoredRun: Codable, Sendable, Equatable {
     public var contentHash: String
     /// The PM card; nil without an active PM, from an older host and in saved files from before it.
     public var pm: PmCard?
+    /// The workspace's repos with their main branches and its open cleanup offers; nil for a single-repo project, from
+    /// an older host and in saved files from before them.
+    public var repos: [WorkspaceRepo]?
+    public var cleanups: [CleanupOffer]?
 
-    public init(requestId: String, state: String, paused: Bool, contentHash: String, pm: PmCard? = nil) {
+    public init(
+        requestId: String, state: String, paused: Bool, contentHash: String, pm: PmCard? = nil,
+        repos: [WorkspaceRepo]? = nil, cleanups: [CleanupOffer]? = nil
+    ) {
         self.requestId = requestId
         self.state = state
         self.paused = paused
         self.contentHash = contentHash
         self.pm = pm
+        self.repos = repos
+        self.cleanups = cleanups
     }
 
     /// False between a `run.changed` event and the read that follows it: a decision would carry a stale hash.
@@ -424,14 +433,17 @@ public struct StoredRun: Codable, Sendable, Equatable {
     init(_ item: RunItem) {
         self.init(
             requestId: item.requestId, state: item.state, paused: item.paused, contentHash: item.contentHash,
-            pm: item.pm)
+            pm: item.pm, repos: item.repos, cleanups: item.cleanups)
     }
 
     var json: JSONValue {
-        .object([
+        var members: [String: JSONValue] = [
             "requestId": .string(requestId), "state": .string(state), "paused": .bool(paused),
             "contentHash": .string(contentHash), "pm": pm?.json ?? .null,
-        ])
+        ]
+        if let repos { members["repos"] = .array(repos.map(\.json)) }
+        if let cleanups { members["cleanups"] = .array(cleanups.map(\.json)) }
+        return .object(members)
     }
 }
 

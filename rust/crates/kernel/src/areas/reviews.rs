@@ -6,7 +6,7 @@ use crate::errors::{KernelError, KernelResult};
 use crate::helpers::{
     execute, js_trim, package_reviewed_notice, plan_needs_attention_notice, query_all, query_opt,
     review_notice, review_record, review_task, safe_id_str, PackageScope, PlanAmendmentBrief,
-    PriorVerdict, RepoBrief, ReviewBrief, ScopeBrief, ScopeFile, MAX_SCOPE_FILES,
+    PriorVerdict, RepoBrief, RequesterBrief, ReviewBrief, ScopeBrief, ScopeFile, MAX_SCOPE_FILES,
 };
 use crate::kernel::Kernel;
 use crate::plan_body::{findings_class, package_of_body, parse_plan_findings};
@@ -459,6 +459,7 @@ pub fn begin_review(
             repos,
             set_id: set_id.clone(),
             plan_workspace,
+            requester_brief: requester_brief_of(input),
             history: held.clone().unwrap_or_default(),
             verify: match field(input, "verifyCommandsSha").as_str() {
                 Some(commands_sha) => Some(verify_runs::summary_at(
@@ -500,6 +501,17 @@ pub fn begin_review(
         }));
         event.to_state = Some("started".into());
         Ok(MutationOutput::new(value, event))
+    })
+}
+
+/// The requester's brief of a request (`brief: {from, text}`), when it has a non-empty one.
+fn requester_brief_of(input: &Value) -> Option<RequesterBrief> {
+    let brief = input.get("brief")?;
+    let text = brief.get("text")?.as_str()?;
+    let from = brief.get("from")?.as_str()?;
+    (!text.trim().is_empty()).then(|| RequesterBrief {
+        from: from.to_string(),
+        text: text.to_string(),
     })
 }
 

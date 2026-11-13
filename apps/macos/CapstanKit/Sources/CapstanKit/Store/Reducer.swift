@@ -315,7 +315,8 @@ public enum StoreReducer {
     private static func applyRunChange(_ event: FeedEvent, to model: inout ProjectModel) {
         guard let body = event.body.runBody, let run = model.run else { return }
         model.run = StoredRun(
-            requestId: run.requestId, state: body.state, paused: body.paused, contentHash: "", pm: run.pm)
+            requestId: run.requestId, state: body.state, paused: body.paused, contentHash: "", pm: run.pm,
+            repos: run.repos, cleanups: run.cleanups)
     }
 
     private static func applyAttention(_ event: FeedEvent, to model: inout ProjectModel) {

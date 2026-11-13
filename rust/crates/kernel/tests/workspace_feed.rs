@@ -695,3 +695,95 @@ fn the_set_statements_read_through_indexes_and_sort_only_the_members_of_one_set(
         }
     }
 }
+
+fn cleanup(
+    f: &Fixture,
+    id: &str,
+    sequence: i64,
+    state: &str,
+    repo: Option<&str>,
+    branches: &[(&str, Option<&str>, &str)],
+) {
+    let conn = db(f);
+    conn.execute(
+        "INSERT INTO cleanups(project_id, cleanup_id, sequence, trigger, integration_id, requested_by, mode, state, created_at, completed_at)
+         VALUES ('prustonly', ?, ?, 'manual', NULL, 'pm-1', 'ask', ?, '2026-01-01T00:00:00.000Z', ?)",
+        rusqlite::params![id, sequence, state, (state != "offered").then_some("2026-01-01T00:00:00.000Z")],
+    )
+    .unwrap();
+    if let Some(repo) = repo {
+        conn.execute(
+            "INSERT INTO cleanup_repos(project_id, cleanup_id, repo) VALUES ('prustonly', ?, ?)",
+            rusqlite::params![id, repo],
+        )
+        .unwrap();
+    }
+    for (branch, worktree, outcome) in branches {
+        conn.execute(
+            "INSERT INTO cleanup_branches(project_id, cleanup_id, branch, sha, class, worktree_path, outcome, decided_at)
+             VALUES ('prustonly', ?, ?, ?, 'landed', ?, ?, ?)",
+            rusqlite::params![
+                id,
+                branch,
+                COMMIT_A,
+                worktree,
+                outcome,
+                (*outcome != "offered").then_some("2026-01-01T00:00:00.000Z")
+            ],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn the_open_cleanup_offers_of_a_workspace_list_their_repo_branches_and_worktrees() {
+    let f = Fixture::new();
+    let core = f.core();
+    assert_eq!(core.cleanup_offers_view().unwrap(), json!([]));
+    // A single-repo cleanup has no repo row: it is not listed.
+    cleanup(
+        &f,
+        "c-root",
+        1,
+        "offered",
+        None,
+        &[("feat/a", None, "offered")],
+    );
+    assert_eq!(core.cleanup_offers_view().unwrap(), json!([]));
+    cleanup(
+        &f,
+        "c-api",
+        2,
+        "offered",
+        Some("api"),
+        &[
+            ("feat/b", Some("/w/b"), "offered"),
+            ("feat/c", None, "offered"),
+            ("feat/d", None, "deleted"),
+        ],
+    );
+    cleanup(
+        &f,
+        "c-web",
+        3,
+        "offered",
+        Some("web"),
+        &[("feat/e", Some("/w/e"), "offered")],
+    );
+    // An applied or declined offer is no longer open.
+    cleanup(
+        &f,
+        "c-old",
+        4,
+        "applied",
+        Some("api"),
+        &[("feat/f", None, "deleted")],
+    );
+    assert_eq!(
+        core.cleanup_offers_view().unwrap(),
+        json!([
+            {"cleanupId": "c-web", "repo": "web", "branches": 1, "worktrees": 1},
+            {"cleanupId": "c-api", "repo": "api", "branches": 2, "worktrees": 1},
+        ])
+    );
+}

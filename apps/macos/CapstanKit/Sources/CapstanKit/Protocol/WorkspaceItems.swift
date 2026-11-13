@@ -286,3 +286,68 @@ extension EventBody {
         return ReportCommit.list(in: raw)
     }
 }
+
+/// A repo of the workspace with its main branch, from the `repos` member of the run item (merge order).
+public struct WorkspaceRepo: Codable, Sendable, Equatable {
+    public var repo: String
+    public var mainBranch: String
+
+    public init(repo: String, mainBranch: String) {
+        self.repo = repo
+        self.mainBranch = mainBranch
+    }
+
+    init?(wire json: JSONValue) {
+        guard case .object = json, let repo = json.wsString("repo"), let main = json.wsString("mainBranch"), !main.isEmpty
+        else { return nil }
+        self.init(repo: repo, mainBranch: main)
+    }
+
+    /// The repos of a `repos` member, nil when there is none (a single-repo project or a host before it).
+    static func list(in json: JSONValue) -> [WorkspaceRepo]? {
+        guard let rows = json.wsList("repos", { WorkspaceRepo(wire: $0) }), !rows.isEmpty else { return nil }
+        return rows
+    }
+
+    var json: JSONValue { .object(["repo": .string(repo), "mainBranch": .string(mainBranch)]) }
+}
+
+/// One open cleanup offer of a repo, from the `cleanups` member of the run item.
+public struct CleanupOffer: Codable, Sendable, Equatable {
+    public var cleanupId: String
+    public var repo: String
+    /// The branches still offered, and how many of them have a worktree.
+    public var branches: Int64
+    public var worktrees: Int64
+    /// The repo left the configuration: its entries go only by name.
+    public var left: Bool
+
+    public init(cleanupId: String, repo: String, branches: Int64, worktrees: Int64, left: Bool = false) {
+        self.cleanupId = cleanupId
+        self.repo = repo
+        self.branches = branches
+        self.worktrees = worktrees
+        self.left = left
+    }
+
+    init?(wire json: JSONValue) {
+        guard case .object = json, let id = json.wsString("cleanupId"), let repo = json.wsString("repo") else { return nil }
+        self.init(
+            cleanupId: id, repo: repo, branches: json.wsInt("branches") ?? 0, worktrees: json.wsInt("worktrees") ?? 0,
+            left: json.wsBool("left") ?? false)
+    }
+
+    /// The offers of a `cleanups` member, nil when there is none.
+    static func list(in json: JSONValue) -> [CleanupOffer]? {
+        guard let rows = json.wsList("cleanups", { CleanupOffer(wire: $0) }), !rows.isEmpty else { return nil }
+        return rows
+    }
+
+    var json: JSONValue {
+        var members: [String: JSONValue] = [
+            "cleanupId": .string(cleanupId), "repo": .string(repo), "branches": .int(branches), "worktrees": .int(worktrees),
+        ]
+        if left { members["left"] = .bool(true) }
+        return .object(members)
+    }
+}

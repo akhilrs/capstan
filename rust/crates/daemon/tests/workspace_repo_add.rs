@@ -670,3 +670,108 @@ fn a_replace_that_failed_before_the_copy_leaves_no_worker() {
     w.assert_rows_match_disk(&agent);
     let _ = &w.scratch;
 }
+
+#[test]
+fn a_repo_add_may_run_as_long_as_a_spawn() {
+    // The trial: `repo add` ran a repo's setup (about 21 s) and the daemon closed the connection first.
+    let w = World::new();
+    let who = capstan_kernel::types::Identity {
+        actor_id: "x".into(),
+        role: "developer".into(),
+        capabilities: Vec::new(),
+        agent: None,
+    };
+    let limit = capstan_daemon::handlers::command_limit_ms(&w.deps, "repo", &who);
+    assert_eq!(
+        limit,
+        capstan_daemon::handlers::command_limit_ms(&w.deps, "spawn", &who)
+    );
+    assert!(limit.is_some_and(|ms| ms >= 600_000), "{limit:?}");
+}
+
+/// Commits one file in the worker's worktree of `repo` and returns the commit.
+fn commit_in(w: &World, agent: &str, repo: &str, file: &str) -> String {
+    let tree = w.changes.join(agent).join(repo);
+    std::fs::write(tree.join(file), "x\n").unwrap();
+    git(&tree, &["add", "-A"]);
+    git(
+        &tree,
+        &["commit", "--quiet", "-m", &format!("feat: {file}")],
+    );
+    git(&tree, &["rev-parse", "HEAD"])
+}
+
+#[test]
+fn repo_add_then_a_report_with_repo_equals_sha_names_both_repos() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    w.add(&agent, "web");
+    let core = commit_in(&w, &agent, "core", "a.txt");
+    let web = commit_in(&w, &agent, "web", "b.txt");
+    let answer = w.call(
+        &agent,
+        "report",
+        &[&format!("core={core}"), &format!("web={web}"), "both repos"],
+    );
+    assert_eq!(answer["ok"], true, "{answer}");
+    let report = answer["result"]["reportId"].as_str().unwrap().to_string();
+    let commits = w
+        .ledger(move |core| core.report_commits(&report))
+        .as_array()
+        .cloned()
+        .unwrap();
+    let repos: Vec<&str> = commits
+        .iter()
+        .map(|c| c["repo"].as_str().unwrap())
+        .collect();
+    assert_eq!(repos, ["core", "web"]);
+    // The PM's notice lists every repo's commit and branch.
+    let branch = w.rows(&agent)[0]["branch"].as_str().unwrap().to_string();
+    let notice = w.pm_notice();
+    assert!(notice.contains("Commits:"), "{notice}");
+    assert!(
+        notice.contains(&format!("- core: {core} on branch {branch}")),
+        "{notice}"
+    );
+    assert!(
+        notice.contains(&format!("- web: {web} on branch {branch}")),
+        "{notice}"
+    );
+    assert!(!notice.contains("\nCommit: "), "{notice}");
+}
+
+#[test]
+fn release_removes_every_worktree_and_keeps_the_branches_with_commits() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    w.add(&agent, "web");
+    commit_in(&w, &agent, "core", "a.txt");
+    commit_in(&w, &agent, "web", "b.txt");
+    let branch = w.rows(&agent)[0]["branch"].as_str().unwrap().to_string();
+    let released = w.launcher.release(&agent).expect("the release");
+    assert_eq!(released.outcome.worktree_removed, Some(true));
+    assert_eq!(released.outcome.branch_kept, Some(true));
+    assert_eq!(w.worktrees("core"), 0);
+    assert_eq!(w.worktrees("web"), 0);
+    assert!(!w.changes.join(&agent).exists());
+    assert!(w.branches("core").contains(&branch));
+    assert!(w.branches("web").contains(&branch));
+    assert!(w.rows(&agent).is_empty());
+}
+
+impl World {
+    /// The newest "Verified report" message queued for the PM.
+    fn pm_notice(&self) -> String {
+        self.ledger(|core| {
+            let kernel = core.kernel();
+            capstan_kernel::helpers::query_all(
+                &kernel.database,
+                "SELECT body FROM messages WHERE project_id = ? AND body LIKE 'Verified report%' ORDER BY sequence",
+                [&kernel.project_id],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .pop()
+        .expect("a verified-report notice")
+    }
+}

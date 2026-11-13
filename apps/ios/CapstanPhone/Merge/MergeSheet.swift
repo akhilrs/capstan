@@ -145,10 +145,15 @@ struct MergeSheet: View {
         }
     }
 
+    /// The waiting items the host holds for this project.
+    private var waitingItems: [StoredWaiting] {
+        model.hostModels[row.hostId]?.projects[row.projectId].map { Array($0.waiting.values) } ?? []
+    }
+
     /// The waiting item of another repo of this set, when the host holds one.
     private func waitingKey(of repo: String) -> String? {
-        guard let set, let waiting = model.hostModels[row.hostId]?.projects[row.projectId]?.waiting.values else { return nil }
-        return PhoneSetText.waitingKey(of: repo, in: set, among: Array(waiting))
+        guard let set else { return nil }
+        return PhoneSetText.waitingKey(of: repo, in: set, among: waitingItems)
     }
 
     /// Shows the item of another repo of the set, after the sheet closes.
@@ -315,7 +320,7 @@ struct MergeSheet: View {
                         .buttonStyle(.capstanQuiet)
                         .disabled(sending)
                     }
-                    if let repo = text.openRepo {
+                    if let repo = text.openableRepo(in: set, among: waitingItems) {
                         Button("Close") { dismiss() }.buttonStyle(.capstanQuiet)
                         Button { open(repo) } label: { Text(verbatim: "Open " + repo) }.buttonStyle(.capstanPrimary)
                     } else if let command = text.command {

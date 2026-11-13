@@ -606,6 +606,7 @@ fn the_task_renders_scope_files_package_acceptance_and_outside_files_with_the_ga
         repos: vec![],
         set_id: None,
         plan_workspace: false,
+        requester_brief: None,
     };
     let task = review_task(&row(), &[], None, &brief);
     assert!(task.contains(&format!(
@@ -692,4 +693,23 @@ fn a_workspace_plan_task_says_the_base_is_informational() {
     let task = review_task(&plan_row, &[], None, &brief);
     assert!(task.contains("workspace plan"), "{task}");
     assert!(task.contains("informational"), "{task}");
+}
+
+#[test]
+fn the_requesters_brief_follows_the_controllers_instructions_line_by_line() {
+    let brief = ReviewBrief {
+        requester_brief: Some(capstan_kernel::helpers::RequesterBrief {
+            from: "pm-1".into(),
+            text: "Run -p tests only.\nBuild slot granted.".into(),
+        }),
+        ..ReviewBrief::default()
+    };
+    let task = review_task(&row(), &[], None, &brief);
+    let lines: Vec<&str> = task.lines().collect();
+    let n = lines.len();
+    assert!(lines[n - 3].starts_with("Brief from pm-1"), "{task}");
+    assert_eq!(lines[n - 2], "| Run -p tests only.");
+    assert_eq!(lines[n - 1], "| Build slot granted.");
+    assert!(task.find("Answer exactly once").unwrap() < task.find("Brief from").unwrap());
+    assert!(!review_task(&row(), &[], None, &ReviewBrief::default()).contains("Brief from"));
 }

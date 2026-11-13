@@ -1485,10 +1485,10 @@ fn discard_member_integration(
     deps: &IntegrationDeps,
     git: &GitRepo,
     record: &Value,
-) -> IntegrateResult<()> {
+) -> IntegrateResult<Option<String>> {
     let state = record["state"].as_str().unwrap_or_default();
     if state != "merged" && state != "conflicted" {
-        return Ok(());
+        return Ok(None);
     }
     let id = record["integrationId"].as_str().unwrap_or_default();
     settle_integration(
@@ -1498,15 +1498,16 @@ fn discard_member_integration(
     )?;
     if let (true, Some(head)) = (state == "merged", record["headSha"].as_str()) {
         let branch = record["branch"].as_str().unwrap_or_default();
-        if !git.delete_branch_at(branch, head).unwrap_or(false) {
-            deps.state.remember(id);
-            (deps.log)(
-                "integration_branch_not_removed",
-                json!({"integrationId": id, "branch": branch}),
-            );
+        if git.delete_branch_at(branch, head).unwrap_or(false) {
+            return Ok(Some(branch.to_string()));
         }
+        deps.state.remember(id);
+        (deps.log)(
+            "integration_branch_not_removed",
+            json!({"integrationId": id, "branch": branch}),
+        );
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Cancels the queued and running verify runs of an integration (only those of `repo` when one is given); the ids of the
@@ -1936,6 +1937,7 @@ pub fn integrate_discard(deps: &IntegrationDeps, run: &DiscardRun) -> IntegrateR
     let mut cancelled: Vec<String> = Vec::new();
     let mut discarded: Vec<String> = Vec::new();
     let mut removed: Vec<String> = Vec::new();
+    let mut removed_branches: Vec<Value> = Vec::new();
     for (member, record, state) in &states {
         let repo = member["repo"].as_str().unwrap_or_default().to_string();
         if let Some(id) = member["integrationId"].as_str() {
@@ -1951,7 +1953,9 @@ pub fn integrate_discard(deps: &IntegrationDeps, run: &DiscardRun) -> IntegrateR
         match state.as_str() {
             "merged" | "conflicted" => {
                 let git = (run.git_for)(&repo);
-                discard_member_integration(deps, &git, record)?;
+                if let Some(branch) = discard_member_integration(deps, &git, record)? {
+                    removed_branches.push(json!({"repo": repo, "branch": branch}));
+                }
                 discarded.push(repo);
             }
             "" => {
@@ -2010,6 +2014,25 @@ pub fn integrate_discard(deps: &IntegrationDeps, run: &DiscardRun) -> IntegrateR
         Some(repo) => json!(format!("repo {repo} removed from set {set_id}")),
         None => json!(format!("set {set_id} discarded")),
     };
+    let message = if removed_branches.is_empty() || run.repo.is_some() {
+        message
+    } else {
+        let list: Vec<String> = removed_branches
+            .iter()
+            .map(|b| {
+                format!(
+                    "{}: {}",
+                    b["repo"].as_str().unwrap_or_default(),
+                    b["branch"].as_str().unwrap_or_default()
+                )
+            })
+            .collect();
+        json!(format!(
+            "{}; removed branches: {}",
+            message.as_str().unwrap_or_default(),
+            list.join(", ")
+        ))
+    };
     Ok(json!({
         "message": message,
         "setId": set_id,
@@ -2017,6 +2040,7 @@ pub fn integrate_discard(deps: &IntegrationDeps, run: &DiscardRun) -> IntegrateR
         "state": state,
         "discarded": discarded,
         "removed": removed,
+        "removedBranches": removed_branches,
         "cancelledRuns": cancelled,
         "members": after["members"],
         "reviewMustBeRequestedAgain": review_open && state != "discarded",

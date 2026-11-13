@@ -1179,6 +1179,35 @@ pub fn integration_sets_view(kernel: &Kernel, limit: i64) -> KernelResult<Value>
     Ok(Value::Array(out))
 }
 
+/// The most open cleanup offers the feed lists.
+pub const CLEANUP_OFFERS_MAX: i64 = 64;
+
+/// `cleanupOffersView`: the open (`offered`) cleanups of a workspace, newest first, each `{cleanupId, repo, branches,
+/// worktrees}`: the branches still offered and how many of them have a worktree. Only a cleanup with a repo row is listed,
+/// so a single-repo project (which has none) gets an empty list. One statement.
+pub fn cleanup_offers_view(kernel: &Kernel) -> KernelResult<Value> {
+    kernel.assert_open()?;
+    let rows = query_all(
+        &kernel.database,
+        "SELECT c.cleanup_id, r.repo,
+                (SELECT COUNT(*) FROM cleanup_branches b WHERE b.project_id = c.project_id AND b.cleanup_id = c.cleanup_id AND b.outcome = 'offered'),
+                (SELECT COUNT(*) FROM cleanup_branches b WHERE b.project_id = c.project_id AND b.cleanup_id = c.cleanup_id AND b.outcome = 'offered' AND b.worktree_path IS NOT NULL)
+           FROM cleanups c JOIN cleanup_repos r ON r.project_id = c.project_id AND r.cleanup_id = c.cleanup_id
+          WHERE c.project_id = ? AND c.state = 'offered'
+          ORDER BY c.sequence DESC LIMIT ?",
+        rusqlite::params![kernel.project_id, CLEANUP_OFFERS_MAX],
+        |row| {
+            Ok(json!({
+                "cleanupId": row.get::<_, String>(0)?,
+                "repo": row.get::<_, String>(1)?,
+                "branches": row.get::<_, i64>(2)?,
+                "worktrees": row.get::<_, i64>(3)?,
+            }))
+        },
+    )?;
+    Ok(Value::Array(rows))
+}
+
 /// `setVerifyView`: the verify part of the status's newest `limit` sets, in the order of [`integration_sets_view`]: the
 /// gate as the review and merge read it (`set_gate_by`: each repo's own commands sha, the set's `reset_at`) and each live
 /// member's verify. Runs change without a `state_version` bump, so the status keeps this apart from the sets.

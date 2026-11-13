@@ -466,7 +466,7 @@ fn a_host_that_cannot_open_a_tab_at_a_folder_refuses_and_leaves_nothing() {
 }
 
 #[test]
-fn release_removes_unused_worktrees_and_keeps_those_with_commits() {
+fn release_removes_every_worktree_and_keeps_branches_with_commits() {
     let ws = fixture("ws-release");
     let spawned = ws.spawn(&ws.both());
     let agent = spawned["agentId"].as_str().unwrap().to_string();
@@ -481,7 +481,7 @@ fn release_removes_unused_worktrees_and_keeps_those_with_commits() {
     );
     let released = ws.launcher.release(&agent).expect("released").to_value();
     assert_eq!(released["paneClosed"], true);
-    assert_eq!(released["worktreeRemoved"], false);
+    assert_eq!(released["worktreeRemoved"], true);
     assert_eq!(released["branchKept"], true);
     assert!(!folder.join("core").exists(), "the unused worktree is gone");
     assert!(
@@ -489,10 +489,13 @@ fn release_removes_unused_worktrees_and_keeps_those_with_commits() {
         "its new branch is gone"
     );
     assert!(
-        folder.join("web").exists(),
-        "the worktree with a commit stays"
+        !folder.join("web").exists(),
+        "the worktree with a commit is removed too"
     );
-    assert!(ws.branch_exists(&ws.web, &branch));
+    assert!(
+        ws.branch_exists(&ws.web, &branch),
+        "the branch with a commit is kept"
+    );
     assert!(ws.rows(&agent).is_empty());
     assert!(ws.sc.take_calls().iter().any(|c| c["m"] == "closePane"));
 }

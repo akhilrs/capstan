@@ -336,7 +336,11 @@ fn tracked_ntfy_connection_keys_and_enabled_and_env_pass_are_refused() {
         for local in [Some("[remote]\nmessages_per_hour = 9\n"), Some(""), None] {
             let error = layered(&tracked, local).unwrap_err();
             assert!(error.contains(&name), "{tracked}: {error}");
-            assert!(error.contains("is not honoured in capstan.toml"), "{error}");
+            assert!(
+                error.contains(" is local-only: put it in capstan.local.toml"),
+                "{error}"
+            );
+            assert!(!error.contains("ntfy and remote"), "{error}");
             assert!(error.contains("capstan.local.toml"), "{error}");
         }
     }

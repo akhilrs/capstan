@@ -305,7 +305,7 @@ Run `cstan help` for every command, grouped, with its syntax; `cstan help <comma
 | Command                                                  | Purpose                                             |
 | -------------------------------------------------------- | --------------------------------------------------- |
 | `cstan report <commit> "<summary>"`                      | Report a finished commit (full 40-character id).    |
-| `cstan request-review <report-or-integration-id> [role]` | Start an independent review.                        |
+| `cstan request-review <report-or-integration-id> [role] [--brief <file>]` | Start an independent review; --brief adds your text to the reviewer's first message.                     |
 | `cstan review pass\|findings "<text>"`                   | Reviewer: answer once.                              |
 | `cstan integrate <report-id>...`                         | Squash reviewed reports onto an integration branch. |
 | `cstan integrate confirm\|discard <integration-id>`      | Settle a merged integration.                        |

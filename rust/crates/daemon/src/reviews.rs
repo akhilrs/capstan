@@ -126,6 +126,24 @@ pub fn request_review(
     requested_role: Option<&str>,
     pm_credential: &str,
 ) -> Result<Requested, RequestError> {
+    request_review_with_brief(deps, subject_id, requested_role, pm_credential, None)
+}
+
+/// The requester's own text for the reviewer: who wrote it and the text (already checked by the caller).
+pub struct RequesterBriefText<'a> {
+    pub from: &'a str,
+    pub text: &'a str,
+}
+
+/// As `request_review`, with the requester's brief put into the reviewer's first message after the controller's own
+/// instructions.
+pub fn request_review_with_brief(
+    deps: &Deps,
+    subject_id: &str,
+    requested_role: Option<&str>,
+    pm_credential: &str,
+    brief: Option<&RequesterBriefText<'_>>,
+) -> Result<Requested, RequestError> {
     let config = deps.options.capstan.as_deref().ok_or_else(|| {
         RequestError::Review(ReviewRequestError::new(
             "no_reviewer_role",
@@ -365,6 +383,9 @@ pub fn request_review(
     }
     if let Some(scope) = diff_scope {
         input["diffScope"] = scope;
+    }
+    if let Some(brief) = brief {
+        input["brief"] = json!({"from": brief.from, "text": brief.text});
     }
     let begun = deps.kernel.run({
         let credential = pm_credential.to_string();

@@ -417,6 +417,13 @@ changes only for an integration item that is a member of a set (the hash is then
 - `repo` is also a member of a verify run and of a cleanup when the repo is not the root (`''`): a project without
   `[repos]` has no such member. A cleanup offer of a workspace also counts its `worktrees`, and carries `left: true`
   when its repo left the configuration.
+- `repos` and `cleanups` (after 0.24.0; on the `run` item of the snapshot, `snapshot` of `feed` and `feed item run run`, so
+  the stream's `run` snapshot line carries them) are the project-level workspace data. `repos` is `[{repo, mainBranch}]`
+  in merge order, from the configuration. `cleanups` is the open cleanup offers, newest first and at most 64, each
+  `{cleanupId, repo, branches, worktrees}` (the branches still offered and how many of them have a worktree), plus
+  `left: true` when the repo left the configuration (its entries go only by name). `cleanups` is left out while no offer
+  is open. A project without `[repos]` has neither member, and neither is part of the item's `contentHash`: a client
+  reads them with the snapshot, and an older client ignores them.
 
 The feed read budget of a waiting page is charged for these lookups only for a set member: the two statements of the
 set and up to 32 member rows, and, for the details, one statement and up to 32 rows for `verify.byRepo`.
