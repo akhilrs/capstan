@@ -92,6 +92,7 @@ name = "capstan-cache"
 version = "0.1.0"
 dependencies = [
  "capstan-config",
+ "capstan-process",
  "libc",
  "serde_json",
  "tempfile",

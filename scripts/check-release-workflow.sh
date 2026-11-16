@@ -5,13 +5,18 @@
 #   - the four binaries are built with cargo-zigbuild for x86_64- and aarch64-unknown-linux-musl
 #   - an x64 job and a job on the native ubuntu-24.04-arm runner each run `cstan --version` and `cstan-dash --version`
 #   - the publish job needs both of those jobs and writes SHA256SUMS
+#   - a build-macos job (matrix macos-15 arm64 and macos-15-intel x64) builds, ad-hoc signs, checks the architecture of
+#     and runs the four macOS assets; publish needs it, runs only on a push, and lists all eight assets
+#   - workflow_dispatch is a trigger (dry run) and only the version step's tag compare reads GITHUB_REF_NAME
+# The macOS assets are checked only by the workflow itself on GitHub; --build below is Linux-only (zigbuild).
+# CAPSTAN_RELEASE_WORKFLOW overrides the workflow path, so a mutated copy can be checked.
 # With --build it also builds both triples locally with cargo-zigbuild (set CARGO_TARGET_DIR outside the checkout),
 # checks every binary with `file` and runs the arm64 pair under qemu-aarch64 when that is installed.
 # Usage: scripts/check-release-workflow.sh [--build]
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW="$ROOT/.github/workflows/release.yml"
+WORKFLOW="${CAPSTAN_RELEASE_WORKFLOW:-$ROOT/.github/workflows/release.yml}"
 FAILURES=0
 
 pass() { printf 'ok   %s\n' "$1"; }
@@ -69,6 +74,44 @@ if len(pub) == 1 and len(x64) == 1 and len(arm) == 1:
     out.append(("the publish job needs both verify jobs", {x64[0], arm[0]} <= set(need(pub[0]))))
 else:
     out.append(("the publish job needs both verify jobs", False))
+
+mac = jobs.get("build-macos")
+inc = []
+if mac:
+    inc = (mac.get("strategy") or {}).get("matrix", {}).get("include", [])
+want_inc = [
+    {"arch": "arm64", "runner": "macos-15", "triple": "aarch64-apple-darwin"},
+    {"arch": "x64", "runner": "macos-15-intel", "triple": "x86_64-apple-darwin"},
+]
+out.append(("build-macos matrix holds exactly the macos-15 arm64 and macos-15-intel x64 entries", mac is not None and inc == want_inc))
+out.append(("build-macos runs on ${{ matrix.runner }}", mac is not None and mac.get("runs-on") == "${{ matrix.runner }}"))
+mr = runs("build-macos") if mac else ""
+for frag in ["codesign --verify", "lipo -archs", "cstan-$VERSION-macos-$ARCH --version", "cstan-dash-$VERSION-macos-$ARCH --version"]:
+    out.append(("build-macos runs '" + frag + "'", frag in mr))
+out.append(("build-macos sets MACOSX_DEPLOYMENT_TARGET", mac is not None and bool((mac.get("env") or {}).get("MACOSX_DEPLOYMENT_TARGET"))))
+if len(pub) == 1:
+    out.append(("the publish job needs build-macos", "build-macos" in need(pub[0])))
+    out.append(("the publish job's if is exactly github.event_name == 'push'", str(jobs[pub[0]].get("if", "")).strip() == "github.event_name == 'push'"))
+else:
+    out.append(("the publish job needs build-macos", False))
+    out.append(("the publish job's if is exactly github.event_name == 'push'", False))
+on = doc.get("on", doc.get(True))
+out.append(("workflow_dispatch is a trigger", isinstance(on, dict) and "workflow_dispatch" in on))
+bad = []
+for j in jobs:
+    if j in pub:
+        continue
+    for st in steps(j):
+        if "GITHUB_REF_NAME" in st.get("run", "") and not (j == "build" and st.get("id") == "version"):
+            bad.append(j)
+out.append(("no job other than the version step and publish reads GITHUB_REF_NAME", not bad))
+ver = [st.get("run", "") for st in steps("build") if st.get("id") == "version"] if "build" in jobs else []
+out.append(("the version step still exits on 'does not match VERSION'", bool(ver) and "does not match VERSION" in ver[0] and "exit 1" in ver[0]))
+for jn in (x64 + arm):
+    dl = [st for st in steps(jn) if str(st.get("uses", "")).startswith("actions/download-artifact")]
+    out.append((jn + " downloads with name: binaries", bool(dl) and all((st.get("with") or {}).get("name") == "binaries" and "pattern" not in (st.get("with") or {}) for st in dl)))
+pd = [st for st in steps(pub[0]) if str(st.get("uses", "")).startswith("actions/download-artifact")] if len(pub) == 1 else []
+out.append(("publish downloads pattern: binaries* with merge-multiple", bool(pd) and all((st.get("with") or {}).get("pattern") == "binaries*" and (st.get("with") or {}).get("merge-multiple") is True for st in pd)))
 for name, ok in out:
     print(("ok   " if ok else "FAIL ") + name)
 PY
@@ -85,6 +128,9 @@ done
 has 'cargo zigbuild' && pass "builds with cargo zigbuild" || fail "builds with cargo zigbuild"
 has 'x86_64-unknown-linux-musl' && has 'aarch64-unknown-linux-musl' && pass "both musl triples" || fail "both musl triples"
 for asset in 'cstan-\$VERSION-linux-x64' 'cstan-\$VERSION-linux-arm64' 'cstan-dash-\$VERSION-linux-x64' 'cstan-dash-\$VERSION-linux-arm64'; do
+  has "$asset" && pass "publishes $asset" || fail "publishes $asset"
+done
+for asset in 'cstan-\$VERSION-macos-x64' 'cstan-\$VERSION-macos-arm64' 'cstan-dash-\$VERSION-macos-x64' 'cstan-dash-\$VERSION-macos-arm64'; do
   has "$asset" && pass "publishes $asset" || fail "publishes $asset"
 done
 has 'sha256sum' && has 'SHA256SUMS' && pass "writes SHA256SUMS" || fail "writes SHA256SUMS"

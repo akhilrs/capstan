@@ -826,7 +826,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     fn project_dir(config: &str, key: &str) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir_in(capstan_testkit::short_temp_root()).unwrap();
         let capstan = dir.path().join(".capstan");
         std::fs::create_dir(&capstan).unwrap();
         std::fs::set_permissions(&capstan, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -871,7 +871,11 @@ mod tests {
         assert_eq!(options.project.initial_inputs.len(), 5);
         assert_eq!(
             options.socket_path(),
-            dir.path().join(".capstan/state/control.sock")
+            // The socket path is built from the resolved state directory (wire::control_socket), so the expectation
+            // resolves the temp root too: on macOS $TMPDIR is under /var, a symlink to /private/var.
+            std::fs::canonicalize(dir.path())
+                .unwrap()
+                .join(".capstan/state/control.sock")
         );
         drop(probe);
     }

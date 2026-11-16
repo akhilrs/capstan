@@ -3,10 +3,16 @@ name: Release
 # Runs when a version tag is pushed (scripts/release.sh creates the tag locally; pushing it starts this).
 # Builds the four static musl binaries (cstan and cstan-dash for x64 and arm64) with cargo-zigbuild, runs each arch's
 # pair on a runner of that arch, then writes SHA256SUMS and the GitHub release. No Node.js is involved.
+# The build-macos job builds the same pair natively for macOS (arm64 on macos-15, x64 on macos-15-intel), ad-hoc signs
+# each binary and runs it; publish adds those four to the Linux four, eight assets plus SHA256SUMS.
 # Uses only the built-in GITHUB_TOKEN; the one job that writes is the last one.
+# workflow_dispatch is a dry run on any branch: the version step skips only the tag compare, every build and verify
+# job runs, and publish is skipped (it runs only on a tag push). Run it green before cutting the next tag.
+# If GitHub retires macos-15-intel, fallback: build x86_64-apple-darwin on macos-15 and run it under Rosetta.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,7 +34,7 @@ jobs:
         run: |
           sh scripts/check-version.sh
           version="$(tr -d ' \t\r\n' < VERSION)"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          if [ "${{ github.event_name }}" = push ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "tag $GITHUB_REF_NAME does not match VERSION $version" >&2
             exit 1
           fi
@@ -101,9 +107,68 @@ jobs:
           test "$(release/cstan-$VERSION-linux-arm64 --version)" = "cstan $VERSION"
           test "$(release/cstan-dash-$VERSION-linux-arm64 --version)" = "cstan-dash $VERSION"
 
+  build-macos:
+    name: Build the macOS binaries (${{ matrix.arch }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            triple: aarch64-apple-darwin
+          - arch: x64
+            runner: macos-15-intel
+            triple: x86_64-apple-darwin
+    env:
+      ARCH: ${{ matrix.arch }}
+      TRIPLE: ${{ matrix.triple }}
+      VERSION: ${{ needs.build.outputs.version }}
+      CSTAN_VERSION: ${{ needs.build.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain and target
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add "$TRIPLE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            dash
+      - name: cstan and cstan-dash for the macOS triple
+        run: |
+          mkdir -p release
+          (cd rust && cargo build --release --locked -p cstan-front --target "$TRIPLE")
+          (cd dash && cargo build --release --locked --target "$TRIPLE")
+          cp "rust/target/$TRIPLE/release/cstan" "release/cstan-$VERSION-macos-$ARCH"
+          cp "dash/target/$TRIPLE/release/cstan-dash" "release/cstan-dash-$VERSION-macos-$ARCH"
+          chmod 755 release/*
+      - name: Sign, verify architecture and run
+        run: |
+          want=arm64
+          if [ "$ARCH" = x64 ]; then want=x86_64; fi
+          for f in "release/cstan-$VERSION-macos-$ARCH" "release/cstan-dash-$VERSION-macos-$ARCH"; do
+            codesign --force --sign - "$f"
+            codesign --verify --strict "$f"
+            test "$(lipo -archs "$f")" = "$want"
+          done
+          test "$(release/cstan-$VERSION-macos-$ARCH --version)" = "cstan $VERSION"
+          test "$(release/cstan-dash-$VERSION-macos-$ARCH --version)" = "cstan-dash $VERSION"
+          ls -l release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binaries-macos-${{ matrix.arch }}
+          path: release/*
+          if-no-files-found: error
+
   publish:
     name: SHA256SUMS and GitHub release
-    needs: [build, verify-x64, verify-arm64]
+    if: github.event_name == 'push'
+    needs: [build, verify-x64, verify-arm64, build-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -114,12 +179,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: binaries
+          pattern: binaries*
+          merge-multiple: true
           path: assets
       - name: SHA256SUMS
         run: |
           cd assets
-          for f in "cstan-$VERSION-linux-x64" "cstan-$VERSION-linux-arm64" "cstan-dash-$VERSION-linux-x64" "cstan-dash-$VERSION-linux-arm64"; do
+          for f in "cstan-$VERSION-linux-x64" "cstan-$VERSION-linux-arm64" "cstan-dash-$VERSION-linux-x64" "cstan-dash-$VERSION-linux-arm64" "cstan-$VERSION-macos-x64" "cstan-$VERSION-macos-arm64" "cstan-dash-$VERSION-macos-x64" "cstan-dash-$VERSION-macos-arm64"; do
             test -f "$f" || { echo "missing asset $f" >&2; exit 1; }
           done
           chmod 755 cstan-*

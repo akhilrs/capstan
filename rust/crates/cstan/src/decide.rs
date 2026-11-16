@@ -273,20 +273,29 @@ mod tests {
     /// answers `reply` (nothing when none).
     fn served(reply: Option<&'static str>) -> (PathBuf, std::sync::mpsc::Receiver<String>) {
         static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let dir = std::fs::canonicalize(std::env::temp_dir())
-            .unwrap()
-            .join(format!(
-                "cstan-decide-unit-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-            ));
+        // A root under a short temp directory keeps the socket inside the project (macOS temp paths are too long).
+        let dir = capstan_testkit::short_temp_root().join(format!(
+            "cstan-decide-unit-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
         let capstan = dir.join(".capstan");
         std::fs::create_dir_all(capstan.join("state")).unwrap();
         std::fs::set_permissions(&capstan, std::fs::Permissions::from_mode(0o700)).unwrap();
         let key = capstan.join("operator.key");
         std::fs::write(&key, KEY).unwrap();
         std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let listener = UnixListener::bind(socket_of(&dir)).unwrap();
+        // A path too long for a socket address resolves to a per-user runtime directory, which the daemon creates
+        // before it binds; the helper does the same.
+        let socket = socket_of(&dir);
+        let parent = socket.parent().unwrap();
+        if parent
+            .file_name()
+            .is_some_and(|n| n == capstan_wire::runtime_dir_name().as_str())
+        {
+            capstan_wire::ensure_private_dir(parent).unwrap();
+        }
+        let listener = UnixListener::bind(&socket).unwrap();
         let (frames, received) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();

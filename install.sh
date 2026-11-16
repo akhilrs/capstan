@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --version 0.4.0
 #
-# Installs the two static Rust binaries of a release, cstan and cstan-dash, for Linux x64 or arm64. No Node.js, npm or
+# Installs the two static Rust binaries of a release, cstan and cstan-dash, for Linux or macOS, x64 or arm64. No Node.js, npm or
 # compiler is needed. Releases before FIRST_RUST_VERSION shipped other things (a Node binary, or an npm package) and
 # are installed by the install.sh of their own tag.
 #
@@ -58,7 +58,7 @@ Options:
   --uninstall           Remove the install, the bin symlink and the man page symlink.
   --help                Show this help.
 
-A release lists cstan-<version>-linux-<x64|arm64> and cstan-dash-<version>-linux-<x64|arm64> in SHA256SUMS; both are
+A release lists cstan-<version>-<linux|macos>-<x64|arm64> and cstan-dash-<version>-<linux|macos>-<x64|arm64> in SHA256SUMS; both are
 downloaded and checked against it. The install is <home>/current/bin/{cstan,cstan-dash} and, written by the installed
 cstan itself (`cstan help --man`), <home>/current/share/man/man1/cstan.1, so `man cstan` works.
 Re-running the installer upgrades, and replaces an install from an earlier layout (the Node binary, the front end with
@@ -202,8 +202,8 @@ is_url() {
 check_prereqs() {
   os="$(uname -s 2>/dev/null || echo unknown)"
   case "$os" in
-    Linux) ;;
-    *) die "unsupported OS: $os. Capstan publishes Linux binaries (x64 and arm64)." ;;
+    Linux | Darwin) ;;
+    *) die "unsupported OS: $os. Capstan publishes Linux and macOS binaries (x64 and arm64)." ;;
   esac
 
   if [ "${CAPSTAN_FETCHER:-}" = wget ] && have wget; then
@@ -225,14 +225,29 @@ check_prereqs() {
   have claude || warn "claude not found. Install Claude Code; the starter config uses it as the agent host."
 }
 
-# Sets PLATFORM to linux-<x64|arm64> as the release names its binaries; dies when none is published for this machine.
+# Sets PLATFORM to <linux|macos>-<x64|arm64> as the release names its binaries; dies when none is published for this
+# machine. A shell running under Rosetta on Apple silicon reports x86_64, but the arm64 binary is the native one.
 detect_platform() {
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) plat_os=macos ;;
+    *) plat_os=linux ;;
+  esac
   case "$(uname -m 2>/dev/null)" in
     x86_64 | amd64) plat_arch=x64 ;;
     aarch64 | arm64) plat_arch=arm64 ;;
-    *) die "no Capstan binary for the CPU '$(uname -m 2>/dev/null)'. Releases have linux-x64 and linux-arm64." ;;
+    *) die "no Capstan binary for the CPU '$(uname -m 2>/dev/null)'. Releases have linux-x64, linux-arm64, macos-x64 and macos-arm64." ;;
   esac
-  PLATFORM="linux-$plat_arch"
+  if [ "$plat_os" = macos ] && [ "$plat_arch" = x64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
+    plat_arch=arm64
+  fi
+  PLATFORM="$plat_os-$plat_arch"
+}
+
+# clear_quarantine <file>: on macOS, drops the quarantine flag a download may carry so Gatekeeper does not block the
+# first run. Errors are ignored; does nothing elsewhere.
+clear_quarantine() {
+  [ "$(uname -s 2>/dev/null)" = Darwin ] && have xattr || return 0
+  xattr -d com.apple.quarantine "$1" 2>/dev/null || true
 }
 
 # fetch <url> <dest>
@@ -430,9 +445,11 @@ stage_binaries() {
   mkdir -p "$STAGING/bin"
   cp "$BIN_FILE" "$STAGING/bin/cstan"
   chmod 755 "$STAGING/bin/cstan"
+  clear_quarantine "$STAGING/bin/cstan"
   [ -n "$DASH_FILE" ] || return 0
   cp "$DASH_FILE" "$STAGING/bin/cstan-dash"
   chmod 755 "$STAGING/bin/cstan-dash"
+  clear_quarantine "$STAGING/bin/cstan-dash"
   dash_out="$("$STAGING/bin/cstan-dash" --version </dev/null 2>&1)" ||
     die "the staged cstan-dash does not run on this machine: $dash_out"
   case "$dash_out" in
@@ -459,8 +476,21 @@ stage_man_page() {
 # Warns about processes still running from the install that is about to be replaced (a project's controller daemon
 # started by an earlier cstan keeps running its old files after the swap).
 warn_running_daemons() {
-  [ -d /proc/self ] || return 0
   running=0
+  if [ -d /proc/self ] && [ "${CAPSTAN_TEST_NO_PROC:-}" != 1 ]; then # test hook: take the ps path below
+    count_proc_daemons
+  elif have ps; then
+    count_ps_daemons
+  else
+    return 0
+  fi
+  [ "$running" -gt 0 ] || return 0
+  warn "$running process(es) of the previous install in $CURRENT are still running, most likely a project's controller daemon."
+  say "  They keep running the old build. In each project, run: cstan stop && cstan start"
+}
+
+# Sets running from /proc (Linux).
+count_proc_daemons() {
   for proc in /proc/[0-9]*; do
     [ -L "$proc/exe" ] || continue
     exe="$(readlink "$proc/exe" 2>/dev/null || true)"
@@ -473,9 +503,22 @@ warn_running_daemons() {
         ;;
     esac
   done
-  [ "$running" -gt 0 ] || return 0
-  warn "$running process(es) of the previous install in $CURRENT are still running, most likely a project's controller daemon."
-  say "  They keep running the old build. In each project, run: cstan stop && cstan start"
+}
+
+# Sets running from ps (macOS has no /proc): processes whose command starts with the install's bin/ or lib/.
+count_ps_daemons() {
+  ps_out="$(ps -axo pid=,command= 2>/dev/null || true)"
+  [ -n "$ps_out" ] || return 0
+  while IFS= read -r ps_line; do
+    ps_cmd="${ps_line#"${ps_line%%[![:space:]]*}"}" # trim leading blanks
+    ps_cmd="${ps_cmd#*[[:space:]]}"                 # drop the pid
+    ps_cmd="${ps_cmd#"${ps_cmd%%[![:space:]]*}"}"
+    case "$ps_cmd" in
+      "$CURRENT"/bin/* | "$CURRENT"/lib/*) running=$((running + 1)) ;;
+    esac
+  done <<PS_LIST
+$ps_out
+PS_LIST
 }
 
 # Links <current>/share/man/man1/cstan.1 into MAN_DIR, which man finds on the default MANPATH for a bin dir of
