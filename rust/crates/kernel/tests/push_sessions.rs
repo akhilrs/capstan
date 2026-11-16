@@ -83,6 +83,7 @@ fn code_of(error: IntegrateError) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// The pid a script wrote to `file`, waited for up to 10 s.
 fn read_pid(file: &Path) -> i32 {
     for _ in 0..1000 {
@@ -96,9 +97,11 @@ fn read_pid(file: &Path) -> i32 {
     panic!("no pid in {}", file.display());
 }
 
+#[cfg(target_os = "linux")]
 /// Kills the process whose pid is in `file` when dropped.
 struct PidFileGuard(PathBuf);
 
+#[cfg(target_os = "linux")]
 impl Drop for PidFileGuard {
     fn drop(&mut self) {
         if let Ok(text) = fs::read_to_string(&self.0) {
@@ -111,6 +114,7 @@ impl Drop for PidFileGuard {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// The fields of /proc/<pid>/stat after the command name: state, ppid, pgrp, session, tty_nr.
 fn stat_fields(text: &str) -> Vec<String> {
     let rest = &text[text.rfind(')').expect("a stat line") + 1..];

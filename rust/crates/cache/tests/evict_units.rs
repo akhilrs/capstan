@@ -389,7 +389,7 @@ fn the_active_rule_is_checked_again_under_the_lock() {
     assert!(debug.join("deps/lib").exists());
 }
 
-#[cfg(target_os = "linux")]
+// Runs on macOS too: the scan reads the working directory of `sleep` through libproc, not `/proc`.
 #[test]
 fn a_process_running_from_a_unit_keeps_it_until_it_exits() {
     let _serial = exclusive();
