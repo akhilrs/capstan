@@ -6363,7 +6363,6 @@ mod root_runner_tests {
 #[cfg(test)]
 mod ignored_check_tests {
     use super::*;
-    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command as Cmd;
 
@@ -6604,8 +6603,11 @@ mod ignored_check_tests {
         assert!(!ran.exists(), "a repository-configured program ran");
     }
 
+    // Linux only: macOS APFS refuses a file name that is not valid UTF-8 (EILSEQ), so the case cannot be set up there.
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_top_level_non_utf8_changed_path_with_an_ignored_file_is_dirty_tree() {
+        use std::os::unix::ffi::OsStrExt;
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let home = tmp.path().join("home");

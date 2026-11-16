@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 capstan-config = { path = "../config" }
+capstan-process = { path = "../process" }
 libc = "=0.2.190"
 serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip"] }
 
