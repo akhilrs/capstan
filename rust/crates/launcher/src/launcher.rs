@@ -7,9 +7,9 @@
 //! teardown, observe and adopt); `Launcher` is the `LauncherService` the rest of the daemon holds.
 
 use crate::api::{
-    AnswerPromptRequest, BranchRenameResult, LaunchResult, LauncherResult, LauncherService,
-    LauncherStatus, ObserveResult, ReleaseResult, ReplaceResult, RepoAddResult, RetargetResult,
-    SetupOutcome, SpawnOptions, SpawnResult, CLEANUP_BUDGET_MS,
+    AnswerPromptRequest, BranchRenameResult, DiscardResult, LaunchResult, LauncherResult,
+    LauncherService, LauncherStatus, ObserveResult, ReleaseResult, ReplaceResult, RepoAddResult,
+    RetargetResult, SetupOutcome, SpawnOptions, SpawnResult, CLEANUP_BUDGET_MS,
 };
 use crate::kernel::LauncherKernel;
 use crate::shared::LauncherOptions;
@@ -56,6 +56,10 @@ impl LauncherService for Launcher {
 
     fn release(&self, agent_id: &str) -> LauncherResult<ReleaseResult> {
         Ok(self.kernel.release(agent_id)?)
+    }
+
+    fn release_discard(&self, agent_id: &str) -> LauncherResult<DiscardResult> {
+        Ok(self.kernel.release_discard(agent_id)?)
     }
 
     fn repo_add(&self, agent_id: &str, repo: &str) -> LauncherResult<RepoAddResult> {

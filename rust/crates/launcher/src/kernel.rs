@@ -460,6 +460,19 @@ impl Ledger {
             .collect())
     }
 
+    /// What `release --discard` needs to know about an agent (see `Core::discard_refs`).
+    pub fn discard_refs(&self, agent_id: &str) -> KernelResult<Value> {
+        let agent = agent_id.to_string();
+        self.call(move |core| core.discard_refs(&agent))
+    }
+
+    /// Records what `release --discard` removed.
+    pub fn record_release_discard(&self, agent_id: &str, entries: Value) -> KernelResult<()> {
+        let agent = agent_id.to_string();
+        self.mutate(move |core, context| core.record_release_discard(context, &agent, &entries))?;
+        Ok(())
+    }
+
     pub fn record_agent_worktree(
         &self,
         agent_id: &str,

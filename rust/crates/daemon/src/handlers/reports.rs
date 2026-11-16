@@ -1005,16 +1005,37 @@ fn request_review_command(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Optio
                 review,
                 reviewer_state,
                 reused,
-            }) => ok(json!({
-                "reviewId": field(&review, "reviewId"),
-                "round": field(&review, "round"),
-                "reviewerAgentId": field(&review, "reviewerAgentId"),
-                "reviewerRole": field(&review, "reviewerRole"),
-                "commit": field(&review, "commitSha"),
-                "state": field(&review, "state"),
-                "reviewerState": reviewer_state,
-                "reviewerReused": reused,
-            })),
+            }) => {
+                let mut answer = json!({
+                    "reviewId": field(&review, "reviewId"),
+                    "round": field(&review, "round"),
+                    "reviewerAgentId": field(&review, "reviewerAgentId"),
+                    "reviewerRole": field(&review, "reviewerRole"),
+                    "commit": field(&review, "commitSha"),
+                    "state": field(&review, "state"),
+                    "reviewerState": reviewer_state,
+                    "reviewerReused": reused,
+                });
+                // A report with commits in several repos: every repo's commit (`commit` stays the default repo's).
+                if let Some(report_id) = field(&review, "reportId").as_str().map(str::to_string) {
+                    if let Ok(commits) = env
+                        .deps
+                        .kernel
+                        .run(move |core| core.report_commits(&report_id))
+                    {
+                        let named: Vec<Value> = commits
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .map(|c| json!({"repo": c["repo"], "commitSha": c["commitSha"]}))
+                            .collect();
+                        if named.len() > 1 {
+                            answer["commits"] = Value::Array(named);
+                        }
+                    }
+                }
+                ok(answer)
+            }
             Err(RequestError::Kernel(error)) if error.code() == Some("verify_required") => {
                 fail(ErrorCode::Rejected, error.message())
             }

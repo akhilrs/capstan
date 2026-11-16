@@ -785,6 +785,10 @@ fn handle_wire(
         for line in render::cleanup_lines(result) {
             text(stdout, &JsStr::from(line.as_str()));
         }
+    } else if let (false, "release", Some(lines)) = (json, command, render::discard_lines(result)) {
+        for line in lines {
+            text(stdout, &JsStr::from(line.as_str()));
+        }
     } else if !json && command == "verify" {
         for line in render::verify_lines(view.verify_sub, result, now_ms) {
             text(stdout, &JsStr::from(line.as_str()));
@@ -844,6 +848,12 @@ fn handle_wire(
             for line in lines {
                 text(stdout, &JsStr::from(line.as_str()));
             }
+        } else if !json && command == "request-review" {
+            let tidy = result.map(compact::request_review_text);
+            output(stdout, tidy.as_ref(), false);
+        } else if !json && command == "integrate" {
+            let tidy = result.map(compact::integrate_text);
+            output(stdout, tidy.as_ref(), false);
         } else {
             output(stdout, result, json);
         }

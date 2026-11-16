@@ -25,6 +25,7 @@ code agent.replaced
 code agent.restart
 code agent.resume
 code agent_pane.clear
+code agent_pane.discard
 code agent_pane.record
 code agent_pane.rename_branch
 code cleanup.branch

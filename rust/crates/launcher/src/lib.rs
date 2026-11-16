@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod cache_env;
+pub mod discard;
 pub mod git;
 pub mod hub;
 pub mod kernel;

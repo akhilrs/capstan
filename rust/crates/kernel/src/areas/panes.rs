@@ -225,6 +225,103 @@ pub fn clear_agent_pane(
     )
 }
 
+/// What a `release --discard` must know about an agent, current or gone: its recorded pane, every worktree row it ever had
+/// (live or removed), the branches of its reports, and the unsettled integrations (running, merged or conflicted) that
+/// hold a report of it or are on a branch of it.
+pub fn discard_refs(kernel: &Kernel, agent_id: &str) -> KernelResult<Value> {
+    safe_id_str_checked(agent_id)?;
+    kernel.assert_open()?;
+    let pane = query_opt(
+        &kernel.database,
+        "SELECT branch, worktree_path FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+        [&kernel.project_id, agent_id],
+        |row| {
+            Ok(json!({
+                "branch": row.get::<_, Option<String>>(0)?,
+                "worktreePath": row.get::<_, Option<String>>(1)?,
+            }))
+        },
+    )?;
+    let worktrees = query_all(
+        &kernel.database,
+        "SELECT repo, worktree_path, branch, base_sha, removed_at FROM agent_worktrees
+         WHERE project_id = ? AND agent_id = ? ORDER BY repo, generation DESC",
+        [&kernel.project_id, agent_id],
+        |row| {
+            Ok(json!({
+                "repo": row.get::<_, String>(0)?,
+                "worktreePath": row.get::<_, String>(1)?,
+                "branch": row.get::<_, String>(2)?,
+                "baseSha": row.get::<_, String>(3)?,
+                "removed": row.get::<_, Option<String>>(4)?.is_some(),
+            }))
+        },
+    )?;
+    let report_branches = query_all(
+        &kernel.database,
+        "SELECT DISTINCT branch FROM agent_reports WHERE project_id = ? AND agent_id = ? AND branch IS NOT NULL ORDER BY branch",
+        [&kernel.project_id, agent_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    let integrations = query_all(
+        &kernel.database,
+        "SELECT DISTINCT i.integration_id FROM integrations i
+         JOIN integration_reports ir ON ir.project_id = i.project_id AND ir.integration_id = i.integration_id
+         JOIN agent_reports r ON r.project_id = ir.project_id AND r.report_id = ir.report_id
+         WHERE i.project_id = ? AND r.agent_id = ? AND i.state IN ('running', 'merged', 'conflicted')
+         ORDER BY i.integration_id",
+        [&kernel.project_id, agent_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    let integration_branches = query_all(
+        &kernel.database,
+        "SELECT integration_id, branch FROM integrations WHERE project_id = ? AND state IN ('running', 'merged', 'conflicted')",
+        [&kernel.project_id],
+        |row| {
+            Ok(json!({
+                "integrationId": row.get::<_, String>(0)?,
+                "branch": row.get::<_, String>(1)?,
+            }))
+        },
+    )?;
+    Ok(json!({
+        "pane": pane,
+        "worktrees": worktrees,
+        "reportBranches": report_branches,
+        "integrations": integrations,
+        "integrationBranches": integration_branches,
+    }))
+}
+
+fn safe_id_str_checked(agent_id: &str) -> KernelResult<()> {
+    crate::helpers::safe_id_str(agent_id, "agent id")?;
+    Ok(())
+}
+
+/// `release --discard`: the ledger record of the worktrees and branches removed (each branch with the commit it pointed at).
+pub fn record_release_discard(
+    kernel: &Kernel,
+    context: &MutationContext,
+    agent_id: &str,
+    entries: &Value,
+) -> KernelResult<Value> {
+    safe_id_str_checked(agent_id)?;
+    kernel.assert_open()?;
+    kernel.mutate(
+        context,
+        "agent_pane.discard",
+        "controller:reconcile",
+        &json!({"agentId": agent_id, "entries": entries}),
+        |_| {
+            Ok(MutationOutput::new(
+                json!({"recorded": true}),
+                MutationEvent::new("agent_pane", agent_id, 0)
+                    .with_details(json!({"discarded": entries})),
+            ))
+        },
+    )
+}
+
 /// `recordFallbackPane`.
 pub fn record_fallback_pane(
     kernel: &Kernel,

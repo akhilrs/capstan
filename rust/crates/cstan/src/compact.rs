@@ -169,6 +169,16 @@ pub fn status(result: &Value, all: bool, now_ms: f64) -> Value {
         if key.to_utf8_lossy() == "verify" {
             continue;
         }
+        // A workspace project's repos: one line each, the default one marked.
+        if key.to_utf8_lossy() == "repos" {
+            if let Value::Array(repos) = value {
+                let lines: Vec<Value> = repos.iter().map(repo_line).map(line).collect();
+                if !lines.is_empty() {
+                    out.push((key.clone(), Value::Array(lines)));
+                }
+                continue;
+            }
+        }
         // A set is one line (and a few dim ones) whatever its repo count; its members' own rows drop the `set` member.
         if key.to_utf8_lossy() == "integrationSets" {
             if let Value::Array(sets) = value {
@@ -216,6 +226,67 @@ pub fn status(result: &Value, all: bool, now_ms: f64) -> Value {
         }
     }
     Value::Object(out)
+}
+
+/// The text of an `integrate` answer: an empty `removed` list is left out, and `removedBranches` is left out when the
+/// message already names the branches (the JSON keeps both).
+pub fn integrate_text(result: &Value) -> Value {
+    let Value::Object(members) = result else {
+        return result.clone();
+    };
+    let named = text(result.get("message")).contains("removed branches:");
+    Value::Object(
+        members
+            .iter()
+            .filter(|(k, v)| {
+                let key = k.to_utf8_lossy();
+                !(key == "removed" && is_empty(v)) && !(key == "removedBranches" && named)
+            })
+            .cloned()
+            .collect(),
+    )
+}
+
+/// The text of a `request-review` answer for a report with commits in several repos: one `repo sha` line per repo
+/// replaces the single `commit` line. Any other answer is shown as it always was.
+pub fn request_review_text(result: &Value) -> Value {
+    let (Value::Object(members), Some(Value::Array(commits))) = (result, result.get("commits"))
+    else {
+        return result.clone();
+    };
+    let lines: Vec<Value> = commits
+        .iter()
+        .map(|c| {
+            line(format!(
+                "{} {}",
+                text(c.get("repo")),
+                text(c.get("commitSha"))
+            ))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for (k, v) in members {
+        match k.to_utf8_lossy().as_str() {
+            "commit" => out.push((k.clone(), Value::Array(lines.clone()))),
+            "commits" => {}
+            _ => out.push((k.clone(), v.clone())),
+        }
+    }
+    Value::Object(out)
+}
+
+/// `core-api  /work/core-api  main  (default)`.
+fn repo_line(repo: &Value) -> String {
+    let mut shown = format!(
+        "{}  {}  {}",
+        text(repo.get("name")),
+        text(repo.get("path")),
+        text(repo.get("mainBranch"))
+    );
+    if flag(repo.get("default")) {
+        shown.push_str("  (default)");
+    }
+    shown
 }
 
 fn term_is_dumb() -> bool {

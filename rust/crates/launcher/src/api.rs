@@ -287,6 +287,67 @@ impl ReleaseResult {
     }
 }
 
+/// One repo of a `release --discard`: the worktree removed and the branch deleted with the commit it pointed at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiscardRepo {
+    /// The repo's name in workspace mode; `None` in a single-repo project.
+    pub repo: Option<String>,
+    pub worktree_path: Option<String>,
+    pub worktree_removed: bool,
+    pub branch: String,
+    /// The commit the branch pointed at; `None` when there was no such branch any more.
+    pub sha: Option<String>,
+    pub branch_deleted: bool,
+    /// `git branch <name> <sha>`, to bring the branch back.
+    pub restore: Option<String>,
+    /// Why a worktree or branch was left.
+    pub note: Option<String>,
+}
+
+/// `release --discard`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiscardResult {
+    pub agent_id: String,
+    /// True when the agent was still active and this call released it.
+    pub released: bool,
+    pub repos: Vec<DiscardRepo>,
+    pub cancelled_message_ids: Vec<String>,
+}
+
+impl DiscardResult {
+    pub fn to_value(&self) -> Value {
+        let repos: Vec<Value> = self
+            .repos
+            .iter()
+            .map(|r| {
+                json!({
+                    "repo": r.repo,
+                    "worktreePath": r.worktree_path,
+                    "worktreeRemoved": r.worktree_removed,
+                    "branch": r.branch,
+                    "sha": r.sha,
+                    "branchDeleted": r.branch_deleted,
+                    "restore": r.restore,
+                    "note": r.note,
+                })
+            })
+            .collect();
+        let restore: Vec<&String> = self
+            .repos
+            .iter()
+            .filter_map(|r| r.restore.as_ref())
+            .collect();
+        json!({
+            "state": "discarded",
+            "agentId": self.agent_id,
+            "released": self.released,
+            "repos": repos,
+            "restore": restore,
+            "cancelledMessageIds": self.cancelled_message_ids,
+        })
+    }
+}
+
 /// `repo_add`: the worktree a worker got in one more repo.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepoAddResult {
@@ -483,6 +544,15 @@ pub trait LauncherService: Send + Sync {
     ) -> LauncherResult<BranchRenameResult>;
     /// Ends a worker and frees its pane, worktree and, without commits, its branch.
     fn release(&self, agent_id: &str) -> LauncherResult<ReleaseResult>;
+    /// `release --discard`: releases the agent when it is active, then removes its worktrees and deletes its branches in
+    /// every repo, commits that never landed included. Refuses, changing nothing, with `worktree_dirty`,
+    /// `protected_branch`, `branch_in_use`, `in_integration` or `nothing_to_discard`.
+    fn release_discard(&self, agent_id: &str) -> LauncherResult<DiscardResult> {
+        Err(LauncherError::new(
+            "not_supported",
+            format!("this launcher cannot discard {agent_id}"),
+        ))
+    }
     /// Adds a worktree for `agent_id` in the repo `repo` on its branch, records it and runs the repo's setup; all or
     /// nothing. Refuses with `not_workspace`, `not_a_worker`, `unknown_repo`, `not_in_package`, `already_added`,
     /// `branch_taken`, `repo_unusable` or `setup_failed`.

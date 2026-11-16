@@ -212,7 +212,7 @@ main_branch = "main"
 
 [workspace]
 default_repo = "core"
-merge_order = ["core", "web", "extra"]
+merge_order = ["core", "extra", "web"]
 worktree_dir = "{c}"
 "#,
                     r = repos.display(),
@@ -684,6 +684,30 @@ fn the_reviewer_starts_at_each_repos_commit_and_the_brief_lists_each_repo() {
     assert_eq!(started["ok"], true, "{started}");
     let reviewer = started["result"]["reviewerAgentId"].as_str().unwrap();
     assert_eq!(started["result"]["reviewerReused"], false);
+    // The answer names every repo's commit, not only the default repo's.
+    let named: Vec<(String, String)> = started["result"]["commits"]
+        .as_array()
+        .expect("commits")
+        .iter()
+        .map(|c| {
+            (
+                c["repo"].as_str().unwrap().to_string(),
+                c["commitSha"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(named, commits, "{started}");
+    // `cstan status` lists the configured repos and marks the default one.
+    let status = w.call("pm-1", "status", &[]);
+    let repos = status["result"]["repos"]
+        .as_array()
+        .unwrap_or_else(|| panic!("repos: {status}"));
+    let names: Vec<&str> = repos.iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["core", "extra", "web"], "{status}");
+    assert_eq!(repos[0]["default"], true);
+    assert_eq!(repos[1]["default"], false);
+    assert_eq!(repos[2]["name"], "web");
+    assert!(repos[0]["path"].is_string() && repos[0]["mainBranch"].is_string());
     let task = w.review_task(reviewer);
     let rows = w.rows(reviewer);
     for (repo, commit) in &commits {

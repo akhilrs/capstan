@@ -844,7 +844,26 @@ fn status(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespons
         .map(render)
     });
     Some(match built {
-        Ok(result) => {
+        Ok(mut result) => {
+            // A workspace project lists its repos (name, path, main branch, the default one); a single repo adds nothing.
+            if let (Some(workspace), Some(members)) = (
+                env.config().and_then(|c| c.workspace.as_ref()),
+                result.as_object_mut(),
+            ) {
+                let repos: Vec<Value> = workspace
+                    .repos
+                    .iter()
+                    .map(|repo| {
+                        json!({
+                            "name": repo.name,
+                            "path": repo.root.to_string_lossy(),
+                            "mainBranch": repo.main_branch,
+                            "default": repo.name == workspace.default_repo,
+                        })
+                    })
+                    .collect();
+                members.insert("repos".into(), Value::Array(repos));
+            }
             if let Some((key, now)) = cache_key {
                 let mut guard = env
                     .state

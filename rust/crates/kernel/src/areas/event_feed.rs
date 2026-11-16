@@ -561,7 +561,7 @@ pub const MAPPING: &[Rule] = &[
     ),
     rule(
         "agent_pane",
-        "agent_pane.record|agent_pane.clear|agent_pane.rename_branch",
+        "agent_pane.record|agent_pane.clear|agent_pane.rename_branch|agent_pane.discard",
         "*",
         "*",
         Kind::Invalidate("agents"),

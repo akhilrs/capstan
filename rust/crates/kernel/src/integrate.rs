@@ -1875,6 +1875,41 @@ impl GitRepo {
         }
     }
 
+    /// The subject of the oldest non-merge commit `sha` adds on top of `base` (what base already holds is not counted, what
+    /// earlier unmerged reports hold is), or the subject of `sha` itself when that range is empty or git cannot list it.
+    pub fn first_commit_subject(&self, base: &str, sha: &str) -> IntegrateResult<Option<String>> {
+        if !is_full_sha(sha) || !is_full_sha(base) {
+            return self.commit_subject(sha);
+        }
+        let mut args: Vec<String> = [
+            "log",
+            "--first-parent",
+            "--no-merges",
+            "--reverse",
+            "--format=%s",
+        ]
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+        args.push(format!("{base}..{sha}"));
+        args.push("--".into());
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (code, stdout) = self.text(&refs, PLAIN)?;
+        let first = if code == 0 {
+            stdout
+                .split('\n')
+                .map(js_trim)
+                .find(|l| !l.is_empty())
+                .map(str::to_string)
+        } else {
+            None
+        };
+        match first {
+            Some(subject) => Ok(Some(subject)),
+            None => self.commit_subject(sha),
+        }
+    }
+
     /// The first line of a commit's message, or `None` when git cannot read it.
     pub fn commit_subject(&self, sha: &str) -> IntegrateResult<Option<String>> {
         if !is_full_sha(sha) {
@@ -2834,8 +2869,10 @@ fn finish_merge(
             });
         }
         let mut subjects: HashMap<String, String> = HashMap::new();
+        // The subject of a report is its first (oldest) commit's, not the tip's: a later fix-up must not name the change.
+        // Only what the base already holds is left out, so a rework stacked on an earlier unmerged report keeps the original subject.
         for (report_id, sha) in &members {
-            if let Ok(Some(subject)) = deps.git.commit_subject(sha) {
+            if let Ok(Some(subject)) = deps.git.first_commit_subject(base_sha, sha) {
                 subjects.insert(report_id.clone(), subject);
             }
         }

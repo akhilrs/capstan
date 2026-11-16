@@ -358,9 +358,26 @@ fn replace(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespon
 }
 
 fn release(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandResponse> {
-    let (requested_by, agent_id) = match worker_target(env, call, "release", "release") {
-        Ok(target) => target,
-        Err(refusal) => return Some(refusal),
+    // `release <agent-id> --discard` also removes the agent's worktrees and deletes its branches in every repo.
+    let discard = call.args.len() == 2 && call.args[1] == "--discard";
+    let (requested_by, agent_id) = if discard {
+        let single = CommandCall {
+            command: call.command,
+            credential: call.credential,
+            identity: call.identity,
+            args: &call.args[..1],
+            signal: call.signal,
+            limit_ms: call.limit_ms,
+        };
+        match worker_target(env, &single, "release", "release") {
+            Ok(target) => target,
+            Err(refusal) => return Some(refusal),
+        }
+    } else {
+        match worker_target(env, call, "release", "release") {
+            Ok(target) => target,
+            Err(refusal) => return Some(refusal),
+        }
     };
     let Some(launcher) = &env.deps.launcher else {
         return Some(fail(
@@ -370,8 +387,14 @@ fn release(env: &CommandEnv<'_>, call: &CommandCall<'_>) -> Option<CommandRespon
     };
     env.log(
         "release_requested",
-        json!({"requestedBy": requested_by, "agentId": agent_id}),
+        json!({"requestedBy": requested_by, "agentId": agent_id, "discard": discard}),
     );
+    if discard {
+        return Some(match launcher.release_discard(&agent_id) {
+            Ok(result) => ok(result.to_value()),
+            Err(error) => map_error(&HandlerError::from(error)),
+        });
+    }
     Some(match launcher.release(&agent_id) {
         Ok(result) => ok(result.to_value()),
         Err(error) => map_error(&HandlerError::from(error)),
