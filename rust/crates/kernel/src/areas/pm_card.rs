@@ -172,6 +172,11 @@ pub const PM_CARD_IGNORED: &[(&str, &[&str], &str)] = &[
         "a pane is not read by the card",
     ),
     (
+        "agent_pane.discard",
+        &["controller_events"],
+        "a discard record the card does not read",
+    ),
+    (
         "agent_pane.record",
         &["agent_panes"],
         "a pane is not read by the card",

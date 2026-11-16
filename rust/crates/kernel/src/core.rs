@@ -236,6 +236,21 @@ impl Core {
         panes::clear_agent_pane(&self.kernel, context, agent_id)
     }
 
+    /// What `release --discard` needs to know about an agent (see `panes::discard_refs`).
+    pub fn discard_refs(&self, agent_id: &str) -> KernelResult<Value> {
+        panes::discard_refs(&self.kernel, agent_id)
+    }
+
+    /// Records what `release --discard` removed.
+    pub fn record_release_discard(
+        &self,
+        context: &MutationContext,
+        agent_id: &str,
+        entries: &Value,
+    ) -> KernelResult<Value> {
+        panes::record_release_discard(&self.kernel, context, agent_id, entries)
+    }
+
     /// `ControllerCore.recordFallbackPane`.
     pub fn record_fallback_pane(
         &self,

@@ -384,7 +384,7 @@ fn shell_word(text: &str) -> String {
     }
 }
 
-fn restore_command(branch: &str, sha: &str) -> String {
+pub fn restore_command(branch: &str, sha: &str) -> String {
     format!("git branch {} {sha}", shell_word(branch))
 }
 

@@ -318,6 +318,11 @@ pub trait GitRunner: Send + Sync {
             "this git runner cannot reset a worktree",
         ))
     }
+    /// The branch checked out in the main checkout of the repository at `repo_root`; `None` when detached or unknown.
+    fn head_branch_in(&self, repo_root: &str) -> Option<String> {
+        let _ = repo_root;
+        None
+    }
     // ---- repo-rooted operations (workspace mode): `repo_root` is the repository's top-level folder.
 
     /// The commit a branch of the repository points at.

@@ -388,6 +388,57 @@ pub fn review_show_lines(result: Option<&Value>) -> Option<Vec<String>> {
     Some(lines)
 }
 
+/// What `cstan release <agent-id> --discard` prints (without `--json`): per repo the worktree removed and the branch deleted
+/// with its commit, then the `git branch` commands that bring each branch back. `None` for any other answer.
+pub fn discard_lines(result: Option<&Value>) -> Option<Vec<String>> {
+    let result = result?;
+    if text_of(result.get("state")).as_deref() != Some("discarded") {
+        return None;
+    }
+    let mut lines = vec![format!(
+        "{} discarded{}",
+        text_of(result.get("agentId")).unwrap_or_default(),
+        if matches!(result.get("released"), Some(Value::Bool(true))) {
+            " (released first)"
+        } else {
+            ""
+        }
+    )];
+    for repo in items(result.get("repos")) {
+        let name = text_of(repo.get("repo"))
+            .map(|r| format!("{r}: "))
+            .unwrap_or_default();
+        let worktree = match text_of(repo.get("worktreePath")) {
+            Some(path) if matches!(repo.get("worktreeRemoved"), Some(Value::Bool(true))) => {
+                format!("removed worktree {path}; ")
+            }
+            Some(path) => format!("kept worktree {path}; "),
+            None => String::new(),
+        };
+        let branch = text_of(repo.get("branch")).unwrap_or_default();
+        let sha = text_of(repo.get("sha")).unwrap_or_default();
+        let branch = if matches!(repo.get("branchDeleted"), Some(Value::Bool(true))) {
+            format!("deleted {branch} {sha}")
+        } else {
+            format!("kept {branch}")
+        };
+        let note = text_of(repo.get("note"))
+            .map(|n| format!(" ({n})"))
+            .unwrap_or_default();
+        lines.push(format!("{name}{worktree}{branch}{note}"));
+    }
+    let restore = items(result.get("restore"));
+    if !restore.is_empty() {
+        lines.push("to bring a branch back:".to_string());
+        lines.extend(
+            restore
+                .iter()
+                .map(|c| format!("  {}", text_of(Some(c)).unwrap_or_default())),
+        );
+    }
+    Some(lines)
+}
+
 /// What `cstan cleanup` prints (without `--json`) for the daemon's answer: the dry-run groups, an offer, what an apply
 /// deleted and skipped with the commands that bring the branches back, or the decline.
 pub fn cleanup_lines(result: Option<&Value>) -> Vec<String> {

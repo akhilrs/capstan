@@ -399,3 +399,48 @@ fn the_gate_line_skips_a_last_pass_on_the_same_commit_and_names_dropped_repos_pa
     assert!(!last.contains("last passed"), "{last}");
     assert!(last.ends_with(" · +3 · old outside the gate"), "{last}");
 }
+
+#[test]
+fn status_lists_the_repos_of_a_workspace_and_a_single_repo_prints_none() {
+    let result = json!({"repos": [
+        {"name": "core-api", "path": "/w/core-api", "mainBranch": "main", "default": true},
+        {"name": "web", "path": "/w/web", "mainBranch": "develop", "default": false}]});
+    let text = text_of(&result, false);
+    assert!(
+        text.contains("core-api  /w/core-api  main  (default)"),
+        "{text}"
+    );
+    assert!(text.contains("web  /w/web  develop"), "{text}");
+    assert!(!text.contains("develop  (default)"), "{text}");
+    assert!(!text_of(&json!({"agents": []}), false).contains("repos"));
+}
+
+#[test]
+fn integrate_text_drops_an_empty_removed_and_the_branches_the_message_names() {
+    use cstan_front::compact::{integrate_text, request_review_text};
+    let named = json!({"message": "set 1 discarded; removed branches: api: int/x", "removed": [],
+        "removedBranches": [{"repo": "api", "branch": "int/x"}], "state": "discarded"});
+    let out = js::render(&integrate_text(&to_js(&named))).to_utf8_lossy();
+    assert!(!out.contains("\"removed\""), "{out}");
+    assert!(!out.contains("removedBranches"), "{out}");
+    let one = json!({"message": "repo api dropped", "removed": [],
+        "removedBranches": [{"repo": "api", "branch": "int/x"}]});
+    let out = js::render(&integrate_text(&to_js(&one))).to_utf8_lossy();
+    assert!(
+        out.contains("removedBranches") && !out.contains("\"removed\""),
+        "{out}"
+    );
+
+    let multi = json!({"reviewId": "r1", "commit": "aaa", "commits": [
+        {"repo": "core-api", "commitSha": "aaa"}, {"repo": "web", "commitSha": "bbb"}]});
+    let out = js::render(&request_review_text(&to_js(&multi))).to_utf8_lossy();
+    assert!(
+        out.contains("core-api aaa") && out.contains("web bbb"),
+        "{out}"
+    );
+    let single = json!({"reviewId": "r1", "commit": "aaa"});
+    assert_eq!(
+        js::render(&request_review_text(&to_js(&single))),
+        js::render(&to_js(&single))
+    );
+}

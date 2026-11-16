@@ -292,7 +292,7 @@ Run `cstan help` for every command, grouped, with its syntax; `cstan help <comma
 | `cstan wait`                                                         | Block for new messages (PM and workers).                  |
 | `cstan ack <message-id>`                                             | Acknowledge a message.                                    |
 | `cstan spawn <role> [--task <ref>] [--type <type>] [--title <text>]` | Start a worker; `--task` names its branch after the task. |
-| `cstan release <agent-id>`                                           | End a worker, free its pane and worktree.                 |
+| `cstan release <agent-id> [--discard]`                               | End a worker, free its pane and worktree; `--discard` also deletes its branches. |
 | `cstan replace <agent-id>`                                           | Replace a lost or stuck worker.                           |
 | `cstan pause [<agent-id>] --reason "<text>" [--interrupt]`           | Hold one agent or the whole run (you or the PM).          |
 | `cstan resume [<agent-id>] --reason "<text>"`                        | Release a pause.                                          |

@@ -146,6 +146,10 @@ host = "claude"
 kind = "Developer"
 host = "claude"
 
+[roles.supervisor]
+kind = "Supervisor"
+host = "claude"
+
 {ws}"#,
             ws = if workspace {
                 format!(
@@ -774,4 +778,315 @@ impl World {
         .pop()
         .expect("a verified-report notice")
     }
+}
+
+// ------------------------------------------------------------------------------------------------ release --discard
+
+impl World {
+    fn discard(&self, agent: &str) -> Value {
+        self.call("pm-1", "release", &[agent, "--discard"])
+    }
+
+    fn discard_ok(&self, agent: &str) -> Value {
+        let answer = self.discard(agent);
+        assert_eq!(answer["ok"], true, "release --discard: {answer}");
+        answer["result"].clone()
+    }
+
+    /// The branch and worktree a single-repo agent's pane row records.
+    fn pane(&self, agent: &str) -> (String, String) {
+        let agent = agent.to_string();
+        self.ledger(move |core| {
+            let kernel = core.kernel();
+            capstan_kernel::helpers::query_all(
+                &kernel.database,
+                "SELECT branch, worktree_path FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+                [kernel.project_id.as_str(), agent.as_str()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+        })
+        .pop()
+        .expect("a pane row with a branch")
+    }
+
+    fn sql(&self, sql: &'static str, args: Vec<String>) {
+        self.ledger(move |core| {
+            capstan_kernel::helpers::execute(
+                &core.kernel().database,
+                sql,
+                rusqlite::params_from_iter(args.iter()),
+            )
+        });
+    }
+
+    fn root_branches(&self) -> Vec<String> {
+        git(
+            self._dir.path(),
+            &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        )
+        .lines()
+        .map(str::to_string)
+        .collect()
+    }
+}
+
+#[test]
+fn discard_deletes_a_single_repo_branch_with_unlanded_commits() {
+    let w = World::build(false);
+    let agent = w.spawn(&SpawnOptions::default());
+    let (branch, path) = w.pane(&agent);
+    std::fs::write(Path::new(&path).join("n.txt"), "x\n").unwrap();
+    git(Path::new(&path), &["add", "-A"]);
+    git(Path::new(&path), &["commit", "--quiet", "-m", "feat: n"]);
+    let sha = git(Path::new(&path), &["rev-parse", "HEAD"]);
+    let result = w.discard_ok(&agent);
+    assert_eq!(result["state"], "discarded", "{result}");
+    assert_eq!(result["released"], true);
+    assert_eq!(result["repos"][0]["branch"], branch.as_str());
+    assert_eq!(result["repos"][0]["sha"], sha.as_str());
+    assert_eq!(result["repos"][0]["branchDeleted"], true);
+    assert_eq!(result["repos"][0]["worktreeRemoved"], true);
+    assert_eq!(result["restore"][0], format!("git branch {branch} {sha}"));
+    assert!(!Path::new(&path).exists());
+    assert!(!w.root_branches().contains(&branch));
+    // The restore line brings the commit back.
+    git(w._dir.path(), &["branch", &branch, &sha]);
+    assert!(w.root_branches().contains(&branch));
+}
+
+#[test]
+fn discard_clears_both_repos_of_a_workspace_agent() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    w.add(&agent, "web");
+    let core = commit_in(&w, &agent, "core", "a.txt");
+    let web = commit_in(&w, &agent, "web", "b.txt");
+    let branch = w.rows(&agent)[0]["branch"].as_str().unwrap().to_string();
+    let result = w.discard_ok(&agent);
+    let repos = result["repos"].as_array().unwrap();
+    assert_eq!(repos.len(), 2, "{result}");
+    let sha_of = |name: &str| {
+        repos
+            .iter()
+            .find(|r| r["repo"] == name)
+            .unwrap_or_else(|| panic!("{name} in {result}"))["sha"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(sha_of("core"), core);
+    assert_eq!(sha_of("web"), web);
+    assert_eq!(result["restore"].as_array().unwrap().len(), 2);
+    assert_eq!(w.worktrees("core"), 0);
+    assert_eq!(w.worktrees("web"), 0);
+    assert!(!w.branches("core").contains(&branch));
+    assert!(!w.branches("web").contains(&branch));
+    assert!(!w.changes.join(&agent).exists());
+}
+
+#[test]
+fn discard_cleans_an_agent_that_was_released_with_its_branches_kept() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    w.add(&agent, "web");
+    commit_in(&w, &agent, "core", "a.txt");
+    commit_in(&w, &agent, "web", "b.txt");
+    let branch = w.rows(&agent)[0]["branch"].as_str().unwrap().to_string();
+    w.launcher.release(&agent).expect("the release");
+    assert!(w.branches("core").contains(&branch));
+    let again = w.call("pm-1", "release", &[agent.as_str()]);
+    assert_eq!(
+        again["ok"], false,
+        "a plain release of a gone agent still refuses"
+    );
+    let result = w.discard_ok(&agent);
+    assert_eq!(result["released"], false, "{result}");
+    assert_eq!(result["repos"].as_array().unwrap().len(), 2, "{result}");
+    assert!(!w.branches("core").contains(&branch));
+    assert!(!w.branches("web").contains(&branch));
+}
+
+#[test]
+fn discard_refuses_a_dirty_worktree_and_changes_nothing() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    w.add(&agent, "web");
+    commit_in(&w, &agent, "core", "a.txt");
+    let tree = w.changes.join(&agent).join("web");
+    std::fs::write(tree.join("wip.txt"), "unsaved\n").unwrap();
+    let branch = w.rows(&agent)[0]["branch"].as_str().unwrap().to_string();
+    let answer = w.discard(&agent);
+    assert_eq!(answer["ok"], false, "{answer}");
+    let (code, text) = refusal(&answer);
+    assert_eq!(code, "worktree_dirty", "{answer}");
+    assert!(
+        text.contains("web") && text.contains(&*tree.to_string_lossy()),
+        "{text}"
+    );
+    assert_eq!(w.worktrees("core"), 1);
+    assert_eq!(w.worktrees("web"), 1);
+    assert!(w.branches("core").contains(&branch));
+    assert_eq!(w.rows(&agent).len(), 2);
+    assert!(w.stub.take_calls().iter().all(|c| c["m"] != "closePane"));
+}
+
+#[test]
+fn discard_never_deletes_a_main_branch() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    w.sql(
+        "UPDATE agent_worktrees SET branch = 'main' WHERE agent_id = ? AND repo = 'core'",
+        vec![agent.clone()],
+    );
+    let answer = w.discard(&agent);
+    let (code, _) = refusal(&answer);
+    assert_eq!(code, "protected_branch", "{answer}");
+    assert!(w.branches("core").contains(&"main".to_string()));
+    assert_eq!(w.worktrees("core"), 1);
+}
+
+#[test]
+fn discard_refuses_a_branch_checked_out_in_another_worktree() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    let elsewhere = w.scratch.path().join("elsewhere");
+    git(
+        &w.repo("core"),
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "other",
+            &elsewhere.to_string_lossy(),
+        ],
+    );
+    w.sql(
+        "UPDATE agent_worktrees SET branch = 'other' WHERE agent_id = ? AND repo = 'core'",
+        vec![agent.clone()],
+    );
+    let answer = w.discard(&agent);
+    let (code, text) = refusal(&answer);
+    assert_eq!(code, "branch_in_use", "{answer}");
+    assert!(text.contains(&*elsewhere.to_string_lossy()), "{text}");
+    assert!(w.branches("core").contains(&"other".to_string()));
+}
+
+#[test]
+fn discard_refuses_a_branch_in_an_unsettled_integration() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    let sha = commit_in(&w, &agent, "core", "a.txt");
+    w.sql(
+        "INSERT INTO agent_reports(project_id, report_id, sequence, agent_id, generation, actor_id, commit_sha, branch, summary, state, evidence_json, created_at)
+         VALUES ('prepo', 'rep-1', 1, ?, 1, (SELECT actor_id FROM agents WHERE agent_id = ?), ?, NULL, 's', 'accepted', '{}', '2026-01-01T00:00:00.000Z')",
+        vec![agent.clone(), agent.clone(), sha],
+    );
+    w.sql(
+        "INSERT INTO integrations(project_id, integration_id, sequence, base_sha, branch, requested_by, state, created_at)
+         VALUES ('prepo', 'int-1', 1, ?, 'capstan/integration/int-1', 'operator', 'running', '2026-01-01T00:00:00.000Z')",
+        vec!["a".repeat(40)],
+    );
+    w.sql(
+        "INSERT INTO integration_reports(project_id, integration_id, position, report_id) VALUES ('prepo', 'int-1', 1, 'rep-1')",
+        vec![],
+    );
+    let answer = w.discard(&agent);
+    let (code, text) = refusal(&answer);
+    assert_eq!(code, "in_integration", "{answer}");
+    assert!(text.contains("int-1"), "{text}");
+    assert_eq!(w.worktrees("core"), 1);
+}
+
+#[test]
+fn a_worker_may_not_discard() {
+    let w = World::new();
+    let agent = w.spawn(&SpawnOptions::default());
+    let branch = w.rows(&agent)[0]["branch"].as_str().unwrap().to_string();
+    let answer = w.call(&agent, "release", &[agent.as_str(), "--discard"]);
+    assert_eq!(answer["ok"], false, "{answer}");
+    assert!(w.branches("core").contains(&branch));
+    assert_eq!(w.worktrees("core"), 1);
+}
+
+#[test]
+fn a_released_supervisor_leaves_no_worktree_in_any_repo() {
+    let w = World::new();
+    let spawned = w
+        .launcher
+        .spawn("supervisor", &SpawnOptions::default())
+        .unwrap_or_else(|e| panic!("the supervisor spawn is refused: {e}"));
+    let agent = spawned.agent_id.clone();
+    assert!(
+        w.changes.join(&agent).exists(),
+        "the supervisor has a change folder"
+    );
+    let before = w.worktrees("core");
+    assert_eq!(before, 1);
+    let released = w.launcher.release(&agent).expect("the release");
+    assert_eq!(
+        released.outcome.worktree_removed,
+        Some(true),
+        "{released:?}"
+    );
+    assert_eq!(w.worktrees("core"), 0);
+    assert!(!w.changes.join(&agent).exists());
+}
+
+impl World {
+    fn pane_id(&self, agent: &str) -> String {
+        let agent = agent.to_string();
+        self.ledger(move |core| {
+            let kernel = core.kernel();
+            capstan_kernel::helpers::query_all(
+                &kernel.database,
+                "SELECT pane_id FROM agent_panes WHERE project_id = ? AND agent_id = ?",
+                [kernel.project_id.as_str(), agent.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .pop()
+        .expect("a pane row")
+    }
+}
+
+#[test]
+fn a_supervisor_whose_pane_died_leaves_no_worktree_after_the_next_adopt() {
+    let w = World::new();
+    let agent = w
+        .launcher
+        .spawn("supervisor", &SpawnOptions::default())
+        .expect("the supervisor spawns")
+        .agent_id;
+    assert_eq!(w.worktrees("core"), 1);
+    let pane = w.pane_id(&agent);
+    // A controller restart: the host's registry is empty and the pane is gone.
+    w.stub.apply(&json!({"do": "forget_registry"}));
+    w.stub.apply(&json!({"do": "gone", "pane": pane}));
+    w.stub.apply(&json!({"do": "fail", "method": "adoptPane", "times": 2, "error": {"kind": "pane_gone", "message": "gone"}}));
+    w.stub.take_calls();
+    w.launcher.adopt_all().expect("the adoption runs");
+    assert_eq!(
+        w.worktrees("core"),
+        0,
+        "the dead supervisor's worktree stays"
+    );
+    assert!(!w.changes.join(&agent).exists());
+}
+
+#[test]
+fn discard_clears_a_supervisor_worktree_in_every_repo() {
+    let w = World::new();
+    let agent = w
+        .launcher
+        .spawn("supervisor", &SpawnOptions::default())
+        .expect("the supervisor spawns")
+        .agent_id;
+    assert_eq!(w.worktrees("core"), 1);
+    let result = w.discard_ok(&agent);
+    assert_eq!(result["released"], true, "{result}");
+    assert_eq!(w.worktrees("core"), 0);
+    assert!(!w.changes.join(&agent).exists());
+    // Again, for a supervisor that is already gone: the recorded rows are still read and nothing is left to delete.
+    let again = w.discard(&agent);
+    assert_eq!(again["ok"], true, "{again}");
 }

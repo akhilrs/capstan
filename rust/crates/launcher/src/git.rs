@@ -511,6 +511,12 @@ impl GitRunner for DefaultGit {
         Ok(())
     }
 
+    fn head_branch_in(&self, repo_root: &str) -> Option<String> {
+        let result = self.run_in(repo_root, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
+        let name = result.stdout.trim();
+        (result.ok() && !name.is_empty()).then(|| name.to_string())
+    }
+
     fn branch_tip_in(&self, repo_root: &str, branch: &str) -> Option<String> {
         let result = self.run_in(
             repo_root,

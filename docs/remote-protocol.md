@@ -404,6 +404,10 @@ changes only for an integration item that is a member of a set (the hash is then
 - `commits` (in the body of a `report.recorded` event, and on the report rows of `cstan --json status`) is `[{repo,
   commitSha, branch, baseSha}]`, one per repo the report named, ordered by repo. `commitSha` of the report stays the
   first commit. A report that named no commits has no `commits` member.
+- `repos` (in `cstan --json status` of a workspace project, after 0.25.0) is `[{name, path, mainBranch, default}]` in
+  config order, `default` true for `[workspace] default_repo`; a single-repo project has no `repos` member. The answer
+  of `request-review` for a report with commits in several repos also carries `commits: [{repo, commitSha}]`
+  (`commit` stays the default repo's); the `integrate discard` answer is unchanged.
 - `integrationSets` (in `cstan --json status`) is the newest sets, each `{setId, state, branch, confirmed, members}`
   with the members as in `set`; `confirmed` is true when every live member is confirmed. The `integrations` rows of the
   status also carry `set` for a member. The `worktrees` of an agent in the status list are `[{repo, path, branch}]`
