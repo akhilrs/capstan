@@ -88,3 +88,33 @@ jobs:
       - run: scripts/check.sh scripts
         env:
           CSTAN_NO_NODE: "1"
+
+  macos:
+    name: macos (clippy, unit tests, installer)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Git identity
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+      - name: Rust toolchain (rust)
+        working-directory: rust
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Rust toolchain (dash)
+        working-directory: dash
+        run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            dash
+          shared-key: macos
+      - run: scripts/check.sh unit
+        env:
+          CSTAN_NO_NODE: "1"
+      - name: Intel target check
+        run: (cd rust && cargo check --locked -p cstan-front --target x86_64-apple-darwin) && (cd dash && cargo check --locked --target x86_64-apple-darwin)
+      - run: sh scripts/test-install.sh

@@ -57,6 +57,38 @@ pub fn executable(pid: i32) -> Option<PathBuf> {
     os::executable(pid)
 }
 
+/// The uid that owns `pid`, or `None` when it does not exist or cannot be read. On Linux a non-dumpable process shows
+/// root.
+pub fn owner(pid: i32) -> Option<u32> {
+    os::owner(pid)
+}
+
+/// The command line of `pid`: its arguments, each followed by a NUL. `None` when it cannot be read.
+pub fn arguments(pid: i32) -> Option<Vec<u8>> {
+    os::arguments(pid)
+}
+
+/// The arguments in a `KERN_PROCARGS2` buffer (the argument count, the executable path, NUL padding, the arguments, then
+/// the environment), each followed by a NUL. An argument count above the strings present yields the strings present;
+/// a buffer cut inside the count or the executable path yields `None`.
+#[cfg(any(target_os = "macos", test))]
+fn argv_from_procargs(buffer: &[u8]) -> Option<Vec<u8>> {
+    let argc = i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?);
+    let mut rest = &buffer[4..];
+    rest = &rest[rest.iter().position(|b| *b == 0)? + 1..];
+    let padding = rest.iter().take_while(|b| **b == 0).count();
+    rest = &rest[padding..];
+    let mut args = Vec::new();
+    for _ in 0..argc.max(0) {
+        let Some(end) = rest.iter().position(|b| *b == 0) else {
+            break;
+        };
+        args.extend_from_slice(&rest[..=end]);
+        rest = &rest[end + 1..];
+    }
+    Some(args)
+}
+
 /// Whether `pid` has ended and waits for its parent to collect it.
 pub fn is_zombie(pid: i64) -> bool {
     os::is_zombie(pid)
@@ -121,6 +153,47 @@ mod tests {
             .unwrap();
         assert!(theirs >= me, "child {theirs} before parent {me}");
         stop(child);
+    }
+
+    #[test]
+    fn owner_and_arguments_of_this_process() {
+        let me = std::process::id() as i32;
+        // SAFETY: geteuid has no preconditions.
+        assert_eq!(owner(me), Some(unsafe { libc::geteuid() }));
+        assert_eq!(owner(0x7fff_fff0), None);
+        assert_eq!(arguments(0x7fff_fff0), None);
+        let args = arguments(me).expect("own arguments");
+        let first = args.split(|b| *b == 0).next().unwrap();
+        let first = std::path::PathBuf::from(String::from_utf8_lossy(first).into_owned());
+        assert_eq!(
+            std::fs::canonicalize(first).unwrap(),
+            std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap()
+        );
+    }
+
+    fn procargs(argc: i32, parts: &[&[u8]]) -> Vec<u8> {
+        let mut bytes = argc.to_ne_bytes().to_vec();
+        parts.iter().for_each(|part| bytes.extend_from_slice(part));
+        bytes
+    }
+
+    #[test]
+    fn argv_from_procargs_takes_argc_strings() {
+        let normal = procargs(
+            2,
+            &[b"/bin/x\0", b"\0\0\0", b"x\0", b"30\0", b"A=1\0", b"\0\0"],
+        );
+        assert_eq!(argv_from_procargs(&normal).unwrap(), b"x\x0030\0");
+        assert_eq!(
+            argv_from_procargs(&procargs(0, &[b"/bin/x\0", b"A=1\0"])).unwrap(),
+            b""
+        );
+        assert_eq!(
+            argv_from_procargs(&procargs(5, &[b"/bin/x\0", b"x\0", b"y\0"])).unwrap(),
+            b"x\0y\0"
+        );
+        assert_eq!(argv_from_procargs(&[1, 0]), None);
+        assert_eq!(argv_from_procargs(&procargs(1, &[b"/bin/x"])), None);
     }
 
     #[test]

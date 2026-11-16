@@ -91,8 +91,12 @@ printf '\n%s\n' "$SECTION"
 
 if [ "$DRY_RUN" = 1 ]; then
   echo "Assets the tag would build (see .github/workflows/release.yml):"
-  for arch in x64 arm64; do echo "  cstan-$VERSION-linux-$arch"; done
-  for arch in x64 arm64; do echo "  cstan-dash-$VERSION-linux-$arch"; done
+  for os in linux macos; do
+    for arch in x64 arm64; do echo "  cstan-$VERSION-$os-$arch"; done
+  done
+  for os in linux macos; do
+    for arch in x64 arm64; do echo "  cstan-dash-$VERSION-$os-$arch"; done
+  done
   echo "  SHA256SUMS"
   echo "Dry run: nothing was changed."
   exit 0

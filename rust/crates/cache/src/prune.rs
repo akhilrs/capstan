@@ -511,7 +511,6 @@ fn same_file(file: &File, path: &Path) -> std::io::Result<bool> {
 /// working directory is known, each resolved through symlinks (an unresolvable one stays as written). The flag is set
 /// when a relative argument with a separator cannot be resolved because the working directory is unknown: the
 /// process is then unknown, not assumed to run from elsewhere.
-#[cfg(target_os = "linux")]
 fn cmdline_paths(raw: &[u8], cwd: Option<&Path>) -> (Vec<PathBuf>, bool) {
     let mut paths = Vec::new();
     let mut unknown = false;
@@ -534,6 +533,62 @@ fn cmdline_paths(raw: &[u8], cwd: Option<&Path>) -> (Vec<PathBuf>, bool) {
         paths.push(fs::canonicalize(&full).unwrap_or(full));
     }
     (paths, unknown)
+}
+
+/// What the portable scan reads of one process.
+#[cfg(any(not(target_os = "linux"), test))]
+struct PidFacts {
+    zombie: bool,
+    exe: Option<PathBuf>,
+    cwd: Option<PathBuf>,
+    /// The process belongs to this user and still exists.
+    ours_and_alive: bool,
+    args: Option<Vec<u8>>,
+}
+
+/// The rule for one process: its executable and working directory count; when one cannot be read and the process is
+/// ours, its arguments tell whether it was started from a path in the store, and only unreadable arguments make every
+/// unit count as in use.
+#[cfg(any(not(target_os = "linux"), test))]
+fn scan_pid(facts: PidFacts, scan: &mut ProcScan) {
+    if facts.zombie {
+        return;
+    }
+    scan.paths.extend(facts.exe.iter().cloned());
+    scan.paths.extend(facts.cwd.iter().cloned());
+    if (facts.exe.is_none() || facts.cwd.is_none()) && facts.ours_and_alive {
+        match facts.args {
+            Some(raw) => {
+                let (paths, unknown) = cmdline_paths(&raw, facts.cwd.as_deref());
+                scan.paths.extend(paths);
+                scan.unknown |= unknown;
+            }
+            None => scan.unknown = true,
+        }
+    }
+}
+
+/// The scan through `capstan_process`, for systems without `/proc`.
+#[cfg(any(not(target_os = "linux"), test))]
+fn take_portable() -> ProcScan {
+    let mut scan = ProcScan {
+        paths: Vec::new(),
+        unknown: false,
+    };
+    // SAFETY: geteuid has no preconditions.
+    let me = unsafe { libc::geteuid() };
+    for pid in capstan_process::pids() {
+        let facts = PidFacts {
+            zombie: capstan_process::is_zombie(i64::from(pid)),
+            exe: capstan_process::executable(pid),
+            cwd: capstan_process::cwd(pid),
+            ours_and_alive: capstan_process::owner(pid) == Some(me)
+                && capstan_process::start_time(i64::from(pid)).is_some(),
+            args: capstan_process::arguments(pid),
+        };
+        scan_pid(facts, &mut scan);
+    }
+    scan
 }
 
 /// What processes run from: their executable and working directory, read once per prune.
@@ -596,10 +651,7 @@ impl ProcScan {
 
     #[cfg(not(target_os = "linux"))]
     fn take() -> ProcScan {
-        ProcScan {
-            paths: Vec::new(),
-            unknown: false,
-        }
+        take_portable()
     }
 
     fn runs_from(&self, dir: &Path) -> bool {
@@ -1594,5 +1646,149 @@ mod cmdline_tests {
         let (paths, unknown) = cmdline_paths(raw.as_bytes(), None);
         assert_eq!(paths, [real.join("bin")]);
         assert!(unknown);
+    }
+}
+
+#[cfg(test)]
+mod portable_tests {
+    use super::*;
+
+    fn scan() -> ProcScan {
+        ProcScan {
+            paths: Vec::new(),
+            unknown: false,
+        }
+    }
+
+    fn facts() -> PidFacts {
+        PidFacts {
+            zombie: false,
+            exe: None,
+            cwd: None,
+            ours_and_alive: false,
+            args: None,
+        }
+    }
+
+    #[test]
+    fn a_zombie_adds_nothing() {
+        let mut s = scan();
+        scan_pid(
+            PidFacts {
+                zombie: true,
+                exe: Some("/a/b".into()),
+                ours_and_alive: true,
+                ..facts()
+            },
+            &mut s,
+        );
+        assert!(s.paths.is_empty() && !s.unknown);
+    }
+
+    #[test]
+    fn exe_and_cwd_are_pushed() {
+        let mut s = scan();
+        scan_pid(
+            PidFacts {
+                exe: Some("/a/exe".into()),
+                cwd: Some("/a/cwd".into()),
+                ..facts()
+            },
+            &mut s,
+        );
+        assert_eq!(s.paths, [PathBuf::from("/a/exe"), PathBuf::from("/a/cwd")]);
+        assert!(!s.unknown);
+    }
+
+    #[test]
+    fn an_unreadable_process_that_is_not_ours_adds_nothing() {
+        let mut s = scan();
+        scan_pid(
+            PidFacts {
+                args: Some(b"/x/y\0".to_vec()),
+                ..facts()
+            },
+            &mut s,
+        );
+        assert!(s.paths.is_empty() && !s.unknown);
+    }
+
+    #[test]
+    fn a_relative_argument_resolves_against_the_cwd() {
+        let mut s = scan();
+        scan_pid(
+            PidFacts {
+                cwd: Some("/nonexistent-cwd".into()),
+                ours_and_alive: true,
+                args: Some(b"tool\0sub/bin\0".to_vec()),
+                ..facts()
+            },
+            &mut s,
+        );
+        assert_eq!(
+            s.paths,
+            [
+                PathBuf::from("/nonexistent-cwd"),
+                PathBuf::from("/nonexistent-cwd/sub/bin")
+            ]
+        );
+        assert!(!s.unknown);
+    }
+
+    #[test]
+    fn an_absolute_argument_is_pushed_when_both_links_are_hidden() {
+        let mut s = scan();
+        scan_pid(
+            PidFacts {
+                ours_and_alive: true,
+                args: Some(b"x\0/nonexistent-abs/tool\0".to_vec()),
+                ..facts()
+            },
+            &mut s,
+        );
+        assert_eq!(s.paths, [PathBuf::from("/nonexistent-abs/tool")]);
+        assert!(!s.unknown);
+    }
+
+    #[test]
+    fn unreadable_arguments_of_our_process_are_unknown() {
+        let mut s = scan();
+        scan_pid(
+            PidFacts {
+                ours_and_alive: true,
+                ..facts()
+            },
+            &mut s,
+        );
+        assert!(s.unknown);
+    }
+
+    #[test]
+    fn take_portable_sees_a_child_by_its_working_directory() {
+        use std::process::{Command, Stdio};
+        let dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .current_dir(dir.path())
+            .stdin(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id() as i32;
+        let want = fs::canonicalize(dir.path()).unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        while !(capstan_process::pids().contains(&pid)
+            && capstan_process::cwd(pid).as_deref() == Some(want.as_path()))
+        {
+            assert!(Instant::now() < deadline, "the child never showed");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let scan = take_portable();
+        let (here, there) = (scan.runs_from(dir.path()), scan.runs_from(other.path()));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert!(here);
+        // Another process of this user may hide everything, which counts as in use.
+        assert!(!there || scan.unknown);
     }
 }

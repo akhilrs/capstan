@@ -1,12 +1,12 @@
 #!/bin/sh
-# Smoke test for install.sh. Fabricates releases (shell scripts standing in for the Rust binaries, with a real
-# SHA256SUMS) and runs every install scenario against temp HOME / CAPSTAN_HOME / CAPSTAN_BIN_DIR dirs:
+# Smoke test for install.sh. Fabricates releases for Linux and macOS (shell scripts standing in for the Rust binaries,
+# with a real SHA256SUMS; the host's own os part is installed, the other is shown with stub uname/sysctl/xattr/ps) and runs every install scenario against temp HOME / CAPSTAN_HOME / CAPSTAN_BIN_DIR dirs:
 # a fresh install, platform detection, checksum refusals, the 0.4.0 cutoff, and the upgrade from each earlier layout
 # (the Node SEA binary, the front end with cstan-node, the npm global prefix), whose fabricated installs follow what the
 # v0.2.0 and v0.3.0 install.sh wrote. Release scenarios use file:// bases, so curl; `latest` is a stub in front of curl.
 # It needs no network and no node: node directories are dropped from PATH for the whole run.
-# Set CAPSTAN_TEST_RELEASE_DIR to a directory holding a real release (cstan-<v>-linux-<arch>,
-# cstan-dash-<v>-linux-<arch> and SHA256SUMS) to also install it for this machine. Exit code 0 means all passed.
+# Set CAPSTAN_TEST_RELEASE_DIR to a directory holding a real release (cstan-<v>-<os>-<arch>,
+# cstan-dash-<v>-<os>-<arch> and SHA256SUMS) to also install it for this machine. Exit code 0 means all passed.
 # SC2016 is disabled for the whole file: the sh -c scripts and printf formats below are deliberately single-quoted,
 # so that "$1", "${1:-}" and the like are expanded by the inner shell or the generated stub, not by this script.
 # shellcheck disable=SC2016
@@ -58,6 +58,17 @@ trap 'exit 143' TERM
 
 contains() { grep -q -- "$2" "$1"; }
 
+# sha256 <file...>: sha256sum on Linux, shasum -a 256 on macOS.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+}
+
+# The os part of the asset names for this host.
+case "$(uname -s)" in
+  Darwin) HOST_OS=macos ;;
+  *) HOST_OS=linux ;;
+esac
+
 # No node on PATH, for the installer and for everything it runs.
 CLEAN_PATH=""
 OLD_IFS="$IFS"
@@ -89,14 +100,16 @@ make_release() {
   rel="$1/download/v$2"
   shown="${3:-$2}"
   mkdir -p "$rel"
-  for arch in x64 arm64; do
-    for prog in cstan cstan-dash; do
-      name="$prog-$2-linux-$arch"
-      printf '#!/bin/sh\n# %s\ncase "${1:-}" in --version) echo "%s %s" ;; *) echo "%s ran" ;; esac\n' "$name" "$prog" "$shown" "$name" >"$rel/$name"
-      chmod 755 "$rel/$name"
+  for os in linux macos; do
+    for arch in x64 arm64; do
+      for prog in cstan cstan-dash; do
+        name="$prog-$2-$os-$arch"
+        printf '#!/bin/sh\n# %s\ncase "${1:-}" in --version) echo "%s %s" ;; *) echo "%s ran" ;; esac\n' "$name" "$prog" "$shown" "$name" >"$rel/$name"
+        chmod 755 "$rel/$name"
+      done
     done
   done
-  (cd "$rel" && sha256sum cstan-* >SHA256SUMS)
+  (cd "$rel" && sha256 cstan-* >SHA256SUMS)
 }
 
 # new_env <name>: fresh temp HOME/CAPSTAN_HOME/CAPSTAN_BIN_DIR under the sandbox.
@@ -215,9 +228,9 @@ if [ -n "$HOST_ARCH" ]; then
   make_release "$E/releases" "$VERSION"
   export CAPSTAN_RELEASE_BASE="file://$E/releases"
   man_rel="$E/releases/download/v$VERSION"
-  printf '#!/bin/sh\n# cstan-%s-linux-%s\ncase "${1:-} ${2:-}" in "--version ") echo "cstan %s" ;; "help --man") printf "%%s\\n" ".TH CSTAN 1" ".SH NAME" "cstan \\- test" ;; *) echo ran ;; esac\n' "$VERSION" "$HOST_ARCH" "$VERSION" >"$man_rel/cstan-$VERSION-linux-$HOST_ARCH"
-  chmod 755 "$man_rel/cstan-$VERSION-linux-$HOST_ARCH"
-  (cd "$man_rel" && sha256sum cstan-* >SHA256SUMS)
+  printf '#!/bin/sh\n# cstan-%s-%s-%s\ncase "${1:-} ${2:-}" in "--version ") echo "cstan %s" ;; "help --man") printf "%%s\\n" ".TH CSTAN 1" ".SH NAME" "cstan \\- test" ;; *) echo ran ;; esac\n' "$VERSION" "$HOST_OS" "$HOST_ARCH" "$VERSION" >"$man_rel/cstan-$VERSION-$HOST_OS-$HOST_ARCH"
+  chmod 755 "$man_rel/cstan-$VERSION-$HOST_OS-$HOST_ARCH"
+  (cd "$man_rel" && sha256 cstan-* >SHA256SUMS)
   if run_install --version "$VERSION" >"$E/out" 2>&1; then pass "install with a man page exits 0"; else fail "install with a man page exits 0"; cat "$E/out"; fi
   MAN_LINK_PATH="$HOME/.local/share/man/man1/cstan.1"
   check "the page is installed under current/share/man/man1" test -f "$CAPSTAN_HOME/current/share/man/man1/cstan.1"
@@ -272,16 +285,130 @@ else
 fi
 check "the refusal names the CPU" contains "$E/out" "riscv64"
 check_not "nothing installed for an unsupported CPU" test -e "$CAPSTAN_HOME/current"
-new_env plat-darwin
+new_env plat-freebsd
 make_release "$E/releases" "$VERSION"
 export CAPSTAN_RELEASE_BASE="file://$E/releases"
-stub_uname Darwin arm64
+stub_uname FreeBSD amd64
 if PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1; then
-  fail "macOS is refused"
+  fail "FreeBSD is refused"
 else
-  pass "macOS is refused"
+  pass "FreeBSD is refused"
 fi
-check_not "nothing installed on macOS" test -e "$CAPSTAN_HOME/current"
+check "the refusal says unsupported OS" contains "$E/out" "unsupported OS: FreeBSD"
+check "the refusal names Linux and macOS" contains "$E/out" "Linux and macOS binaries"
+check_not "nothing installed on FreeBSD" test -e "$CAPSTAN_HOME/current"
+
+# --- 4b. macOS ---------------------------------------------------------------------------
+# stub_sysctl <mode>: a sysctl in front of PATH, so the suite never reads the host. "1" prints 1 (Rosetta), "0" prints
+# 0, "fail" fails like an Intel Mac, which has no sysctl.proc_translated.
+stub_sysctl() {
+  case "$1" in
+    fail) printf '#!/bin/sh\nexit 1\n' >"$E/stub/sysctl" ;;
+    *) printf '#!/bin/sh\necho %s\n' "$1" >"$E/stub/sysctl" ;;
+  esac
+  chmod +x "$E/stub/sysctl"
+}
+
+# stub_xattr: logs its arguments to $E/xattr.log.
+stub_xattr() {
+  printf '#!/bin/sh\necho "$*" >>"%s/xattr.log"\n' "$E" >"$E/stub/xattr"
+  chmod +x "$E/stub/xattr"
+}
+
+# darwin_case <name> <uname -m> <sysctl mode> <expected arch>
+darwin_case() {
+  new_env "darwin-$1"
+  make_release "$E/releases" "$VERSION"
+  export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  stub_uname Darwin "$2"
+  stub_sysctl "$3"
+  stub_xattr
+  if PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "Darwin $2 ($1) installs"
+  else
+    fail "Darwin $2 ($1) installs"
+    cat "$E/out"
+  fi
+  check "Darwin $1 takes the macos-$4 cstan" cmp -s "$CAPSTAN_HOME/current/bin/cstan" "$E/releases/download/v$VERSION/cstan-$VERSION-macos-$4"
+  check "Darwin $1 takes the macos-$4 cstan-dash" cmp -s "$CAPSTAN_HOME/current/bin/cstan-dash" "$E/releases/download/v$VERSION/cstan-dash-$VERSION-macos-$4"
+  check "Darwin $1 clears the quarantine flag of cstan and cstan-dash" sh -c '[ "$(grep -c "^-d com.apple.quarantine .*/bin/cstan\(-dash\)\{0,1\}$" "$1")" = 2 ]' _ "$E/xattr.log"
+}
+darwin_case arm64 arm64 0 arm64
+darwin_case intel x86_64 fail x64
+darwin_case rosetta x86_64 1 arm64
+darwin_case rosetta-off x86_64 0 x64
+
+# Linux never calls xattr
+new_env linux-no-xattr
+make_release "$E/releases" "$VERSION"
+export CAPSTAN_RELEASE_BASE="file://$E/releases"
+stub_uname Linux x86_64
+stub_xattr
+check "a Linux install runs" env PATH="$E/stub:$PATH" sh "$INSTALLER" --version "$VERSION"
+check_not "xattr is never called on Linux" test -e "$E/xattr.log"
+
+# Darwin whose PATH has no sha256sum verifies through shasum
+new_env darwin-shasum
+make_release "$E/releases" "$VERSION"
+export CAPSTAN_RELEASE_BASE="file://$E/releases"
+mkdir -p "$E/mirror"
+OLD_IFS="$IFS"
+IFS=:
+for dir in $PATH; do
+  [ -d "$dir" ] || continue
+  for f in "$dir"/*; do
+    base="${f##*/}"
+    case "$base" in sha256sum | shasum | uname | sysctl | xattr) continue ;; esac
+    [ -x "$f" ] && [ ! -d "$f" ] && [ ! -e "$E/mirror/$base" ] && ln -s "$f" "$E/mirror/$base"
+  done
+done
+IFS="$OLD_IFS"
+REAL_SHA="$(command -v sha256sum || true)"
+if [ -z "$REAL_SHA" ]; then
+  echo "skip the shasum scenario: no sha256sum to delegate to"
+else
+  printf '#!/bin/sh\necho "$*" >>"%s/shasum.log"\nshift 2\nexec "%s" "$@"\n' "$E" "$REAL_SHA" >"$E/stub/shasum"
+  chmod +x "$E/stub/shasum"
+  stub_uname Darwin arm64
+  stub_sysctl 0
+  stub_xattr
+  if PATH="$E/stub:$E/mirror" run_install --version "$VERSION" >"$E/out" 2>&1; then
+    pass "Darwin without sha256sum installs through shasum"
+  else
+    fail "Darwin without sha256sum installs through shasum"
+    cat "$E/out"
+  fi
+  check "shasum -a 256 was used" grep -q '^-a 256 ' "$E/shasum.log"
+  check "the checksum was verified without sha256sum" contains "$E/out" "Checksum verified against SHA256SUMS"
+  check "the shasum install took the macos-arm64 cstan" cmp -s "$CAPSTAN_HOME/current/bin/cstan" "$E/releases/download/v$VERSION/cstan-$VERSION-macos-arm64"
+fi
+
+# --- 4c. the ps path of the daemon warning (no /proc on macOS) ---------------------------
+# stub_ps <command>: a ps that lists one process running <command>, in the pid= command= format.
+stub_ps() {
+  printf '#!/bin/sh\nprintf "%%s\\n" "    1 /sbin/init" "  4242 %s" "  4243 /usr/bin/other thing"\n' "$1" >"$E/stub/ps"
+  chmod +x "$E/stub/ps"
+}
+for ps_case in running other; do
+  new_env "ps-$ps_case"
+  make_release "$E/releases" "$VERSION"
+  export CAPSTAN_RELEASE_BASE="file://$E/releases"
+  if [ "$ps_case" = running ]; then stub_ps "$CAPSTAN_HOME/current/bin/cstan daemon"; else stub_ps "/elsewhere/current/bin/cstan daemon"; fi
+  CAPSTAN_TEST_NO_PROC=1 PATH="$E/stub:$PATH" run_install --version "$VERSION" >"$E/out" 2>&1 || fail "install for the ps $ps_case scenario"
+  if [ "$ps_case" = running ]; then
+    check "the ps path warns about a daemon of the install" contains "$E/out" "1 process(es) of the previous install"
+    check "the ps warning says to run cstan stop && cstan start" contains "$E/out" "cstan stop && cstan start"
+  else
+    check_not "the ps path ignores a process of another path" contains "$E/out" "still running"
+  fi
+done
+new_env ps-spaces
+make_release "$E/releases" "$VERSION"
+export CAPSTAN_RELEASE_BASE="file://$E/releases"
+mkdir -p "$E/home dir"
+stub_ps "$E/home dir/share/current/bin/cstan daemon"
+CAPSTAN_TEST_NO_PROC=1 PATH="$E/stub:$PATH" run_install --version "$VERSION" --home "$E/home dir/share" >"$E/out" 2>&1 || fail "install for the ps spaces scenario"
+check "the ps path handles a home with spaces" contains "$E/out" "1 process(es) of the previous install"
 
 # --- 5. checksum refusals --------------------------------------------------------------
 new_env sums
@@ -292,15 +419,15 @@ run_install --version "$VERSION" >/dev/null 2>&1 || fail "install for the checks
 GOOD="$(cstan --version)"
 for prog in cstan cstan-dash; do
   for arch in x64 arm64; do
-    cp "$REL/$prog-$VERSION-linux-$arch" "$E/keep-$prog-$arch"
-    printf 'tamper' >>"$REL/$prog-$VERSION-linux-$arch"
+    cp "$REL/$prog-$VERSION-$HOST_OS-$arch" "$E/keep-$prog-$arch"
+    printf 'tamper' >>"$REL/$prog-$VERSION-$HOST_OS-$arch"
   done
-  PLATFORM_ASSET="$prog-$VERSION-linux-$HOST_ARCH"
+  PLATFORM_ASSET="$prog-$VERSION-$HOST_OS-$HOST_ARCH"
   if run_install --version "$VERSION" >"$E/out" 2>&1; then fail "a tampered $prog is refused"; else pass "a tampered $prog is refused"; fi
   check "the refusal for $prog says sha256 mismatch" contains "$E/out" "sha256 mismatch for $PLATFORM_ASSET"
   check "the previous install still works after the $prog refusal" test "$(cstan --version 2>/dev/null)" = "$GOOD"
   check "no staging dir left after the $prog refusal" sh -c '[ -z "$(ls -d "$CAPSTAN_HOME"/staging.* 2>/dev/null)" ]'
-  for arch in x64 arm64; do cp "$E/keep-$prog-$arch" "$REL/$prog-$VERSION-linux-$arch"; done
+  for arch in x64 arm64; do cp "$E/keep-$prog-$arch" "$REL/$prog-$VERSION-$HOST_OS-$arch"; done
 done
 BAD="0000000000000000000000000000000000000000000000000000000000000000"
 check_not "--sha256 that disagrees with SHA256SUMS is refused" run_install --version "$VERSION" --sha256 "$BAD"
@@ -487,12 +614,12 @@ new_env local
 make_release "$E/releases" "$VERSION"
 LOCAL="$E/releases/download/v$VERSION"
 if [ -n "$HOST_ARCH" ]; then
-  check "--binary with the SHA256SUMS beside it installs" run_install --binary "$LOCAL/cstan-$VERSION-linux-$HOST_ARCH"
+  check "--binary with the SHA256SUMS beside it installs" run_install --binary "$LOCAL/cstan-$VERSION-$HOST_OS-$HOST_ARCH"
   check "a local --binary installs cstan alone" test "$(installed_files)" = "./bin ./bin/cstan "
-  check "--dash-binary adds cstan-dash" run_install --binary "$LOCAL/cstan-$VERSION-linux-$HOST_ARCH" --dash-binary "$LOCAL/cstan-dash-$VERSION-linux-$HOST_ARCH"
+  check "--dash-binary adds cstan-dash" run_install --binary "$LOCAL/cstan-$VERSION-$HOST_OS-$HOST_ARCH" --dash-binary "$LOCAL/cstan-dash-$VERSION-$HOST_OS-$HOST_ARCH"
   check "the install then holds both" test "$(installed_files)" = "./bin ./bin/cstan ./bin/cstan-dash "
-  check_not "--binary with a wrong --sha256 is refused" run_install --binary "$LOCAL/cstan-$VERSION-linux-$HOST_ARCH" --sha256 "0000000000000000000000000000000000000000000000000000000000000000"
-  check_not "--dash-binary and --no-dash are exclusive" run_install --binary "$LOCAL/cstan-$VERSION-linux-$HOST_ARCH" --dash-binary "$LOCAL/cstan-dash-$VERSION-linux-$HOST_ARCH" --no-dash
+  check_not "--binary with a wrong --sha256 is refused" run_install --binary "$LOCAL/cstan-$VERSION-$HOST_OS-$HOST_ARCH" --sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  check_not "--dash-binary and --no-dash are exclusive" run_install --binary "$LOCAL/cstan-$VERSION-$HOST_OS-$HOST_ARCH" --dash-binary "$LOCAL/cstan-dash-$VERSION-$HOST_OS-$HOST_ARCH" --no-dash
   check "--no-dash installs cstan alone from a release" sh -c 'export CAPSTAN_RELEASE_BASE="file://$1/releases"; sh "$2" --version "$3" --no-dash </dev/null' _ "$E" "$INSTALLER" "$VERSION"
   check "--no-dash left no cstan-dash" test "$(installed_files)" = "./bin ./bin/cstan "
 fi
@@ -559,7 +686,7 @@ unset CAPSTAN_LOCAL_SKIP_BUILD CAPSTAN_LOCAL_CSTAN CAPSTAN_LOCAL_DASH
 # --- 11. a real release, when one is given ----------------------------------------------------------
 if [ -n "${CAPSTAN_TEST_RELEASE_DIR:-}" ] && [ -n "$HOST_ARCH" ]; then
   new_env real
-  real_version="$(sed -n "s/^[0-9a-f]*  cstan-\\([0-9.]*\\)-linux-$HOST_ARCH\$/\\1/p" "$CAPSTAN_TEST_RELEASE_DIR/SHA256SUMS" | head -n 1)"
+  real_version="$(sed -n "s/^[0-9a-f]*  cstan-\\([0-9.]*\\)-$HOST_OS-$HOST_ARCH\$/\\1/p" "$CAPSTAN_TEST_RELEASE_DIR/SHA256SUMS" | head -n 1)"
   mkdir -p "$E/releases/download/v$real_version"
   cp "$CAPSTAN_TEST_RELEASE_DIR"/* "$E/releases/download/v$real_version/"
   export CAPSTAN_RELEASE_BASE="file://$E/releases"
