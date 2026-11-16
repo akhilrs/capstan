@@ -44,3 +44,14 @@ pub fn command_name(pid: i64) -> Option<String> {
     let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
     Some(name.trim_end_matches('\n').to_string())
 }
+
+pub fn owner(pid: i32) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(format!("/proc/{pid}"))
+        .ok()
+        .map(|m| m.uid())
+}
+
+pub fn arguments(pid: i32) -> Option<Vec<u8>> {
+    std::fs::read(format!("/proc/{pid}/cmdline")).ok()
+}
