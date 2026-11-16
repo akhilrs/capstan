@@ -871,7 +871,11 @@ mod tests {
         assert_eq!(options.project.initial_inputs.len(), 5);
         assert_eq!(
             options.socket_path(),
-            dir.path().join(".capstan/state/control.sock")
+            // The socket path is built from the resolved state directory (wire::control_socket), so the expectation
+            // resolves the temp root too: on macOS $TMPDIR is under /var, a symlink to /private/var.
+            std::fs::canonicalize(dir.path())
+                .unwrap()
+                .join(".capstan/state/control.sock")
         );
         drop(probe);
     }

@@ -75,7 +75,7 @@ Meanwhile the Supervisor watches for stuck workers, and the controller reports s
 
 ## Quick start
 
-**Requirements:** Linux (x64 or arm64); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
+**Requirements:** Linux (x64 or arm64) or macOS (arm64 or x64, macOS 11 or later); `curl` or `wget`; **git, with a repository that has at least one commit** (a hard requirement: every worker gets its own worktree and branch cut from HEAD); Herdr for the panes; and Claude Code (the host the starter config uses). The installer downloads two static binaries, `cstan` and `cstan-dash`. Until release 0.4.0 is published, `install.sh` on `main` installs nothing and names the installer of the latest published tag instead (see [docs/reference/install.md](docs/reference/install.md)).
 
 Install with the one-liner (no sudo; it installs under `~/.local/share/capstan` and links `~/.local/bin/cstan`):
 
@@ -94,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 `cstan dash` runs `cstan-dash`, the terminal dashboard: about 1% of a core and 7 MB idle (the measurements, with the method and the other cases, are in [docs/research/rust-dash-performance.md](docs/research/rust-dash-performance.md)).
 
-**With the installer.** The one-liner above installs `cstan-dash` next to `cstan` (Linux x64 and arm64). It downloads `cstan-dash-<version>-<target>`, checks it against `SHA256SUMS` (a mismatch aborts the install) and puts it at `~/.local/share/capstan/current/bin/cstan-dash`.
+**With the installer.** The one-liner above installs `cstan-dash` next to `cstan` (Linux and macOS, x64 and arm64). It downloads `cstan-dash-<version>-<target>`, checks it against `SHA256SUMS` (a mismatch aborts the install) and puts it at `~/.local/share/capstan/current/bin/cstan-dash`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | sh -s -- --no-dash                        # skip it
@@ -392,7 +392,7 @@ cargo test --locked --manifest-path rust/Cargo.toml -p capstan-blackbox   # the 
 CSTAN_LIVE=1 scripts/check.sh          # adds the live suites (a real Herdr and Claude Code)
 ```
 
-`CARGO_TARGET_DIR` puts the build outside the checkout and `CSTAN_CHECK_JOBS` limits cargo's jobs. The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64, built by the Release workflow (`.github/workflows/release.yml`) with cargo-zigbuild; see [docs/binary.md](docs/binary.md). The daemon is described in [docs/daemon.md](docs/daemon.md).
+`CARGO_TARGET_DIR` puts the build outside the checkout and `CSTAN_CHECK_JOBS` limits cargo's jobs. The release binaries are static musl builds of `cstan` and `cstan-dash` for Linux x64 and arm64 (cargo-zigbuild) and native builds for macOS arm64 and x64, built for macOS 11 and later with `MACOSX_DEPLOYMENT_TARGET=11.0` on GitHub's `macos-15` and `macos-15-intel` runners and ad-hoc signed, all by the Release workflow (`.github/workflows/release.yml`); see [docs/binary.md](docs/binary.md). On macOS the assets are `cstan-<version>-macos-arm64`, `cstan-<version>-macos-x64`, `cstan-dash-<version>-macos-arm64` and `cstan-dash-<version>-macos-x64`; the install layout is the same (`~/.local/share/capstan`, `~/.local/bin`). A Linux developer lints for macOS with `scripts/check-darwin.sh`; CI's `macos` job (`macos-15`) runs `scripts/check.sh unit`, an `x86_64-apple-darwin` cargo check and `scripts/test-install.sh`. The daemon-survivor and binary smoke helpers (`scripts/smoke-binary.sh`, `scripts/daemon-survivors.sh`) and the integration tests are Linux-only. Known macOS limit: a detached Apple system binary can outlive a verify run (PM-359, see [DEC-007](decisions/DEC-007-macos-process-information.md)). The binaries are not notarized (see [DEC-008](decisions/DEC-008-macos-release.md)). The daemon is described in [docs/daemon.md](docs/daemon.md).
 
 Tests never touch a real Herdr session: with `CAPSTAN_LAUNCH=off`, or without a `capstan.toml`, the controller launches no agents.
 

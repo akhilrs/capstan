@@ -65,7 +65,7 @@
     </div>
     <div class="install-meta">
       <p class="cap-install__status" id="install-status" role="status" aria-live="polite" data-state="idle"></p>
-      <p class="install-meta__note">Linux x64 and arm64. No sudo: static <code class="cap-inline">cstan</code> and <code class="cap-inline">cstan-dash</code> binaries in <code class="cap-inline">~/.local/share/capstan</code>, linked from <code class="cap-inline">~/.local/bin</code>. <a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/install.sh">Read install.sh</a></p>
+      <p class="install-meta__note">Linux and macOS, x64 and arm64. No sudo: static <code class="cap-inline">cstan</code> and <code class="cap-inline">cstan-dash</code> binaries in <code class="cap-inline">~/.local/share/capstan</code>, linked from <code class="cap-inline">~/.local/bin</code>. <a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/install.sh">Read install.sh</a></p>
     </div>
   </div>
 </div>
@@ -105,7 +105,7 @@
 <span class="cap-code__prompt">$ </span>cstan start
 <span class="cap-code__prompt">$ </span>cstan dash   <span class="cap-code__comment"># optional</span></pre>
   <div class="band__aside">
-    <p>You need Linux (x64 or arm64), git with a repository that has at least one commit, Herdr for the panes and Claude Code for the PM.</p>
+    <p>You need Linux or macOS (x64 or arm64), git with a repository that has at least one commit, Herdr for the panes and Claude Code for the PM.</p>
     <p>Then switch to the PM's Herdr pane and say what you want built. <code class="cap-inline">cstan stop</code> shuts the controller down.</p>
   </div>
 </section>
@@ -113,7 +113,7 @@
 <section class="band" id="install" aria-labelledby="install-title">
   <div class="band__head">
     <h2 id="install-title">Install options</h2>
-    <p class="band__intro">Re-running the installer upgrades in place. It checks both binaries against the release's <code class="cap-inline">SHA256SUMS</code>. Only Linux x64 and arm64 are published; macOS is not supported.</p>
+    <p class="band__intro">Re-running the installer upgrades in place. It checks both binaries against the release's <code class="cap-inline">SHA256SUMS</code>. Binaries are published for Linux and macOS, x64 and arm64.</p>
     <p class="band__intro">Coming from 0.3 or earlier, the Node.js releases? Remove any global npm install, then run the installer. <a class="cap-link" href="https://github.com/akhilrs/capstan#upgrading-from-03">Upgrading from 0.3</a></p>
     <p class="band__intro"><a class="cap-link" href="https://github.com/akhilrs/capstan/blob/main/docs/reference/install.md">Install reference</a></p>
   </div>
