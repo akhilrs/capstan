@@ -18,6 +18,10 @@ pub fn start_time(pid: i64) -> Option<String> {
     Some((info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec).to_string())
 }
 
+pub fn owner(pid: i32) -> Option<u32> {
+    bsd_info(i64::from(pid)).map(|info| info.pbi_uid)
+}
+
 pub fn pids() -> Vec<i32> {
     // SAFETY: a null buffer asks only for the number of pids.
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
@@ -40,6 +44,15 @@ pub fn pids() -> Vec<i32> {
 /// The environment block of `pid` as NUL-separated `NAME=value` entries, from the `KERN_PROCARGS2` layout: the argument
 /// count, the executable path, NUL padding, the arguments, then the environment.
 pub fn environment(pid: i32) -> Option<Vec<u8>> {
+    environment_of_procargs(&procargs(pid)?)
+}
+
+/// The NUL-terminated arguments of `pid`, from the same `KERN_PROCARGS2` buffer.
+pub fn arguments(pid: i32) -> Option<Vec<u8>> {
+    crate::argv_from_procargs(&procargs(pid)?)
+}
+
+fn procargs(pid: i32) -> Option<Vec<u8>> {
     if pid <= 0 {
         return None;
     }
@@ -78,7 +91,7 @@ pub fn environment(pid: i32) -> Option<Vec<u8>> {
         return None;
     }
     buffer.truncate(size);
-    environment_of_procargs(&buffer)
+    Some(buffer)
 }
 
 fn environment_of_procargs(block: &[u8]) -> Option<Vec<u8>> {
