@@ -2,6 +2,21 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.25.1 (2026-11-16)
+
+### Upgrade note
+
+Run `cstan restart` in each project after installing 0.25.1.
+
+### Features
+
+- feat: `cstan release <agent> --discard` removes the agent's worktrees in every repo and deletes its unlanded branch, also for an agent that is gone. It refuses on uncommitted changes, protected branches, foreign checkouts and open integrations, and prints restore lines. `cstan status` gains a repos section for workspace projects, in text and `--json` (`feat: cstan release --discard and workspace trial 2 fixes`).
+
+### Bug fixes
+
+- fix: `request-review` lists every repo's commit, and the integrate discard text names the removed branches once. The integration squash subject is now the report's first commit subject, also in a single-repo project (`fix: squash subject takes the first commit of base..report, not`).
+- fix(ios): the `ApproveStrings`/`ApproveOffer` ambiguity in `ItemDetailScreen` is fixed by qualifying both names (`fix(ios): qualify ApproveStrings/ApproveOffer in ItemDetailScreen`).
+
 ## 0.25.0 (2026-11-13)
 
 ### Upgrade note
