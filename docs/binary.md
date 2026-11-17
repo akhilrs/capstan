@@ -1,12 +1,12 @@
 # The release binaries
 
-A release holds two static Rust programs per architecture (Linux x64 and arm64, musl):
+A release holds two static Rust programs per platform (Linux x64 and arm64, static musl; macOS arm64 and x64, built for macOS 11 and later and built and checked on GitHub's macOS 15 runners):
 
 - `cstan`: the command and the controller daemon (`cstan daemon`). Source in `rust/crates/cstan`, built from the
   `cstan-front` package. It needs no runtime or compiler on the machine.
 - `cstan-dash`: the dashboard. Source in `dash/`. `cstan dash` replaces itself with it.
 
-The assets are `cstan-<version>-linux-{x64,arm64}`, `cstan-dash-<version>-linux-{x64,arm64}` and `SHA256SUMS`.
+The assets are `cstan-<version>-linux-{x64,arm64}`, `cstan-<version>-macos-{arm64,x64}`, `cstan-dash-<version>-linux-{x64,arm64}`, `cstan-dash-<version>-macos-{arm64,x64}` and `SHA256SUMS`, for example `cstan-<version>-macos-arm64` and `cstan-dash-<version>-macos-arm64`.
 [`install.sh`](../install.sh) installs them as `current/bin/cstan` and `current/bin/cstan-dash`; see the
 [Install reference](reference/install.md).
 
@@ -16,11 +16,15 @@ The assets are `cstan-<version>-linux-{x64,arm64}`, `cstan-dash-<version>-linux-
 (`CSTAN_VERSION` in the environment overrides it; a build outside the repository falls back to the crate's own version).
 
 The Release workflow (`.github/workflows/release.yml`, started by a `v*` tag that `scripts/release.sh` creates locally)
-builds all four with `cargo zigbuild --release --locked` for `x86_64-unknown-linux-musl` and
+builds the four Linux binaries with `cargo zigbuild --release --locked` for `x86_64-unknown-linux-musl` and
 `aarch64-unknown-linux-musl`. cargo-zigbuild supplies the C cross toolchain that `capstan-ledger` (bundled SQLite)
 needs. An x64 job and a job on the native `ubuntu-24.04-arm` runner each run `cstan --version` and
 `cstan-dash --version` of their architecture against the tag, and only then does the publish job write `SHA256SUMS` and the
 GitHub release.
+
+The macOS binaries are built natively, not cross-built: a `build-macos` job runs `cargo build --release --locked` for `aarch64-apple-darwin` on `macos-15` and for `x86_64-apple-darwin` on `macos-15-intel`, with `MACOSX_DEPLOYMENT_TARGET=11.0` so they run on macOS 11 and later. Each binary is ad-hoc signed (`codesign --force --sign -`), checked with `codesign --verify --strict` and `lipo -archs`, and run with `--version` before publish writes the eight assets into `SHA256SUMS`. They are not notarized: `curl | sh` installs them without a prompt because `install.sh` clears `com.apple.quarantine`, and a binary downloaded by hand needs `xattr -d com.apple.quarantine <file>` (see the [Install reference](reference/install.md)). The workflow also runs by hand (`workflow_dispatch`) on any branch as a dry run: it builds and checks everything and skips publish. See [DEC-008](../decisions/DEC-008-macos-release.md).
+
+A Linux developer checks the macOS build with `scripts/check-darwin.sh` (clippy for `<arch>-apple-darwin` with zig cc). CI's `macos` job on `macos-15` runs `scripts/check.sh unit`, an `x86_64-apple-darwin` cargo check and `scripts/test-install.sh`. `scripts/smoke-binary.sh`, `scripts/daemon-survivors.sh` and the integration tests are Linux-only. Known limit: PM-359 ([DEC-007](../decisions/DEC-007-macos-process-information.md)).
 
 To build the host binaries from a checkout (needs Rust, see `rust/rust-toolchain.toml`):
 

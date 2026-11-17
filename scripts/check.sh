@@ -18,6 +18,8 @@
 #   release    the release builds of cstan and cstan-dash (also run by "all" when CSTAN_RELEASE_BUILD=1; the Release
 #              workflow builds and verifies the real binaries on tags, so CI skips them)
 #   node-guard only the no-Node guard (needs git, no cargo)
+#   unit       clippy and the lib unit tests of the whole rust/ workspace and of dash/ (the macOS CI job); only when named,
+#              never part of "all"; no rust-scope.sh, no fmt
 #   (test-map and --test-map were retired with the Node tree; they are refused as unknown stages)
 # Environment: CSTAN_RELEASE_BUILD=1 (build the release binaries before the scripts stage so smoke-binary.sh runs on them),
 #   CSTAN_NO_NODE=1 (before any stage, drop node, npm, npx, corepack and tsc from PATH and fail if one still resolves),
@@ -77,6 +79,27 @@ cargo_gate() (
     sh -c 'cd "$1" && shift && exec cargo test --no-fail-fast "$@"' sh "$ROOT/$dir" $JOBS $PKGS --locked
 )
 
+# unit_gate <directory>: clippy and the lib unit tests of one cargo tree (the macOS job). The same target-directory and
+# incremental rules as cargo_gate; the rust/ workspace is tested whole (--workspace), with no rust-scope.sh.
+unit_gate() (
+  dir="$1"
+  CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+  export CARGO_INCREMENTAL
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+    CARGO_TARGET_DIR="${CARGO_TARGET_DIR%/}/gate-unit-$(basename "$dir")"
+    export CARGO_TARGET_DIR
+  fi
+  WS=""
+  [ "$dir" != rust ] || WS="--workspace"
+  step "cargo clippy ($dir, unit)"
+  # shellcheck disable=SC2086
+  (cd "$ROOT/$dir" && cargo clippy $JOBS --all-targets --locked -- -D warnings)
+  step "cargo test --lib ($dir)"
+  # shellcheck disable=SC2086
+  "$ROOT/scripts/daemon-survivors.sh" check "${CARGO_TARGET_DIR:-$ROOT/$dir/target}" \
+    sh -c 'cd "$1" && shift && exec cargo test --no-fail-fast "$@"' sh "$ROOT/$dir" $JOBS $WS --locked --lib
+)
+
 # ------------------------------------------------------------------------------------------------- the no-Node guard
 
 # node_guard [repo]: no tracked file of repo (default: this checkout) is Node tooling or TypeScript, except under a prefix
@@ -104,8 +127,8 @@ node_guard() {
 
 STAGE="${1:-all}"
 case "$STAGE" in
-  all | rust | dash | tools | scripts | release | node-guard) ;;
-  *) echo "usage: scripts/check.sh [rust|dash|tools|scripts|release|node-guard]" >&2; exit 2 ;;
+  all | rust | dash | tools | scripts | release | node-guard | unit) ;;
+  *) echo "usage: scripts/check.sh [rust|dash|tools|scripts|release|node-guard|unit]" >&2; exit 2 ;;
 esac
 want() { [ "$STAGE" = all ] || [ "$STAGE" = "$1" ]; }
 
@@ -198,6 +221,10 @@ release_build() {
 ! want rust || cargo_gate rust
 ! want dash || cargo_gate dash
 ! want tools || cargo_gate tools/release
+if [ "$STAGE" = unit ]; then
+  unit_gate rust
+  unit_gate dash
+fi
 
 if [ "$STAGE" = release ] || { [ "$STAGE" = all ] && [ "${CSTAN_RELEASE_BUILD:-}" = "1" ]; }; then
   release_build

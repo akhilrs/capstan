@@ -1134,7 +1134,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     fn private_dir() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir_in(capstan_testkit::short_temp_root()).unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         dir
     }
@@ -1186,7 +1186,7 @@ mod tests {
 
     #[test]
     fn a_directory_that_is_not_private_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir_in(capstan_testkit::short_temp_root()).unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
         let error = remove_stale_socket(&dir.path().join("control.sock")).unwrap_err();
         assert_eq!(

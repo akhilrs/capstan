@@ -1,8 +1,7 @@
 //! Step 10 of the preflight of a merge into the root checkout: ignored files the merge would overwrite, with real git
 //! in temporary repositories.
 
-use capstan_kernel::integrate::{GitRepo, GitSeams, Preflight, ENTRY_WOULD_OVERWRITE};
-use std::os::unix::ffi::OsStrExt;
+use capstan_kernel::integrate::{GitRepo, GitSeams, Preflight};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -257,8 +256,12 @@ fn a_conflict_is_reported_before_an_ignored_file() {
     }
 }
 
+// Linux only: macOS APFS refuses a file name that is not valid UTF-8 (EILSEQ), so the case cannot be set up there.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_non_utf8_top_level_path_through_the_dot_listing_is_dirty_tree() {
+    use capstan_kernel::integrate::ENTRY_WOULD_OVERWRITE;
+    use std::os::unix::ffi::OsStrExt;
     let fx = Fx::new("*.o\n");
     let name = std::ffi::OsStr::from_bytes(b"caf\xe9.o");
     git(&fx.root, &["checkout", "-q", "-b", "topic"]);

@@ -1,8 +1,8 @@
 # Install reference
 
-Capstan installs as two static Rust binaries: `cstan` (the command, which is also the controller daemon) and `cstan-dash` (the dashboard). [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux x64 and arm64 it downloads the two binaries of a release, checks them against `SHA256SUMS`, and links the command. It never reads stdin and never uses `sudo`.
+Capstan installs as two static Rust binaries: `cstan` (the command, which is also the controller daemon) and `cstan-dash` (the dashboard). [`install.sh`](../../install.sh) is a POSIX `sh` installer. On Linux and macOS (x64 and arm64) it downloads the two binaries of a release, checks them against `SHA256SUMS`, and links the command. It never reads stdin and never uses `sudo`.
 
-> Releases (the four binaries and `SHA256SUMS`) are on the [Releases page](https://github.com/akhilrs/capstan/releases).
+> Releases (the eight binaries and `SHA256SUMS`) are on the [Releases page](https://github.com/akhilrs/capstan/releases).
 
 > **Until 0.4.0 is released.** The installer on `main` installs only releases from `0.4.0` on (`FIRST_RUST_VERSION` in `install.sh`), and `0.4.0` is the first release cut after the Rust cutover. Until it is published, `install.sh` from `main` installs nothing: it says that the Rust release is not out yet and prints the `install.sh` of the latest published tag (`v0.3.0`) to run instead. The window ends when `0.4.0` is released.
 
@@ -10,7 +10,8 @@ Capstan installs as two static Rust binaries: `cstan` (the command, which is als
 
 | Need                            | Why                                                                                                                                        | Fix if missing                                                                           |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| Linux, x64 or arm64             | The only platforms with published binaries (static musl builds)                                                                            | —                                                                                        |
+| Linux, x64 or arm64             | Published binaries: static musl builds                                                                                                     | —                                                                                        |
+| macOS 11 or later, arm64 or x64 | Published binaries: native builds, built for macOS 11 and later on GitHub's macOS 15 runners, ad-hoc signed, not notarized                 | —                                                                                        |
 | `curl` or `wget`                | Downloads (not needed for a local-path `--binary`)                                                                                         | Install either                                                                           |
 | `sha256sum` or `shasum`         | Checksum verification                                                                                                                      | Part of coreutils                                                                        |
 | `git`, with at least one commit | **Hard requirement at run time.** Workers get their own git worktree and branch from HEAD; reports, reviews, plans and integration use git | `git init && git add -A && git commit -m "chore: initial commit"`, or `cstan init --git` |
@@ -53,7 +54,7 @@ curl -fsSL https://raw.githubusercontent.com/akhilrs/capstan/main/install.sh | s
 
 Options win over environment variables. `--tarball`, `--no-binary` and `--front-binary` of earlier installers are gone.
 
-**What a release holds.** `cstan-<version>-linux-x64`, `cstan-<version>-linux-arm64`, `cstan-dash-<version>-linux-x64`, `cstan-dash-<version>-linux-arm64` and `SHA256SUMS`. The installer picks the architecture from `uname -m` (`x86_64`/`amd64` is `x64`, `aarch64`/`arm64` is `arm64`; anything else, and any other OS, is refused), downloads both binaries and checks each against `SHA256SUMS`. A release whose `SHA256SUMS` lacks either entry for this machine is refused as incomplete.
+**What a release holds.** `cstan-<version>-linux-x64`, `cstan-<version>-linux-arm64`, `cstan-<version>-macos-arm64`, `cstan-<version>-macos-x64`, `cstan-dash-<version>-linux-x64`, `cstan-dash-<version>-linux-arm64`, `cstan-dash-<version>-macos-arm64`, `cstan-dash-<version>-macos-x64` and `SHA256SUMS`. The installer picks the OS from `uname -s` (`Linux` or `Darwin`) and the architecture from `uname -m` (`x86_64`/`amd64` is `x64`, `aarch64`/`arm64` is `arm64`; anything else, and any other OS, is refused). A shell under Rosetta on Apple silicon reports `x86_64`; the installer asks `sysctl.proc_translated` and installs the `arm64` binary then. It downloads both binaries and checks each against `SHA256SUMS`. A release whose `SHA256SUMS` lacks either entry for this machine is refused as incomplete.
 
 ### Older releases
 
@@ -135,9 +136,11 @@ Options: `--home`, `--bin-dir`, `--man-dir` and `--no-dash` go to `install.sh`; 
 
 ## Testing with local files
 
-`sh scripts/test-install.sh` runs the install scenarios against temporary directories and fabricated releases, with a minimal `PATH` and no network: syntax, truncation safety, a fresh install, platform detection, checksum refusals, the `0.4.0` cutoff, the upgrade from each earlier layout (fabricated to match what the `0.2.0` and `0.3.0` installers wrote, with and without a running daemon), `--binary`, wget and uninstall. It uses `file://` bases, so it needs `curl`; `latest` is answered by a stub. Set `CAPSTAN_TEST_RELEASE_DIR` to a directory holding a real release (`cstan-<v>-linux-<arch>`, `cstan-dash-<v>-linux-<arch>` and `SHA256SUMS`) to install that too.
+The layout on macOS is the same as on Linux: `~/.local/share/capstan` and `~/.local/bin`. The installer clears `com.apple.quarantine` (`xattr -d com.apple.quarantine`) on the binaries it installs, so `curl | sh` needs nothing more. A binary you download by hand in a browser carries the quarantine flag, and Gatekeeper blocks it until you run `xattr -d com.apple.quarantine <file>`. The binaries are ad-hoc signed and not notarized. Without `/proc`, the installer finds the daemons of the previous install with `ps`.
 
-To try a release by hand without GitHub, serve a `download/v<version>/` directory with the four binaries and `SHA256SUMS` and point `CAPSTAN_RELEASE_BASE` at it (`file://` or `python3 -m http.server`), or install one binary directly:
+`sh scripts/test-install.sh` runs the install scenarios against temporary directories and fabricated releases, with a minimal `PATH` and no network: syntax, truncation safety, a fresh install, platform detection, checksum refusals, the `0.4.0` cutoff, the upgrade from each earlier layout (fabricated to match what the `0.2.0` and `0.3.0` installers wrote, with and without a running daemon), `--binary`, wget and uninstall. It uses `file://` bases, so it needs `curl`; `latest` is answered by a stub. Set `CAPSTAN_TEST_RELEASE_DIR` to a directory holding a real release (`cstan-<v>-<os>-<arch>`, `cstan-dash-<v>-<os>-<arch>` and `SHA256SUMS`) to install that too.
+
+To try a release by hand without GitHub, serve a `download/v<version>/` directory with the binaries and `SHA256SUMS` and point `CAPSTAN_RELEASE_BASE` at it (`file://` or `python3 -m http.server`), or install one binary directly:
 
 ```sh
 sh install.sh --binary release/cstan-0.4.0-linux-x64 --dash-binary release/cstan-dash-0.4.0-linux-x64 \
@@ -153,7 +156,7 @@ sh install.sh --binary release/cstan-0.4.0-linux-x64 --dash-binary release/cstan
 - **Another `cstan` runs instead**: the installer warns when an earlier `PATH` entry shadows it (a leftover link from an earlier install, for instance). Remove it or reorder `PATH`.
 - **Cannot read the latest release**: the `releases/latest` redirect format could change; pin with `--version <x.y.z>`.
 - **Controller still runs old code after upgrading**: `cstan stop && cstan start`.
-- **"unsupported OS" or "no Capstan binary for the CPU"**: only Linux x64 and arm64 are published.
+- **"unsupported OS" or "no Capstan binary for the CPU"**: only Linux and macOS, x64 and arm64, are published. On macOS, a binary downloaded in a browser is blocked until `xattr -d com.apple.quarantine <file>`.
 
 ## Maintainer release steps
 
@@ -165,4 +168,4 @@ scripts/release.sh                    # bump VERSION and CHANGELOG.md; commit; t
 git push origin HEAD v0.4.0           # starts .github/workflows/release.yml
 ```
 
-`scripts/release.sh` needs `cargo` (it builds `tools/release`); its options are `--dry-run` and `--version X.Y.Z`, and it refuses to run with a dirty tree. It builds no asset. The Release workflow, started by the tag, checks the tag against `VERSION`, builds `cstan` and `cstan-dash` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `cargo-zigbuild`, runs `--version` of each pair on an x64 runner and on the native `ubuntu-24.04-arm` runner, and only then writes `SHA256SUMS` and the GitHub release. `VERSION` is the single version source: `rust/crates/cstan/build.rs` and `dash/build.rs` read it (`CSTAN_VERSION` overrides it; a build outside the repository falls back to the crate version), and `scripts/check-version.sh` fails when `VERSION` is not X.Y.Z or differs from the first CHANGELOG.md release heading . `scripts/check-release-workflow.sh` checks the workflow (`--build` also builds both triples locally). Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.
+`scripts/release.sh` needs `cargo` (it builds `tools/release`); its options are `--dry-run` and `--version X.Y.Z`, and it refuses to run with a dirty tree. It builds no asset. The Release workflow, started by the tag, checks the tag against `VERSION`, builds `cstan` and `cstan-dash` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with `cargo-zigbuild`, runs `--version` of each pair on an x64 runner and on the native `ubuntu-24.04-arm` runner, builds both programs natively for macOS (arm64 on `macos-15`, x64 on `macos-15-intel`, `MACOSX_DEPLOYMENT_TARGET=11.0`), ad-hoc signs and runs them, and only then writes `SHA256SUMS` and the GitHub release. `VERSION` is the single version source: `rust/crates/cstan/build.rs` and `dash/build.rs` read it (`CSTAN_VERSION` overrides it; a build outside the repository falls back to the crate version), and `scripts/check-version.sh` fails when `VERSION` is not X.Y.Z or differs from the first CHANGELOG.md release heading . `scripts/check-release-workflow.sh` checks the workflow (`--build` also builds both triples locally). The workflow also starts by hand (`workflow_dispatch`) on any branch as a dry run: every build and check job runs and nothing is published. Run it green before cutting a tag. A Linux developer lints for macOS with `scripts/check-darwin.sh`; CI's `macos` job runs `scripts/check.sh unit`. Then check with `sh scripts/test-install.sh` and a real `curl | sh` into a throwaway `--home`.
