@@ -2,6 +2,25 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.26.0 (2026-11-17)
+
+### Upgrade note
+
+macOS users install with the same `curl | sh` as on Linux; `install.sh` picks the macOS build for the machine. Linux is unchanged. Run `cstan restart` in each project after installing 0.26.0.
+
+### Features
+
+- feat: macOS support for `cstan` and `cstan-dash` on arm64 and x64: the process and cache-prune code has portable (non-Linux) paths, `scripts/check-darwin.sh` cross-checks clippy for the Apple targets, and `scripts/check.sh` gains a `unit` stage. Release builds run natively on macOS with ad-hoc codesign, CI gains a macOS job, and the docs name macOS as supported (`feat: macOS support for cstan and cstan-dash (plan-186)`).
+- feat: `install.sh` installs on macOS arm64 and x64: it maps a Rosetta shell to arm64, clears the quarantine attribute and warns about a running daemon through `ps` (`feat: install on macOS arm64 and x64`).
+
+### Bug fixes
+
+- fix: test fixes found by the macOS CI, all inside the plan-186 commit: the install test's fake daemon no longer relies on a `sleep` multicall binary, a project-load test expects the canonical temp path, non-UTF-8 file-name tests run on Linux only, socket tests use short temp roots, a process-environment test no longer assumes the entry is readable, and the install test no longer leaks prefix assignments under bash 3.2 (`feat: macOS support for cstan and cstan-dash (plan-186)`).
+
+### Chores
+
+- chore(release): merge v0.25.1 brings the 0.25.1 release into main (`chore(release): merge v0.25.1`).
+
 ## 0.25.1 (2026-11-16)
 
 ### Upgrade note
