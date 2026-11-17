@@ -11,6 +11,8 @@ The Node exporters are in the git history at the commit below if one is ever nee
 
 The pi host (`pi-130-*.ansi` in [`rust/testdata/fixtures`](../rust/testdata/fixtures)) is the one addition made after the freeze: the six screens (idle empty, typed, after Ctrl-U, multi-line, busy, trust dialog) were captured by hand from pi 1.3.0 in a Herdr pane, as [docs/research/pi-dev-integration.md](research/pi-dev-integration.md) describes, not exported from Node. Their cases in `screen.json`, the `pi` columns of the other screen cases, the `pi` results in `validate.json`, the `pi-*` synthetic screens, the `rust-pi-*` config cases and the `start-pi-agent-and-trust-dialog` adapter scenario were written by hand from the Rust output and reviewed; Node never knew the `pi` kind.
 
+In `herdr/tests/parity/adapter.json` the line a prepared shell is started with was edited by hand (PM-538, DEC-009): every recorded `exec env -i HOME='/h' PATH='/p' TERM='t' bash --noprofile --rcfile '<root>/capstan-shell-XXXXXX/rc' -i` became `exec /bin/sh <root>/capstan-shell-XXXXXX/launch`, because the operator's shell may not be POSIX and the quoted command now sits in that file. The two recorded `PromptUnrecognized` texts became "the pane does not show a shell prompt, so nothing was typed". `adapter_replay.rs` follows the launch file to the rc file it names. Every other call and answer is as Node recorded it.
+
 ## The freeze point
 
 **`be41e824207a002996822e991aa8b61b90219b47`** (`feat(daemon): Rust daemon port phase 2b: opt-in Rust daemon with Node`)

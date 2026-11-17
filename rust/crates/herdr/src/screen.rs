@@ -502,6 +502,40 @@ pub fn fresh_prompt_ready(plain_screen: &str) -> bool {
     !leftover_control(lines[last]) && PROMPT_SYMBOLS.contains(&js_trim(lines[last]))
 }
 
+/// The characters a shell prompt ends in: nushell draws `<path>> ` or `〉`, bash `user@host:~$ `, starship `❯`/`❮`.
+const PROMPT_MARKS: [char; 8] = ['❯', '❮', '$', '#', '%', '>', '〉', '»'];
+
+fn is_prompt_marks(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(|c| PROMPT_MARKS.contains(&c))
+}
+
+/// Whether the last line of a fresh pane reads as any shell's prompt with nothing typed after it. Unlike
+/// `fresh_prompt_ready` it does not prove the line is a prompt: a question the shell asks with a builtin looks the same,
+/// so the caller must also know that the shell itself holds the terminal. A lone `:` (nushell's vi-insert indicator)
+/// counts only directly after a symbol, as in `❯ :`, because builtin questions end in `Password:` or `Enter value :`.
+pub fn shell_prompt_shown(plain_screen: &str) -> bool {
+    let lines = split_lines(plain_screen);
+    let Some(last) = lines.iter().rposition(|line| !js_trim(line).is_empty()) else {
+        return false;
+    };
+    if leftover_control(lines[last]) {
+        return false;
+    }
+    let tokens: Vec<&str> = lines[last]
+        .split(is_js_space)
+        .filter(|token| !token.is_empty())
+        .collect();
+    let Some((token, before)) = tokens.split_last() else {
+        return false;
+    };
+    if token.chars().all(|c| c == ':') {
+        return before
+            .last()
+            .is_some_and(|previous| is_prompt_marks(previous));
+    }
+    token.ends_with(|c: char| PROMPT_MARKS.contains(&c))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrustOption {
     pub text: String,
@@ -1044,4 +1078,56 @@ pub fn classify_input_blocker(kind: &str, ansi_screen: &str) -> InputBlocker {
         return InputBlocker::Dialog;
     }
     InputBlocker::Unknown
+}
+
+#[cfg(test)]
+mod shell_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn a_prompt_ending_in_a_mark_with_nothing_typed_is_shown() {
+        for screen in [
+            "❯",
+            "❯ :",
+            "Tanka on  main [!?]\n❯ :",
+            "Tanka on  main [!?]\n❯ : \n\n",
+            "~/Workspace/github.com/akhilrs/Tanka> ",
+            "user@host:~$ ",
+            "root@host:/# ",
+            "❮ >",
+            "〉",
+            "❯❯ ",
+            "\u{a0}❯\u{a0}:\u{a0}",
+        ] {
+            assert!(shell_prompt_shown(screen), "{screen:?}");
+        }
+    }
+
+    #[test]
+    fn typed_text_a_question_or_no_prompt_is_not_shown() {
+        for screen in [
+            "",
+            "\n\n",
+            "❯ : abc",
+            "❯ ls",
+            "Password:",
+            "Password: ",
+            "Enter value :",
+            "cost > x? :",
+            ":",
+            "Do you want to update? [Y/n]",
+            "Continue? (y/N) ",
+            "no prompt here",
+            "❯ \u{7}",
+        ] {
+            assert!(!shell_prompt_shown(screen), "{screen:?}");
+        }
+    }
+
+    #[test]
+    fn the_exact_symbol_rule_is_unchanged() {
+        assert!(fresh_prompt_ready("❯ "));
+        assert!(!fresh_prompt_ready("❯ :"));
+        assert!(!fresh_prompt_ready("user@host:~$ "));
+    }
 }

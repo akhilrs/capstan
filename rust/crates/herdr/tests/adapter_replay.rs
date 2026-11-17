@@ -86,10 +86,16 @@ impl HerdrRunner for Replay {
         for dir in call["dirs"].as_array().unwrap() {
             std::fs::create_dir_all(Path::new(&self.root).join(s(dir))).unwrap();
         }
-        // The fake's `onRun`: starting the prepared shell removed its private directory, when the scenario let it.
+        // The fake's `onRun`: starting the prepared shell removed its private directory, when the scenario let it. The
+        // typed line names the launch file, and the launch file names the rc file, as /bin/sh would read them.
         if call["rcRemoved"] == true {
+            let launch = Regex::new("^exec /bin/sh (/[^ ]+/launch)$").unwrap();
             let rc = Regex::new("--rcfile '([^']+)'").unwrap();
-            if let Some(found) = args.get(3).and_then(|a| rc.captures(a)) {
+            let launch_text = args
+                .get(3)
+                .and_then(|a| launch.captures(a))
+                .and_then(|found| std::fs::read_to_string(&found[1]).ok());
+            if let Some(found) = launch_text.as_deref().and_then(|text| rc.captures(text)) {
                 let rc_file = PathBuf::from(&found[1]);
                 let _ = std::fs::remove_dir_all(rc_file.parent().unwrap());
             }

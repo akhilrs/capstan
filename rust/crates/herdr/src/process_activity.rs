@@ -7,6 +7,7 @@ use crate::api::{self, HerdrError, HerdrRunner, RunOptions};
 use crate::naming::is_js_space;
 use crate::runner::run_json;
 use crate::screen::js_number;
+use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::process::{Command, Stdio};
@@ -41,6 +42,44 @@ fn shell_name(comm: &str) -> &str {
 
 fn is_shell(comm: &str) -> bool {
     SHELLS.contains(&shell_name(comm))
+}
+
+/// A pid in Herdr's JSON: a positive integer, which may arrive as an integral float.
+pub(crate) fn positive_pid(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| {
+            value
+                .as_f64()
+                .filter(|f| f.fract() == 0.0)
+                .map(|f| f as i64)
+        })
+        .filter(|pid| *pid > 0)
+}
+
+/// Whether the result of `herdr pane process-info` shows the pane's shell alone in the foreground, so no program it
+/// started holds the terminal. Every process of the foreground group must be the shell: without job control a child
+/// can share the shell's group.
+pub(crate) fn shell_owns_foreground(result: &Map<String, Value>) -> bool {
+    let Some(info) = result.get("process_info").and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(shell) = info.get("shell_pid").and_then(positive_pid) else {
+        return false;
+    };
+    if info
+        .get("foreground_process_group_id")
+        .and_then(positive_pid)
+        != Some(shell)
+    {
+        return false;
+    }
+    match info.get("foreground_processes").and_then(Value::as_array) {
+        Some(processes) if !processes.is_empty() => processes
+            .iter()
+            .all(|process| process.get("pid").and_then(positive_pid) == Some(shell)),
+        _ => false,
+    }
 }
 
 /// Processes counted under `shell_pid`: a depth-2 descendant (a child of the host process) that is a shell, plus all of
@@ -622,11 +661,7 @@ impl HerdrProcessProbe {
             .get("process_info")
             .and_then(|info| info.as_object())
             .and_then(|info| info.get("shell_pid"))
-            .and_then(|pid| {
-                pid.as_i64()
-                    .or_else(|| pid.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64))
-            })
-            .filter(|pid| *pid > 0)
+            .and_then(positive_pid)
             .ok_or_else(|| HerdrError::new("bad_output", "herdr process info has no shell_pid"))
     }
 
@@ -910,5 +945,66 @@ mod live_child_tests {
         assert_eq!(tracker.work_signs(61_000, 3_600_000).get("a"), Some(&1_000));
         tracker.forget("a");
         assert!(tracker.work_signs(61_000, 3_600_000).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod shell_foreground_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn owns(info: Value) -> bool {
+        let Value::Object(result) = json!({ "process_info": info }) else {
+            unreachable!()
+        };
+        shell_owns_foreground(&result)
+    }
+
+    fn idle() -> Value {
+        json!({
+            "shell_pid": 83658,
+            "foreground_process_group_id": 83658,
+            "foreground_processes": [{"pid": 83658, "name": "nu"}],
+        })
+    }
+
+    fn with(key: &str, value: Value) -> Value {
+        let mut info = idle();
+        info[key] = value;
+        info
+    }
+
+    #[test]
+    fn an_idle_shell_owns_the_foreground() {
+        assert!(owns(idle()));
+        assert!(owns(with("foreground_process_group_id", json!(83658.0))));
+    }
+
+    #[test]
+    fn a_child_or_unreadable_info_does_not() {
+        assert!(!owns(with("foreground_process_group_id", json!(83870))));
+        assert!(!owns(with(
+            "foreground_processes",
+            json!([{"pid": 83870, "name": "sleep"}])
+        )));
+        assert!(!owns(with(
+            "foreground_processes",
+            json!([{"pid": 83658}, {"pid": 83870}])
+        )));
+        assert!(!owns(with("foreground_processes", json!([]))));
+        assert!(!owns(with("foreground_processes", json!(null))));
+        for shell_pid in [
+            json!(null),
+            json!(0),
+            json!(-1),
+            json!(83658.5),
+            json!("83658"),
+        ] {
+            assert!(!owns(with("shell_pid", shell_pid.clone())), "{shell_pid}");
+        }
+        let Value::Object(no_info) = json!({}) else {
+            unreachable!()
+        };
+        assert!(!shell_owns_foreground(&no_info));
     }
 }

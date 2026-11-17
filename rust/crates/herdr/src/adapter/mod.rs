@@ -11,8 +11,11 @@ pub mod validate;
 
 use crate::api::*;
 use crate::naming::herdr_agent_name;
+use crate::process_activity::shell_owns_foreground;
 use crate::runner::{failure_of, run_json};
-use crate::screen::{classify_input_blocker, extract_input_line, fresh_prompt_ready, strip_ansi};
+use crate::screen::{
+    classify_input_blocker, extract_input_line, fresh_prompt_ready, shell_prompt_shown, strip_ansi,
+};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -518,7 +521,11 @@ impl Adapter {
     fn wait_for_fresh_prompt(&self, pane_id: &str) -> AdapterResult<()> {
         let deadline = self.now() + 3_000;
         loop {
-            if fresh_prompt_ready(&strip_ansi(&self.screen(pane_id, false, None)?)) {
+            let screen = strip_ansi(&self.screen(pane_id, false, None)?);
+            if fresh_prompt_ready(&screen) {
+                return Ok(());
+            }
+            if shell_prompt_shown(&screen) && self.pane_shell_owns_foreground(pane_id)? {
                 return Ok(());
             }
             self.sleep(self.poll_ms);
@@ -527,8 +534,13 @@ impl Adapter {
             }
         }
         Err(AdapterError::PromptUnrecognized(
-            "the pane does not end in a bare prompt symbol, so nothing was typed".into(),
+            "the pane does not show a shell prompt, so nothing was typed".into(),
         ))
+    }
+
+    fn pane_shell_owns_foreground(&self, pane_id: &str) -> AdapterResult<bool> {
+        let result = self.json(&strings(&["pane", "process-info", "--pane", pane_id]))?;
+        Ok(shell_owns_foreground(&result))
     }
 
     fn set_phase(&self, pane_id: &str, entry: &PaneEntry, phase: PanePhase) {
@@ -664,7 +676,8 @@ impl Adapter {
         let result = (|| -> AdapterResult<()> {
             let env_file = directory.join("env");
             let rc_file = directory.join("rc");
-            for file in [&directory, &env_file, &rc_file] {
+            let launch_file = directory.join("launch");
+            for file in [&directory, &env_file, &rc_file, &launch_file] {
                 require_match(&file.to_string_lossy(), &SIMPLE_VALUE, "temporary path")?;
             }
             let exports: String = environment
@@ -680,6 +693,18 @@ impl Adapter {
                     directory.display()
                 ),
             )?;
+            // The operator's shell may not be POSIX (nushell's `exec` keeps quotes), so the quoted command goes in a
+            // file that /bin/sh reads, and the typed line holds only a path that needs no quoting.
+            write_private_file(
+                &launch_file,
+                &format!(
+                    "exec env -i HOME={} PATH={} TERM={} bash --noprofile --rcfile '{}' -i\n",
+                    shell_quote(home),
+                    shell_quote(path_value),
+                    shell_quote(term),
+                    rc_file.display()
+                ),
+            )?;
             self.set_entry(
                 input.pane_id,
                 PaneEntry {
@@ -688,13 +713,7 @@ impl Adapter {
                     ..entry.clone()
                 },
             );
-            let command = format!(
-                "exec env -i HOME={} PATH={} TERM={} bash --noprofile --rcfile '{}' -i",
-                shell_quote(home),
-                shell_quote(path_value),
-                shell_quote(term),
-                rc_file.display()
-            );
+            let command = format!("exec /bin/sh {}", launch_file.display());
             if let Err(error) =
                 self.run_checked(&strings(&["pane", "run", input.pane_id, &command]))
             {
