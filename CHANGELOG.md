@@ -2,6 +2,16 @@
 
 All notable changes are listed here, newest release first. `scripts/release.sh` writes each section from the Conventional Commits since the last tag.
 
+## 0.26.1 (2026-11-18)
+
+### Upgrade note
+
+Run `cstan restart` in each project after installing 0.26.1. Agents now launch from a nushell, fish or custom-prompt shell.
+
+### Bug fixes
+
+- fix(herdr): `cstan start` no longer fails with `hub_unavailable` when the pane's shell is nushell or has a custom prompt. The adapter now also accepts a last line that ends in a prompt mark when the shell is alone in the foreground (a lone `:` counts only directly after a prompt symbol, so `Password:` is still refused), and the launch line is now `exec /bin/sh <dir>/launch`, which nu, fish, zsh and bash run alike (`fix(herdr): launch agents from a nushell or custom-prompt shell`).
+
 ## 0.26.0 (2026-11-17)
 
 ### Upgrade note
